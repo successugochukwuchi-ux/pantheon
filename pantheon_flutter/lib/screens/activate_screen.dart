@@ -35,7 +35,7 @@ class ActivateScreen extends StatelessWidget {
               Text(
                 'Your account is currently inactive. Please activate your account to access all features of Pantheon.',
                 textAlign: TextAlign.center,
-                style: TextStyle(fontSize: 16, color: theme.colorScheme.onSurface.withOpacity(0.6), lineHeight: 1.5),
+                style: TextStyle(fontSize: 16, color: theme.colorScheme.onSurface.withOpacity(0.6), height: 1.5),
               ),
               const SizedBox(height: 48),
               _buildInstruction(LucideIcons.scan, 'Scan a Pantheon QR code at any of our partner locations.'),

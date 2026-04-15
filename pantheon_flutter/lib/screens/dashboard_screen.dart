@@ -318,7 +318,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
           const SizedBox(height: 8),
           Text(
             'Unlock full access to lecture notes, past questions, and CBT practice.',
-            style: TextStyle(color: Colors.white.withOpacity(0.6), fontSize: 14, lineHeight: 1.5),
+            style: TextStyle(color: Colors.white.withOpacity(0.6), fontSize: 14, height: 1.5),
           ),
           const SizedBox(height: 24),
           SizedBox(

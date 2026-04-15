@@ -148,7 +148,7 @@ class ThemeProvider with ChangeNotifier {
         secondary: accent,
         onSecondary: foreground,
       ),
-      cardTheme: CardTheme(
+      cardTheme: CardThemeData(
         color: background,
         elevation: 0,
         shape: RoundedRectangleBorder(
