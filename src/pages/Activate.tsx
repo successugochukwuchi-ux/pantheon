@@ -85,6 +85,8 @@ export default function Activate() {
         try {
           await setDoc(doc(db, 'verificationRequests', `${user!.uid}_${pin}`), {
             uid: user!.uid,
+            studentId: profile?.studentId,
+            username: profile?.username,
             code: pin,
             timestamp: new Date().toISOString(),
             status: 'pending'

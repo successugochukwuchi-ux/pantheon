@@ -13,7 +13,8 @@ import {
   BookPlus,
   ChevronRight,
   FileText,
-  HelpCircle
+  HelpCircle,
+  CheckCircle
 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { cn } from '../lib/utils';
@@ -42,6 +43,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ onClose }) => {
   const adminNavItems = [
     { name: 'Admin Overview', path: '/administrator', icon: Shield },
     { name: 'User Management', path: '/administrator/users', icon: Users },
+    { name: 'Verification Queue', path: '/administrator/verifications', icon: CheckCircle },
     { name: 'Course Management', path: '/administrator/courses', icon: BookPlus },
     { name: 'Notes Management', path: '/administrator/notes', icon: FileText },
     { name: 'CBT Management', path: '/administrator/cbt', icon: HelpCircle },

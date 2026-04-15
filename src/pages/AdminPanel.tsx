@@ -34,9 +34,13 @@ import {
   Trash2, 
   Plus,
   HelpCircle,
-  Copy
+  Copy,
+  CheckCircle,
+  XCircle,
+  AlertTriangle,
+  RefreshCw
 } from 'lucide-react';
-import { Course, UserLevel, Semester, Note, Question, ActivationCode } from '../types';
+import { Course, UserLevel, Semester, Note, Question, ActivationCode, VerificationRequest } from '../types';
 import { Routes, Route, useNavigate } from 'react-router-dom';
 import { NoteBuilder } from '../components/NoteBuilder';
 
@@ -87,6 +91,9 @@ export default function AdminPanel() {
   const [unusedPins, setUnusedPins] = useState<ActivationCode[]>([]);
   const [usedPins, setUsedPins] = useState<ActivationCode[]>([]);
 
+  // Verification Requests State
+  const [verificationRequests, setVerificationRequests] = useState<VerificationRequest[]>([]);
+
   useEffect(() => {
     if (!profile) return;
 
@@ -108,11 +115,16 @@ export default function AdminPanel() {
       setUsedPins(allPins.filter(p => p.isUsed).sort((a, b) => b.usedAt?.localeCompare(a.usedAt || '') || 0));
     });
 
+    const unsubVerifications = onSnapshot(collection(db, 'verificationRequests'), (snapshot) => {
+      setVerificationRequests(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as VerificationRequest)));
+    });
+
     return () => {
       unsubCourses();
       unsubNotes();
       unsubQuestions();
       unsubPins();
+      unsubVerifications();
     };
   }, [profile]);
 
@@ -301,7 +313,7 @@ export default function AdminPanel() {
     setLoading(true);
     try {
       const configRef = doc(db, 'system', 'config');
-      await setDoc(configRef, {
+      await updateDoc(configRef, {
         currentSemester: semester,
         updatedBy: user.uid,
         updatedAt: new Date().toISOString()
@@ -327,6 +339,48 @@ export default function AdminPanel() {
       }
     } catch (error: any) {
       toast.error(`Failed to update semester: ${error.message}`);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleToggleMaintenance = async () => {
+    if (!user || !systemConfig) return;
+    setLoading(true);
+    try {
+      const configRef = doc(db, 'system', 'config');
+      await updateDoc(configRef, {
+        maintenanceMode: !systemConfig.maintenanceMode,
+        updatedBy: user.uid,
+        updatedAt: new Date().toISOString()
+      });
+      toast.success(`Maintenance mode ${!systemConfig.maintenanceMode ? 'enabled' : 'disabled'}`);
+    } catch (error: any) {
+      toast.error(error.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleVerification = async (request: VerificationRequest, status: 'approved' | 'rejected') => {
+    setLoading(true);
+    try {
+      const batch = writeBatch(db);
+      
+      // Update request status
+      batch.update(doc(db, 'verificationRequests', request.id), { status });
+      
+      if (status === 'approved') {
+        // Activate user
+        batch.update(doc(db, 'users', request.uid), { isActivated: true });
+        toast.success('User verified and activated');
+      } else {
+        toast.info('Verification request rejected');
+      }
+      
+      await batch.commit();
+    } catch (error: any) {
+      toast.error(error.message);
     } finally {
       setLoading(false);
     }
@@ -858,6 +912,118 @@ export default function AdminPanel() {
                   * Ending a semester will deactivate all Level 1 student accounts.
                 </p>
               </CardFooter>
+            </Card>
+
+            <Card className={systemConfig?.maintenanceMode ? "border-destructive" : ""}>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <AlertTriangle className={systemConfig?.maintenanceMode ? "text-destructive" : "text-muted-foreground"} />
+                  Maintenance Mode
+                </CardTitle>
+                <CardDescription>Lock the system for maintenance.</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className={`p-4 rounded-lg border flex items-center justify-between ${systemConfig?.maintenanceMode ? "bg-destructive/10 border-destructive/20" : "bg-muted"}`}>
+                  <div>
+                    <p className="font-bold">{systemConfig?.maintenanceMode ? "System Locked" : "System Active"}</p>
+                    <p className="text-xs text-muted-foreground">
+                      {systemConfig?.maintenanceMode 
+                        ? "Only Level 4 admins can access the portal." 
+                        : "All users can access the portal normally."}
+                    </p>
+                  </div>
+                  <Button 
+                    variant={systemConfig?.maintenanceMode ? "default" : "destructive"}
+                    onClick={handleToggleMaintenance}
+                    disabled={loading}
+                  >
+                    {systemConfig?.maintenanceMode ? "Disable Maintenance" : "Enable Maintenance"}
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+        } />
+
+        <Route path="/verifications" element={
+          <div className="space-y-6">
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <CheckCircle className="h-5 w-5" />
+                  Verification Queue
+                </CardTitle>
+                <CardDescription>Approve or reject account activations from Level 2 admins.</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-4">
+                  {verificationRequests.filter(r => r.status === 'pending').length > 0 ? (
+                    verificationRequests.filter(r => r.status === 'pending').map(request => (
+                      <div key={request.id} className="flex flex-col md:flex-row md:items-center justify-between p-4 bg-muted rounded-xl border gap-4">
+                        <div className="flex items-center gap-4">
+                          <div className="h-12 w-12 rounded-full bg-primary/10 flex items-center justify-center text-primary">
+                            <RefreshCw className="h-6 w-6 animate-spin-slow" />
+                          </div>
+                          <div>
+                            <p className="font-bold">{request.username || 'Unknown Student'}</p>
+                            <p className="text-xs text-muted-foreground font-mono">ID: {request.studentId || request.uid}</p>
+                            <p className="text-[10px] text-muted-foreground mt-1">Pin Used: <code className="font-bold">{request.code}</code></p>
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <Button 
+                            variant="outline" 
+                            className="flex-1 md:flex-none text-destructive hover:bg-destructive/10"
+                            onClick={() => handleVerification(request, 'rejected')}
+                            disabled={loading}
+                          >
+                            <XCircle className="mr-2 h-4 w-4" />
+                            Reject
+                          </Button>
+                          <Button 
+                            className="flex-1 md:flex-none bg-green-600 hover:bg-green-700"
+                            onClick={() => handleVerification(request, 'approved')}
+                            disabled={loading}
+                          >
+                            <CheckCircle className="mr-2 h-4 w-4" />
+                            Approve
+                          </Button>
+                        </div>
+                      </div>
+                    ))
+                  ) : (
+                    <div className="text-center py-12 bg-muted/30 rounded-xl border-2 border-dashed">
+                      <CheckCircle className="h-12 w-12 text-muted-foreground mx-auto mb-4 opacity-20" />
+                      <p className="text-muted-foreground">No pending verification requests.</p>
+                    </div>
+                  )}
+                </div>
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-sm font-medium">Verification History</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-2">
+                  {verificationRequests.filter(r => r.status !== 'pending').length > 0 ? (
+                    verificationRequests.filter(r => r.status !== 'pending').sort((a, b) => b.timestamp.localeCompare(a.timestamp)).slice(0, 10).map(request => (
+                      <div key={request.id} className="flex items-center justify-between p-3 text-sm border rounded-lg bg-muted/50">
+                        <div className="flex flex-col">
+                          <span className="font-medium">{request.username || request.studentId}</span>
+                          <span className="text-[10px] text-muted-foreground">{new Date(request.timestamp).toLocaleString()}</span>
+                        </div>
+                        <div className={`px-2 py-1 rounded-full text-[10px] font-bold uppercase ${request.status === 'approved' ? 'bg-green-500/10 text-green-600' : 'bg-destructive/10 text-destructive'}`}>
+                          {request.status}
+                        </div>
+                      </div>
+                    ))
+                  ) : (
+                    <p className="text-xs text-muted-foreground text-center py-4">No history available.</p>
+                  )}
+                </div>
+              </CardContent>
             </Card>
           </div>
         } />

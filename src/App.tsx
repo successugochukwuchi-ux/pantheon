@@ -18,80 +18,84 @@ import Settings from './pages/Settings';
 import AdminPanel from './pages/AdminPanel';
 import Banned from './pages/Banned';
 
+import { MaintenanceGuard } from './components/MaintenanceGuard';
+
 export default function App() {
   return (
     <ThemeProvider>
       <AuthProvider>
         <Router>
-          <Routes>
-            {/* Public Routes */}
-            <Route path="/" element={<Landing />} />
-            <Route path="/login" element={<Login />} />
-            <Route path="/register" element={<Register />} />
-            <Route path="/banned" element={<Banned />} />
+          <MaintenanceGuard>
+            <Routes>
+              {/* Public Routes */}
+              <Route path="/" element={<Landing />} />
+              <Route path="/login" element={<Login />} />
+              <Route path="/register" element={<Register />} />
+              <Route path="/banned" element={<Banned />} />
 
-            {/* Protected Routes (Require Auth) */}
-            <Route path="/activate" element={
-              <ProtectedRoute requireActivation={false}>
-                <Layout>
-                  <Activate />
-                </Layout>
-              </ProtectedRoute>
-            } />
+              {/* Protected Routes (Require Auth) */}
+              <Route path="/activate" element={
+                <ProtectedRoute requireActivation={false}>
+                  <Layout>
+                    <Activate />
+                  </Layout>
+                </ProtectedRoute>
+              } />
 
-            {/* Protected Routes (Require Auth & Activation) */}
-            <Route path="/dashboard" element={
-              <ProtectedRoute>
-                <Layout>
-                  <Dashboard />
-                </Layout>
-              </ProtectedRoute>
-            } />
+              {/* Protected Routes (Require Auth & Activation) */}
+              <Route path="/dashboard" element={
+                <ProtectedRoute>
+                  <Layout>
+                    <Dashboard />
+                  </Layout>
+                </ProtectedRoute>
+              } />
 
-            <Route path="/notes" element={
-              <ProtectedRoute>
-                <Layout>
-                  <LectureNotes />
-                </Layout>
-              </ProtectedRoute>
-            } />
+              <Route path="/notes" element={
+                <ProtectedRoute>
+                  <Layout>
+                    <LectureNotes />
+                  </Layout>
+                </ProtectedRoute>
+              } />
 
-            <Route path="/cbt" element={
-              <ProtectedRoute>
-                <Layout>
-                  <CBTPractice />
-                </Layout>
-              </ProtectedRoute>
-            } />
+              <Route path="/cbt" element={
+                <ProtectedRoute>
+                  <Layout>
+                    <CBTPractice />
+                  </Layout>
+                </ProtectedRoute>
+              } />
 
-            <Route path="/search" element={
-              <ProtectedRoute>
-                <Layout>
-                  <SearchResults />
-                </Layout>
-              </ProtectedRoute>
-            } />
+              <Route path="/search" element={
+                <ProtectedRoute>
+                  <Layout>
+                    <SearchResults />
+                  </Layout>
+                </ProtectedRoute>
+              } />
 
-            <Route path="/settings" element={
-              <ProtectedRoute>
-                <Layout>
-                  <Settings />
-                </Layout>
-              </ProtectedRoute>
-            } />
+              <Route path="/settings" element={
+                <ProtectedRoute>
+                  <Layout>
+                    <Settings />
+                  </Layout>
+                </ProtectedRoute>
+              } />
 
-            {/* Admin Routes */}
-            <Route path="/administrator/*" element={
-              <ProtectedRoute minLevel="3">
-                <Layout>
-                  <AdminPanel />
-                </Layout>
-              </ProtectedRoute>
-            } />
+              {/* Admin Routes */}
+              <Route path="/administrator/*" element={
+                <ProtectedRoute minLevel="3">
+                  <Layout>
+                    <AdminPanel />
+                  </Layout>
+                </ProtectedRoute>
+              } />
 
-            {/* Fallback */}
-            <Route path="*" element={<Navigate to="/" replace />} />
-          </Routes>
+              {/* Fallback */}
+              <Route path="*" element={<Navigate to="/" replace />} />
+            </Routes>
+          </MaintenanceGuard>
           <Toaster position="top-center" />
         </Router>
       </AuthProvider>

@@ -45,8 +45,19 @@ export interface NewsItem {
 
 export interface SystemConfig {
   currentSemester: Semester;
+  maintenanceMode: boolean;
   updatedBy: string;
   updatedAt: string;
+}
+
+export interface VerificationRequest {
+  id: string;
+  uid: string;
+  code: string;
+  status: 'pending' | 'approved' | 'rejected';
+  timestamp: string;
+  studentId?: string;
+  username?: string;
 }
 
 export interface Question {

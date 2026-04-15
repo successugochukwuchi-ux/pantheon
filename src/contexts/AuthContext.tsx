@@ -44,6 +44,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         // Initialize default config if missing
         setSystemConfig({
           currentSemester: 'none',
+          maintenanceMode: false,
           updatedBy: 'system',
           updatedAt: new Date().toISOString()
         });

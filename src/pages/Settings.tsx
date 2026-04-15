@@ -9,11 +9,11 @@ import { Input } from '../components/ui/input';
 import { Label } from '../components/ui/label';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '../components/ui/card';
 import { toast } from 'sonner';
-import { Check, Moon, Sun, Palette, Droplets, TreePine, Eye, EyeOff } from 'lucide-react';
+import { Check, Moon, Sun, Palette, Droplets, TreePine, Eye, EyeOff, Settings as SettingsIcon } from 'lucide-react';
 
 export default function Settings() {
   const { user, profile } = useAuth();
-  const { theme, setTheme } = useTheme();
+  const { theme, setTheme, customColors, setCustomColors } = useTheme();
   const [username, setUsername] = useState(profile?.username || '');
   const [newPassword, setNewPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
@@ -57,9 +57,17 @@ export default function Settings() {
     { id: 'light', name: 'Light', icon: Sun, color: 'bg-white' },
     { id: 'dark', name: 'Dark', icon: Moon, color: 'bg-slate-900' },
     { id: 'sepia', name: 'Sepia', icon: Palette, color: 'bg-[#f4ecd8]' },
-    { id: 'ocean', name: 'Ocean', icon: Droplets, color: 'bg-blue-50' },
-    { id: 'forest', name: 'Forest', icon: TreePine, color: 'bg-green-50' },
+    { id: 'ocean', name: 'Ocean', icon: Droplets, color: 'bg-blue-100' },
+    { id: 'forest', name: 'Forest', icon: TreePine, color: 'bg-green-100' },
+    { id: 'midnight', name: 'Midnight', icon: Moon, color: 'bg-indigo-950' },
+    { id: 'sunset', name: 'Sunset', icon: Sun, color: 'bg-orange-100' },
+    { id: 'lavender', name: 'Lavender', icon: Palette, color: 'bg-purple-100' },
+    { id: 'custom', name: 'Custom', icon: SettingsIcon, color: 'bg-gradient-to-br from-red-200 via-green-200 to-blue-200' },
   ] as const;
+
+  const handleCustomColorChange = (key: string, value: string) => {
+    setCustomColors({ ...customColors, [key]: value });
+  };
 
   return (
     <div className="max-w-4xl mx-auto space-y-8">
@@ -134,7 +142,7 @@ export default function Settings() {
             <CardTitle>Appearance</CardTitle>
             <CardDescription>Customize the look and feel of your learning experience.</CardDescription>
           </CardHeader>
-          <CardContent>
+          <CardContent className="space-y-8">
             <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-4">
               {themes.map((t) => (
                 <button
@@ -145,7 +153,7 @@ export default function Settings() {
                   }`}
                 >
                   <div className={`w-12 h-12 rounded-full flex items-center justify-center ${t.color} border shadow-sm`}>
-                    <t.icon className={`h-6 w-6 ${t.id === 'dark' ? 'text-white' : 'text-slate-900'}`} />
+                    <t.icon className={`h-6 w-6 ${t.id === 'dark' || t.id === 'midnight' ? 'text-white' : 'text-slate-900'}`} />
                   </div>
                   <span className="text-sm font-medium">{t.name}</span>
                   {theme === t.id && (
@@ -156,6 +164,74 @@ export default function Settings() {
                 </button>
               ))}
             </div>
+
+            {theme === 'custom' && (
+              <div className="p-6 bg-muted/30 rounded-2xl border-2 border-dashed space-y-6">
+                <div className="flex items-center gap-2">
+                  <Palette className="h-5 w-5 text-primary" />
+                  <h3 className="font-bold">Custom Theme Builder</h3>
+                </div>
+                
+                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-6">
+                  <div className="space-y-2">
+                    <Label>Primary Color</Label>
+                    <div className="flex gap-2">
+                      <input 
+                        type="color" 
+                        value={customColors.primary} 
+                        onChange={(e) => handleCustomColorChange('primary', e.target.value)}
+                        className="h-10 w-10 rounded cursor-pointer"
+                      />
+                      <Input value={customColors.primary} onChange={(e) => handleCustomColorChange('primary', e.target.value)} className="font-mono text-xs" />
+                    </div>
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Background</Label>
+                    <div className="flex gap-2">
+                      <input 
+                        type="color" 
+                        value={customColors.background} 
+                        onChange={(e) => handleCustomColorChange('background', e.target.value)}
+                        className="h-10 w-10 rounded cursor-pointer"
+                      />
+                      <Input value={customColors.background} onChange={(e) => handleCustomColorChange('background', e.target.value)} className="font-mono text-xs" />
+                    </div>
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Text Color</Label>
+                    <div className="flex gap-2">
+                      <input 
+                        type="color" 
+                        value={customColors.foreground} 
+                        onChange={(e) => handleCustomColorChange('foreground', e.target.value)}
+                        className="h-10 w-10 rounded cursor-pointer"
+                      />
+                      <Input value={customColors.foreground} onChange={(e) => handleCustomColorChange('foreground', e.target.value)} className="font-mono text-xs" />
+                    </div>
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Accent Color</Label>
+                    <div className="flex gap-2">
+                      <input 
+                        type="color" 
+                        value={customColors.accent} 
+                        onChange={(e) => handleCustomColorChange('accent', e.target.value)}
+                        className="h-10 w-10 rounded cursor-pointer"
+                      />
+                      <Input value={customColors.accent} onChange={(e) => handleCustomColorChange('accent', e.target.value)} className="font-mono text-xs" />
+                    </div>
+                  </div>
+                </div>
+                
+                <div className="p-4 bg-background rounded-lg border shadow-sm">
+                  <p className="text-xs font-bold uppercase tracking-widest text-muted-foreground mb-2">Live Preview</p>
+                  <div className="flex items-center gap-4">
+                    <Button style={{ backgroundColor: customColors.primary, color: customColors.background }}>Primary Button</Button>
+                    <div className="p-2 rounded" style={{ backgroundColor: customColors.accent, color: customColors.foreground }}>Accent Area</div>
+                  </div>
+                </div>
+              </div>
+            )}
           </CardContent>
         </Card>
 

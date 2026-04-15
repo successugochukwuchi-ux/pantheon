@@ -75,10 +75,25 @@
       "type": "object",
       "properties": {
         "currentSemester": { "type": "string", "enum": ["1st", "2nd", "none"] },
+        "maintenanceMode": { "type": "boolean" },
         "updatedBy": { "type": "string" },
         "updatedAt": { "type": "string", "format": "date-time" }
       },
-      "required": ["currentSemester", "updatedBy", "updatedAt"]
+      "required": ["currentSemester", "maintenanceMode", "updatedBy", "updatedAt"]
+    },
+    "VerificationRequest": {
+      "title": "VerificationRequest",
+      "description": "Request for account verification from Level 2 admin activation",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string" },
+        "code": { "type": "string" },
+        "status": { "type": "string", "enum": ["pending", "approved", "rejected"] },
+        "timestamp": { "type": "string", "format": "date-time" },
+        "studentId": { "type": "string" },
+        "username": { "type": "string" }
+      },
+      "required": ["uid", "code", "status", "timestamp"]
     },
     "Note": {
       "title": "Note",
