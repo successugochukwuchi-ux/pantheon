@@ -3,12 +3,19 @@ import 'package:firebase_core/firebase_core.dart';
 import 'package:provider/provider.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:pantheon_flutter/providers/auth_provider.dart';
+import 'package:pantheon_flutter/providers/theme_provider.dart';
 import 'package:pantheon_flutter/screens/login_screen.dart';
 import 'package:pantheon_flutter/screens/dashboard_screen.dart';
 import 'package:pantheon_flutter/screens/register_screen.dart';
+import 'package:pantheon_flutter/screens/settings_screen.dart';
+import 'package:pantheon_flutter/screens/lecture_notes_screen.dart';
+import 'package:pantheon_flutter/screens/cbt_practice_screen.dart';
+import 'package:pantheon_flutter/screens/search_results_screen.dart';
+import 'package:pantheon_flutter/screens/activate_screen.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  // Note: Replace with actual Firebase options in production
   await Firebase.initializeApp(
     options: const FirebaseOptions(
       apiKey: "YOUR_API_KEY",
@@ -30,23 +37,30 @@ class PantheonApp extends StatelessWidget {
     return MultiProvider(
       providers: [
         ChangeNotifierProvider(create: (_) => AuthProvider()),
+        ChangeNotifierProvider(create: (_) => ThemeProvider()),
       ],
-      child: MaterialApp(
-        title: 'Pantheon',
-        debugShowCheckedModeBanner: false,
-        theme: ThemeData(
-          useMaterial3: true,
-          colorScheme: ColorScheme.fromSeed(
-            seedColor: Colors.black,
-            primary: Colors.black,
-          ),
-          textTheme: GoogleFonts.interTextTheme(),
-        ),
-        home: const AuthWrapper(),
-        routes: {
-          '/login': (context) => const LoginScreen(),
-          '/register': (context) => const RegisterScreen(),
-          '/dashboard': (context) => const DashboardScreen(),
+      child: Consumer<ThemeProvider>(
+        builder: (context, themeProvider, child) {
+          return MaterialApp(
+            title: 'Pantheon',
+            debugShowCheckedModeBanner: false,
+            theme: themeProvider.getThemeData().copyWith(
+              textTheme: GoogleFonts.interTextTheme(
+                themeProvider.getThemeData().textTheme,
+              ),
+            ),
+            home: const AuthWrapper(),
+            routes: {
+              '/login': (context) => const LoginScreen(),
+              '/register': (context) => const RegisterScreen(),
+              '/dashboard': (context) => const DashboardScreen(),
+              '/settings': (context) => const SettingsScreen(),
+              '/lecture-notes': (context) => const LectureNotesScreen(),
+              '/cbt': (context) => const CBTPracticeScreen(),
+              '/search': (context) => const SearchResultsScreen(),
+              '/activate': (context) => const ActivateScreen(),
+            },
+          );
         },
       ),
     );
@@ -67,6 +81,10 @@ class AuthWrapper extends StatelessWidget {
     }
 
     if (authProvider.user != null) {
+      final profile = authProvider.profile;
+      if (profile != null && profile['isActivated'] == false && profile['email'] != 'successugochukwuchi@gmail.com') {
+        return const ActivateScreen();
+      }
       return const DashboardScreen();
     }
 

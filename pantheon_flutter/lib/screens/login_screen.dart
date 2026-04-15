@@ -13,6 +13,7 @@ class _LoginScreenState extends State<LoginScreen> {
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
   bool _isLoading = false;
+  bool _showPassword = false;
 
   Future<void> _handleLogin() async {
     if (_emailController.text.isEmpty || _passwordController.text.isEmpty) {
@@ -39,114 +40,152 @@ class _LoginScreenState extends State<LoginScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    
     return Scaffold(
-      body: SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.all(24.0),
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              const Text(
-                'PANTHEON',
-                textAlign: TextAlign.center,
-                style: TextStyle(
-                  fontSize: 42,
-                  fontWeight: FontWeight.w900,
-                  letterSpacing: -2,
-                ),
+      body: Stack(
+        children: [
+          // Background Decorations
+          Positioned(
+            top: -100,
+            right: -100,
+            child: Container(
+              width: 300,
+              height: 300,
+              decoration: BoxDecoration(
+                color: theme.colorScheme.primary.withOpacity(0.05),
+                shape: BoxShape.circle,
               ),
-              const SizedBox(height: 8),
-              const Text(
-                'Welcome back, Student.',
-                textAlign: TextAlign.center,
-                style: TextStyle(color: Colors.grey),
-              ),
-              const SizedBox(height: 48),
-              TextField(
-                controller: _emailController,
-                decoration: InputDecoration(
-                  hintText: 'Email Address',
-                  filled: true,
-                  fillColor: Colors.grey[100],
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(12),
-                    borderSide: BorderSide.none,
-                  ),
-                ),
-                keyboardType: TextInputType.emailAddress,
-              ),
-              const SizedBox(height: 16),
-              TextField(
-                controller: _passwordController,
-                decoration: InputDecoration(
-                  hintText: 'Password',
-                  filled: true,
-                  fillColor: Colors.grey[100],
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(12),
-                    borderSide: BorderSide.none,
-                  ),
-                ),
-                obscureText: true,
-              ),
-              const SizedBox(height: 24),
-              ElevatedButton(
-                onPressed: _isLoading ? null : _handleLogin,
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.black,
-                  foregroundColor: Colors.white,
-                  padding: const EdgeInsets.symmetric(vertical: 16),
-                  shape: RoundedRectangleHeader(
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                ),
-                child: Text(_isLoading ? 'Logging in...' : 'Login'),
-              ),
-              const SizedBox(height: 16),
-              TextButton(
-                onPressed: () => Navigator.pushNamed(context, '/register'),
-                child: const Text(
-                  "Don't have an account? Register",
-                  style: TextStyle(color: Colors.grey),
-                ),
-              ),
-            ],
+            ),
           ),
-        ),
+          Positioned(
+            bottom: -50,
+            left: -50,
+            child: Container(
+              width: 200,
+              height: 200,
+              decoration: BoxDecoration(
+                color: Colors.blue.withOpacity(0.05),
+                shape: BoxShape.circle,
+              ),
+            ),
+          ),
+          
+          SafeArea(
+            child: Center(
+              child: SingleChildScrollView(
+                padding: const EdgeInsets.all(32.0),
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Text(
+                      'PANTHEON',
+                      textAlign: TextAlign.center,
+                      style: theme.textTheme.displayMedium?.copyWith(
+                        fontWeight: FontWeight.w900,
+                        letterSpacing: -3,
+                        color: theme.colorScheme.primary,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      'Welcome back, Student.',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(color: theme.colorScheme.onSurface.withOpacity(0.5), fontWeight: FontWeight.w500),
+                    ),
+                    const SizedBox(height: 64),
+                    
+                    _buildTextField(
+                      controller: _emailController,
+                      hint: 'Email Address',
+                      icon: Icons.email_outlined,
+                      theme: theme,
+                    ),
+                    const SizedBox(height: 16),
+                    _buildTextField(
+                      controller: _passwordController,
+                      hint: 'Password',
+                      icon: Icons.lock_outline,
+                      isPassword: true,
+                      showPassword: _showPassword,
+                      onTogglePassword: () => setState(() => _showPassword = !_showPassword),
+                      theme: theme,
+                    ),
+                    
+                    const SizedBox(height: 32),
+                    ElevatedButton(
+                      onPressed: _isLoading ? null : _handleLogin,
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: theme.colorScheme.primary,
+                        foregroundColor: theme.colorScheme.onPrimary,
+                        padding: const EdgeInsets.symmetric(vertical: 18),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(16),
+                        ),
+                        elevation: 0,
+                      ),
+                      child: _isLoading 
+                        ? const SizedBox(height: 20, width: 20, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                        : const Text('Login', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w800)),
+                    ),
+                    
+                    const SizedBox(height: 24),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Text("Don't have an account? ", style: TextStyle(color: theme.colorScheme.onSurface.withOpacity(0.5))),
+                        GestureDetector(
+                          onTap: () => Navigator.pushNamed(context, '/register'),
+                          child: Text(
+                            "Register",
+                            style: TextStyle(color: theme.colorScheme.primary, fontWeight: FontWeight.w800),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }
-}
 
-class RoundedRectangleHeader extends OutlinedBorder {
-  final BorderRadiusGeometry borderRadius;
-  const RoundedRectangleHeader({this.borderRadius = BorderRadius.zero});
-
-  @override
-  OutlinedBorder copyWith({BorderSide? side, BorderRadiusGeometry? borderRadius}) {
-    return RoundedRectangleHeader(borderRadius: borderRadius ?? this.borderRadius);
-  }
-
-  @override
-  Path getInnerPath(Rect rect, {TextDirection? textDirection}) {
-    return Path()..addRRect(borderRadius.resolve(textDirection).toRRect(rect).deflate(side.width));
-  }
-
-  @override
-  Path getOuterPath(Rect rect, {TextDirection? textDirection}) {
-    return Path()..addRRect(borderRadius.resolve(textDirection).toRRect(rect));
-  }
-
-  @override
-  void paint(Canvas canvas, Rect rect, {TextDirection? textDirection}) {
-    if (rect.isEmpty) return;
-    final RRect rrect = borderRadius.resolve(textDirection).toRRect(rect);
-    canvas.drawRRect(rrect, side.toPaint());
-  }
-
-  @override
-  ShapeBorder scale(double t) {
-    return RoundedRectangleHeader(borderRadius: borderRadius * t);
+  Widget _buildTextField({
+    required TextEditingController controller,
+    required String hint,
+    required IconData icon,
+    bool isPassword = false,
+    bool? showPassword,
+    VoidCallback? onTogglePassword,
+    required ThemeData theme,
+  }) {
+    return Container(
+      decoration: BoxDecoration(
+        color: theme.colorScheme.secondary.withOpacity(0.3),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: theme.colorScheme.onSurface.withOpacity(0.05)),
+      ),
+      child: TextField(
+        controller: controller,
+        obscureText: isPassword && !(showPassword ?? false),
+        decoration: InputDecoration(
+          hintText: hint,
+          prefixIcon: Icon(icon, size: 20, color: theme.colorScheme.onSurface.withOpacity(0.4)),
+          suffixIcon: isPassword 
+            ? IconButton(
+                icon: Icon(showPassword! ? Icons.visibility_off : Icons.visibility, size: 20),
+                onPressed: onTogglePassword,
+                color: theme.colorScheme.onSurface.withOpacity(0.4),
+              )
+            : null,
+          border: InputBorder.none,
+          contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+        ),
+      ),
+    );
   }
 }

@@ -2,12 +2,25 @@
 
 This is the mobile version of the Pantheon Study App, built with Flutter.
 
+## Features
+- **Full Parity with Web**: All student-side features are now available on mobile.
+- **Theme System**: 9 built-in themes + a Custom Theme Builder with a live color picker.
+- **CBT Practice**: Interactive quiz mode for practicing past questions.
+- **Search**: Global search for lecture notes and questions.
+- **Stylized UI**: Modern, high-contrast design matching the web's aesthetic.
+- **Real-time Sync**: All data is synchronized via Firebase Firestore.
+
 ## Getting Started
 
 1.  **Install Flutter**: Follow the instructions at [flutter.dev](https://docs.flutter.dev/get-started/install).
 2.  **Navigate to this directory**: `cd pantheon_flutter`
-3.  **Install dependencies**: `flutter pub get`
-4.  **Run the app**: `flutter run`
+3.  **Generate platform files**: 
+    Because this project was created manually, you need to generate the Android/iOS folders by running:
+    ```bash
+    flutter create . --platforms android,ios
+    ```
+4.  **Install dependencies**: `flutter pub get`
+5.  **Run the app**: `flutter run`
 
 ## How to Compile to APK (Android)
 
