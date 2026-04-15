@@ -87,11 +87,16 @@ class AuthWrapper extends StatelessWidget {
     if (authProvider.user != null) {
       final profile = authProvider.profile;
       
-      // If profile is still loading or null, show loading
-      if (profile == null) {
+      // If profile is still loading, show loading
+      if (authProvider.isLoading) {
         return const Scaffold(
           body: Center(child: CircularProgressIndicator()),
         );
+      }
+
+      // If profile is null after loading, it means the user document doesn't exist
+      if (profile == null) {
+        return const LoginScreen(); // Or a "Profile Not Found" screen
       }
 
       // If profile exists but is not activated, show activation screen
