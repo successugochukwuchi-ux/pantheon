@@ -36,6 +36,9 @@ class AuthProvider with ChangeNotifier {
       }
       _isLoading = false;
       notifyListeners();
+    }, onError: (e) {
+      _isLoading = false;
+      notifyListeners();
     });
   }
 

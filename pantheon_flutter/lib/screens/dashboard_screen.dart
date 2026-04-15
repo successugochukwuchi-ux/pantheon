@@ -163,6 +163,15 @@ class _DashboardScreenState extends State<DashboardScreen> {
           _buildDrawerItem(context, 'Lecture Notes', LucideIcons.bookOpen, '/lecture-notes'),
           _buildDrawerItem(context, 'CBT Practice', LucideIcons.cpu, '/cbt'),
           _buildDrawerItem(context, 'Settings', LucideIcons.settings, '/settings'),
+          ListTile(
+            leading: const Icon(LucideIcons.refreshCw),
+            title: const Text('Sync Content'),
+            onTap: () {
+              Navigator.pop(context);
+              Navigator.pushNamed(context, '/lecture-notes');
+              // The LectureNotesScreen automatically syncs or has a sync button
+            },
+          ),
           const Spacer(),
           ListTile(
             leading: const Icon(LucideIcons.logOut, color: Colors.red),

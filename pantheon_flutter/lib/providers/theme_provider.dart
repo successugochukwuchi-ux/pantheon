@@ -29,7 +29,7 @@ class ThemeProvider with ChangeNotifier {
     final savedColors = prefs.getString('pantheon-custom-colors');
     if (savedColors != null) {
       final Map<String, dynamic> decoded = json.decode(savedColors);
-      _customColors = decoded.map((key, value) => MapEntry(key, Color(int.parse(value))));
+      _customColors = decoded.map((key, value) => MapEntry(key, Color(int.parse(value.toString()))));
     }
     notifyListeners();
   }

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:lucide_icons/lucide_icons.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:cached_network_image/cached_network_image.dart';
 import 'dart:convert';
 
 class LectureNotesScreen extends StatefulWidget {
@@ -27,7 +28,7 @@ class _LectureNotesScreenState extends State<LectureNotesScreen> {
     final String? notesJson = prefs.getString('offline_lecture_notes');
     if (notesJson != null) {
       setState(() {
-        _offlineNotes = List<Map<String, dynamic>>.from(json.decode(notesJson));
+        _offlineNotes = (json.decode(notesJson) as List).map((e) => Map<String, dynamic>.from(e)).toList();
       });
     }
   }
@@ -41,7 +42,7 @@ class _LectureNotesScreenState extends State<LectureNotesScreen> {
     setState(() => _isSyncing = true);
     try {
       final snapshot = await _db.collection('lecture_notes').get();
-      final notes = snapshot.docs.map((doc) => doc.data()).toList();
+      final notes = snapshot.docs.map((doc) => doc.data() as Map<String, dynamic>).toList();
       await _saveNotesOffline(notes);
       setState(() {
         _offlineNotes = notes;
@@ -130,15 +131,16 @@ class _LectureNotesScreenState extends State<LectureNotesScreen> {
       margin: const EdgeInsets.only(bottom: 16),
       child: ListTile(
         contentPadding: const EdgeInsets.all(16),
-        leading: note['imageUrl'] != null 
+        leading: (note['imageUrl'] != null && note['imageUrl'].toString().isNotEmpty)
           ? ClipRRect(
               borderRadius: BorderRadius.circular(8),
-              child: Image.network(
-                note['imageUrl'],
+              child: CachedNetworkImage(
+                imageUrl: note['imageUrl'] as String,
                 width: 50,
                 height: 50,
                 fit: BoxFit.cover,
-                errorBuilder: (context, error, stackTrace) => const Icon(LucideIcons.image),
+                placeholder: (context, url) => Container(color: theme.colorScheme.secondary.withOpacity(0.3)),
+                errorWidget: (context, url, error) => const Icon(LucideIcons.image),
               ),
             )
           : Container(
