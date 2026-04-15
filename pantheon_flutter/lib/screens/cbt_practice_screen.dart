@@ -115,6 +115,6 @@ class _CBTPracticeScreenState extends State<CBTPracticeScreen> {
           ],
         ),
       ),
-    );
+    ),);
   }
 }

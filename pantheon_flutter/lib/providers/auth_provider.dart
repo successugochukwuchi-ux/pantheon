@@ -31,6 +31,8 @@ class AuthProvider with ChangeNotifier {
     _db.collection('users').doc(uid).snapshots().listen((snapshot) {
       if (snapshot.exists) {
         _profile = snapshot.data();
+      } else {
+        _profile = null;
       }
       _isLoading = false;
       notifyListeners();
@@ -38,10 +40,17 @@ class AuthProvider with ChangeNotifier {
   }
 
   Future<void> login(String email, String password) async {
-    await _auth.signInWithEmailAndPassword(email: email, password: password);
+    try {
+      await _auth.signInWithEmailAndPassword(email: email, password: password);
+    } catch (e) {
+      rethrow;
+    }
   }
 
   Future<void> logout() async {
     await _auth.signOut();
+    _user = null;
+    _profile = null;
+    notifyListeners();
   }
 }

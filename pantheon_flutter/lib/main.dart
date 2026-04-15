@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_windowmanager/flutter_windowmanager.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:provider/provider.dart';
 import 'package:google_fonts/google_fonts.dart';
@@ -15,7 +16,10 @@ import 'package:pantheon_flutter/screens/activate_screen.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  // Note: Replace with actual Firebase options in production
+  
+  // Prevent screenshots and screen recordings
+  await FlutterWindowManager.addFlags(FlutterWindowManager.FLAG_SECURE);
+
   await Firebase.initializeApp(
     options: const FirebaseOptions(
       apiKey: "YOUR_API_KEY",
@@ -82,6 +86,7 @@ class AuthWrapper extends StatelessWidget {
 
     if (authProvider.user != null) {
       final profile = authProvider.profile;
+      // If profile exists but is not activated, show activation screen
       if (profile != null && profile['isActivated'] == false && profile['email'] != 'successugochukwuchi@gmail.com') {
         return const ActivateScreen();
       }
