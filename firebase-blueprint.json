@@ -1,0 +1,168 @@
+{
+  "entities": {
+    "UserProfile": {
+      "title": "UserProfile",
+      "description": "User profile information",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string" },
+        "email": { "type": "string", "format": "email" },
+        "username": { "type": "string" },
+        "level": { "type": "string", "enum": ["1", "1+", "2", "3", "4"] },
+        "isActivated": { "type": "boolean" },
+        "isBanned": { "type": "boolean" },
+        "banReason": { "type": "string" },
+        "referralCount": { "type": "number" },
+        "theme": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["uid", "email", "username", "level", "isActivated"]
+    },
+    "Course": {
+      "title": "Course",
+      "description": "Academic course information",
+      "type": "object",
+      "properties": {
+        "code": { "type": "string" },
+        "title": { "type": "string" },
+        "semester": { "type": "string", "enum": ["1st", "2nd"] },
+        "level": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["code", "title", "semester", "level"]
+    },
+    "NewsItem": {
+      "title": "NewsItem",
+      "description": "News update for the dashboard",
+      "type": "object",
+      "properties": {
+        "title": { "type": "string" },
+        "content": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["title", "content", "createdAt"]
+    },
+    "ActivationCode": {
+      "title": "ActivationCode",
+      "description": "Code used to activate a user account",
+      "type": "object",
+      "properties": {
+        "code": { "type": "string" },
+        "isUsed": { "type": "boolean" },
+        "usedBy": { "type": "string" },
+        "usedByStudentId": { "type": "string" },
+        "usedAt": { "type": "string", "format": "date-time" },
+        "createdBy": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["code", "isUsed", "createdBy", "createdAt"]
+    },
+    "VerificationRequest": {
+      "title": "VerificationRequest",
+      "description": "Request for admin verification after using a level 2 pin",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string" },
+        "code": { "type": "string" },
+        "timestamp": { "type": "string", "format": "date-time" },
+        "status": { "type": "string", "enum": ["pending", "approved", "rejected"] }
+      },
+      "required": ["uid", "code", "timestamp", "status"]
+    },
+    "SystemConfig": {
+      "title": "SystemConfig",
+      "description": "Global system configuration",
+      "type": "object",
+      "properties": {
+        "currentSemester": { "type": "string", "enum": ["1st", "2nd", "none"] },
+        "updatedBy": { "type": "string" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["currentSemester", "updatedBy", "updatedAt"]
+    },
+    "Note": {
+      "title": "Note",
+      "description": "Academic note content (lecture, past question, etc.)",
+      "type": "object",
+      "properties": {
+        "courseId": { "type": "string" },
+        "title": { "type": "string" },
+        "content": { "type": "string" },
+        "type": { "type": "string", "enum": ["lecture", "punch", "past_question", "cbt"] },
+        "authorId": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["courseId", "title", "content", "type", "authorId", "createdAt"]
+    },
+    "Question": {
+      "title": "Question",
+      "description": "CBT Question",
+      "type": "object",
+      "properties": {
+        "courseId": { "type": "string" },
+        "text": { "type": "string" },
+        "correctAnswer": { "type": "string" },
+        "incorrectAnswers": { "type": "array", "items": { "type": "string" } },
+        "explanation": { "type": "string" },
+        "authorId": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["courseId", "text", "correctAnswer", "incorrectAnswers", "authorId", "createdAt"]
+    },
+    "CBTSession": {
+      "title": "CBTSession",
+      "description": "User CBT attempt session",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "courseId": { "type": "string" },
+        "score": { "type": "number" },
+        "totalQuestions": { "type": "number" },
+        "timeSpent": { "type": "number" },
+        "isTimed": { "type": "boolean" },
+        "duration": { "type": "number" },
+        "completedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["userId", "courseId", "score", "totalQuestions", "completedAt"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": "UserProfile",
+      "description": "User profile documents"
+    },
+    "/courses/{courseId}": {
+      "schema": "Course",
+      "description": "Course information"
+    },
+    "/news/{newsId}": {
+      "schema": "NewsItem",
+      "description": "News updates"
+    },
+    "/activationCodes/{code}": {
+      "schema": "ActivationCode",
+      "description": "Activation codes"
+    },
+    "/verificationRequests/{requestId}": {
+      "schema": "VerificationRequest",
+      "description": "Verification requests for level 2 pins"
+    },
+    "/system/config": {
+      "schema": "SystemConfig",
+      "description": "Global system configuration"
+    },
+    "/notes/{noteId}": {
+      "schema": "Note",
+      "description": "Academic notes collection"
+    },
+    "/questions/{questionId}": {
+      "schema": "Question",
+      "description": "CBT questions collection"
+    },
+    "/cbt_sessions/{sessionId}": {
+      "schema": "CBTSession",
+      "description": "User CBT sessions"
+    }
+  }
+}

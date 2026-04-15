@@ -1,0 +1,16 @@
+[package]
+name = "successugochukwuchi/pantheon"
+version = "0.1.0"
+description = "Pantheon Student Portal"
+
+[[module]]
+name = "server"
+source = "wasmer/static-server"
+
+[[command]]
+name = "serve"
+module = "server"
+runner = "https://webc.org/runner/wasi"
+
+[command.annotations]
+wasi = { main-args = ["dist", "--spa"] }

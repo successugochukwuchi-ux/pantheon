@@ -1,0 +1,106 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // ===============================================================
+    // Helper Functions
+    // ===============================================================
+    
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isAdmin() {
+      return isAuthenticated() && 
+             (request.auth.token.email == "successugochukwuchi@gmail.com" || 
+              (exists(/databases/$(database)/documents/users/$(request.auth.uid)) && 
+               get(/databases/$(database)/documents/users/$(request.auth.uid)).data.level in ["3", "4"]));
+    }
+
+    function isLevel2Admin() {
+      return isAuthenticated() && 
+             exists(/databases/$(database)/documents/users/$(request.auth.uid)) && 
+             get(/databases/$(database)/documents/users/$(request.auth.uid)).data.level == "2";
+    }
+
+    function isValidDateString(dateStr) {
+      return dateStr is string && dateStr.matches("^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}.*Z?$");
+    }
+
+    function isValidNote(data) {
+      return data.keys().hasAll(['courseId', 'title', 'content', 'type', 'authorId', 'createdAt']) &&
+             data.courseId is string &&
+             data.title is string && data.title.size() > 0 && data.title.size() < 200 &&
+             data.content is string && data.content.size() > 0 && data.content.size() < 50000 &&
+             data.type in ['lecture', 'punch', 'past_question', 'cbt'] &&
+             data.authorId == request.auth.uid &&
+             isValidDateString(data.createdAt);
+    }
+
+    // ===============================================================
+    // Rules
+    // ===============================================================
+
+    match /users/{userId} {
+      allow read: if isAuthenticated() && (request.auth.uid == userId || isAdmin());
+      allow create: if isAuthenticated() && request.auth.uid == userId;
+      allow update: if isAuthenticated() && (request.auth.uid == userId || isAdmin());
+    }
+
+    match /system/config {
+      allow read: if isAuthenticated();
+      allow write: if isAuthenticated() && 
+                    (request.auth.token.email == "successugochukwuchi@gmail.com" || 
+                     (exists(/databases/$(database)/documents/users/$(request.auth.uid)) && 
+                      get(/databases/$(database)/documents/users/$(request.auth.uid)).data.level == "4"));
+    }
+
+    match /courses/{courseId} {
+      allow read: if isAuthenticated() && 
+                    (isAdmin() || 
+                     resource.data.semester == get(/databases/$(database)/documents/system/config).data.currentSemester);
+      allow write: if isAdmin();
+    }
+
+    match /notes/{noteId} {
+      allow read: if isAuthenticated() && 
+                    (isAdmin() || 
+                     get(/databases/$(database)/documents/courses/$(resource.data.courseId)).data.semester == get(/databases/$(database)/documents/system/config).data.currentSemester);
+      allow create: if isAdmin() && isValidNote(request.resource.data);
+      allow update: if isAdmin() && isValidNote(request.resource.data) && 
+                      request.resource.data.authorId == resource.data.authorId;
+      allow delete: if isAdmin();
+    }
+
+    match /news/{newsId} {
+      allow read, list: if isAuthenticated();
+      allow write: if isAdmin();
+    }
+
+    match /activationCodes/{code} {
+      allow read: if isAuthenticated();
+      allow create: if isAdmin() || isLevel2Admin();
+      allow update: if isAuthenticated() && 
+                      request.resource.data.diff(resource.data).affectedKeys().hasOnly(['isUsed', 'usedBy', 'usedByStudentId', 'usedAt']) &&
+                      resource.data.isUsed == false &&
+                      request.resource.data.isUsed == true &&
+                      request.resource.data.usedBy == request.auth.uid;
+    }
+
+    match /verificationRequests/{requestId} {
+      allow read: if isAdmin() || (isAuthenticated() && resource.data.uid == request.auth.uid);
+      allow create: if isAuthenticated();
+      allow update, delete: if isAdmin();
+    }
+
+    match /questions/{questionId} {
+      allow read: if isAuthenticated();
+      allow write: if isAdmin();
+    }
+
+    match /cbt_sessions/{sessionId} {
+      allow read: if isAuthenticated() && (resource.data.userId == request.auth.uid || isAdmin());
+      allow create: if isAuthenticated() && request.resource.data.userId == request.auth.uid;
+      allow update, delete: if isAdmin();
+    }
+  }
+}
