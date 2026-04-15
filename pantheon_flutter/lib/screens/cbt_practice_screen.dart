@@ -23,7 +23,7 @@ class _CBTPracticeScreenState extends State<CBTPracticeScreen> {
         title: const Text('CBT Practice'),
       ),
       body: StreamBuilder<QuerySnapshot>(
-        stream: _db.collection('cbt_questions').snapshots(),
+        stream: _db.collection('questions').snapshots(),
         builder: (context, snapshot) {
           if (snapshot.hasError) {
             return Center(child: Text('Error: ${snapshot.error}'));

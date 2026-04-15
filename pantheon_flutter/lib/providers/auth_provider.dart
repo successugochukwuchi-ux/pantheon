@@ -28,6 +28,9 @@ class AuthProvider with ChangeNotifier {
   }
 
   void _listenToProfile(String uid) {
+    _isLoading = true; // Ensure loading is true when starting to listen
+    notifyListeners();
+    
     _db.collection('users').doc(uid).snapshots().listen((snapshot) {
       if (snapshot.exists) {
         _profile = snapshot.data();
@@ -37,6 +40,7 @@ class AuthProvider with ChangeNotifier {
       _isLoading = false;
       notifyListeners();
     }, onError: (e) {
+      _profile = null;
       _isLoading = false;
       notifyListeners();
     });

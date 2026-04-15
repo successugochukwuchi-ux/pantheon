@@ -52,7 +52,8 @@ class _RegisterScreenState extends State<RegisterScreen> {
         });
 
         if (mounted) {
-          Navigator.pushReplacementNamed(context, '/dashboard');
+          // Navigate back to AuthWrapper (home) to let it decide where to go (Dashboard or Activate)
+          Navigator.of(context).pushNamedAndRemoveUntil('/', (route) => false);
         }
       }
     } catch (e) {

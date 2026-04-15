@@ -15,7 +15,7 @@ class SearchResultsScreen extends StatelessWidget {
         title: Text('Results for "$query"'),
       ),
       body: StreamBuilder<QuerySnapshot>(
-        stream: FirebaseFirestore.instance.collection('lecture_notes').snapshots(),
+        stream: FirebaseFirestore.instance.collection('notes').snapshots(),
         builder: (context, snapshot) {
           if (snapshot.connectionState == ConnectionState.waiting) {
             return const Center(child: CircularProgressIndicator());

@@ -124,7 +124,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
               children: [
                 _buildMenuCard(context, 'Lecture Notes', LucideIcons.bookOpen, Colors.blue, '/lecture-notes'),
                 _buildMenuCard(context, 'CBT Practice', LucideIcons.cpu, Colors.purple, '/cbt'),
-                _buildMenuCard(context, 'Punch Notes', LucideIcons.calculator, Colors.green, '/lecture-notes'),
+                _buildMenuCard(context, 'Content Scanner', LucideIcons.refreshCw, Colors.green, '/lecture-notes'),
                 _buildMenuCard(context, 'News Board', LucideIcons.newspaper, Colors.orange, '/lecture-notes'),
               ],
             ),
@@ -165,11 +165,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
           _buildDrawerItem(context, 'Settings', LucideIcons.settings, '/settings'),
           ListTile(
             leading: const Icon(LucideIcons.refreshCw),
-            title: const Text('Sync Content'),
+            title: const Text('Content Scanner (Sync)'),
             onTap: () {
               Navigator.pop(context);
               Navigator.pushNamed(context, '/lecture-notes');
-              // The LectureNotesScreen automatically syncs or has a sync button
             },
           ),
           const Spacer(),

@@ -39,9 +39,9 @@ class _ActivateScreenState extends State<ActivateScreen> {
       
       if (uid == null) return;
 
-      // Check if PIN exists in an 'activation_pins' collection
+      // Check if PIN exists in an 'activationCodes' collection
       final pinDoc = await FirebaseFirestore.instance
-          .collection('activation_pins')
+          .collection('activationCodes')
           .doc(_pinController.text.trim())
           .get();
 
@@ -146,9 +146,10 @@ class _ActivateScreenState extends State<ActivateScreen> {
               const SizedBox(height: 16),
               _buildActionTile(
                 LucideIcons.messageCircle, 
-                'Contact Support on WhatsApp', 
+                'Contact Support on WhatsApp (+2348118429150)', 
                 _launchWhatsApp,
                 Colors.green,
+                isPrimary: true,
               ),
               const SizedBox(height: 16),
               _buildActionTile(
@@ -170,20 +171,21 @@ class _ActivateScreenState extends State<ActivateScreen> {
     );
   }
 
-  Widget _buildActionTile(IconData icon, String text, VoidCallback onTap, Color color) {
+  Widget _buildActionTile(IconData icon, String text, VoidCallback onTap, Color color, {bool isPrimary = false}) {
     return InkWell(
       onTap: onTap,
       child: Container(
         padding: const EdgeInsets.all(16),
         decoration: BoxDecoration(
-          border: Border.all(color: color.withOpacity(0.3)),
+          color: isPrimary ? color.withOpacity(0.1) : null,
+          border: Border.all(color: color.withOpacity(isPrimary ? 0.5 : 0.3)),
           borderRadius: BorderRadius.circular(16),
         ),
         child: Row(
           children: [
             Icon(icon, size: 20, color: color),
             const SizedBox(width: 16),
-            Expanded(child: Text(text, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600))),
+            Expanded(child: Text(text, style: TextStyle(fontSize: 14, fontWeight: isPrimary ? FontWeight.w800 : FontWeight.w600))),
             Icon(Icons.chevron_right, size: 20, color: color),
           ],
         ),

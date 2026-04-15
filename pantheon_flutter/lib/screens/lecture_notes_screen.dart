@@ -41,21 +41,37 @@ class _LectureNotesScreenState extends State<LectureNotesScreen> {
   Future<void> _syncNotes() async {
     setState(() => _isSyncing = true);
     try {
-      final snapshot = await _db.collection('lecture_notes').get();
+      // Simulate a 'scan' effect
+      await Future.delayed(const Duration(seconds: 1));
+      
+      final snapshot = await _db.collection('notes').get();
       final notes = snapshot.docs.map((doc) => doc.data() as Map<String, dynamic>).toList();
+      
+      // Precache images for offline viewing
+      if (mounted) {
+        for (var note in notes) {
+          if (note['imageUrl'] != null && note['imageUrl'].toString().isNotEmpty) {
+            precacheImage(CachedNetworkImageProvider(note['imageUrl'] as String), context);
+          }
+        }
+      }
+
       await _saveNotesOffline(notes);
       setState(() {
         _offlineNotes = notes;
       });
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Content synced for offline viewing')),
+          const SnackBar(
+            content: Text('Scan complete! Content updated for offline viewing.'),
+            backgroundColor: Colors.green,
+          ),
         );
       }
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Sync failed: ${e.toString()}')),
+          SnackBar(content: Text('Scan failed: ${e.toString()}')),
         );
       }
     } finally {
@@ -80,7 +96,7 @@ class _LectureNotesScreenState extends State<LectureNotesScreen> {
         ],
       ),
       body: StreamBuilder<QuerySnapshot>(
-        stream: _db.collection('lecture_notes').snapshots(),
+        stream: _db.collection('notes').snapshots(),
         builder: (context, snapshot) {
           // If we have live data, use it and update offline cache
           if (snapshot.hasData) {

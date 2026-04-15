@@ -22,12 +22,12 @@ void main() async {
 
   await Firebase.initializeApp(
     options: const FirebaseOptions(
-      apiKey: "YOUR_API_KEY",
-      authDomain: "YOUR_AUTH_DOMAIN",
-      projectId: "YOUR_PROJECT_ID",
-      storageBucket: "YOUR_STORAGE_BUCKET",
-      messagingSenderId: "YOUR_MESSAGING_SENDER_ID",
-      appId: "YOUR_APP_ID",
+      apiKey: "AIzaSyDUG_Wkvbt_HntxQ9zDSo6eTjkUFMH_mRM",
+      authDomain: "pantheon-study.firebaseapp.com",
+      projectId: "pantheon-study",
+      storageBucket: "pantheon-study.firebasestorage.app",
+      messagingSenderId: "956262652054",
+      appId: "1:956262652054:web:0b55eee49ede84ecddcab7",
     ),
   );
   runApp(const PantheonApp());
@@ -86,8 +86,17 @@ class AuthWrapper extends StatelessWidget {
 
     if (authProvider.user != null) {
       final profile = authProvider.profile;
+      
+      // If profile is still loading or null, show loading
+      if (profile == null) {
+        return const Scaffold(
+          body: Center(child: CircularProgressIndicator()),
+        );
+      }
+
       // If profile exists but is not activated, show activation screen
-      if (profile != null && profile['isActivated'] == false && profile['email'] != 'successugochukwuchi@gmail.com') {
+      // We removed the hardcoded email bypass so the user can test the activation flow
+      if (profile['isActivated'] == false) {
         return const ActivateScreen();
       }
       return const DashboardScreen();
