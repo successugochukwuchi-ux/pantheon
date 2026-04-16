@@ -2,9 +2,12 @@ import React from 'react';
 import { Link } from 'react-router-dom';
 import { Button, buttonVariants } from '../components/ui/button';
 import { cn } from '../lib/utils';
-import { BookOpen, Shield, Zap, Users, GraduationCap, ChevronRight, MessageCircle, History } from 'lucide-react';
+import { BookOpen, Shield, Zap, Users, GraduationCap, ChevronRight, MessageCircle, History, LogIn } from 'lucide-react';
+import { useTitle } from '../hooks/useTitle';
 
 export default function Landing() {
+  useTitle('Welcome');
+
   const openWhatsApp = () => {
     const message = encodeURIComponent("Hello, I'm interested in the Pantheon Study App for FUTO.");
     window.open(`https://wa.me/2348118429150?text=${message}`, '_blank');
@@ -12,6 +15,36 @@ export default function Landing() {
 
   return (
     <div className="flex flex-col min-h-screen">
+      {/* Header */}
+      <header className="sticky top-0 z-50 w-full border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
+        <div className="container flex h-16 items-center justify-between px-4 mx-auto">
+          <Link to="/" className="flex items-center gap-2 font-bold text-2xl tracking-tighter text-primary">
+            <img 
+              src="https://i.imgur.com/PYAnixG.png" 
+              alt="PANTHEON Logo" 
+              className="h-8 w-8 object-contain" 
+              referrerPolicy="no-referrer"
+            />
+            PANTHEON
+          </Link>
+          <nav className="flex items-center gap-4">
+            <Link to="/login" className={cn(buttonVariants({ variant: 'ghost', size: 'sm' }), "hidden sm:flex")}>
+              Login
+            </Link>
+            <Link to="/register" className={cn(buttonVariants({ size: 'sm' }), "rounded-full")}>
+              Sign Up
+            </Link>
+            <Link 
+              to="/login" 
+              className={cn(buttonVariants({ variant: 'outline', size: 'icon' }), "sm:hidden rounded-full")}
+              title="Login"
+            >
+              <LogIn className="h-4 w-4" />
+            </Link>
+          </nav>
+        </div>
+      </header>
+
       {/* Hero Section */}
       <section className="relative py-20 overflow-hidden bg-background">
         <div className="container px-4 mx-auto relative z-10">

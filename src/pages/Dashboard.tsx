@@ -8,8 +8,10 @@ import { BookOpen, History, Calculator, Newspaper, AlertCircle, Info, HelpCircle
 import { Link } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { Alert, AlertDescription, AlertTitle } from '../components/ui/alert';
+import { useTitle } from '../hooks/useTitle';
 
 export default function Dashboard() {
+  useTitle('Dashboard');
   const [news, setNews] = useState<NewsItem[]>([]);
   const { profile, systemConfig } = useAuth();
 
@@ -17,9 +19,11 @@ export default function Dashboard() {
     if (!profile) return;
 
     const path = 'news';
-    const q = query(collection(db, 'news'), orderBy('createdAt', 'desc'), limit(5));
+    const q = query(collection(db, 'news'), limit(5));
     const unsubscribe = onSnapshot(q, (snapshot) => {
-      const newsData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as NewsItem));
+      const newsData = snapshot.docs
+        .map(doc => ({ id: doc.id, ...doc.data() } as NewsItem))
+        .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
       setNews(newsData);
     }, (error) => {
       handleFirestoreError(error, OperationType.LIST, path);
@@ -28,10 +32,10 @@ export default function Dashboard() {
   }, [profile]);
 
   const quickLinks = [
-    { name: 'Lecture Notes', path: '/notes', icon: BookOpen, color: 'bg-blue-500' },
-    { name: 'Past Questions', path: '/past-questions', icon: History, color: 'bg-purple-500' },
+    { name: 'Lecture Notes', path: '/notes?type=lecture', icon: BookOpen, color: 'bg-blue-500' },
+    { name: 'Past Questions', path: '/past-questions?type=past_question', icon: History, color: 'bg-purple-500' },
     { name: 'CBT Practice', path: '/cbt', icon: HelpCircle, color: 'bg-green-500' },
-    { name: 'Punch Notes', path: '/punch', icon: Calculator, color: 'bg-orange-500' },
+    { name: 'Punch Notes', path: '/punch?type=punch', icon: Calculator, color: 'bg-orange-500' },
   ];
 
   const isHoliday = !systemConfig || systemConfig.currentSemester === 'none';

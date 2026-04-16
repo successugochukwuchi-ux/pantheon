@@ -11,12 +11,20 @@ import Login from './pages/Login';
 import Register from './pages/Register';
 import Activate from './pages/Activate';
 import Dashboard from './pages/Dashboard';
-import LectureNotes from './pages/LectureNotes';
+import StudyMaterials from './pages/StudyMaterials';
 import CBTPractice from './pages/CBTPractice';
+import CBTResults from './pages/CBTResults';
+import Referrals from './pages/Referrals';
+import Notifications from './pages/Notifications';
+import CourseDiscussion from './pages/CourseDiscussion';
+import PublicProfile from './pages/PublicProfile';
 import SearchResults from './pages/SearchResults';
 import Settings from './pages/Settings';
 import AdminPanel from './pages/AdminPanel';
 import Banned from './pages/Banned';
+import News from './pages/News';
+import Friends from './pages/Friends';
+import Chat from './pages/Chat';
 
 import { MaintenanceGuard } from './components/MaintenanceGuard';
 
@@ -54,7 +62,23 @@ export default function App() {
               <Route path="/notes" element={
                 <ProtectedRoute>
                   <Layout>
-                    <LectureNotes />
+                    <StudyMaterials />
+                  </Layout>
+                </ProtectedRoute>
+              } />
+
+              <Route path="/past-questions" element={
+                <ProtectedRoute>
+                  <Layout>
+                    <StudyMaterials />
+                  </Layout>
+                </ProtectedRoute>
+              } />
+
+              <Route path="/punch" element={
+                <ProtectedRoute>
+                  <Layout>
+                    <StudyMaterials />
                   </Layout>
                 </ProtectedRoute>
               } />
@@ -63,6 +87,70 @@ export default function App() {
                 <ProtectedRoute>
                   <Layout>
                     <CBTPractice />
+                  </Layout>
+                </ProtectedRoute>
+              } />
+
+              <Route path="/cbt/results" element={
+                <ProtectedRoute>
+                  <Layout>
+                    <CBTResults />
+                  </Layout>
+                </ProtectedRoute>
+              } />
+
+              <Route path="/referrals" element={
+                <ProtectedRoute>
+                  <Layout>
+                    <Referrals />
+                  </Layout>
+                </ProtectedRoute>
+              } />
+
+              <Route path="/news" element={
+                <ProtectedRoute>
+                  <Layout>
+                    <News />
+                  </Layout>
+                </ProtectedRoute>
+              } />
+
+              <Route path="/friends" element={
+                <ProtectedRoute>
+                  <Layout>
+                    <Friends />
+                  </Layout>
+                </ProtectedRoute>
+              } />
+
+              <Route path="/chat" element={
+                <ProtectedRoute>
+                  <Layout>
+                    <Chat />
+                  </Layout>
+                </ProtectedRoute>
+              } />
+
+              <Route path="/notifications" element={
+                <ProtectedRoute>
+                  <Layout>
+                    <Notifications />
+                  </Layout>
+                </ProtectedRoute>
+              } />
+
+              <Route path="/discussions/:courseId" element={
+                <ProtectedRoute>
+                  <Layout>
+                    <CourseDiscussion />
+                  </Layout>
+                </ProtectedRoute>
+              } />
+
+              <Route path="/profile/:userId" element={
+                <ProtectedRoute>
+                  <Layout>
+                    <PublicProfile />
                   </Layout>
                 </ProtectedRoute>
               } />

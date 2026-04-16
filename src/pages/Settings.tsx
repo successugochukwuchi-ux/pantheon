@@ -8,22 +8,43 @@ import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
 import { Label } from '../components/ui/label';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '../components/ui/card';
+import { Avatar, AvatarFallback, AvatarImage } from '../components/ui/avatar';
 import { toast } from 'sonner';
-import { Check, Moon, Sun, Palette, Droplets, TreePine, Eye, EyeOff, Settings as SettingsIcon } from 'lucide-react';
+import { Check, Moon, Sun, Palette, Droplets, TreePine, Eye, EyeOff, Settings as SettingsIcon, User } from 'lucide-react';
+import { useTitle } from '../hooks/useTitle';
 
 export default function Settings() {
+  useTitle('Settings');
   const { user, profile } = useAuth();
   const { theme, setTheme, customColors, setCustomColors } = useTheme();
   const [username, setUsername] = useState(profile?.username || '');
+  const [avatarSeed, setAvatarSeed] = useState(profile?.username || user?.uid || 'default');
   const [newPassword, setNewPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
+
+  const avatars = [
+    'adventurer',
+    'avataaars',
+    'big-smile',
+    'bottts',
+    'croodles',
+    'fun-emoji',
+    'lorelei',
+    'notionists',
+    'open-peeps',
+    'pixel-art'
+  ];
+
+  const [avatarStyle, setAvatarStyle] = useState('avataaars');
 
   const handleUpdateProfile = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
     try {
       if (user) {
+        const photoURL = `https://api.dicebear.com/7.x/${avatarStyle}/svg?seed=${avatarSeed}`;
+        await updateProfile(user, { photoURL });
         await updateDoc(doc(db, 'users', user.uid), {
           username: username
         });
@@ -75,29 +96,66 @@ export default function Settings() {
 
       <div className="grid gap-6 md:grid-cols-2">
         {/* Profile Settings */}
-        <Card>
+        <Card className="md:col-span-2">
           <CardHeader>
-            <CardTitle>Profile</CardTitle>
-            <CardDescription>Update your public profile information.</CardDescription>
+            <CardTitle>Profile & Avatar</CardTitle>
+            <CardDescription>Update your public profile and choose an avatar.</CardDescription>
           </CardHeader>
           <form onSubmit={handleUpdateProfile}>
-            <CardContent className="space-y-4">
-              <div className="space-y-2">
-                <Label htmlFor="username">Username</Label>
-                <Input 
-                  id="username" 
-                  value={username} 
-                  onChange={(e) => setUsername(e.target.value)} 
-                />
-              </div>
-              <div className="space-y-2">
-                <Label>Email</Label>
-                <Input value={user?.email || ''} disabled className="bg-muted" />
-                <p className="text-xs text-muted-foreground">Email cannot be changed.</p>
+            <CardContent className="space-y-6">
+              <div className="flex flex-col md:flex-row gap-8 items-start">
+                <div className="flex flex-col items-center gap-4">
+                  <Avatar className="h-24 w-24 border-4 border-muted">
+                    <AvatarImage src={`https://api.dicebear.com/7.x/${avatarStyle}/svg?seed=${avatarSeed}`} />
+                    <AvatarFallback>{username[0]?.toUpperCase() || 'U'}</AvatarFallback>
+                  </Avatar>
+                  <div className="flex flex-col gap-2 w-full">
+                    <Label className="text-center">Avatar Seed</Label>
+                    <Input 
+                      value={avatarSeed} 
+                      onChange={(e) => setAvatarSeed(e.target.value)}
+                      placeholder="Enter any text..."
+                      className="text-center"
+                    />
+                  </div>
+                </div>
+
+                <div className="flex-1 space-y-4 w-full">
+                  <div className="space-y-2">
+                    <Label htmlFor="username">Username</Label>
+                    <Input 
+                      id="username" 
+                      value={username} 
+                      onChange={(e) => setUsername(e.target.value)} 
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Email</Label>
+                    <Input value={user?.email || ''} disabled className="bg-muted" />
+                  </div>
+                  
+                  <div className="space-y-2">
+                    <Label>Avatar Style</Label>
+                    <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
+                      {avatars.map(style => (
+                        <Button 
+                          key={style}
+                          type="button"
+                          variant={avatarStyle === style ? 'default' : 'outline'}
+                          size="sm"
+                          className="text-[10px] h-8 px-1"
+                          onClick={() => setAvatarStyle(style)}
+                        >
+                          {style.replace('-', ' ')}
+                        </Button>
+                      ))}
+                    </div>
+                  </div>
+                </div>
               </div>
             </CardContent>
             <CardFooter>
-              <Button type="submit" disabled={loading}>Save Changes</Button>
+              <Button type="submit" disabled={loading}>Save Profile Changes</Button>
             </CardFooter>
           </form>
         </Card>

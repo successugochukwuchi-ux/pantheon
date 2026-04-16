@@ -140,6 +140,35 @@
         "completedAt": { "type": "string", "format": "date-time" }
       },
       "required": ["userId", "courseId", "score", "totalQuestions", "completedAt"]
+    },
+    "Notification": {
+      "title": "Notification",
+      "description": "User notification",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "title": { "type": "string" },
+        "message": { "type": "string" },
+        "type": { "type": "string", "enum": ["news", "verification", "material", "system"] },
+        "isRead": { "type": "boolean" },
+        "link": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["userId", "title", "message", "type", "isRead", "createdAt"]
+    },
+    "DiscussionMessage": {
+      "title": "DiscussionMessage",
+      "description": "Message in a course discussion board",
+      "type": "object",
+      "properties": {
+        "courseId": { "type": "string" },
+        "userId": { "type": "string" },
+        "username": { "type": "string" },
+        "userLevel": { "type": "string" },
+        "text": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["courseId", "userId", "username", "text", "createdAt"]
     }
   },
   "firestore": {
@@ -178,6 +207,14 @@
     "/cbt_sessions/{sessionId}": {
       "schema": "CBTSession",
       "description": "User CBT sessions"
+    },
+    "/notifications/{notificationId}": {
+      "schema": "Notification",
+      "description": "User notifications"
+    },
+    "/discussions/{messageId}": {
+      "schema": "DiscussionMessage",
+      "description": "Course discussion messages"
     }
   }
 }

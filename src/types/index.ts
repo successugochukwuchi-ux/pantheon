@@ -13,6 +13,7 @@ export interface UserProfile {
   isBanned?: boolean;
   banReason?: string;
   theme?: string;
+  photoURL?: string;
   createdAt: string;
 }
 
@@ -91,5 +92,26 @@ export interface ActivationCode {
   usedByStudentId?: string;
   usedAt?: string;
   createdBy: string;
+  createdAt: string;
+}
+
+export interface Notification {
+  id: string;
+  userId: string;
+  title: string;
+  message: string;
+  type: 'news' | 'verification' | 'material' | 'system';
+  isRead: boolean;
+  link?: string;
+  createdAt: string;
+}
+
+export interface DiscussionMessage {
+  id: string;
+  courseId: string;
+  userId: string;
+  username: string;
+  userLevel: string;
+  text: string;
   createdAt: string;
 }

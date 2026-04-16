@@ -1,5 +1,5 @@
 import { initializeApp } from 'firebase/app';
-import { getAuth } from 'firebase/auth';
+import { getAuth, setPersistence, browserLocalPersistence } from 'firebase/auth';
 import { getFirestore, doc, getDocFromServer } from 'firebase/firestore';
 import firebaseConfigJson from '../firebase-applet-config.json';
 
@@ -33,6 +33,7 @@ if (isRealConfig) {
 }
 
 export const auth = getAuth(app);
+setPersistence(auth, browserLocalPersistence).catch(err => console.error("Persistence failed:", err));
 export const db = getFirestore(app);
 
 export enum OperationType {

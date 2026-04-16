@@ -41,8 +41,23 @@ import {
   RefreshCw
 } from 'lucide-react';
 import { Course, UserLevel, Semester, Note, Question, ActivationCode, VerificationRequest } from '../types';
-import { Routes, Route, useNavigate } from 'react-router-dom';
+import { Routes, Route, useNavigate, useLocation } from 'react-router-dom';
 import { NoteBuilder } from '../components/NoteBuilder';
+import { useTitle } from '../hooks/useTitle';
+import { 
+  BarChart, 
+  Bar, 
+  XAxis, 
+  YAxis, 
+  CartesianGrid, 
+  Tooltip, 
+  ResponsiveContainer, 
+  LineChart, 
+  Line,
+  PieChart,
+  Pie,
+  Cell
+} from 'recharts';
 
 import { 
   Dialog, 
@@ -54,8 +69,10 @@ import {
 } from '../components/ui/dialog';
 
 export default function AdminPanel() {
+  useTitle('Admin Panel');
   const { profile, user, systemConfig } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
   const [loading, setLoading] = useState(false);
 
   // User Management State
@@ -395,56 +412,19 @@ export default function AdminPanel() {
         <p className="text-muted-foreground">Manage users, courses, and platform content.</p>
       </div>
 
-      <Routes>
-        <Route path="/" element={
-          <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
-            <Card className="hover:bg-accent transition-colors cursor-pointer" onClick={() => navigate('/administrator/users')}>
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2"><UserPlus className="h-5 w-5" /> Users</CardTitle>
-                <CardDescription>Manage user permissions and bans.</CardDescription>
-              </CardHeader>
-            </Card>
-            <Card className="hover:bg-accent transition-colors cursor-pointer" onClick={() => navigate('/administrator/courses')}>
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2"><BookPlus className="h-5 w-5" /> Courses</CardTitle>
-                <CardDescription>Add and manage academic courses.</CardDescription>
-              </CardHeader>
-            </Card>
-            <Card className="hover:bg-accent transition-colors cursor-pointer" onClick={() => navigate('/administrator/news')}>
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2"><Newspaper className="h-5 w-5" /> News</CardTitle>
-                <CardDescription>Post updates to the student board.</CardDescription>
-              </CardHeader>
-            </Card>
-            <Card className="hover:bg-accent transition-colors cursor-pointer" onClick={() => navigate('/administrator/notes')}>
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2"><FileText className="h-5 w-5" /> Notes</CardTitle>
-                <CardDescription>Upload and manage lecture notes.</CardDescription>
-              </CardHeader>
-            </Card>
-            <Card className="hover:bg-accent transition-colors cursor-pointer" onClick={() => navigate('/administrator/cbt')}>
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2"><HelpCircle className="h-5 w-5" /> CBT</CardTitle>
-                <CardDescription>Manage practice questions and tests.</CardDescription>
-              </CardHeader>
-            </Card>
-            <Card className="hover:bg-accent transition-colors cursor-pointer" onClick={() => navigate('/administrator/pins')}>
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2"><Key className="h-5 w-5" /> Pins</CardTitle>
-                <CardDescription>Generate activation codes.</CardDescription>
-              </CardHeader>
-            </Card>
-            {isLevel4 && (
-              <Card className="hover:bg-accent transition-colors cursor-pointer border-primary/20" onClick={() => navigate('/administrator/system')}>
-                <CardHeader>
-                  <CardTitle className="flex items-center gap-2 text-primary"><Settings className="h-5 w-5" /> System Control</CardTitle>
-                  <CardDescription>Manage semesters and global settings.</CardDescription>
-                </CardHeader>
-              </Card>
-            )}
-          </div>
-        } />
+      <div className="flex flex-wrap gap-2 border-b pb-4">
+        <Button variant={location.pathname === '/administrator' ? 'default' : 'ghost'} size="sm" onClick={() => navigate('/administrator')}>Overview</Button>
+        <Button variant={location.pathname.includes('users') ? 'default' : 'ghost'} size="sm" onClick={() => navigate('/administrator/users')}>Users</Button>
+        <Button variant={location.pathname.includes('courses') ? 'default' : 'ghost'} size="sm" onClick={() => navigate('/administrator/courses')}>Courses</Button>
+        <Button variant={location.pathname.includes('notes') ? 'default' : 'ghost'} size="sm" onClick={() => navigate('/administrator/notes')}>Notes</Button>
+        <Button variant={location.pathname.includes('cbt') ? 'default' : 'ghost'} size="sm" onClick={() => navigate('/administrator/cbt')}>CBT</Button>
+        <Button variant={location.pathname.includes('news') ? 'default' : 'ghost'} size="sm" onClick={() => navigate('/administrator/news')}>News</Button>
+        <Button variant={location.pathname.includes('pins') ? 'default' : 'ghost'} size="sm" onClick={() => navigate('/administrator/pins')}>Pins</Button>
+        {isLevel4 && <Button variant={location.pathname.includes('system') ? 'default' : 'ghost'} size="sm" onClick={() => navigate('/administrator/system')}>System</Button>}
+      </div>
 
+      <Routes>
+        <Route index element={<AdminOverview courses={courses} notes={notes} questions={questions} unusedPins={unusedPins} usedPins={usedPins} />} />
         <Route path="/users" element={
           <div className="grid gap-6 md:grid-cols-2">
             <Card>
@@ -1028,6 +1008,149 @@ export default function AdminPanel() {
           </div>
         } />
       </Routes>
+    </div>
+  );
+}
+
+function AdminOverview({ courses, notes, questions, unusedPins, usedPins }: { 
+  courses: Course[], 
+  notes: Note[], 
+  questions: Question[], 
+  unusedPins: ActivationCode[], 
+  usedPins: ActivationCode[] 
+}) {
+  const [userStats, setUserStats] = useState<{ date: string, count: number }[]>([]);
+  const [cbtStats, setCbtStats] = useState<{ name: string, value: number }[]>([]);
+
+  useEffect(() => {
+    const fetchStats = async () => {
+      const usersSnap = await getDocs(collection(db, 'users'));
+      const users = usersSnap.docs.map(d => d.data());
+      
+      // Group users by join date
+      const groups: Record<string, number> = {};
+      users.forEach(u => {
+        const date = new Date(u.createdAt).toLocaleDateString();
+        groups[date] = (groups[date] || 0) + 1;
+      });
+      
+      const chartData = Object.entries(groups)
+        .map(([date, count]) => ({ date, count }))
+        .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime())
+        .slice(-7);
+      
+      setUserStats(chartData);
+
+      // Group CBT sessions by course
+      const sessionsSnap = await getDocs(collection(db, 'cbt_sessions'));
+      const sessions = sessionsSnap.docs.map(d => d.data());
+      const courseGroups: Record<string, number> = {};
+      sessions.forEach(s => {
+        const course = courses.find(c => c.id === s.courseId)?.code || 'Unknown';
+        courseGroups[course] = (courseGroups[course] || 0) + 1;
+      });
+
+      const pieData = Object.entries(courseGroups)
+        .map(([name, value]) => ({ name, value }))
+        .sort((a, b) => b.value - a.value)
+        .slice(0, 5);
+      
+      setCbtStats(pieData);
+    };
+
+    fetchStats();
+  }, [courses]);
+
+  const COLORS = ['#0088FE', '#00C49F', '#FFBB28', '#FF8042', '#8884d8'];
+
+  return (
+    <div className="grid gap-6">
+      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">Total Courses</CardTitle>
+            <BookPlus className="h-4 w-4 text-muted-foreground" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">{courses.length}</div>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">Total Notes</CardTitle>
+            <FileText className="h-4 w-4 text-muted-foreground" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">{notes.length}</div>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">CBT Questions</CardTitle>
+            <HelpCircle className="h-4 w-4 text-muted-foreground" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">{questions.length}</div>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">Active Pins</CardTitle>
+            <Key className="h-4 w-4 text-muted-foreground" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">{unusedPins.length}</div>
+            <p className="text-xs text-muted-foreground">{usedPins.length} used so far</p>
+          </CardContent>
+        </Card>
+      </div>
+
+      <div className="grid gap-6 md:grid-cols-2">
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-lg">User Registration Trend</CardTitle>
+            <CardDescription>New users joined over the last 7 days.</CardDescription>
+          </CardHeader>
+          <CardContent className="h-[300px]">
+            <ResponsiveContainer width="100%" height="100%">
+              <LineChart data={userStats}>
+                <CartesianGrid strokeDasharray="3 3" vertical={false} />
+                <XAxis dataKey="date" fontSize={10} />
+                <YAxis fontSize={10} />
+                <Tooltip />
+                <Line type="monotone" dataKey="count" stroke="#8884d8" strokeWidth={2} />
+              </LineChart>
+            </ResponsiveContainer>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-lg">Most Active Courses</CardTitle>
+            <CardDescription>Based on CBT practice sessions.</CardDescription>
+          </CardHeader>
+          <CardContent className="h-[300px]">
+            <ResponsiveContainer width="100%" height="100%">
+              <PieChart>
+                <Pie
+                  data={cbtStats}
+                  cx="50%"
+                  cy="50%"
+                  innerRadius={60}
+                  outerRadius={80}
+                  paddingAngle={5}
+                  dataKey="value"
+                >
+                  {cbtStats.map((entry, index) => (
+                    <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                  ))}
+                </Pie>
+                <Tooltip />
+              </PieChart>
+            </ResponsiveContainer>
+          </CardContent>
+        </Card>
+      </div>
     </div>
   );
 }

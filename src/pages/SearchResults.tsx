@@ -5,8 +5,10 @@ import { db } from '../firebase';
 import { UserProfile } from '../types';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
 import { Button } from '../components/ui/button';
-import { User, Search as SearchIcon, Loader2, ArrowLeft } from 'lucide-react';
+import { User, Search as SearchIcon, Loader2, ArrowLeft, Shield } from 'lucide-react';
 import { motion } from 'motion/react';
+import { Avatar, AvatarFallback, AvatarImage } from '../components/ui/avatar';
+import { Badge } from '../components/ui/badge';
 
 export default function SearchResults() {
   const [searchParams] = useSearchParams();
@@ -87,19 +89,30 @@ export default function SearchResults() {
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ delay: index * 0.05 }}
+              onClick={() => navigate('/profile/' + user.uid)}
             >
               <Card className="hover:bg-accent/50 transition-colors cursor-pointer group">
                 <CardContent className="p-6 flex items-center gap-6">
-                  <div className="h-16 w-16 rounded-full bg-primary/10 flex items-center justify-center text-primary shrink-0 border-2 border-primary/5">
-                    <User className="h-8 w-8" />
-                  </div>
+                  <Avatar className="h-16 w-16 border-2 border-primary/5">
+                    <AvatarImage src={user.photoURL || ''} alt={user.username} />
+                    <AvatarFallback className="bg-primary/10 text-primary text-xl">
+                      {(user.username || 'U')[0].toUpperCase()}
+                    </AvatarFallback>
+                  </Avatar>
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2">
                       <h3 className="text-xl font-bold truncate group-hover:text-primary transition-colors">
                         {user.username || 'Anonymous Student'}
                       </h3>
                       {user.isActivated && (
-                        <div className="h-2 w-2 rounded-full bg-green-500" title="Activated Account" />
+                        <Badge variant="secondary" className="bg-green-500/10 text-green-600 border-green-500/20 text-[10px] h-5">
+                          Activated
+                        </Badge>
+                      )}
+                      {(user.level === '3' || user.level === '4') && (
+                        <Badge variant="destructive" className="text-[10px] h-5 gap-1">
+                          <Shield className="h-3 w-3" /> Admin
+                        </Badge>
                       )}
                     </div>
                     <p className="text-sm text-muted-foreground font-mono mt-1">
@@ -114,7 +127,10 @@ export default function SearchResults() {
                       </div>
                     </div>
                   </div>
-                  <Button variant="outline" className="hidden sm:flex">
+                  <Button variant="outline" className="hidden sm:flex" onClick={(e) => {
+                    e.stopPropagation();
+                    navigate('/profile/' + user.uid);
+                  }}>
                     View Profile
                   </Button>
                 </CardContent>

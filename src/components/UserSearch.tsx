@@ -133,17 +133,24 @@ export const UserSearch: React.FC = () => {
                       onClick={() => {
                         setIsOpen(false);
                         setSearchTerm('');
-                        // Future: navigate to profile
-                        // navigate(`/profile/${user.uid}`);
+                        navigate(`/profile/${user.uid}`);
                       }}
                     >
-                      <div className="h-10 w-10 rounded-full bg-primary/10 flex items-center justify-center text-primary shrink-0">
-                        <User className="h-5 w-5" />
+                      <div className="h-10 w-10 rounded-full bg-primary/10 flex items-center justify-center text-primary shrink-0 overflow-hidden border">
+                        <img 
+                          src={user.photoURL || `https://api.dicebear.com/7.x/avataaars/svg?seed=${user.username || user.uid}`} 
+                          alt={user.username}
+                          className="w-full h-full object-cover"
+                          referrerPolicy="no-referrer"
+                        />
                       </div>
                       <div className="flex-1 min-w-0">
-                        <p className="text-sm font-bold truncate group-hover:text-primary transition-colors">
-                          {user.username || 'Anonymous'}
-                        </p>
+                        <div className="flex items-center gap-2">
+                          <p className="text-sm font-bold truncate group-hover:text-primary transition-colors">
+                            {user.username || 'Anonymous'}
+                          </p>
+                          <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-muted text-muted-foreground">Lvl {user.level}</span>
+                        </div>
                         <p className="text-xs text-muted-foreground font-mono">
                           ID: {user.studentId}
                         </p>

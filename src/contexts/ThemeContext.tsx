@@ -45,9 +45,12 @@ export const ThemeProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     // Apply custom colors if theme is 'custom'
     if (theme === 'custom') {
       Object.entries(customColors).forEach(([key, value]) => {
-        // Simple hex to oklch/hsl conversion is complex, so we'll use hex directly for custom
-        // but we need to ensure the CSS variables are set correctly
         root.style.setProperty(`--${key}`, value);
+        // Also apply to sidebar variables for custom theme
+        if (key === 'background') root.style.setProperty('--sidebar', value);
+        if (key === 'foreground') root.style.setProperty('--sidebar-foreground', value);
+        if (key === 'primary') root.style.setProperty('--sidebar-primary', value);
+        if (key === 'accent') root.style.setProperty('--sidebar-accent', value);
       });
     } else {
       // Clear inline styles when switching away from custom
@@ -55,6 +58,10 @@ export const ThemeProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       root.style.removeProperty('--background');
       root.style.removeProperty('--foreground');
       root.style.removeProperty('--accent');
+      root.style.removeProperty('--sidebar');
+      root.style.removeProperty('--sidebar-foreground');
+      root.style.removeProperty('--sidebar-primary');
+      root.style.removeProperty('--sidebar-accent');
     }
   }, [theme, customColors]);
 
