@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate, Link, useSearchParams } from 'react-router-dom';
 import { createUserWithEmailAndPassword } from 'firebase/auth';
-import { doc, setDoc, serverTimestamp } from 'firebase/firestore';
+import { doc, setDoc, getDoc, updateDoc, serverTimestamp } from 'firebase/firestore';
 import { auth, db, handleFirestoreError, OperationType } from '../firebase';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
@@ -32,6 +32,7 @@ export default function Register() {
       // Create user profile
       const path = `users/${user.uid}`;
       const studentId = Math.floor(10000000000 + Math.random() * 90000000000).toString();
+      const referrerUid = searchParams.get('ref');
       
       // Small delay to ensure Auth state is ready for Firestore rules
       await new Promise(resolve => setTimeout(resolve, 500));
@@ -45,9 +46,24 @@ export default function Register() {
           level: user.email === 'successugochukwuchi@gmail.com' ? '4' : '1',
           isActivated: isPreActivated || user.email === 'successugochukwuchi@gmail.com',
           referralCount: 0,
+          referredBy: referrerUid || null,
           theme: 'light',
           createdAt: new Date().toISOString()
         });
+
+        // Increment referrer count if applicable
+        if (referrerUid) {
+          try {
+            const referrerRef = doc(db, 'users', referrerUid);
+            const referrerSnap = await getDoc(referrerRef);
+            if (referrerSnap.exists()) {
+              const currentCount = referrerSnap.data().referralCount || 0;
+              await updateDoc(referrerRef, { referralCount: currentCount + 1 });
+            }
+          } catch (refError) {
+            console.error("Failed to update referrer:", refError);
+          }
+        }
         
         toast.success('Account created successfully');
         if (isPreActivated || user.email === 'successugochukwuchi@gmail.com') {

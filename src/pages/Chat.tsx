@@ -10,10 +10,10 @@ import { Avatar, AvatarFallback, AvatarImage } from '../components/ui/avatar';
 import { Badge } from '../components/ui/badge';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from '../components/ui/dialog';
 import { Label } from '../components/ui/label';
-import { Send, MessageSquare, Users, Search, ArrowLeft, MoreVertical, Shield, Plus, Check } from 'lucide-react';
+import { Send, MessageSquare, Users, Search, ArrowLeft, MoreVertical, Shield, Plus, Check, FileText } from 'lucide-react';
 import { toast } from 'sonner';
 import { cn } from '../lib/utils';
-import { UserProfile } from '../types';
+import { UserProfile, Note } from '../types';
 import { useTitle } from '../hooks/useTitle';
 
 interface Message {
@@ -21,6 +21,7 @@ interface Message {
   senderUid: string;
   senderName: string;
   text: string;
+  referencedNoteId?: string;
   createdAt: string;
 }
 
@@ -55,7 +56,20 @@ export default function Chat() {
   const [selectedFriends, setSelectedFriends] = useState<string[]>([]);
   const [groupName, setGroupName] = useState('');
   const [isCreateGroupOpen, setIsCreateGroupOpen] = useState(false);
+  const [isNoteSelectorOpen, setIsNoteSelectorOpen] = useState(false);
+  const [userNotes, setUserNotes] = useState<Note[]>([]);
+  const [selectedNote, setSelectedNote] = useState<Note | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
+
+  // Fetch user notes for reference
+  useEffect(() => {
+    if (!user) return;
+    const q = query(collection(db, 'notes')); 
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      setUserNotes(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Note)));
+    });
+    return () => unsubscribe();
+  }, [user]);
 
   // Fetch all chats for the user
   useEffect(() => {
@@ -174,16 +188,19 @@ export default function Chat() {
 
   const handleSendMessage = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!user || !profile || !newMessage.trim() || !activeChat) return;
+    if (!user || !profile || (!newMessage.trim() && !selectedNote) || !activeChat) return;
 
     const text = newMessage.trim();
+    const noteId = selectedNote?.id;
     setNewMessage('');
+    setSelectedNote(null);
 
     try {
       const msgData = {
         senderUid: user.uid,
         senderName: profile.username || 'User',
         text,
+        referencedNoteId: noteId || null,
         createdAt: new Date().toISOString()
       };
 
@@ -191,7 +208,7 @@ export default function Chat() {
       
       // Update last message in chat doc
       await updateDoc(doc(db, 'chats', activeChat.id), {
-        lastMessage: text,
+        lastMessage: text || `Shared a note: ${selectedNote?.title}`,
         lastUpdatedAt: new Date().toISOString()
       });
     } catch (err) {
@@ -366,6 +383,8 @@ export default function Chat() {
             >
               {messages.map((msg) => {
                 const isMe = msg.senderUid === user?.uid;
+                const refNote = userNotes.find(n => n.id === msg.referencedNoteId);
+                
                 return (
                   <div key={msg.id} className={cn("flex flex-col max-w-[80%]", isMe ? "ml-auto items-end" : "items-start")}>
                     {!isMe && activeChat.type === 'group' && (
@@ -374,12 +393,32 @@ export default function Chat() {
                       </span>
                     )}
                     <div className={cn(
-                      "px-4 py-2 rounded-2xl text-sm shadow-sm",
+                      "px-4 py-2 rounded-2xl text-sm shadow-sm space-y-2 relative group/msg",
                       isMe 
                         ? "bg-primary text-primary-foreground rounded-tr-none" 
-                        : "bg-card border rounded-tl-none"
+                        : "bg-card border rounded-tl-none text-foreground"
                     )}>
-                      {msg.text}
+                      {msg.text && <p className="leading-relaxed">{msg.text}</p>}
+                      {refNote && (
+                        <div 
+                          className={cn(
+                            "p-3 rounded-xl border flex items-center gap-3 cursor-pointer hover:bg-black/5 transition-colors",
+                            isMe ? "bg-white/10 border-white/20" : "bg-muted border-primary/10"
+                          )}
+                          onClick={() => navigate(`/notes?id=${refNote.id}`)}
+                        >
+                          <div className={cn(
+                            "h-10 w-10 rounded-lg flex items-center justify-center shrink-0",
+                            isMe ? "bg-white/20" : "bg-primary/10"
+                          )}>
+                            <FileText className={cn("h-5 w-5", isMe ? "text-white" : "text-primary")} />
+                          </div>
+                          <div className="min-w-0">
+                            <p className={cn("font-bold text-xs truncate", isMe ? "text-white" : "text-foreground")}>{refNote.title}</p>
+                            <p className={cn("text-[10px] opacity-70", isMe ? "text-white/80" : "text-muted-foreground")}>Click to view note</p>
+                          </div>
+                        </div>
+                      )}
                     </div>
                     <span className="text-[8px] text-muted-foreground mt-1 px-1">
                       {new Date(msg.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
@@ -389,16 +428,80 @@ export default function Chat() {
               })}
             </CardContent>
 
-            <CardFooter className="p-4 border-t">
-              <form onSubmit={handleSendMessage} className="flex w-full gap-2">
-                <Input 
-                  placeholder="Type a message..." 
-                  value={newMessage}
-                  onChange={(e) => setNewMessage(e.target.value)}
-                  className="bg-muted/50"
-                />
-                <Button type="submit" size="icon" disabled={!newMessage.trim()}>
-                  <Send className="h-4 w-4" />
+            <CardFooter className="p-4 border-t flex flex-col gap-3 bg-background">
+              {selectedNote && (
+                <div className="flex items-center justify-between w-full bg-primary/5 p-2 px-3 rounded-xl border border-primary/20 animate-in fade-in slide-in-from-bottom-2">
+                  <div className="flex items-center gap-2 overflow-hidden">
+                    <div className="h-7 w-7 rounded-md bg-primary/10 flex items-center justify-center shrink-0">
+                      <FileText className="h-4 w-4 text-primary" />
+                    </div>
+                    <div className="min-w-0">
+                      <p className="text-[10px] text-muted-foreground font-medium uppercase tracking-wider">Referencing note</p>
+                      <p className="text-xs font-bold truncate">{selectedNote.title}</p>
+                    </div>
+                  </div>
+                  <Button variant="ghost" size="icon" className="h-7 w-7 rounded-full hover:bg-destructive/10 hover:text-destructive" onClick={() => setSelectedNote(null)}>
+                    <Plus className="h-4 w-4 rotate-45" />
+                  </Button>
+                </div>
+              )}
+              <form onSubmit={handleSendMessage} className="flex w-full gap-2 relative">
+                <Dialog open={isNoteSelectorOpen} onOpenChange={setIsNoteSelectorOpen}>
+                  <DialogTrigger render={
+                    <Button type="button" variant="outline" size="icon" className="shrink-0 h-10 w-10 rounded-xl hover:bg-primary/5 hover:text-primary transition-colors">
+                      <FileText className="h-5 w-5" />
+                    </Button>
+                  } />
+                  <DialogContent className="sm:max-w-[425px]">
+                    <DialogHeader>
+                      <DialogTitle className="flex items-center gap-2">
+                        <FileText className="h-5 w-5 text-primary" />
+                        Refer a Note
+                      </DialogTitle>
+                      <DialogDescription>Select a note from your courses to share in this chat.</DialogDescription>
+                    </DialogHeader>
+                    <div className="max-h-[350px] overflow-y-auto space-y-2 py-4 pr-2">
+                      {userNotes.length > 0 ? (
+                        userNotes.map(note => (
+                          <div 
+                            key={note.id}
+                            className="p-3 border rounded-xl hover:bg-accent hover:border-primary/20 cursor-pointer flex items-center gap-3 transition-all active:scale-[0.98]"
+                            onClick={() => {
+                              setSelectedNote(note);
+                              setIsNoteSelectorOpen(false);
+                            }}
+                          >
+                            <div className="h-10 w-10 rounded-lg bg-primary/10 flex items-center justify-center shrink-0">
+                              <FileText className="h-5 w-5 text-primary" />
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <p className="font-bold text-sm truncate">{note.title}</p>
+                              <p className="text-[10px] font-bold text-muted-foreground uppercase bg-muted px-1.5 py-0.5 rounded w-fit mt-1">
+                                {note.type.replace('_', ' ')}
+                              </p>
+                            </div>
+                            <Check className="h-4 w-4 text-primary opacity-0 group-hover:opacity-100" />
+                          </div>
+                        ))
+                      ) : (
+                        <div className="text-center py-12 text-muted-foreground space-y-3">
+                          <FileText className="h-12 w-12 mx-auto opacity-20" />
+                          <p className="text-sm">No notes found to share.</p>
+                        </div>
+                      )}
+                    </div>
+                  </DialogContent>
+                </Dialog>
+                <div className="flex-1 relative">
+                  <Input 
+                    placeholder={selectedNote ? "Add a comment to this note..." : "Type a message..."}
+                    value={newMessage}
+                    onChange={(e) => setNewMessage(e.target.value)}
+                    className="bg-muted/50 border-none h-10 rounded-xl px-4 focus-visible:ring-primary/20"
+                  />
+                </div>
+                <Button type="submit" size="icon" className="shrink-0 h-10 w-10 rounded-xl shadow-lg shadow-primary/20" disabled={!newMessage.trim() && !selectedNote}>
+                  <Send className="h-5 w-5" />
                 </Button>
               </form>
             </CardFooter>

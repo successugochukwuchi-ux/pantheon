@@ -219,6 +219,12 @@
   }
   body {
     @apply bg-background text-foreground;
+    user-select: none;
+    -webkit-user-select: none;
+  }
+  input, textarea {
+    user-select: auto;
+    -webkit-user-select: auto;
   }
   html {
     @apply font-sans;

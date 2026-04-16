@@ -27,7 +27,7 @@ export default function PublicProfile() {
   useEffect(() => {
     if (!userId || !currentUser) return;
 
-    // Check friendship status
+    // Check friendship status in real-time
     const qFriends = query(collection(db, 'friendships'), where('uids', 'array-contains', currentUser.uid));
     const unsubFriends = onSnapshot(qFriends, (snapshot) => {
       const friendship = snapshot.docs.find(d => d.data().uids.includes(userId));
@@ -35,25 +35,31 @@ export default function PublicProfile() {
         setFriendStatus('friends');
         setFriendshipId(friendship.id);
       } else {
-        // Check pending requests
-        const qReqSent = query(collection(db, 'friend_requests'), where('fromUid', '==', currentUser.uid), where('toUid', '==', userId));
-        const qReqRecv = query(collection(db, 'friend_requests'), where('fromUid', '==', userId), where('toUid', '==', currentUser.uid));
+        // Only check requests if not already friends
+        setFriendshipId(null);
         
-        getDocs(qReqSent).then(snap => {
+        // Listen to requests sent by me to this user
+        const qReqSent = query(collection(db, 'friend_requests'), where('fromUid', '==', currentUser.uid), where('toUid', '==', userId), where('status', '==', 'pending'));
+        const unsubReqSent = onSnapshot(qReqSent, (snap) => {
           if (!snap.empty) {
             setFriendStatus('pending');
             setRequestId(snap.docs[0].id);
           } else {
-            getDocs(qReqRecv).then(snap2 => {
-              if (!snap2.empty) {
+            // Check received requests from this user to me
+            const qReqRecv = query(collection(db, 'friend_requests'), where('fromUid', '==', userId), where('toUid', '==', currentUser.uid), where('status', '==', 'pending'));
+            onSnapshot(qReqRecv, (snapRecv) => {
+              if (!snapRecv.empty) {
                 setFriendStatus('pending');
-                setRequestId(snap2.docs[0].id);
-              } else {
-                setFriendStatus('none');
+                setRequestId(snapRecv.docs[0].id);
+              } else if (friendStatus !== 'friends') {
+                 setFriendStatus('none');
+                 setRequestId(null);
               }
             });
           }
         });
+        
+        return () => unsubReqSent();
       }
     });
 
@@ -63,44 +69,60 @@ export default function PublicProfile() {
   useEffect(() => {
     if (!userId) return;
 
-    const fetchProfile = async () => {
-      const userDoc = await getDoc(doc(db, 'users', userId));
-      if (userDoc.exists()) {
-        setProfile({ uid: userDoc.id, ...userDoc.data() } as UserProfile);
-      } else {
+    const fetchData = async () => {
+      setLoading(true);
+      try {
+        // Fetch Profile
+        const userDoc = await getDoc(doc(db, 'users', userId));
+        if (userDoc.exists()) {
+          setProfile({ uid: userDoc.id, ...userDoc.data() } as UserProfile);
+        } else {
+          setLoading(false);
+          return;
+        }
+
+        // Fetch Courses for session display
+        const courseSnap = await getDocs(collection(db, 'courses'));
+        const courseMap: Record<string, Course> = {};
+        courseSnap.docs.forEach(doc => {
+          courseMap[doc.id] = { id: doc.id, ...doc.data() } as Course;
+        });
+        setCourses(courseMap);
+
+        // Fetch CBT Sessions (Real-time)
+        const q = query(
+          collection(db, 'cbt_sessions'),
+          where('userId', '==', userId),
+          orderBy('completedAt', 'desc'),
+          limit(5)
+        );
+
+        const unSubSessions = onSnapshot(q, (snapshot) => {
+          setRecentCBT(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as CBTSession)));
+          setLoading(false);
+        }, (err) => {
+          console.error("CBT Sessions fetch error:", err);
+          setLoading(false); // Make sure we stop loading even if this fails (e.g. missing index)
+        });
+
+        return () => unSubSessions();
+      } catch (err) {
+        console.error("Profile fetch error:", err);
         setLoading(false);
       }
     };
 
-    fetchProfile();
-
-    const q = query(
-      collection(db, 'cbt_sessions'),
-      where('userId', '==', userId),
-      orderBy('completedAt', 'desc'),
-      limit(5)
-    );
-
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      setRecentCBT(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as CBTSession)));
-      setLoading(false);
-    });
-
-    const unsubCourses = onSnapshot(collection(db, 'courses'), (snapshot) => {
-      const courseMap: Record<string, Course> = {};
-      snapshot.docs.forEach(doc => {
-        courseMap[doc.id] = { id: doc.id, ...doc.data() } as Course;
-      });
-      setCourses(courseMap);
-    });
-
-    return () => {
-      unsubscribe();
-      unsubCourses();
-    };
+    fetchData();
   }, [userId]);
 
-  if (loading) return <div className="flex items-center justify-center h-64"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div></div>;
+  if (loading) {
+    return (
+      <div className="flex flex-col items-center justify-center min-h-[400px] gap-4">
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary"></div>
+        <p className="text-muted-foreground animate-pulse">Retrieving student profile...</p>
+      </div>
+    );
+  }
   if (!profile) return <div className="text-center py-12"><p className="text-muted-foreground">User not found.</p><Button variant="link" onClick={() => navigate(-1)}>Go back</Button></div>;
 
   const isAdmin = profile.level === '3' || profile.level === '4';

@@ -5,15 +5,16 @@ import { NewsItem } from '../types';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card';
 import { Button } from '../components/ui/button';
 import { BookOpen, History, Calculator, Newspaper, AlertCircle, Info, HelpCircle } from 'lucide-react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { Alert, AlertDescription, AlertTitle } from '../components/ui/alert';
 import { useTitle } from '../hooks/useTitle';
 
 export default function Dashboard() {
   useTitle('Dashboard');
+  const navigate = useNavigate();
   const [news, setNews] = useState<NewsItem[]>([]);
-  const { profile, systemConfig } = useAuth();
+  const { profile, systemConfig, loading } = useAuth();
 
   useEffect(() => {
     if (!profile) return;
@@ -38,7 +39,8 @@ export default function Dashboard() {
     { name: 'Punch Notes', path: '/punch?type=punch', icon: Calculator, color: 'bg-orange-500' },
   ];
 
-  const isHoliday = !systemConfig || systemConfig.currentSemester === 'none';
+  const isHoliday = systemConfig?.currentSemester === 'none' || (!systemConfig && !loading);
+  const isUnactivated = profile && !profile.isActivated;
 
   return (
     <div className="space-y-8">
@@ -47,15 +49,24 @@ export default function Dashboard() {
         <p className="text-muted-foreground">Access your study materials and stay updated with the latest news.</p>
       </div>
 
-      {isHoliday ? (
-        <Alert variant="destructive" className="border-destructive/50 bg-destructive/5">
-          <AlertCircle className="h-4 w-4" />
-          <AlertTitle>Semester Ended</AlertTitle>
-          <AlertDescription>
-            The academic semester has ended. Access to course materials is restricted until the next semester starts.
+      {isUnactivated && (
+        <Alert variant="destructive" className="border-orange-500 bg-orange-500/5">
+          <AlertCircle className="h-4 w-4 text-orange-500" />
+          <AlertTitle className="text-orange-600">Account Not Activated</AlertTitle>
+          <AlertDescription className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+            <span>Your account is currently inactive. Please activate your account to access all study materials.</span>
+            <Button 
+              size="sm" 
+              className="bg-orange-600 hover:bg-orange-700 text-white border-none w-fit"
+              onClick={() => navigate('/activate')}
+            >
+              Activate Now
+            </Button>
           </AlertDescription>
         </Alert>
-      ) : (
+      )}
+
+      {systemConfig && !isHoliday && (
         <Alert className="border-primary/50 bg-primary/5">
           <Info className="h-4 w-4 text-primary" />
           <AlertTitle className="text-primary">{systemConfig.currentSemester} Semester Active</AlertTitle>
@@ -63,6 +74,22 @@ export default function Dashboard() {
             You are currently in the {systemConfig.currentSemester} semester. All relevant courses are now available.
           </AlertDescription>
         </Alert>
+      )}
+
+      {isHoliday && systemConfig && (
+        <Alert variant="destructive" className="border-destructive/50 bg-destructive/5">
+          <AlertCircle className="h-4 w-4" />
+          <AlertTitle>Semester Ended</AlertTitle>
+          <AlertDescription>
+            The academic semester has ended. Access to course materials is restricted until the next semester starts.
+          </AlertDescription>
+        </Alert>
+      )}
+
+      {!systemConfig && (
+        <div className="h-24 flex items-center justify-center text-muted-foreground animate-pulse">
+          Loading platform status...
+        </div>
       )}
 
       {/* Quick Links */}

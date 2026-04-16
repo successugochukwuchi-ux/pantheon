@@ -1,4 +1,5 @@
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
+import { useEffect } from 'react';
 import { AuthProvider } from './contexts/AuthContext';
 import { ThemeProvider } from './contexts/ThemeContext';
 import { Layout } from './components/Layout';
@@ -29,6 +30,36 @@ import Chat from './pages/Chat';
 import { MaintenanceGuard } from './components/MaintenanceGuard';
 
 export default function App() {
+  useEffect(() => {
+    const handleContextMenu = (e: MouseEvent) => {
+      const target = e.target as HTMLElement;
+      if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA') return;
+      e.preventDefault();
+    };
+
+    const handleCopy = (e: ClipboardEvent) => {
+      const target = e.target as HTMLElement;
+      if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA') return;
+      e.preventDefault();
+    };
+
+    const handleCut = (e: ClipboardEvent) => {
+      const target = e.target as HTMLElement;
+      if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA') return;
+      e.preventDefault();
+    };
+
+    document.addEventListener('contextmenu', handleContextMenu);
+    document.addEventListener('copy', handleCopy);
+    document.addEventListener('cut', handleCut);
+
+    return () => {
+      document.removeEventListener('contextmenu', handleContextMenu);
+      document.removeEventListener('copy', handleCopy);
+      document.removeEventListener('cut', handleCut);
+    };
+  }, []);
+
   return (
     <ThemeProvider>
       <AuthProvider>

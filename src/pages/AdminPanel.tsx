@@ -17,6 +17,7 @@ import { db, handleFirestoreError, OperationType } from '../firebase';
 import { useAuth } from '../contexts/AuthContext';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '../components/ui/card';
 import { Button } from '../components/ui/button';
+import { Badge } from '../components/ui/badge';
 import { Input } from '../components/ui/input';
 import { Label } from '../components/ui/label';
 import { Textarea } from '../components/ui/textarea';
@@ -105,6 +106,7 @@ export default function AdminPanel() {
 
   // Activation Code State
   const [generatedCode, setGeneratedCode] = useState('');
+  const [pinType, setPinType] = useState<'standard' | 'plus'>('standard');
   const [unusedPins, setUnusedPins] = useState<ActivationCode[]>([]);
   const [usedPins, setUsedPins] = useState<ActivationCode[]>([]);
 
@@ -309,7 +311,8 @@ export default function AdminPanel() {
         code: pin,
         isUsed: false,
         createdBy: user?.uid,
-        createdAt: new Date().toISOString()
+        createdAt: new Date().toISOString(),
+        type: pinType
       });
       setGeneratedCode(pin);
       toast.success('Activation pin generated');
@@ -330,27 +333,36 @@ export default function AdminPanel() {
     setLoading(true);
     try {
       const configRef = doc(db, 'system', 'config');
-      await updateDoc(configRef, {
+      await setDoc(configRef, {
         currentSemester: semester,
         updatedBy: user.uid,
         updatedAt: new Date().toISOString()
-      });
+      }, { merge: true });
 
-      // If ending a semester, deactivate all level 1 users
+      // If ending a semester, demote 1+ and deactivate 1
       if (semester === 'none') {
-        const usersQuery = query(collection(db, 'users'), where('level', '==', '1'), where('isActivated', '==', true));
-        const usersSnap = await getDocs(usersQuery);
-        
-        if (!usersSnap.empty) {
-          const batch = writeBatch(db);
-          usersSnap.docs.forEach((userDoc) => {
-            batch.update(userDoc.ref, { isActivated: false });
-          });
-          await batch.commit();
-          toast.success(`Semester ended. ${usersSnap.size} student accounts deactivated.`);
-        } else {
-          toast.success('Semester ended.');
-        }
+        const batch = writeBatch(db);
+        let countDeactivated = 0;
+        let countDemoted = 0;
+
+        // 1. Deactivate Level 1 users
+        const level1Query = query(collection(db, 'users'), where('level', '==', '1'), where('isActivated', '==', true));
+        const level1Snap = await getDocs(level1Query);
+        level1Snap.docs.forEach((userDoc) => {
+          batch.update(userDoc.ref, { isActivated: false });
+          countDeactivated++;
+        });
+
+        // 2. Demote Level 1+ users while keeping them activated
+        const level1PlusQuery = query(collection(db, 'users'), where('level', '==', '1+'));
+        const level1PlusSnap = await getDocs(level1PlusQuery);
+        level1PlusSnap.docs.forEach((userDoc) => {
+          batch.update(userDoc.ref, { level: '1' });
+          countDemoted++;
+        });
+
+        await batch.commit();
+        toast.success(`Semester ended. ${countDeactivated} deactivated, ${countDemoted} demoted.`);
       } else {
         toast.success(`${semester} Semester started.`);
       }
@@ -757,8 +769,13 @@ export default function AdminPanel() {
               <CardContent className="flex flex-col items-center justify-center py-8 gap-4">
                 {generatedCode && (
                   <div className="flex items-center gap-4 bg-muted p-6 rounded-lg border">
-                    <div className="text-4xl font-mono font-bold tracking-widest">
-                      {generatedCode}
+                    <div className="flex flex-col">
+                      <div className="text-4xl font-mono font-bold tracking-widest">
+                        {generatedCode}
+                      </div>
+                      <Badge variant={pinType === 'plus' ? 'default' : 'secondary'} className="w-fit mt-1">
+                        {pinType === 'plus' ? 'PLUS PIN (Level 1+)' : 'STANDARD PIN (Level 1)'}
+                      </Badge>
                     </div>
                     <Button 
                       variant="outline" 
@@ -770,9 +787,29 @@ export default function AdminPanel() {
                     </Button>
                   </div>
                 )}
-                <Button onClick={generatePin} disabled={loading} size="lg">
-                  {loading ? 'Generating...' : 'Generate New Pin'}
-                </Button>
+                
+                <div className="flex flex-col items-center gap-4 w-full max-w-xs">
+                  <div className="flex items-center gap-4 w-full">
+                    <Button 
+                      variant={pinType === 'standard' ? 'default' : 'outline'} 
+                      className="flex-1"
+                      onClick={() => setPinType('standard')}
+                    >
+                      Standard
+                    </Button>
+                    <Button 
+                      variant={pinType === 'plus' ? 'default' : 'outline'} 
+                      className="flex-1"
+                      onClick={() => setPinType('plus')}
+                    >
+                      PLUS
+                    </Button>
+                  </div>
+                  
+                  <Button onClick={generatePin} disabled={loading} size="lg" className="w-full">
+                    {loading ? 'Generating...' : `Generate ${pinType.toUpperCase()} Pin`}
+                  </Button>
+                </div>
                 {(!systemConfig || systemConfig.currentSemester === 'none') && (
                   <p className="text-sm text-destructive font-medium">Semester must be active to generate pins.</p>
                 )}

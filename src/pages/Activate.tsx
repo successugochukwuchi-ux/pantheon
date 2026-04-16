@@ -62,9 +62,16 @@ export default function Activate() {
       // Activate user
       const userPath = `users/${user!.uid}`;
       try {
-        await updateDoc(doc(db, 'users', user!.uid), {
+        const updateData: any = {
           isActivated: true
-        });
+        };
+        
+        // Grant Level 1+ if it's a PLUS pin
+        if (pinData.type === 'plus') {
+          updateData.level = '1+';
+        }
+        
+        await updateDoc(doc(db, 'users', user!.uid), updateData);
       } catch (error) {
         handleFirestoreError(error, OperationType.UPDATE, userPath);
       }

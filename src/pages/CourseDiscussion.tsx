@@ -7,10 +7,11 @@ import { Card, CardContent, CardHeader, CardTitle, CardFooter } from '../compone
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
 import { Badge } from '../components/ui/badge';
-import { ArrowLeft, Send, Users, MessageSquare, Shield } from 'lucide-react';
+import { ArrowLeft, Send, Users, MessageSquare, Shield, FileText, Check, Plus } from 'lucide-react';
 import { cn } from '../lib/utils';
-import { DiscussionMessage, Course } from '../types';
+import { DiscussionMessage, Course, Note } from '../types';
 import { toast } from 'sonner';
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from '../components/ui/dialog';
 
 export default function CourseDiscussion() {
   const { courseId } = useParams<{ courseId: string }>();
@@ -20,7 +21,20 @@ export default function CourseDiscussion() {
   const [messages, setMessages] = useState<DiscussionMessage[]>([]);
   const [newMessage, setNewMessage] = useState('');
   const [loading, setLoading] = useState(true);
+  const [isNoteSelectorOpen, setIsNoteSelectorOpen] = useState(false);
+  const [userNotes, setUserNotes] = useState<Note[]>([]);
+  const [selectedNote, setSelectedNote] = useState<Note | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
+
+  // Fetch all notes for referencing
+  useEffect(() => {
+    if (!user) return;
+    const q = query(collection(db, 'notes'));
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      setUserNotes(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Note)));
+    });
+    return () => unsubscribe();
+  }, [user]);
 
   useEffect(() => {
     if (!courseId) return;
@@ -66,10 +80,12 @@ export default function CourseDiscussion() {
 
   const handleSendMessage = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!user || !profile || !newMessage.trim() || !courseId) return;
+    if (!user || !profile || (!newMessage.trim() && !selectedNote) || !courseId) return;
 
     const text = newMessage.trim();
+    const noteId = selectedNote?.id;
     setNewMessage('');
+    setSelectedNote(null);
 
     try {
       await addDoc(collection(db, 'discussions'), {
@@ -78,6 +94,7 @@ export default function CourseDiscussion() {
         username: profile.username || 'Anonymous',
         userLevel: profile.level,
         text,
+        referencedNoteId: noteId || null,
         createdAt: new Date().toISOString()
       });
     } catch (err) {
@@ -116,37 +133,58 @@ export default function CourseDiscussion() {
           ref={scrollRef}
           className="flex-1 overflow-y-auto p-4 space-y-4 scroll-smooth"
         >
-          {messages.length > 0 ? (
-            messages.map((msg) => {
-              const isMe = msg.userId === user?.uid;
-              const isAdmin = msg.userLevel === '3' || msg.userLevel === '4';
-              
-              return (
-                <div key={msg.id} className={cn("flex flex-col max-w-[80%]", isMe ? "ml-auto items-end" : "items-start")}>
-                  <div className="flex items-center gap-2 mb-1 px-1">
-                    <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
-                      {msg.username}
+            {messages.length > 0 ? (
+              messages.map((msg) => {
+                const isMe = msg.userId === user?.uid;
+                const isAdmin = msg.userLevel === '3' || msg.userLevel === '4';
+                const refNote = userNotes.find(n => n.id === msg.referencedNoteId);
+                
+                return (
+                  <div key={msg.id} className={cn("flex flex-col max-w-[80%]", isMe ? "ml-auto items-end" : "items-start")}>
+                    <div className="flex items-center gap-2 mb-1 px-1">
+                      <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
+                        {msg.username}
+                      </span>
+                      <Badge variant={isAdmin ? "destructive" : "secondary"} className="text-[8px] h-3 px-1 py-0 uppercase font-bold">
+                        {isAdmin && <Shield className="h-2 w-2 mr-0.5 inline" />}
+                        Lvl {msg.userLevel}
+                      </Badge>
+                    </div>
+                    <div className={cn(
+                      "px-4 py-2 rounded-2xl text-sm shadow-sm space-y-2",
+                      isMe 
+                        ? "bg-primary text-primary-foreground rounded-tr-none" 
+                        : "bg-muted rounded-tl-none"
+                    )}>
+                      {msg.text && <p>{msg.text}</p>}
+                      {refNote && (
+                        <div 
+                          className={cn(
+                            "p-3 rounded-xl border flex items-center gap-3 cursor-pointer hover:bg-black/5 transition-colors",
+                            isMe ? "bg-white/10 border-white/20" : "bg-background border-primary/10"
+                          )}
+                          onClick={() => navigate(`/notes?id=${refNote.id}`)}
+                        >
+                          <div className={cn(
+                            "h-10 w-10 rounded-lg flex items-center justify-center shrink-0",
+                            isMe ? "bg-white/20" : "bg-primary/10"
+                          )}>
+                            <FileText className={cn("h-5 w-5", isMe ? "text-white" : "text-primary")} />
+                          </div>
+                          <div className="min-w-0">
+                            <p className={cn("font-bold text-xs truncate", isMe ? "text-white" : "text-foreground")}>{refNote.title}</p>
+                            <p className={cn("text-[10px] opacity-70", isMe ? "text-white/80" : "text-muted-foreground")}>Click to view note</p>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                    <span className="text-[8px] text-muted-foreground mt-1 px-1">
+                      {new Date(msg.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                     </span>
-                    <Badge variant={isAdmin ? "destructive" : "secondary"} className="text-[8px] h-3 px-1 py-0 uppercase font-bold">
-                      {isAdmin && <Shield className="h-2 w-2 mr-0.5 inline" />}
-                      Lvl {msg.userLevel}
-                    </Badge>
                   </div>
-                  <div className={cn(
-                    "px-4 py-2 rounded-2xl text-sm shadow-sm",
-                    isMe 
-                      ? "bg-primary text-primary-foreground rounded-tr-none" 
-                      : "bg-muted rounded-tl-none"
-                  )}>
-                    {msg.text}
-                  </div>
-                  <span className="text-[8px] text-muted-foreground mt-1 px-1">
-                    {new Date(msg.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                  </span>
-                </div>
-              );
-            })
-          ) : (
+                );
+              })
+            ) : (
             <div className="h-full flex flex-col items-center justify-center text-muted-foreground opacity-50 space-y-2">
               <MessageSquare className="h-12 w-12" />
               <p>No messages yet. Start the conversation!</p>
@@ -154,15 +192,77 @@ export default function CourseDiscussion() {
           )}
         </CardContent>
 
-        <CardFooter className="p-4 border-t bg-muted/30">
-          <form onSubmit={handleSendMessage} className="flex w-full gap-2">
+        <CardFooter className="p-4 border-t bg-muted/30 flex flex-col gap-3">
+          {selectedNote && (
+            <div className="flex items-center justify-between w-full bg-primary/5 p-2 px-3 rounded-xl border border-primary/20 animate-in fade-in slide-in-from-bottom-2">
+              <div className="flex items-center gap-2 overflow-hidden">
+                <div className="h-7 w-7 rounded-md bg-primary/10 flex items-center justify-center shrink-0">
+                  <FileText className="h-4 w-4 text-primary" />
+                </div>
+                <div className="min-w-0">
+                  <p className="text-[10px] text-muted-foreground font-medium uppercase tracking-wider">Referencing note</p>
+                  <p className="text-xs font-bold truncate">{selectedNote.title}</p>
+                </div>
+              </div>
+              <Button variant="ghost" size="icon" className="h-7 w-7 rounded-full hover:bg-destructive/10 hover:text-destructive" onClick={() => setSelectedNote(null)}>
+                <Plus className="h-4 w-4 rotate-45" />
+              </Button>
+            </div>
+          )}
+          <form onSubmit={handleSendMessage} className="flex w-full gap-2 relative">
+            <Dialog open={isNoteSelectorOpen} onOpenChange={setIsNoteSelectorOpen}>
+              <DialogTrigger render={
+                <Button type="button" variant="outline" size="icon" className="shrink-0 h-10 w-10 rounded-xl hover:bg-primary/5 hover:text-primary transition-colors">
+                  <FileText className="h-5 w-5" />
+                </Button>
+              } />
+              <DialogContent className="sm:max-w-[425px]">
+                <DialogHeader>
+                  <DialogTitle className="flex items-center gap-2">
+                    <FileText className="h-5 w-5 text-primary" />
+                    Refer a Note
+                  </DialogTitle>
+                  <DialogDescription>Select a note from this course or others to share in the discussion.</DialogDescription>
+                </DialogHeader>
+                <div className="max-h-[350px] overflow-y-auto space-y-2 py-4 pr-2">
+                  {userNotes.length > 0 ? (
+                    userNotes.map(note => (
+                      <div 
+                        key={note.id}
+                        className="p-3 border rounded-xl hover:bg-accent hover:border-primary/20 cursor-pointer flex items-center gap-3 transition-all active:scale-[0.98]"
+                        onClick={() => {
+                          setSelectedNote(note);
+                          setIsNoteSelectorOpen(false);
+                        }}
+                      >
+                        <div className="h-10 w-10 rounded-lg bg-primary/10 flex items-center justify-center shrink-0">
+                          <FileText className="h-5 w-5 text-primary" />
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <p className="font-bold text-sm truncate">{note.title}</p>
+                          <p className="text-[10px] font-bold text-muted-foreground uppercase bg-muted px-1.5 py-0.5 rounded w-fit mt-1">
+                            {note.type.replace('_', ' ')}
+                          </p>
+                        </div>
+                        <Check className="h-4 w-4 text-primary opacity-0 group-hover:opacity-100" />
+                      </div>
+                    ))
+                  ) : (
+                    <div className="text-center py-12 text-muted-foreground space-y-3">
+                      <FileText className="h-12 w-12 mx-auto opacity-20" />
+                      <p className="text-sm">No notes found to share.</p>
+                    </div>
+                  )}
+                </div>
+              </DialogContent>
+            </Dialog>
             <Input 
-              placeholder="Type your message..." 
+              placeholder={selectedNote ? "Add a comment..." : "Type your message..."} 
               value={newMessage}
               onChange={(e) => setNewMessage(e.target.value)}
-              className="bg-background"
+              className="bg-background rounded-xl h-10"
             />
-            <Button type="submit" size="icon" disabled={!newMessage.trim()}>
+            <Button type="submit" size="icon" className="shrink-0 h-10 w-10 rounded-xl" disabled={!newMessage.trim() && !selectedNote}>
               <Send className="h-4 w-4" />
             </Button>
           </form>

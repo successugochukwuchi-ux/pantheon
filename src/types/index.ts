@@ -93,6 +93,7 @@ export interface ActivationCode {
   usedAt?: string;
   createdBy: string;
   createdAt: string;
+  type?: 'standard' | 'plus';
 }
 
 export interface Notification {
@@ -113,5 +114,15 @@ export interface DiscussionMessage {
   username: string;
   userLevel: string;
   text: string;
+  referencedNoteId?: string;
+  createdAt: string;
+}
+
+export interface ChatMessage {
+  id: string;
+  senderUid: string;
+  senderName: string;
+  text: string;
+  referencedNoteId?: string;
   createdAt: string;
 }
