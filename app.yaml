@@ -1,0 +1,6 @@
+kind: wasmer.io/App.v0
+name: pantheon
+package: successugochukwuchi/pantheon
+domains:
+  - pantheon.com.ng
+  - www.pantheon.com.ng
