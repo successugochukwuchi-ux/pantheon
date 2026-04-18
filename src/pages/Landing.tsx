@@ -19,12 +19,6 @@ export default function Landing() {
       <header className="sticky top-0 z-50 w-full border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
         <div className="container flex h-16 items-center justify-between px-4 mx-auto">
           <Link to="/" className="flex items-center gap-2 font-bold text-2xl tracking-tighter text-primary">
-            <img 
-              src="https://i.imgur.com/PYAnixG.png" 
-              alt="PANTHEON Logo" 
-              className="h-8 w-8 object-contain" 
-              referrerPolicy="no-referrer"
-            />
             PANTHEON
           </Link>
           <nav className="flex items-center gap-4">
@@ -176,9 +170,11 @@ export default function Landing() {
             <span className="text-2xl font-bold tracking-tighter">PANTHEON</span>
             <p className="text-muted-foreground text-sm max-w-xs">Empowering FUTO students through technology and accessible education.</p>
           </div>
-          <div className="flex gap-8">
+          <div className="flex flex-wrap gap-4 md:gap-8 justify-center">
             <Link to="/login" className="text-sm hover:text-primary">Login</Link>
             <Link to="/register" className="text-sm hover:text-primary">Register</Link>
+            <Link to="/privacy" className="text-sm hover:text-primary">Privacy</Link>
+            <Link to="/terms" className="text-sm hover:text-primary">Terms</Link>
             <button onClick={openWhatsApp} className="text-sm hover:text-primary">Support</button>
           </div>
         </div>

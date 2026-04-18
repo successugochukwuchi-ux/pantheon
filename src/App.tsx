@@ -25,7 +25,10 @@ import AdminPanel from './pages/AdminPanel';
 import Banned from './pages/Banned';
 import News from './pages/News';
 import Friends from './pages/Friends';
+import PastQuestions from './pages/PastQuestions';
 import Chat from './pages/Chat';
+import PrivacyPolicy from './pages/PrivacyPolicy';
+import TermsOfService from './pages/TermsOfService';
 
 import { MaintenanceGuard } from './components/MaintenanceGuard';
 
@@ -70,6 +73,8 @@ export default function App() {
               <Route path="/" element={<Landing />} />
               <Route path="/login" element={<Login />} />
               <Route path="/register" element={<Register />} />
+              <Route path="/privacy" element={<PrivacyPolicy />} />
+              <Route path="/terms" element={<TermsOfService />} />
               <Route path="/banned" element={<Banned />} />
 
               {/* Protected Routes (Require Auth) */}
@@ -101,7 +106,7 @@ export default function App() {
               <Route path="/past-questions" element={
                 <ProtectedRoute>
                   <Layout>
-                    <StudyMaterials />
+                    <PastQuestions />
                   </Layout>
                 </ProtectedRoute>
               } />

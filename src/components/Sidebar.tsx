@@ -54,7 +54,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ onClose }) => {
     { name: 'Verification Queue', path: '/administrator/verifications', icon: CheckCircle },
     { name: 'Course Management', path: '/administrator/courses', icon: BookPlus },
     { name: 'Notes Management', path: '/administrator/notes', icon: FileText },
-    { name: 'CBT Management', path: '/administrator/cbt', icon: HelpCircle },
+    { name: 'Question Management', path: '/administrator/questions', icon: HelpCircle },
     { name: 'News Management', path: '/administrator/news', icon: Newspaper },
     { name: 'Activation Pins', path: '/administrator/pins', icon: Key },
   ];

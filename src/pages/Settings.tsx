@@ -304,6 +304,10 @@ export default function Settings() {
               <span className="font-bold text-lg">Level {profile?.level || '1'}</span>
             </div>
             <div className="flex flex-col gap-1">
+              <span className="text-xs text-muted-foreground uppercase font-semibold">Academic Level</span>
+              <span className="font-bold text-lg">{profile?.academicLevel || profile?.level || '100'} Level</span>
+            </div>
+            <div className="flex flex-col gap-1">
               <span className="text-xs text-muted-foreground uppercase font-semibold">Activation Status</span>
               <span className={`font-bold text-lg ${profile?.isActivated ? 'text-green-500' : 'text-red-500'}`}>
                 {profile?.isActivated ? 'Activated' : 'Not Activated'}

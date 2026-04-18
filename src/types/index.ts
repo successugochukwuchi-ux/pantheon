@@ -6,7 +6,10 @@ export interface UserProfile {
   studentId: string; // 11-digit numeric ID
   email: string;
   username?: string;
+  department?: string;
+  mobileNumber?: string;
   level: UserLevel;
+  academicLevel?: string;
   isActivated: boolean;
   referralCount: number;
   referredBy?: string;
@@ -23,6 +26,7 @@ export interface Course {
   title: string;
   semester: '1st' | '2nd';
   level: string;
+  department?: string; // If null/empty, it's a General Course
   createdAt: string;
 }
 
@@ -61,13 +65,26 @@ export interface VerificationRequest {
   username?: string;
 }
 
+export interface QuestionSheet {
+  id: string;
+  courseId: string;
+  semester: '1st' | '2nd';
+  academicLevel: string;
+  year: string;
+  isAvailable: boolean;
+  createdAt: string;
+  authorId: string;
+}
+
 export interface Question {
   id: string;
+  sheetId: string;
   courseId: string;
   text: string;
   correctAnswer: string;
   incorrectAnswers: string[];
   explanation?: string;
+  order: number;
   authorId: string;
   createdAt: string;
 }
@@ -113,6 +130,7 @@ export interface DiscussionMessage {
   userId: string;
   username: string;
   userLevel: string;
+  userAcademicLevel?: string;
   text: string;
   referencedNoteId?: string;
   createdAt: string;

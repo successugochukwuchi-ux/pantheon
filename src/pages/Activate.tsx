@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { doc, getDoc, updateDoc, setDoc, serverTimestamp } from 'firebase/firestore';
 import { db, handleFirestoreError, OperationType } from '../firebase';
@@ -119,8 +119,13 @@ export default function Activate() {
     window.open(`https://wa.me/2348118429150?text=${message}`, '_blank');
   };
 
+  useEffect(() => {
+    if (profile?.isActivated || user?.email === 'successugochukwuchi@gmail.com') {
+      navigate('/dashboard');
+    }
+  }, [profile, user, navigate]);
+
   if (profile?.isActivated || user?.email === 'successugochukwuchi@gmail.com') {
-    navigate('/dashboard');
     return null;
   }
 

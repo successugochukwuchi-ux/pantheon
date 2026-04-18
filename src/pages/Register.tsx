@@ -10,12 +10,18 @@ import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle }
 import { toast } from 'sonner';
 import { AlertCircle, Eye, EyeOff } from 'lucide-react';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select';
+import { DEPARTMENTS } from '../constants/departments';
 
 export default function Register() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [username, setUsername] = useState('');
+  const [department, setDepartment] = useState('');
+  const [mobileNumber, setMobileNumber] = useState('');
+  const [level, setLevel] = useState('100');
   const [loading, setLoading] = useState(false);
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
@@ -24,13 +30,20 @@ export default function Register() {
 
   const handleRegister = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (password !== confirmPassword) {
+      toast.error('Passwords do not match');
+      return;
+    }
+    if (!department) {
+      toast.error('Please select your department');
+      return;
+    }
     setLoading(true);
     try {
       const userCredential = await createUserWithEmailAndPassword(auth, email, password);
       const user = userCredential.user;
 
       // Create user profile
-      const path = `users/${user.uid}`;
       const studentId = Math.floor(10000000000 + Math.random() * 90000000000).toString();
       const referrerUid = searchParams.get('ref');
       
@@ -43,6 +56,9 @@ export default function Register() {
           studentId: studentId,
           email: user.email,
           username: username,
+          department: department,
+          mobileNumber: mobileNumber,
+          academicLevel: level,
           level: user.email === 'successugochukwuchi@gmail.com' ? '4' : '1',
           isActivated: isPreActivated || user.email === 'successugochukwuchi@gmail.com',
           referralCount: 0,
@@ -109,7 +125,7 @@ export default function Register() {
             </CardDescription>
           </CardHeader>
           <form onSubmit={handleRegister}>
-            <CardContent className="space-y-4">
+            <CardContent className="space-y-4 max-h-[60vh] overflow-y-auto px-6 py-4">
               <div className="space-y-2">
                 <Label htmlFor="username">Username</Label>
                 <Input 
@@ -134,6 +150,43 @@ export default function Register() {
                 />
               </div>
               <div className="space-y-2">
+                <Label htmlFor="mobile">Mobile Number</Label>
+                <Input 
+                  id="mobile" 
+                  type="tel" 
+                  placeholder="08012345678" 
+                  required 
+                  value={mobileNumber}
+                  onChange={(e) => setMobileNumber(e.target.value.replace(/\D/g, ''))}
+                  className="h-12"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>Department</Label>
+                <Select value={department} onValueChange={setDepartment}>
+                  <SelectTrigger className="h-12">
+                    <SelectValue placeholder="Select Department" />
+                  </SelectTrigger>
+                  <SelectContent className="max-h-[300px]">
+                    {DEPARTMENTS.map(dept => (
+                      <SelectItem key={dept} value={dept}>{dept}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2">
+                <Label>Current Level</Label>
+                <Select value={level} onValueChange={setLevel}>
+                  <SelectTrigger className="h-12">
+                    <SelectValue placeholder="Select Level" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="100">100 Level</SelectItem>
+                    <SelectItem value="200">200 Level</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2">
                 <Label htmlFor="password">Password</Label>
                 <div className="relative">
                   <Input 
@@ -152,6 +205,17 @@ export default function Register() {
                     {showPassword ? <EyeOff className="h-5 w-5" /> : <Eye className="h-5 w-5" />}
                   </button>
                 </div>
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="confirmPassword">Confirm Password</Label>
+                <Input 
+                  id="confirmPassword" 
+                  type="password" 
+                  required 
+                  value={confirmPassword}
+                  onChange={(e) => setConfirmPassword(e.target.value)}
+                  className="h-12"
+                />
               </div>
             </CardContent>
             <CardFooter className="flex flex-col gap-6 pt-4">

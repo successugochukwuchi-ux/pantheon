@@ -10,10 +10,10 @@ import { Avatar, AvatarFallback, AvatarImage } from '../components/ui/avatar';
 import { Badge } from '../components/ui/badge';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from '../components/ui/dialog';
 import { Label } from '../components/ui/label';
-import { Send, MessageSquare, Users, Search, ArrowLeft, MoreVertical, Shield, Plus, Check, FileText } from 'lucide-react';
+import { Send, MessageSquare, Users, Search, ArrowLeft, MoreVertical, Shield, Plus, Check, FileText, BookOpen, ChevronRight } from 'lucide-react';
 import { toast } from 'sonner';
 import { cn } from '../lib/utils';
-import { UserProfile, Note } from '../types';
+import { UserProfile, Note, Course } from '../types';
 import { useTitle } from '../hooks/useTitle';
 
 interface Message {
@@ -58,6 +58,8 @@ export default function Chat() {
   const [isCreateGroupOpen, setIsCreateGroupOpen] = useState(false);
   const [isNoteSelectorOpen, setIsNoteSelectorOpen] = useState(false);
   const [userNotes, setUserNotes] = useState<Note[]>([]);
+  const [courses, setCourses] = useState<Course[]>([]);
+  const [selectedCourseForNote, setSelectedCourseForNote] = useState<string | null>(null);
   const [selectedNote, setSelectedNote] = useState<Note | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
 
@@ -70,6 +72,15 @@ export default function Chat() {
     });
     return () => unsubscribe();
   }, [user]);
+
+  // Fetch all courses for note selector
+  useEffect(() => {
+    const q = query(collection(db, 'courses'), orderBy('code', 'asc'));
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      setCourses(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Course)));
+    });
+    return () => unsubscribe();
+  }, []);
 
   // Fetch all chats for the user
   useEffect(() => {
@@ -446,7 +457,10 @@ export default function Chat() {
                 </div>
               )}
               <form onSubmit={handleSendMessage} className="flex w-full gap-2 relative">
-                <Dialog open={isNoteSelectorOpen} onOpenChange={setIsNoteSelectorOpen}>
+                <Dialog open={isNoteSelectorOpen} onOpenChange={(open) => {
+                  setIsNoteSelectorOpen(open);
+                  if (!open) setSelectedCourseForNote(null);
+                }}>
                   <DialogTrigger render={
                     <Button type="button" variant="outline" size="icon" className="shrink-0 h-10 w-10 rounded-xl hover:bg-primary/5 hover:text-primary transition-colors">
                       <FileText className="h-5 w-5" />
@@ -455,39 +469,75 @@ export default function Chat() {
                   <DialogContent className="sm:max-w-[425px]">
                     <DialogHeader>
                       <DialogTitle className="flex items-center gap-2">
-                        <FileText className="h-5 w-5 text-primary" />
-                        Refer a Note
+                        {selectedCourseForNote ? (
+                          <Button variant="ghost" size="icon" className="h-8 w-8 -ml-1" onClick={() => setSelectedCourseForNote(null)}>
+                            <ArrowLeft className="h-4 w-4" />
+                          </Button>
+                        ) : (
+                          <FileText className="h-5 w-5 text-primary" />
+                        )}
+                        {selectedCourseForNote ? courses.find(c => c.id === selectedCourseForNote)?.code : 'Refer a Note'}
                       </DialogTitle>
-                      <DialogDescription>Select a note from your courses to share in this chat.</DialogDescription>
+                      <DialogDescription>
+                        {selectedCourseForNote ? 'Select a note to share in this chat.' : 'Select a course to view its notes.'}
+                      </DialogDescription>
                     </DialogHeader>
-                    <div className="max-h-[350px] overflow-y-auto space-y-2 py-4 pr-2">
-                      {userNotes.length > 0 ? (
-                        userNotes.map(note => (
-                          <div 
-                            key={note.id}
-                            className="p-3 border rounded-xl hover:bg-accent hover:border-primary/20 cursor-pointer flex items-center gap-3 transition-all active:scale-[0.98]"
-                            onClick={() => {
-                              setSelectedNote(note);
-                              setIsNoteSelectorOpen(false);
-                            }}
-                          >
-                            <div className="h-10 w-10 rounded-lg bg-primary/10 flex items-center justify-center shrink-0">
-                              <FileText className="h-5 w-5 text-primary" />
+                    <div className="max-h-[400px] overflow-y-auto space-y-2 py-4 pr-1">
+                      {!selectedCourseForNote ? (
+                        courses.length > 0 ? (
+                          courses.map(course => (
+                            <div 
+                              key={course.id}
+                              className="p-3 border rounded-xl hover:bg-accent hover:border-primary/20 cursor-pointer flex items-center justify-between group transition-all"
+                              onClick={() => setSelectedCourseForNote(course.id)}
+                            >
+                              <div className="flex items-center gap-3">
+                                <div className="h-10 w-10 rounded-lg bg-primary/10 flex items-center justify-center shrink-0">
+                                  <BookOpen className="h-5 w-5 text-primary" />
+                                </div>
+                                <div className="min-w-0">
+                                  <p className="font-bold text-sm truncate">{course.code}</p>
+                                  <p className="text-[10px] text-muted-foreground truncate">{course.title}</p>
+                                </div>
+                              </div>
+                              <ChevronRight className="h-4 w-4 text-muted-foreground group-hover:text-primary transition-transform group-hover:translate-x-1" />
                             </div>
-                            <div className="flex-1 min-w-0">
-                              <p className="font-bold text-sm truncate">{note.title}</p>
-                              <p className="text-[10px] font-bold text-muted-foreground uppercase bg-muted px-1.5 py-0.5 rounded w-fit mt-1">
-                                {note.type.replace('_', ' ')}
-                              </p>
-                            </div>
-                            <Check className="h-4 w-4 text-primary opacity-0 group-hover:opacity-100" />
-                          </div>
-                        ))
+                          ))
+                        ) : (
+                          <div className="text-center py-12 text-muted-foreground italic">No courses available.</div>
+                        )
                       ) : (
-                        <div className="text-center py-12 text-muted-foreground space-y-3">
-                          <FileText className="h-12 w-12 mx-auto opacity-20" />
-                          <p className="text-sm">No notes found to share.</p>
-                        </div>
+                        userNotes.filter(n => n.courseId === selectedCourseForNote).length > 0 ? (
+                          userNotes.filter(n => n.courseId === selectedCourseForNote).map(note => (
+                            <div 
+                              key={note.id}
+                              className="p-3 border rounded-xl hover:bg-accent hover:border-primary/20 cursor-pointer flex items-center gap-3 transition-all active:scale-[0.98]"
+                              onClick={() => {
+                                setSelectedNote(note);
+                                setIsNoteSelectorOpen(false);
+                              }}
+                            >
+                              <div className="h-10 w-10 rounded-lg bg-primary/10 flex items-center justify-center shrink-0">
+                                <FileText className="h-5 w-5 text-primary" />
+                              </div>
+                              <div className="flex-1 min-w-0">
+                                <p className="font-bold text-sm truncate">{note.title}</p>
+                                <div className="flex items-center gap-2 mt-1">
+                                  <p className="text-[10px] font-bold text-muted-foreground uppercase bg-muted px-1.5 py-0.5 rounded w-fit">
+                                    {note.type.replace('_', ' ')}
+                                  </p>
+                                </div>
+                              </div>
+                              <Check className="h-4 w-4 text-primary" />
+                            </div>
+                          ))
+                        ) : (
+                          <div className="text-center py-12 text-muted-foreground space-y-3">
+                            <FileText className="h-12 w-12 mx-auto opacity-10" />
+                            <p className="text-sm">No notes found for this course.</p>
+                            <Button variant="outline" size="sm" onClick={() => setSelectedCourseForNote(null)}>Back to courses</Button>
+                          </div>
+                        )
                       )}
                     </div>
                   </DialogContent>

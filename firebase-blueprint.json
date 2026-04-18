@@ -112,20 +112,37 @@
       },
       "required": ["courseId", "title", "content", "type", "authorId", "createdAt"]
     },
-    "Question": {
-      "title": "Question",
-      "description": "CBT Question",
+    "QuestionSheet": {
+      "title": "QuestionSheet",
+      "description": "A collection of questions for a specific course, level, year and semester",
       "type": "object",
       "properties": {
+        "courseId": { "type": "string" },
+        "semester": { "type": "string", "enum": ["1st", "2nd"] },
+        "academicLevel": { "type": "string" },
+        "year": { "type": "string" },
+        "isAvailable": { "type": "boolean" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "authorId": { "type": "string" }
+      },
+      "required": ["courseId", "semester", "academicLevel", "year", "isAvailable", "createdAt", "authorId"]
+    },
+    "Question": {
+      "title": "Question",
+      "description": "CBT/Past Question",
+      "type": "object",
+      "properties": {
+        "sheetId": { "type": "string" },
         "courseId": { "type": "string" },
         "text": { "type": "string" },
         "correctAnswer": { "type": "string" },
         "incorrectAnswers": { "type": "array", "items": { "type": "string" } },
         "explanation": { "type": "string" },
+        "order": { "type": "number" },
         "authorId": { "type": "string" },
         "createdAt": { "type": "string", "format": "date-time" }
       },
-      "required": ["courseId", "text", "correctAnswer", "incorrectAnswers", "authorId", "createdAt"]
+      "required": ["sheetId", "courseId", "text", "correctAnswer", "incorrectAnswers", "order", "authorId", "createdAt"]
     },
     "CBTSession": {
       "title": "CBTSession",
@@ -256,7 +273,11 @@
     },
     "/questions/{questionId}": {
       "schema": "Question",
-      "description": "CBT questions collection"
+      "description": "Questions linked to sheets"
+    },
+    "/questionSheets/{sheetId}": {
+      "schema": "QuestionSheet",
+      "description": "Question sheets for past questions and CBT"
     },
     "/cbt_sessions/{sessionId}": {
       "schema": "CBTSession",

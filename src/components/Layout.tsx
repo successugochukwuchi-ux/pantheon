@@ -14,6 +14,7 @@ import { auth, db } from '../firebase';
 import { collection, query, where, onSnapshot } from 'firebase/firestore';
 import { Sidebar } from './Sidebar';
 import { UserSearch } from './UserSearch';
+import { PWAInstall } from './PWAInstall';
 import { toast } from 'sonner';
 import { Notification } from '../types';
 import { cn } from '../lib/utils';
@@ -135,6 +136,9 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
             </div>
           </div>
         </footer>
+
+        {/* PWA Install Prompt */}
+        <PWAInstall />
       </div>
     </div>
   );

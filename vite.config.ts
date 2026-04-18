@@ -14,21 +14,27 @@ export default defineConfig(({mode}) => {
         registerType: 'autoUpdate',
         includeAssets: ['favicon.ico', 'apple-touch-icon.png', 'mask-icon.svg'],
         workbox: {
-          maximumFileSizeToCacheInBytes: 4000000, // Increase to 4MB
+          maximumFileSizeToCacheInBytes: 4000000,
+        },
+        devOptions: {
+          enabled: true
         },
         manifest: {
           name: 'Pantheon',
           short_name: 'Pantheon',
           description: 'Study app for FUTO students',
           theme_color: '#ffffff',
+          background_color: '#ffffff',
+          display: 'standalone',
+          start_url: '/',
           icons: [
             {
-              src: 'pwa-192x192.png',
+              src: 'https://i.imgur.com/PYAnixG.png',
               sizes: '192x192',
               type: 'image/png'
             },
             {
-              src: 'pwa-512x512.png',
+              src: 'https://i.imgur.com/PYAnixG.png',
               sizes: '512x512',
               type: 'image/png'
             }

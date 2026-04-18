@@ -149,7 +149,7 @@ export const UserSearch: React.FC = () => {
                           <p className="text-sm font-bold truncate group-hover:text-primary transition-colors">
                             {user.username || 'Anonymous'}
                           </p>
-                          <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-muted text-muted-foreground">Lvl {user.level}</span>
+                          <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-muted text-muted-foreground uppercase">Lvl {user.academicLevel || `${user.level}00`}</span>
                         </div>
                         <p className="text-xs text-muted-foreground font-mono">
                           ID: {user.studentId}

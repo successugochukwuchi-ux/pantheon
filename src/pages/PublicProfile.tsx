@@ -15,7 +15,7 @@ import { toast } from 'sonner';
 export default function PublicProfile() {
   const { userId } = useParams<{ userId: string }>();
   const navigate = useNavigate();
-  const { user: currentUser, profile: currentProfile } = useAuth();
+  const { user: currentUser, profile: currentProfile, systemConfig } = useAuth();
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [recentCBT, setRecentCBT] = useState<CBTSession[]>([]);
   const [courses, setCourses] = useState<Record<string, Course>>({});
@@ -34,32 +34,28 @@ export default function PublicProfile() {
       if (friendship) {
         setFriendStatus('friends');
         setFriendshipId(friendship.id);
+        setRequestId(null);
       } else {
-        // Only check requests if not already friends
         setFriendshipId(null);
-        
-        // Listen to requests sent by me to this user
+        // Fallback status check
         const qReqSent = query(collection(db, 'friend_requests'), where('fromUid', '==', currentUser.uid), where('toUid', '==', userId), where('status', '==', 'pending'));
-        const unsubReqSent = onSnapshot(qReqSent, (snap) => {
+        getDocs(qReqSent).then(snap => {
           if (!snap.empty) {
             setFriendStatus('pending');
             setRequestId(snap.docs[0].id);
           } else {
-            // Check received requests from this user to me
-            const qReqRecv = query(collection(db, 'friend_requests'), where('fromUid', '==', userId), where('toUid', '==', currentUser.uid), where('status', '==', 'pending'));
-            onSnapshot(qReqRecv, (snapRecv) => {
-              if (!snapRecv.empty) {
-                setFriendStatus('pending');
-                setRequestId(snapRecv.docs[0].id);
-              } else if (friendStatus !== 'friends') {
+             const qReqRecv = query(collection(db, 'friend_requests'), where('fromUid', '==', userId), where('toUid', '==', currentUser.uid), where('status', '==', 'pending'));
+             getDocs(qReqRecv).then(snapRecv => {
+               if (!snapRecv.empty) {
+                 setFriendStatus('pending');
+                 setRequestId(snapRecv.docs[0].id);
+               } else {
                  setFriendStatus('none');
                  setRequestId(null);
-              }
-            });
+               }
+             });
           }
         });
-        
-        return () => unsubReqSent();
       }
     });
 
@@ -81,28 +77,42 @@ export default function PublicProfile() {
           return;
         }
 
-        // Fetch Courses for session display
-        const courseSnap = await getDocs(collection(db, 'courses'));
+        // Fetch Courses for session display - filter by semester if not admin
+        const isAdminUser = currentProfile?.level === '3' || currentProfile?.level === '4';
+        let courseQ = query(collection(db, 'courses'));
+        if (!isAdminUser) {
+          if (systemConfig?.currentSemester && systemConfig.currentSemester !== 'none') {
+            courseQ = query(
+              collection(db, 'courses'),
+              where('semester', '==', systemConfig.currentSemester)
+            );
+          }
+        }
+        
+        const courseSnap = await getDocs(courseQ);
         const courseMap: Record<string, Course> = {};
         courseSnap.docs.forEach(doc => {
           courseMap[doc.id] = { id: doc.id, ...doc.data() } as Course;
         });
         setCourses(courseMap);
 
-        // Fetch CBT Sessions (Real-time)
+        // Fetch CBT Sessions (Real-time) - simplified to avoid index requirement
         const q = query(
           collection(db, 'cbt_sessions'),
           where('userId', '==', userId),
-          orderBy('completedAt', 'desc'),
-          limit(5)
+          limit(20) // Increased limit to ensure we have enough to sort
         );
 
         const unSubSessions = onSnapshot(q, (snapshot) => {
-          setRecentCBT(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as CBTSession)));
+          const sessionData = snapshot.docs
+            .map(doc => ({ id: doc.id, ...doc.data() } as CBTSession))
+            .sort((a, b) => new Date(b.completedAt).getTime() - new Date(a.completedAt).getTime())
+            .slice(0, 5); // Take top 5 after sorting
+          setRecentCBT(sessionData);
           setLoading(false);
         }, (err) => {
           console.error("CBT Sessions fetch error:", err);
-          setLoading(false); // Make sure we stop loading even if this fails (e.g. missing index)
+          setLoading(false);
         });
 
         return () => unSubSessions();
@@ -146,7 +156,7 @@ export default function PublicProfile() {
       <div className="flex items-center justify-center gap-2">
         <Badge variant={isAdmin ? "destructive" : "secondary"} className="gap-1">
           {isAdmin && <Shield className="h-3 w-3" />}
-          Level {profile.level}
+          {isAdmin ? `Level ${profile.level}` : `${profile.academicLevel || profile.level} Level`}
         </Badge>
         {profile.isActivated && <Badge className="bg-green-500/10 text-green-500 border-green-500/20">Activated</Badge>}
       </div>

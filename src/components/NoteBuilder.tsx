@@ -58,14 +58,16 @@ export interface NoteBlock {
 }
 
 const MATH_SYMBOLS = {
-  Basic: ['+', '-', '*', '/', '=', '≠', '<', '>', '≤', '≥', '±', '∞'],
+  Basic: ['+', '-', '*', '/', '=', '≠', '<', '>', '≤', '≥', '±', '∞', 'log_{2}', 'log_{b}', 'log_{n}'],
   Greek: ['α', 'β', 'γ', 'δ', 'ε', 'ζ', 'η', 'θ', 'λ', 'μ', 'π', 'σ', 'φ', 'ω', 'Δ', 'Ω'],
   Calculus: ['∫', '∬', '∂', '∇', '∑', '∏', '√', '∛', 'lim', '→'],
-  Functions: ['sin', 'cos', 'tan', 'log', 'ln', 'exp'],
+  Functions: ['sin', 'cos', 'tan', 'log', 'ln', 'exp', 'log_{b}', 'log_{10}', 'log_{e}'],
   LaTeX: [
     { label: 'Fraction', value: '\\frac{a}{b}' },
     { label: 'Power', value: 'x^{n}' },
-    { label: 'Subscript', value: 'x_{i}' },
+    { label: 'Subscript', value: 'x_{n}' },
+    { label: 'Log Base', value: '\\log_{b}{x}' },
+    { label: 'Base n', value: 'x_{n}' },
     { label: 'Square Root', value: '\\sqrt{x}' },
     { label: 'Integral', value: '\\int_{a}^{b} f(x) dx' },
     { label: 'Sum', value: '\\sum_{i=1}^{n}' },
@@ -210,33 +212,46 @@ const SortableBlock = ({ block, onUpdate, onDelete, onFocus, isPreview }: Sortab
             />
             {block.content && (
               <div className="relative border-2 border-dashed border-muted-foreground/20 rounded-xl p-8 bg-muted/5 flex justify-center min-h-[200px]">
-                <Rnd
-                  size={{ 
-                    width: block.settings?.width || 300, 
-                    height: block.settings?.height || 200 
-                  }}
-                  onResizeStop={(e, direction, ref, delta, position) => {
-                    onUpdate(block.id, block.content, {
-                      ...block.settings,
-                      width: parseInt(ref.style.width),
-                      height: parseInt(ref.style.height)
-                    });
-                  }}
-                  bounds="parent"
-                  lockAspectRatio={block.settings?.aspectRatio}
-                  className="relative group/rnd"
-                >
-                  <div className="relative w-full h-full">
-                    <img 
-                      src={block.content} 
-                      alt="Diagram" 
-                      className="w-full h-full object-contain select-none pointer-events-none"
-                      style={{
-                        transform: `scale(${block.settings?.flipX ? -1 : 1}, ${block.settings?.flipY ? -1 : 1})`
+                    <Rnd
+                      size={{ 
+                        width: block.settings?.width || 300, 
+                        height: block.settings?.height || 200 
                       }}
-                      referrerPolicy="no-referrer"
-                    />
-                    <div className="absolute -top-10 left-1/2 -translate-x-1/2 flex gap-1 bg-background border shadow-lg rounded-lg p-1 opacity-0 group-hover/rnd:opacity-100 transition-opacity z-50">
+                      onResizeStop={(e, direction, ref, delta, position) => {
+                        onUpdate(block.id, block.content, {
+                          ...block.settings,
+                          width: parseInt(ref.style.width),
+                          height: parseInt(ref.style.height)
+                        });
+                      }}
+                      lockAspectRatio={block.settings?.aspectRatio}
+                      minWidth={50}
+                      minHeight={50}
+                      enableResizing={{
+                        top: true, right: true, bottom: true, left: true,
+                        topRight: true, bottomRight: true, bottomLeft: true, topLeft: true
+                      }}
+                      className="relative group/rnd border border-transparent hover:border-primary/50 transition-colors"
+                      disableDragging={true}
+                    >
+                      <div className="relative w-full h-full">
+                        <img 
+                          src={block.content} 
+                          alt="Diagram" 
+                          className="w-full h-full object-contain select-none pointer-events-none"
+                          style={{
+                            transform: `scale(${block.settings?.flipX ? -1 : 1}, ${block.settings?.flipY ? -1 : 1})`
+                          }}
+                          referrerPolicy="no-referrer"
+                        />
+                        
+                        {/* Custom Resize Handles Indicators */}
+                        <div className="absolute -top-1 -left-1 w-2 h-2 bg-primary rounded-full opacity-0 group-hover/rnd:opacity-100 transition-opacity" />
+                        <div className="absolute -top-1 -right-1 w-2 h-2 bg-primary rounded-full opacity-0 group-hover/rnd:opacity-100 transition-opacity" />
+                        <div className="absolute -bottom-1 -left-1 w-2 h-2 bg-primary rounded-full opacity-0 group-hover/rnd:opacity-100 transition-opacity" />
+                        <div className="absolute -bottom-1 -right-1 w-2 h-2 bg-primary rounded-full opacity-0 group-hover/rnd:opacity-100 transition-opacity" />
+
+                        <div className="absolute -top-10 left-1/2 -translate-x-1/2 flex gap-1 bg-background border shadow-lg rounded-lg p-1 opacity-0 group-hover/rnd:opacity-100 transition-opacity z-50">
                       <Button 
                         variant="ghost" 
                         size="icon" 
@@ -285,9 +300,10 @@ const SortableBlock = ({ block, onUpdate, onDelete, onFocus, isPreview }: Sortab
 interface NoteBuilderProps {
   initialContent?: string;
   onChange: (content: string) => void;
+  mode?: 'create' | 'edit';
 }
 
-export const NoteBuilder: React.FC<NoteBuilderProps> = ({ initialContent, onChange }) => {
+export const NoteBuilder: React.FC<NoteBuilderProps> = ({ initialContent, onChange, mode = 'create' }) => {
   const [blocks, setBlocks] = useState<NoteBlock[]>(() => {
     if (initialContent) {
       try {
@@ -363,7 +379,10 @@ export const NoteBuilder: React.FC<NoteBuilderProps> = ({ initialContent, onChan
   };
 
   return (
-    <div className="flex h-[700px] border rounded-xl overflow-hidden bg-background">
+    <div className={cn(
+      "flex border rounded-xl overflow-hidden bg-background",
+      mode === 'edit' ? "h-full" : "h-[800px] min-h-[60vh] max-h-[80vh]"
+    )}>
       {/* Left Toolbar */}
       <div className="w-64 border-r bg-muted/20 flex flex-col">
         <div className="p-4 border-b bg-background flex items-center justify-between">
@@ -475,6 +494,12 @@ export const NoteBuilder: React.FC<NoteBuilderProps> = ({ initialContent, onChan
             <Button variant="default" size="sm" className="rounded-full h-8 w-8 p-0" onClick={() => addBlock('text')}>
               <Plus className="h-4 w-4" />
             </Button>
+            {mode === 'edit' && (
+              <>
+                <div className="w-px h-4 bg-border mx-1" />
+                <span className="text-xs font-bold text-primary px-2">Update Note</span>
+              </>
+            )}
           </div>
         )}
       </div>

@@ -120,7 +120,7 @@ export default function SearchResults() {
                     </p>
                     <div className="flex gap-4 mt-3">
                       <div className="text-xs px-2 py-1 bg-muted rounded-md font-medium">
-                        Level {user.level}
+                        {(user.level === '3' || user.level === '4') ? `Level ${user.level}` : `${user.academicLevel || user.level} Level`}
                       </div>
                       <div className="text-xs px-2 py-1 bg-muted rounded-md font-medium">
                         {user.referralCount} Referrals

@@ -11,13 +11,13 @@ import { CBTSession, Course } from '../types';
 import { Link } from 'react-router-dom';
 
 export default function CBTResults() {
-  const { user } = useAuth();
+  const { user, profile, systemConfig } = useAuth();
   const [sessions, setSessions] = useState<CBTSession[]>([]);
   const [courses, setCourses] = useState<Record<string, Course>>({});
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    if (!user) return;
+    if (!user || !profile) return;
 
     // Simplified query to avoid composite index requirement
     const q = query(
@@ -33,20 +33,34 @@ export default function CBTResults() {
       setLoading(false);
     });
 
-    // Fetch courses for labels
-    const unsubCourses = onSnapshot(collection(db, 'courses'), (snapshot) => {
+    const isAdmin = profile.level === '3' || profile.level === '4';
+
+    // Fetch courses for labels - filter by semester if not admin
+    let coursesQ = query(collection(db, 'courses'));
+    if (!isAdmin) {
+      if (systemConfig?.currentSemester && systemConfig.currentSemester !== 'none') {
+        coursesQ = query(
+          collection(db, 'courses'),
+          where('semester', '==', systemConfig.currentSemester)
+        );
+      }
+    }
+
+    const unsubCourses = onSnapshot(coursesQ, (snapshot) => {
       const courseMap: Record<string, Course> = {};
       snapshot.docs.forEach(doc => {
         courseMap[doc.id] = { id: doc.id, ...doc.data() } as Course;
       });
       setCourses(courseMap);
+    }, (err) => {
+      console.error("Courses fetch error in CBTResults:", err);
     });
 
     return () => {
       unsubscribe();
       unsubCourses();
     };
-  }, [user]);
+  }, [user, profile, systemConfig]);
 
   const getScoreColor = (score: number, total: number) => {
     const percentage = (score / total) * 100;

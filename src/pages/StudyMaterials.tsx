@@ -1,15 +1,16 @@
 import React, { useState, useEffect } from 'react';
-import { collection, onSnapshot, query, where, orderBy } from 'firebase/firestore';
+import { collection, onSnapshot, query, where, orderBy, doc, getDoc } from 'firebase/firestore';
 import { db } from '../firebase';
 import { useAuth } from '../contexts/AuthContext';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
 import { Badge } from '../components/ui/badge';
-import { Search, BookOpen, ChevronRight, ArrowLeft, AlertCircle, History, Calculator, HelpCircle, MessageSquare } from 'lucide-react';
+import { Search, BookOpen, ChevronRight, ArrowLeft, AlertCircle, History, Calculator, HelpCircle, MessageSquare, Maximize2 } from 'lucide-react';
 import { Course, Note } from '../types';
 import ReactMarkdown from 'react-markdown';
 import { Alert, AlertDescription, AlertTitle } from '../components/ui/alert';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '../components/ui/dialog';
 import 'katex/dist/katex.min.css';
 import { BlockMath } from 'react-katex';
 import { NoteBlock } from '../components/NoteBuilder';
@@ -18,7 +19,7 @@ import { useTitle } from '../hooks/useTitle';
 
 export default function StudyMaterials() {
   const { user, profile, systemConfig } = useAuth();
-  const [searchParams] = useSearchParams();
+  const [searchParams, setSearchParams] = useSearchParams();
   const navigate = useNavigate();
   const type = searchParams.get('type') || 'lecture';
   
@@ -27,6 +28,7 @@ export default function StudyMaterials() {
   const [selectedCourse, setSelectedCourse] = useState<Course | null>(null);
   const [selectedNote, setSelectedNote] = useState<Note | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
+  const [viewingImage, setViewingImage] = useState<string | null>(null);
 
   const isAdmin = profile?.level === '3' || profile?.level === '4';
   const isHoliday = systemConfig && systemConfig.currentSemester === 'none' && !isAdmin;
@@ -50,19 +52,74 @@ export default function StudyMaterials() {
   const Icon = typeIcons[type] || BookOpen;
 
   useEffect(() => {
+    const noteId = searchParams.get('id');
+    if (!noteId || courses.length === 0) return;
+
+    const loadNote = async () => {
+      try {
+        const noteDoc = await getDoc(doc(db, 'notes', noteId));
+        if (noteDoc.exists()) {
+          const noteData = { id: noteDoc.id, ...noteDoc.data() } as Note;
+          const course = courses.find(c => c.id === noteData.courseId);
+          if (course) {
+            setSelectedCourse(course);
+            setSelectedNote(noteData);
+            // If the note type is different from current view, update it
+            if (noteData.type !== type) {
+              setSearchParams({ type: noteData.type, id: noteId });
+            }
+          }
+        }
+      } catch (error) {
+        console.error("Error loading referenced note:", error);
+      }
+    };
+
+    loadNote();
+  }, [searchParams, courses, type, setSearchParams]);
+
+  useEffect(() => {
     if (isHoliday) return;
+    if (!profile) return;
+
+    // Students MUST wait for systemConfig to have a defined semester to avoid unfiltered query Permission Denied
+    const isStudent = profile.level === '1' || profile.level === '2';
+    if (isStudent && (!systemConfig || systemConfig.currentSemester === 'none')) {
+      return;
+    }
 
     let q = query(collection(db, 'courses'));
     
-    if (systemConfig?.currentSemester && systemConfig.currentSemester !== 'none' && !isAdmin) {
-      q = query(
-        collection(db, 'courses'),
-        where('semester', '==', systemConfig.currentSemester)
-      );
+    // Admin sees all, but students see by semester
+    if (!isAdmin) {
+      if (systemConfig?.currentSemester && systemConfig.currentSemester !== 'none') {
+        q = query(
+          collection(db, 'courses'),
+          where('semester', '==', systemConfig.currentSemester)
+        );
+      } else {
+        // If not admin and no semester, don't query at all to prevent rules rejection
+        setCourses([]);
+        return;
+      }
     }
 
     const unsubscribe = onSnapshot(q, (snapshot) => {
-      setCourses(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Course)));
+      let loadedCourses = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Course));
+      
+      // Secondary filter by level and department for non-admins
+      if (!isAdmin) {
+        loadedCourses = loadedCourses.filter(course => {
+          const userAcademicLevel = profile.academicLevel || profile.level; // Fallback for old accounts
+          const isCorrectLevel = String(course.level) === String(userAcademicLevel);
+          const isCorrectDepartment = !course.department || course.department === 'general' || course.department === profile.department;
+          return isCorrectLevel && isCorrectDepartment;
+        });
+      }
+      
+      setCourses(loadedCourses);
+    }, (error) => {
+      console.error("Courses fetch error in StudyMaterials:", error);
     });
 
     return () => unsubscribe();
@@ -138,23 +195,46 @@ export default function StudyMaterials() {
                 )}
                 {block.type === 'diagram' && block.content && (
                   <div className="flex justify-center py-4">
-                    <img 
-                      src={block.content} 
-                      alt="Diagram" 
-                      className="max-w-full h-auto rounded-lg shadow-md"
-                      referrerPolicy="no-referrer"
-                      style={{
-                        width: block.settings?.width || 'auto',
-                        height: block.settings?.height || 'auto',
-                        transform: `scale(${block.settings?.flipX ? -1 : 1}, ${block.settings?.flipY ? -1 : 1})`,
-                      }}
-                    />
+                    <div className="relative group cursor-zoom-in" onClick={() => setViewingImage(block.content)}>
+                      <img 
+                        src={block.content} 
+                        alt="Diagram" 
+                        className="max-w-full h-auto rounded-lg shadow-md transition-all group-hover:ring-4 group-hover:ring-primary/20"
+                        referrerPolicy="no-referrer"
+                        style={{
+                          width: block.settings?.width || 'auto',
+                          height: block.settings?.height || 'auto',
+                          transform: `scale(${block.settings?.flipX ? -1 : 1}, ${block.settings?.flipY ? -1 : 1})`,
+                        }}
+                      />
+                      <div className="absolute top-2 right-2 p-1.5 bg-black/60 rounded-full text-white opacity-0 group-hover:opacity-100 transition-opacity">
+                        <Maximize2 className="h-4 w-4" />
+                      </div>
+                    </div>
                   </div>
                 )}
               </div>
             ))}
           </CardContent>
         </Card>
+
+        <Dialog open={!!viewingImage} onOpenChange={(open) => !open && setViewingImage(null)}>
+          <DialogContent className="max-w-[95vw] w-fit p-1 bg-transparent border-none shadow-none">
+            <DialogHeader className="sr-only">
+              <DialogTitle>View Image</DialogTitle>
+            </DialogHeader>
+            <div className="relative flex items-center justify-center min-h-[50vh]">
+              {viewingImage && (
+                <img 
+                  src={viewingImage} 
+                  alt="Enlarged diagram" 
+                  className="max-w-full max-h-[90vh] rounded-lg shadow-2xl bg-background"
+                  referrerPolicy="no-referrer"
+                />
+              )}
+            </div>
+          </DialogContent>
+        </Dialog>
       </div>
     );
   }

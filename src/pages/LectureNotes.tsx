@@ -6,10 +6,11 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../co
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
 import { Badge } from '../components/ui/badge';
-import { Search, BookOpen, ChevronRight, ArrowLeft, AlertCircle } from 'lucide-react';
+import { Search, BookOpen, ChevronRight, ArrowLeft, AlertCircle, Maximize2 } from 'lucide-react';
 import { Course, Note } from '../types';
 import ReactMarkdown from 'react-markdown';
 import { Alert, AlertDescription, AlertTitle } from '../components/ui/alert';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '../components/ui/dialog';
 import 'katex/dist/katex.min.css';
 import { BlockMath } from 'react-katex';
 import { NoteBlock } from '../components/NoteBuilder';
@@ -21,6 +22,7 @@ export default function LectureNotes() {
   const [selectedCourse, setSelectedCourse] = useState<Course | null>(null);
   const [selectedNote, setSelectedNote] = useState<Note | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
+  const [viewingImage, setViewingImage] = useState<string | null>(null);
 
   const isHoliday = !systemConfig || systemConfig.currentSemester === 'none';
 
@@ -105,23 +107,46 @@ export default function LectureNotes() {
                 )}
                 {block.type === 'diagram' && block.content && (
                   <div className="flex justify-center py-4">
-                    <img 
-                      src={block.content} 
-                      alt="Diagram" 
-                      className="max-w-full h-auto rounded-lg shadow-md"
-                      referrerPolicy="no-referrer"
-                      style={{
-                        width: block.settings?.width || 'auto',
-                        height: block.settings?.height || 'auto',
-                        transform: `scale(${block.settings?.flipX ? -1 : 1}, ${block.settings?.flipY ? -1 : 1})`,
-                      }}
-                    />
+                    <div className="relative group cursor-zoom-in" onClick={() => setViewingImage(block.content)}>
+                      <img 
+                        src={block.content} 
+                        alt="Diagram" 
+                        className="max-w-full h-auto rounded-lg shadow-md transition-all group-hover:ring-4 group-hover:ring-primary/20"
+                        referrerPolicy="no-referrer"
+                        style={{
+                          width: block.settings?.width || 'auto',
+                          height: block.settings?.height || 'auto',
+                          transform: `scale(${block.settings?.flipX ? -1 : 1}, ${block.settings?.flipY ? -1 : 1})`,
+                        }}
+                      />
+                      <div className="absolute top-2 right-2 p-1.5 bg-black/60 rounded-full text-white opacity-0 group-hover:opacity-100 transition-opacity">
+                        <Maximize2 className="h-4 w-4" />
+                      </div>
+                    </div>
                   </div>
                 )}
               </div>
             ))}
           </CardContent>
         </Card>
+
+        <Dialog open={!!viewingImage} onOpenChange={(open) => !open && setViewingImage(null)}>
+          <DialogContent className="max-w-[95vw] w-fit p-1 bg-transparent border-none shadow-none">
+            <DialogHeader className="sr-only">
+              <DialogTitle>View Image</DialogTitle>
+            </DialogHeader>
+            <div className="relative flex items-center justify-center min-h-[50vh]">
+              {viewingImage && (
+                <img 
+                  src={viewingImage} 
+                  alt="Enlarged diagram" 
+                  className="max-w-full max-h-[90vh] rounded-lg shadow-2xl bg-background"
+                  referrerPolicy="no-referrer"
+                />
+              )}
+            </div>
+          </DialogContent>
+        </Dialog>
       </div>
     );
   }
