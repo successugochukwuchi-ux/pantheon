@@ -660,6 +660,7 @@ export default function AdminPanel() {
       const configRef = doc(db, 'system', 'config');
       await setDoc(configRef, {
         currentSemester: semester,
+        maintenanceMode: systemConfig?.maintenanceMode || false,
         updatedBy: user.uid,
         updatedAt: new Date().toISOString()
       }, { merge: true });

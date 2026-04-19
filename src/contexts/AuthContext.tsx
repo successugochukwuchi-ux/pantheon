@@ -75,7 +75,17 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         });
       }
     }, (error) => {
-      console.error("Promo config listener failed:", error);
+      if (auth.currentUser) {
+        console.error("Promo config listener failed:", error);
+      }
+      // Set a safe fallback even on error to allow UI to render correctly
+      setPromoConfig(prev => prev || {
+        isActive: false,
+        quota: 0,
+        count: 0,
+        updatedAt: new Date().toISOString(),
+        updatedBy: 'system'
+      });
     });
 
     return () => {
