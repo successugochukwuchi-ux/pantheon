@@ -6,9 +6,10 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter }
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
 import { Badge } from '../components/ui/badge';
-import { Users, Copy, Share2, Award, Gift, CheckCircle } from 'lucide-react';
+import { Users, Copy, Share2, Award, Gift, CheckCircle, AlertOctagon } from 'lucide-react';
 import { UserProfile } from '../types';
 import { toast } from 'sonner';
+import { cn } from '../lib/utils';
 
 export default function Referrals() {
   const { profile, user } = useAuth();
@@ -33,13 +34,22 @@ export default function Referrals() {
   }, [user]);
 
   const referralLink = `${window.location.origin}/register?ref=${user?.uid}`;
+  const isRestricted = profile?.level === '1+' || profile?.level === '2' || profile?.level === '3' || profile?.level === '4';
 
   const copyToClipboard = () => {
+    if (isRestricted) {
+      toast.error('Level 1+ accounts are not permitted to make referrals.');
+      return;
+    }
     navigator.clipboard.writeText(referralLink);
     toast.success('Referral link copied to clipboard!');
   };
 
   const shareLink = async () => {
+    if (isRestricted) {
+      toast.error('Level 1+ accounts are not permitted to make referrals.');
+      return;
+    }
     if (navigator.share) {
       try {
         await navigator.share({
@@ -62,7 +72,21 @@ export default function Referrals() {
         <p className="text-muted-foreground">Invite your friends to Pantheon and earn rewards.</p>
       </div>
 
-      <div className="grid gap-6 md:grid-cols-2">
+      {isRestricted && (
+        <Card className="border-destructive/20 bg-destructive/5">
+          <CardHeader className="py-4">
+            <div className="flex items-center gap-2 text-destructive">
+              <AlertOctagon className="h-5 w-5" />
+              <CardTitle className="text-sm font-bold">Referrals Restricted</CardTitle>
+            </div>
+            <CardDescription className="text-xs">
+              Level 1+ and Administrative accounts are not eligible to participate in the referral program to ensure fair rewards for standard students.
+            </CardDescription>
+          </CardHeader>
+        </Card>
+      )}
+
+      <div className={cn("grid gap-6 md:grid-cols-2", isRestricted && "opacity-60 grayscale pointer-events-none select-none")}>
         <Card className="border-primary/20 bg-primary/5">
           <CardHeader>
             <CardTitle className="flex items-center gap-2">

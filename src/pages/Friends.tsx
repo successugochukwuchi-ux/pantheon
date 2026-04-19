@@ -297,7 +297,7 @@ export default function Friends() {
                           onClick={() => navigate(`/profile/${friend.friendUid}`)}
                         >
                           <Avatar className="h-12 w-12 sm:h-14 sm:w-14 rounded-full ring-2 ring-background border border-muted/30 shadow-sm transition-transform group-hover:scale-105">
-                            <AvatarImage src={friend.friendProfile?.photoURL} />
+                            <AvatarImage src={friend.friendProfile?.photoURL || `https://api.dicebear.com/7.x/avataaars/svg?seed=${friend.friendUid}`} />
                             <AvatarFallback className="bg-primary/5 text-primary text-lg font-black uppercase">
                               {(friend.friendProfile?.username || 'U')[0]}
                             </AvatarFallback>

@@ -18,25 +18,90 @@ import {
   FileText,
   HelpCircle,
   CheckCircle,
-  Award
+  Award,
+  PlayCircle,
+  Bell
 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { cn } from '../lib/utils';
 import { UserSearch } from './UserSearch';
+import { SystemStatus } from './SystemStatus';
+import { collection, query, where, onSnapshot } from 'firebase/firestore';
+import { db, auth } from '../firebase';
+import { Notification, Announcement } from '../types';
 
 interface SidebarProps {
   onClose?: () => void;
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({ onClose }) => {
-  const { profile } = useAuth();
+  const { profile, user } = useAuth();
   const location = useLocation();
+  const [unreadCount, setUnreadCount] = React.useState(0);
+
+  React.useEffect(() => {
+    if (!user) return;
+
+    let unsubAnn: (() => void) | null = null;
+    let specificUnread = 0;
+    let announcements: Announcement[] = [];
+
+    const updateUnread = (notifs: number, annList: Announcement[]) => {
+      const savedRead = localStorage.getItem(`read_announcements_${user.uid}`);
+      const readIds = savedRead ? JSON.parse(savedRead) : [];
+      
+      const savedCleared = localStorage.getItem(`cleared_announcements_${user.uid}`);
+      const clearedIds = savedCleared ? JSON.parse(savedCleared) : [];
+      
+      const unreadAnn = annList.filter(ann => {
+        if (readIds.includes(ann.id) || clearedIds.includes(ann.id)) return false;
+        if (ann.targetType === 'all') return true;
+        if (ann.targetType === 'uid' && ann.targetValue === user.uid) return true;
+        if (!profile) return false;
+        if (ann.targetType === 'level' && ann.targetValue === profile.level) return true;
+        if (ann.targetType === 'academicLevel' && ann.targetValue === profile.academicLevel) return true;
+        if (ann.targetType === 'department' && ann.targetValue === profile.department) return true;
+        if (ann.targetType === 'level_dept') {
+          return ann.targetValue === `${profile.academicLevel}_${profile.department}`;
+        }
+        return false;
+      }).length;
+      
+      setUnreadCount(notifs + unreadAnn);
+    };
+
+    // Specific notifications
+    const qNotif = query(collection(db, 'notifications'), where('userId', '==', user.uid), where('isRead', '==', false));
+    const unsubNotif = onSnapshot(qNotif, (snapshot) => {
+      specificUnread = snapshot.size;
+      updateUnread(specificUnread, announcements);
+    }, (error) => {
+      console.error("Sidebar notification listener error:", error);
+    });
+
+    // Announcements listener
+    unsubAnn = onSnapshot(collection(db, 'announcements'), (snapshot) => {
+      announcements = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Announcement));
+      updateUnread(specificUnread, announcements);
+    }, (error) => {
+      if (auth.currentUser) {
+        console.error("Sidebar announcements listener error:", error);
+      }
+    });
+
+    return () => {
+      unsubNotif();
+      if (unsubAnn) unsubAnn();
+    };
+  }, [user, profile]);
 
   const isAdmin = profile?.level === '3' || profile?.level === '4';
   const isAdminPath = location.pathname.startsWith('/administrator');
 
-  const studentNavItems = [
+  const studentNavItems: { name: string, path: string, icon: any, badge?: number }[] = [
     { name: 'Dashboard', path: '/dashboard', icon: LayoutDashboard },
+    { name: 'Notifications', path: '/notifications', icon: Bell, badge: unreadCount > 0 ? unreadCount : undefined },
+    { name: 'Video Library', path: '/video-library', icon: PlayCircle },
     { name: 'Lecture Notes', path: '/notes?type=lecture', icon: BookOpen },
     { name: 'Past Questions', path: '/past-questions?type=past_question', icon: History },
     { name: 'CBT Practice', path: '/cbt', icon: HelpCircle },
@@ -48,7 +113,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ onClose }) => {
     { name: 'Referrals', path: '/referrals', icon: Users },
   ];
 
-  const adminNavItems = [
+  const adminNavItems: { name: string, path: string, icon: any, badge?: number }[] = [
     { name: 'Admin Overview', path: '/administrator', icon: Shield },
     { name: 'User Management', path: '/administrator/users', icon: Users },
     { name: 'Verification Queue', path: '/administrator/verifications', icon: CheckCircle },
@@ -57,9 +122,10 @@ export const Sidebar: React.FC<SidebarProps> = ({ onClose }) => {
     { name: 'Question Management', path: '/administrator/questions', icon: HelpCircle },
     { name: 'News Management', path: '/administrator/news', icon: Newspaper },
     { name: 'Activation Pins', path: '/administrator/pins', icon: Key },
+    { name: 'Video Management', path: '/administrator/videos', icon: PlayCircle },
   ];
 
-  const level4NavItems = [
+  const level4NavItems: { name: string, path: string, icon: any, badge?: number }[] = [
     ...adminNavItems,
     { name: 'System Control', path: '/administrator/system', icon: Settings },
   ];
@@ -81,6 +147,10 @@ export const Sidebar: React.FC<SidebarProps> = ({ onClose }) => {
 
       <div className="px-6 mb-4 md:hidden">
         <UserSearch />
+      </div>
+
+      <div className="px-6 mb-4">
+        <SystemStatus />
       </div>
 
       <nav className="flex-1 px-4 space-y-1 overflow-y-auto">
@@ -106,7 +176,12 @@ export const Sidebar: React.FC<SidebarProps> = ({ onClose }) => {
                   <item.icon className={cn("h-4 w-4", isActive ? "text-sidebar-primary-foreground" : "text-sidebar-foreground/70 group-hover:text-sidebar-accent-foreground")} />
                   {item.name}
                 </div>
-                {isActive && <ChevronRight className="h-4 w-4 opacity-50" />}
+                {item.badge && (
+                  <span className="flex h-5 w-5 items-center justify-center rounded-full bg-primary text-[10px] font-bold text-primary-foreground shadow-sm">
+                    {item.badge}
+                  </span>
+                )}
+                {isActive && !item.badge && <ChevronRight className="h-4 w-4 opacity-50" />}
               </Link>
             );
           })}

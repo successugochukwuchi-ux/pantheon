@@ -3,12 +3,13 @@ import { onAuthStateChanged, User } from 'firebase/auth';
 import { doc, onSnapshot, updateDoc, setDoc } from 'firebase/firestore';
 import { auth, db, handleFirestoreError, OperationType } from '../firebase';
 import { toast } from 'sonner';
-import { UserProfile, SystemConfig } from '../types';
+import { UserProfile, SystemConfig, PromoConfig } from '../types';
 
 interface AuthContextType {
   user: User | null;
   profile: UserProfile | null;
   systemConfig: SystemConfig | null;
+  promoConfig: PromoConfig | null;
   loading: boolean;
   isAuthReady: boolean;
 }
@@ -19,6 +20,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [user, setUser] = useState<User | null>(null);
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [systemConfig, setSystemConfig] = useState<SystemConfig | null>(null);
+  const [promoConfig, setPromoConfig] = useState<PromoConfig | null>(null);
   const [loading, setLoading] = useState(true);
   const [isAuthReady, setIsAuthReady] = useState(false);
   const [retryCount, setRetryCount] = useState(0);
@@ -49,9 +51,37 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           updatedAt: new Date().toISOString()
         });
       }
+    }, (error) => {
+      console.error("System config listener failed:", error);
+      // Fallback to default if we can't read it
+      setSystemConfig({
+        currentSemester: 'none',
+        maintenanceMode: false,
+        updatedBy: 'system',
+        updatedAt: new Date().toISOString()
+      });
     });
 
-    return () => unsubscribeConfig();
+    const unsubscribePromo = onSnapshot(doc(db, 'system', 'promo'), (snapshot) => {
+      if (snapshot.exists()) {
+        setPromoConfig(snapshot.data() as PromoConfig);
+      } else {
+        setPromoConfig({
+          isActive: false,
+          quota: 0,
+          count: 0,
+          updatedAt: new Date().toISOString(),
+          updatedBy: 'system'
+        });
+      }
+    }, (error) => {
+      console.error("Promo config listener failed:", error);
+    });
+
+    return () => {
+      unsubscribeConfig();
+      unsubscribePromo();
+    };
   }, []);
 
   useEffect(() => {
@@ -109,7 +139,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   }, [user, retryCount]);
 
   return (
-    <AuthContext.Provider value={{ user, profile, systemConfig, loading, isAuthReady }}>
+    <AuthContext.Provider value={{ user, profile, systemConfig, promoConfig, loading, isAuthReady }}>
       {children}
     </AuthContext.Provider>
   );

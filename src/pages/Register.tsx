@@ -1,8 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate, Link, useSearchParams } from 'react-router-dom';
-import { createUserWithEmailAndPassword } from 'firebase/auth';
-import { doc, setDoc, getDoc, updateDoc, serverTimestamp } from 'firebase/firestore';
-import { auth, db, handleFirestoreError, OperationType } from '../firebase';
+import { createUserWithEmailAndPassword, updateProfile } from 'firebase/auth';
+import { doc, setDoc, getDoc, updateDoc } from 'firebase/firestore';
+import { auth, db } from '../firebase';
+import { formatAuthError } from '../lib/auth-errors';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
 import { Label } from '../components/ui/label';
@@ -51,6 +52,9 @@ export default function Register() {
       await new Promise(resolve => setTimeout(resolve, 500));
 
       try {
+        const photoURL = `https://api.dicebear.com/7.x/avataaars/svg?seed=${user.uid}`;
+        await updateProfile(user, { photoURL });
+        
         await setDoc(doc(db, 'users', user.uid), {
           uid: user.uid,
           studentId: studentId,
@@ -64,6 +68,7 @@ export default function Register() {
           referralCount: 0,
           referredBy: referrerUid || null,
           theme: 'light',
+          photoURL: photoURL,
           createdAt: new Date().toISOString()
         });
 
@@ -95,7 +100,7 @@ export default function Register() {
         navigate('/dashboard');
       }
     } catch (error: any) {
-      toast.error(error.message || 'Failed to register');
+      toast.error(formatAuthError(error.code));
     } finally {
       setLoading(false);
     }

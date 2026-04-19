@@ -11,8 +11,7 @@ import { Course, Note } from '../types';
 import ReactMarkdown from 'react-markdown';
 import { Alert, AlertDescription, AlertTitle } from '../components/ui/alert';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '../components/ui/dialog';
-import 'katex/dist/katex.min.css';
-import { BlockMath } from 'react-katex';
+import { MathJax } from 'better-react-mathjax';
 import { NoteBlock } from '../components/NoteBuilder';
 
 export default function LectureNotes() {
@@ -102,7 +101,7 @@ export default function LectureNotes() {
                 )}
                 {block.type === 'math' && (
                   <div className="py-4 overflow-x-auto flex justify-center bg-muted/30 rounded-lg">
-                    <BlockMath math={block.content} />
+                    <MathJax>{`$$${block.content}$$`}</MathJax>
                   </div>
                 )}
                 {block.type === 'diagram' && block.content && (

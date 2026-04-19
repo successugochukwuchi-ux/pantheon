@@ -46,7 +46,8 @@ export default function Settings() {
         const photoURL = `https://api.dicebear.com/7.x/${avatarStyle}/svg?seed=${avatarSeed}`;
         await updateProfile(user, { photoURL });
         await updateDoc(doc(db, 'users', user.uid), {
-          username: username
+          username: username,
+          photoURL: photoURL
         });
         toast.success('Profile updated successfully');
       }

@@ -5,6 +5,7 @@ import { ThemeProvider } from './contexts/ThemeContext';
 import { Layout } from './components/Layout';
 import { ProtectedRoute } from './components/ProtectedRoute';
 import { Toaster } from './components/ui/sonner';
+import { MathJaxContext } from 'better-react-mathjax';
 
 // Pages
 import Landing from './pages/Landing';
@@ -26,6 +27,7 @@ import Banned from './pages/Banned';
 import News from './pages/News';
 import Friends from './pages/Friends';
 import PastQuestions from './pages/PastQuestions';
+import VideoLibrary from './pages/VideoLibrary';
 import Chat from './pages/Chat';
 import PrivacyPolicy from './pages/PrivacyPolicy';
 import TermsOfService from './pages/TermsOfService';
@@ -63,10 +65,23 @@ export default function App() {
     };
   }, []);
 
+  const mathJaxConfig = {
+    loader: { load: ["[tex]/mhchem", "[tex]/physics"] },
+    tex: {
+      packages: { "[+]": ["mhchem", "physics"] },
+      inlineMath: [["$", "$"], ["\\(", "\\)"]],
+      displayMath: [["$$", "$$"], ["\\[", "\\]"]],
+      macros: {
+        degree: "^{\\circ}"
+      }
+    }
+  };
+
   return (
     <ThemeProvider>
       <AuthProvider>
-        <Router>
+        <MathJaxContext config={mathJaxConfig}>
+          <Router>
           <MaintenanceGuard>
             <Routes>
               {/* Public Routes */}
@@ -159,6 +174,14 @@ export default function App() {
                 </ProtectedRoute>
               } />
 
+              <Route path="/video-library" element={
+                <ProtectedRoute>
+                  <Layout>
+                    <VideoLibrary />
+                  </Layout>
+                </ProtectedRoute>
+              } />
+
               <Route path="/chat" element={
                 <ProtectedRoute>
                   <Layout>
@@ -222,7 +245,8 @@ export default function App() {
           </MaintenanceGuard>
           <Toaster position="top-center" />
         </Router>
-      </AuthProvider>
-    </ThemeProvider>
+      </MathJaxContext>
+    </AuthProvider>
+  </ThemeProvider>
   );
 }

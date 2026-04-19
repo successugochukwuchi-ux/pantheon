@@ -9,7 +9,7 @@ import { toast } from 'sonner';
 import { History, Play, CheckCircle2, XCircle, ArrowRight, ArrowLeft, RotateCcw } from 'lucide-react';
 import { Course, Question, QuestionSheet } from '../types';
 import { motion, AnimatePresence } from 'motion/react';
-import { BlockMath } from 'react-katex';
+import { MathJax } from 'better-react-mathjax';
 import 'katex/dist/katex.min.css';
 import { useTitle } from '../hooks/useTitle';
 
@@ -212,7 +212,9 @@ export default function PastQuestions() {
           <Card className="min-h-[400px] flex flex-col border-2">
             <CardHeader>
               <div className="prose dark:prose-invert max-w-none text-xl leading-relaxed">
-                <BlockMath math={currentQuestion.text} />
+                <div className="py-4">
+                  <MathJax>{`$$${currentQuestion.text}$$`}</MathJax>
+                </div>
               </div>
             </CardHeader>
             <CardContent className="flex-1 space-y-3">

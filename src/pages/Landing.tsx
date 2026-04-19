@@ -2,11 +2,14 @@ import React from 'react';
 import { Link } from 'react-router-dom';
 import { Button, buttonVariants } from '../components/ui/button';
 import { cn } from '../lib/utils';
-import { BookOpen, Shield, Zap, Users, GraduationCap, ChevronRight, MessageCircle, History, LogIn } from 'lucide-react';
+import { BookOpen, Shield, Zap, Users, GraduationCap, ChevronRight, MessageCircle, History, LogIn, LayoutDashboard } from 'lucide-react';
 import { useTitle } from '../hooks/useTitle';
+import { useAuth } from '../contexts/AuthContext';
+import { SystemStatus } from '../components/SystemStatus';
 
 export default function Landing() {
   useTitle('Welcome');
+  const { user, isAuthReady } = useAuth();
 
   const openWhatsApp = () => {
     const message = encodeURIComponent("Hello, I'm interested in the Pantheon Study App for FUTO.");
@@ -22,19 +25,28 @@ export default function Landing() {
             PANTHEON
           </Link>
           <nav className="flex items-center gap-4">
-            <Link to="/login" className={cn(buttonVariants({ variant: 'ghost', size: 'sm' }), "hidden sm:flex")}>
-              Login
-            </Link>
-            <Link to="/register" className={cn(buttonVariants({ size: 'sm' }), "rounded-full")}>
-              Sign Up
-            </Link>
-            <Link 
-              to="/login" 
-              className={cn(buttonVariants({ variant: 'outline', size: 'icon' }), "sm:hidden rounded-full")}
-              title="Login"
-            >
-              <LogIn className="h-4 w-4" />
-            </Link>
+            {isAuthReady && user ? (
+              <Link to="/dashboard" className={cn(buttonVariants({ size: 'sm' }), "rounded-full gap-2")}>
+                <LayoutDashboard className="h-4 w-4" />
+                Dashboard
+              </Link>
+            ) : (
+              <>
+                <Link to="/login" className={cn(buttonVariants({ variant: 'ghost', size: 'sm' }), "hidden sm:flex")}>
+                  Login
+                </Link>
+                <Link to="/register" className={cn(buttonVariants({ size: 'sm' }), "rounded-full")}>
+                  Sign Up
+                </Link>
+                <Link 
+                  to="/login" 
+                  className={cn(buttonVariants({ variant: 'outline', size: 'icon' }), "sm:hidden rounded-full")}
+                  title="Login"
+                >
+                  <LogIn className="h-4 w-4" />
+                </Link>
+              </>
+            )}
           </nav>
         </div>
       </header>
@@ -51,6 +63,10 @@ export default function Landing() {
             <h1 className="text-5xl md:text-7xl font-extrabold tracking-tighter mb-6 bg-clip-text text-transparent bg-gradient-to-r from-primary to-primary/60">
               Master Your Courses with PANTHEON
             </h1>
+
+            <div className="w-full max-w-sm mb-8 animate-in fade-in slide-in-from-bottom-4 duration-1000">
+              <SystemStatus />
+            </div>
             
             <p className="text-xl text-muted-foreground mb-10 max-w-2xl">
               The ultimate study companion for FUTO students. Lecture notes, past questions, CBT practice, and calculator shortcuts—all in one place, even offline.
@@ -58,10 +74,10 @@ export default function Landing() {
             
             <div className="flex flex-col sm:flex-row gap-4">
               <Link 
-                to="/register" 
+                to={user ? "/dashboard" : "/register"} 
                 className={cn(buttonVariants({ size: 'lg' }), "rounded-full px-8 h-12 text-lg")}
               >
-                Get Started Now <ChevronRight className="ml-2 h-5 w-5" />
+                {user ? "View Dashboard" : "Get Started Now"} <ChevronRight className="ml-2 h-5 w-5" />
               </Link>
               <Button variant="outline" size="lg" className="rounded-full px-8 h-12 text-lg" onClick={openWhatsApp}>
                 <MessageCircle className="mr-2 h-5 w-5 text-green-500" />
@@ -171,8 +187,14 @@ export default function Landing() {
             <p className="text-muted-foreground text-sm max-w-xs">Empowering FUTO students through technology and accessible education.</p>
           </div>
           <div className="flex flex-wrap gap-4 md:gap-8 justify-center">
-            <Link to="/login" className="text-sm hover:text-primary">Login</Link>
-            <Link to="/register" className="text-sm hover:text-primary">Register</Link>
+            {user ? (
+              <Link to="/dashboard" className="text-sm hover:text-primary font-medium">Dashboard</Link>
+            ) : (
+              <>
+                <Link to="/login" className="text-sm hover:text-primary">Login</Link>
+                <Link to="/register" className="text-sm hover:text-primary">Register</Link>
+              </>
+            )}
             <Link to="/privacy" className="text-sm hover:text-primary">Privacy</Link>
             <Link to="/terms" className="text-sm hover:text-primary">Terms</Link>
             <button onClick={openWhatsApp} className="text-sm hover:text-primary">Support</button>

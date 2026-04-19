@@ -1,11 +1,25 @@
 import React, { useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
-import { signInWithEmailAndPassword, sendPasswordResetEmail } from 'firebase/auth';
+import { 
+  signInWithEmailAndPassword, 
+  sendPasswordResetEmail,
+  setPersistence,
+  browserLocalPersistence,
+  browserSessionPersistence 
+} from 'firebase/auth';
 import { auth } from '../firebase';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
 import { Label } from '../components/ui/label';
-import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '../components/ui/card';
+import { formatAuthError } from '../lib/auth-errors';
+import { 
+  Card, 
+  CardContent, 
+  CardDescription, 
+  CardFooter, 
+  CardHeader, 
+  CardTitle 
+} from '../components/ui/card';
 import {
   Dialog,
   DialogContent,
@@ -16,13 +30,14 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import { toast } from 'sonner';
-import { AlertCircle, Eye, EyeOff } from 'lucide-react';
+import { AlertCircle, Eye, EyeOff, CheckSquare, Square } from 'lucide-react';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 
 export default function Login() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
+  const [stayLoggedIn, setStayLoggedIn] = useState(true);
   const [loading, setLoading] = useState(false);
   const [resetEmail, setResetEmail] = useState('');
   const [resetLoading, setResetLoading] = useState(false);
@@ -33,11 +48,17 @@ export default function Login() {
     e.preventDefault();
     setLoading(true);
     try {
+      // Set persistence based on user preference
+      await setPersistence(
+        auth, 
+        stayLoggedIn ? browserLocalPersistence : browserSessionPersistence
+      );
+      
       await signInWithEmailAndPassword(auth, email, password);
       toast.success('Logged in successfully');
       navigate('/dashboard');
     } catch (error: any) {
-      toast.error(error.message || 'Failed to login');
+      toast.error(formatAuthError(error.code));
     } finally {
       setLoading(false);
     }
@@ -56,7 +77,7 @@ export default function Login() {
       setIsResetOpen(false);
       setResetEmail('');
     } catch (error: any) {
-      toast.error(error.message || 'Failed to send reset email');
+      toast.error(formatAuthError(error.code));
     } finally {
       setResetLoading(false);
     }
@@ -149,6 +170,20 @@ export default function Login() {
                     {showPassword ? <EyeOff className="h-5 w-5" /> : <Eye className="h-5 w-5" />}
                   </button>
                 </div>
+              </div>
+              <div className="flex items-center space-x-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setStayLoggedIn(!stayLoggedIn)}
+                  className="flex items-center space-x-2 text-sm text-muted-foreground hover:text-foreground transition-colors"
+                >
+                  {stayLoggedIn ? (
+                    <CheckSquare className="h-4 w-4 text-primary" />
+                  ) : (
+                    <Square className="h-4 w-4" />
+                  )}
+                  <span>Stay logged in</span>
+                </button>
               </div>
             </CardContent>
             <CardFooter className="flex flex-col gap-6 pt-4">

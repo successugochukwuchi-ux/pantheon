@@ -1,5 +1,33 @@
 {
   "entities": {
+    "VideoQuestion": {
+      "title": "VideoQuestion",
+      "description": "Question related to a video link in a note",
+      "type": "object",
+      "properties": {
+        "noteId": { "type": "string" },
+        "text": { "type": "string" },
+        "correctAnswer": { "type": "string" },
+        "incorrectAnswers": { "type": "array", "items": { "type": "string" } },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["noteId", "text", "correctAnswer", "incorrectAnswers", "createdAt"]
+    },
+    "Announcement": {
+      "title": "Announcement",
+      "description": "System-wide or filtered announcement",
+      "type": "object",
+      "properties": {
+        "title": { "type": "string" },
+        "message": { "type": "string" },
+        "type": { "type": "string", "enum": ["news", "material", "system", "announcement"] },
+        "targetType": { "type": "string", "enum": ["all", "level", "uid", "academicLevel", "department", "level_dept"] },
+        "targetValue": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "authorId": { "type": "string" }
+      },
+      "required": ["title", "message", "type", "targetType", "targetValue", "createdAt", "authorId"]
+    },
     "UserProfile": {
       "title": "UserProfile",
       "description": "User profile information",
@@ -82,6 +110,19 @@
         "updatedAt": { "type": "string", "format": "date-time" }
       },
       "required": ["currentSemester", "maintenanceMode", "updatedBy", "updatedAt"]
+    },
+    "PromoConfig": {
+      "title": "PromoConfig",
+      "description": "Configuration for promo mode activations",
+      "type": "object",
+      "properties": {
+        "isActive": { "type": "boolean" },
+        "quota": { "type": "number" },
+        "count": { "type": "number" },
+        "updatedAt": { "type": "string", "format": "date-time" },
+        "updatedBy": { "type": "string" }
+      },
+      "required": ["isActive", "quota", "count", "updatedAt", "updatedBy"]
     },
     "VerificationRequest": {
       "title": "VerificationRequest",
@@ -267,6 +308,10 @@
       "schema": "SystemConfig",
       "description": "Global system configuration"
     },
+    "/system/promo": {
+      "schema": "PromoConfig",
+      "description": "Promo mode configuration"
+    },
     "/notes/{noteId}": {
       "schema": "Note",
       "description": "Academic notes collection"
@@ -279,6 +324,10 @@
       "schema": "QuestionSheet",
       "description": "Question sheets for past questions and CBT"
     },
+    "/notes/{noteId}/videoQuestions/{questionId}": {
+      "schema": "VideoQuestion",
+      "description": "Questions linked to a video in a note"
+    },
     "/cbt_sessions/{sessionId}": {
       "schema": "CBTSession",
       "description": "User CBT sessions"
@@ -286,6 +335,10 @@
     "/notifications/{notificationId}": {
       "schema": "Notification",
       "description": "User notifications"
+    },
+    "/announcements/{announcementId}": {
+      "schema": "Announcement",
+      "description": "System announcements"
     },
     "/chats/{chatId}": {
       "schema": "ChatRoom",

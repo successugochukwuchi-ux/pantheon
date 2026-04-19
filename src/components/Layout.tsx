@@ -13,10 +13,11 @@ import { Avatar, AvatarFallback, AvatarImage } from './ui/avatar';
 import { auth, db } from '../firebase';
 import { collection, query, where, onSnapshot } from 'firebase/firestore';
 import { Sidebar } from './Sidebar';
+import { SystemStatus } from './SystemStatus';
 import { UserSearch } from './UserSearch';
 import { PWAInstall } from './PWAInstall';
 import { toast } from 'sonner';
-import { Notification } from '../types';
+import { Notification, Announcement } from '../types';
 import { cn } from '../lib/utils';
 
 export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
@@ -26,26 +27,77 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
   const [isMobileMenuOpen, setIsMobileMenuOpen] = React.useState(false);
   const [unreadCount, setUnreadCount] = React.useState(0);
   const [recentNotifications, setRecentNotifications] = React.useState<Notification[]>([]);
+  const prevUnreadRef = React.useRef(0);
+  const notificationSound = React.useRef(new Audio('https://assets.mixkit.co/active_storage/sfx/2358/2358-preview.mp3'));
+
+  React.useEffect(() => {
+    if (unreadCount > prevUnreadRef.current && unreadCount > 0) {
+      notificationSound.current.play().catch(() => {});
+    }
+    prevUnreadRef.current = unreadCount;
+  }, [unreadCount]);
 
   React.useEffect(() => {
     if (!user) return;
 
-    // Simplified query to avoid composite index requirement
+    let unsubAnn: (() => void) | null = null;
+    let specificUnread = 0;
+    let announcements: Announcement[] = [];
+
+    const updateUnread = (notifs: number, ann: Announcement[]) => {
+      const savedRead = localStorage.getItem(`read_announcements_${user.uid}`);
+      const readIds = savedRead ? JSON.parse(savedRead) : [];
+      
+      const savedCleared = localStorage.getItem(`cleared_announcements_${user.uid}`);
+      const clearedIds = savedCleared ? JSON.parse(savedCleared) : [];
+      
+      const unreadAnn = ann.filter(item => {
+        if (readIds.includes(item.id) || clearedIds.includes(item.id)) return false;
+        if (item.targetType === 'all') return true;
+        if (item.targetType === 'uid' && item.targetValue === user.uid) return true;
+        if (!profile) return false;
+        if (item.targetType === 'level' && item.targetValue === profile.level) return true;
+        if (item.targetType === 'academicLevel' && item.targetValue === profile.academicLevel) return true;
+        if (item.targetType === 'department' && item.targetValue === profile.department) return true;
+        if (item.targetType === 'level_dept') {
+          return item.targetValue === `${profile.academicLevel}_${profile.department}`;
+        }
+        return false;
+      }).length;
+      
+      setUnreadCount(notifs + unreadAnn);
+    };
+
+    // Specific notifications
     const q = query(
       collection(db, 'notifications'),
-      where('userId', '==', user.uid)
+      where('userId', '==', user.uid),
+      where('isRead', '==', false)
     );
 
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      const notifs = snapshot.docs
-        .map(doc => ({ id: doc.id, ...doc.data() } as Notification))
-        .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
-      setRecentNotifications(notifs.slice(0, 5));
-      setUnreadCount(notifs.filter(n => !n.isRead).length);
+    const unsubNotifs = onSnapshot(q, (snapshot) => {
+      specificUnread = snapshot.size;
+      updateUnread(specificUnread, announcements);
+    }, (error) => {
+      console.error("Notifications listener failed:", error);
     });
 
-    return () => unsubscribe();
-  }, [user]);
+    // Announcements listener
+    unsubAnn = onSnapshot(collection(db, 'announcements'), (snapshot) => {
+      announcements = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Announcement));
+      updateUnread(specificUnread, announcements);
+    }, (error) => {
+       // Only log if authenticated as rules require auth
+       if (auth.currentUser) {
+         console.error("Announcements listener failed:", error);
+       }
+    });
+
+    return () => {
+      unsubNotifs();
+      if (unsubAnn) unsubAnn();
+    };
+  }, [user, profile]);
 
   return (
     <div className="min-h-screen bg-background flex transition-opacity duration-150 opacity-100">
@@ -86,6 +138,11 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
 
             <div className="flex items-center gap-2 md:gap-4">
               {user && (
+                <div className="hidden lg:block border-l pl-4 h-6 flex items-center">
+                  <SystemStatus variant="compact" />
+                </div>
+              )}
+              {user && (
                 <Button 
                   variant="ghost" 
                   size="icon" 
@@ -108,7 +165,7 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
                   onClick={() => navigate(`/profile/${user.uid}`)}
                 >
                   <Avatar className="h-8 w-8">
-                    <AvatarImage src={user.photoURL || ''} alt={profile?.username || user.email || ''} />
+                    <AvatarImage src={user.photoURL || `https://api.dicebear.com/7.x/avataaars/svg?seed=${user.uid}`} alt={profile?.username || user.email || ''} />
                     <AvatarFallback>{(profile?.username || user.email || 'U')[0].toUpperCase()}</AvatarFallback>
                   </Avatar>
                 </Button>

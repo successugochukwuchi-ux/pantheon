@@ -41,14 +41,19 @@ import {
   CheckCircle,
   XCircle,
   AlertTriangle,
-  RefreshCw
+  RefreshCw,
+  PlayCircle,
+  Bell,
+  AlertOctagon,
+  Users,
+  History as HistoryIcon
 } from 'lucide-react';
-import { Course, UserLevel, Semester, Note, Question, ActivationCode, VerificationRequest, QuestionSheet } from '../types';
+import { Course, UserLevel, Semester, Note, Question, ActivationCode, VerificationRequest, QuestionSheet, VideoQuestion, NotificationTarget, Announcement } from '../types';
 import { Routes, Route, useNavigate, useLocation } from 'react-router-dom';
 import { NoteBuilder } from '../components/NoteBuilder';
+import AdminReports from './AdminReports';
 import { useTitle } from '../hooks/useTitle';
-import { BlockMath } from 'react-katex';
-import 'katex/dist/katex.min.css';
+import { MathJax } from 'better-react-mathjax';
 import { DEPARTMENTS } from '../constants/departments';
 import { 
   BarChart, 
@@ -76,7 +81,7 @@ import {
 
 export default function AdminPanel() {
   useTitle('Admin Panel');
-  const { profile, user, systemConfig } = useAuth();
+  const { profile, user, systemConfig, promoConfig } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
   const [loading, setLoading] = useState(false);
@@ -92,11 +97,21 @@ export default function AdminPanel() {
     title: '', 
     semester: '1st', 
     level: '100',
-    department: '' 
+    department: 'general' 
   });
+  const [courseToEdit, setCourseToEdit] = useState<Course | null>(null);
+  const [editCourse, setEditCourse] = useState({ 
+    code: '', 
+    title: '', 
+    semester: '1st', 
+    level: '100',
+    department: 'general' 
+  });
+  const [courseToDelete, setCourseToDelete] = useState<string | null>(null);
 
   // Notes State
   const [notes, setNotes] = useState<Note[]>([]);
+  const [questions, setQuestions] = useState<Question[]>([]);
   const [newNote, setNewNote] = useState<{
     courseId: string;
     title: string;
@@ -142,9 +157,37 @@ export default function AdminPanel() {
   const [pinType, setPinType] = useState<'standard' | 'plus'>('standard');
   const [unusedPins, setUnusedPins] = useState<ActivationCode[]>([]);
   const [usedPins, setUsedPins] = useState<ActivationCode[]>([]);
+  const [pinToDelete, setPinToDelete] = useState<string | null>(null);
+  const [showClearConfirm, setShowClearConfirm] = useState(false);
 
   // Verification Requests State
   const [verificationRequests, setVerificationRequests] = useState<VerificationRequest[]>([]);
+
+  // Notifier State
+  const [notifyTitle, setNotifyTitle] = useState('');
+  const [notifyMessage, setNotifyMessage] = useState('');
+  const [notifyTargetType, setNotifyTargetType] = useState<NotificationTarget>('all');
+  const [notifyTargetValue, setNotifyTargetValue] = useState('');
+  const [notifyTargetLevel, setNotifyTargetLevel] = useState('100');
+  const [notifyTargetDept, setNotifyTargetDept] = useState('');
+  const [announcements, setAnnouncements] = useState<Announcement[]>([]);
+
+  // Promo Mode State
+  const [promoQuota, setPromoQuota] = useState(0);
+
+  // Video Library State
+  const [videoFilterLevel, setVideoFilterLevel] = useState('all');
+  const [videoFilterDept, setVideoFilterDept] = useState('all');
+  const [videoLinkCourseId, setVideoLinkCourseId] = useState('');
+  const [videoLinkNoteId, setVideoLinkNoteId] = useState('');
+  const [videoUrl, setVideoUrl] = useState('');
+  const [videoQuestions, setVideoQuestions] = useState<VideoQuestion[]>([]);
+  const [newVideoQuestion, setNewVideoQuestion] = useState({
+    text: '',
+    correctAnswer: '',
+    incorrectAnswers: ['', '', '']
+  });
+  const [selectedVideoNote, setSelectedVideoNote] = useState<Note | null>(null);
 
   useEffect(() => {
     if (!profile) return;
@@ -158,8 +201,7 @@ export default function AdminPanel() {
     });
 
     const unsubQuestions = onSnapshot(collection(db, 'questions'), (snapshot) => {
-      // All questions
-      // setQuestions(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Question)));
+      setQuestions(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Question)));
     });
 
     const unsubSheets = onSnapshot(collection(db, 'questionSheets'), (snapshot) => {
@@ -176,6 +218,10 @@ export default function AdminPanel() {
       setVerificationRequests(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as VerificationRequest)));
     });
 
+    const unsubAnnouncements = onSnapshot(collection(db, 'announcements'), (snapshot) => {
+      setAnnouncements(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Announcement)).sort((a, b) => b.createdAt.localeCompare(a.createdAt)));
+    });
+
     return () => {
       unsubCourses();
       unsubNotes();
@@ -183,8 +229,67 @@ export default function AdminPanel() {
       unsubSheets();
       unsubPins();
       unsubVerifications();
+      unsubAnnouncements();
     };
   }, [profile]);
+
+  useEffect(() => {
+    if (!selectedVideoNote) {
+      setVideoQuestions([]);
+      return;
+    }
+    const q = query(collection(db, `notes/${selectedVideoNote.id}/videoQuestions`));
+    const unsub = onSnapshot(q, (snapshot) => {
+      setVideoQuestions(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as VideoQuestion)));
+    });
+    return () => unsub();
+  }, [selectedVideoNote]);
+
+  const handleLinkVideo = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!videoLinkNoteId || !videoUrl) return;
+    setLoading(true);
+    try {
+      await updateDoc(doc(db, 'notes', videoLinkNoteId), { videoUrl });
+      toast.success('Video linked to note');
+      setVideoUrl('');
+    } catch (error: any) {
+      toast.error(error.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleAddVideoQuestion = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedVideoNote || !newVideoQuestion.text || !newVideoQuestion.correctAnswer) return;
+    setLoading(true);
+    try {
+      await addDoc(collection(db, `notes/${selectedVideoNote.id}/videoQuestions`), {
+        noteId: selectedVideoNote.id,
+        text: newVideoQuestion.text,
+        correctAnswer: newVideoQuestion.correctAnswer,
+        incorrectAnswers: newVideoQuestion.incorrectAnswers.filter(a => a.trim()),
+        createdAt: new Date().toISOString()
+      });
+      setNewVideoQuestion({ text: '', correctAnswer: '', incorrectAnswers: ['', '', ''] });
+      toast.success('Question added to video');
+    } catch (error: any) {
+      toast.error(error.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleDeleteVideoQuestion = async (noteId: string, qId: string) => {
+    if (!confirm('Delete this video question?')) return;
+    try {
+      await deleteDoc(doc(db, `notes/${noteId}/videoQuestions`, qId));
+      toast.success('Video question deleted');
+    } catch (error: any) {
+      toast.error(error.message);
+    }
+  };
 
   const handleElevate = async (level: UserLevel) => {
     if (!targetUid) return;
@@ -235,7 +340,39 @@ export default function AdminPanel() {
         createdAt: new Date().toISOString()
       });
       toast.success('Course created successfully');
-      setNewCourse({ code: '', title: '', semester: '1st', level: '100', department: '' });
+      setNewCourse({ code: '', title: '', semester: '1st', level: '100', department: 'general' });
+    } catch (error: any) {
+      toast.error(error.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleUpdateCourse = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!courseToEdit) return;
+    setLoading(true);
+    try {
+      await updateDoc(doc(db, 'courses', courseToEdit.id), {
+        ...editCourse,
+        updatedAt: new Date().toISOString()
+      });
+      toast.success('Course updated successfully');
+      setCourseToEdit(null);
+    } catch (error: any) {
+      toast.error(error.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleDeleteCourse = async () => {
+    if (!courseToDelete) return;
+    setLoading(true);
+    try {
+      await deleteDoc(doc(db, 'courses', courseToDelete));
+      toast.success('Course deleted');
+      setCourseToDelete(null);
     } catch (error: any) {
       toast.error(error.message);
     } finally {
@@ -294,15 +431,15 @@ export default function AdminPanel() {
     }
   };
 
-  const [questions, setQuestions] = useState<Question[]>([]);
+  const [sheetQuestions, setSheetQuestions] = useState<Question[]>([]);
   useEffect(() => {
     if (!selectedSheet) {
-      setQuestions([]);
+      setSheetQuestions([]);
       return;
     }
     const q = query(collection(db, 'questions'), where('sheetId', '==', selectedSheet.id));
     const unsub = onSnapshot(q, (snapshot) => {
-      setQuestions(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Question)).sort((a, b) => a.order - b.order));
+      setSheetQuestions(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Question)).sort((a, b) => a.order - b.order));
     });
     return () => unsub();
   }, [selectedSheet]);
@@ -473,6 +610,44 @@ export default function AdminPanel() {
     }
   };
 
+  const handleDeletePin = async () => {
+    if (!pinToDelete) return;
+    
+    setLoading(true);
+    try {
+      await deleteDoc(doc(db, 'activationCodes', pinToDelete));
+      toast.success('Pin removed');
+      setPinToDelete(null);
+    } catch (error: any) {
+      console.error("Delete pin error:", error);
+      toast.error('Failed to delete: ' + (error.message || 'Unknown error'));
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleClearUsedPins = async () => {
+    if (usedPins.length === 0) return;
+    
+    setLoading(true);
+    try {
+      const batch = writeBatch(db);
+      // Firebase batch limit is 500. For safety, we only clear the first 450 if more exist.
+      const pinsToProcess = usedPins.slice(0, 450);
+      pinsToProcess.forEach(pin => {
+        batch.delete(doc(db, 'activationCodes', pin.id));
+      });
+      await batch.commit();
+      toast.success('History cleared');
+      setShowClearConfirm(false);
+    } catch (error: any) {
+      console.error("Clear pins error:", error);
+      toast.error('Failed to clear: ' + (error.message || 'Unknown error'));
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const copyToClipboard = (text: string) => {
     navigator.clipboard.writeText(text);
     toast.success('Copied to clipboard');
@@ -523,6 +698,31 @@ export default function AdminPanel() {
     }
   };
 
+  const handleTogglePromo = async (active: boolean) => {
+    if (!profile || profile.level !== '4') return;
+    if (active && promoQuota <= 0) {
+      toast.error("Please set a valid quota first");
+      return;
+    }
+    
+    setLoading(true);
+    
+    try {
+      await setDoc(doc(db, 'system', 'promo'), {
+        isActive: active,
+        quota: active ? promoQuota : 0,
+        count: active ? 0 : (promoConfig?.count || 0),
+        updatedBy: user?.uid,
+        updatedAt: new Date().toISOString()
+      }, { merge: true });
+      toast.success(`Promo mode ${active ? 'started' : 'stopped'}`);
+    } catch (error) {
+      toast.error('Failed to update promo config');
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const handleToggleMaintenance = async () => {
     if (!user || !systemConfig) return;
     setLoading(true);
@@ -538,6 +738,47 @@ export default function AdminPanel() {
       toast.error(error.message);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleSendBroadcast = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!user || !notifyTitle || !notifyMessage) return;
+    setLoading(true);
+    try {
+      let finalTargetValue = notifyTargetValue;
+      if (notifyTargetType === 'academicLevel') finalTargetValue = notifyTargetLevel;
+      if (notifyTargetType === 'level') finalTargetValue = notifyTargetValue; // Reuse for UID or specific level string
+      if (notifyTargetType === 'department') finalTargetValue = notifyTargetDept;
+      if (notifyTargetType === 'level_dept') finalTargetValue = `${notifyTargetLevel}_${notifyTargetDept}`;
+      if (notifyTargetType === 'all') finalTargetValue = 'everyone';
+
+      await addDoc(collection(db, 'announcements'), {
+        title: notifyTitle,
+        message: notifyMessage,
+        type: 'announcement',
+        targetType: notifyTargetType,
+        targetValue: finalTargetValue,
+        createdAt: new Date().toISOString(),
+        authorId: user.uid
+      });
+      toast.success('Announcement broadcasted successfully');
+      setNotifyTitle('');
+      setNotifyMessage('');
+    } catch (error: any) {
+      toast.error(error.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleDeleteAnnouncement = async (id: string) => {
+    if (!confirm('Are you sure you want to delete this announcement?')) return;
+    try {
+      await deleteDoc(doc(db, 'announcements', id));
+      toast.success('Announcement deleted');
+    } catch (error: any) {
+      toast.error(error.message);
     }
   };
 
@@ -582,11 +823,190 @@ export default function AdminPanel() {
         <Button variant={location.pathname.includes('cbt') ? 'default' : 'ghost'} size="sm" onClick={() => navigate('/administrator/cbt')}>CBT</Button>
         <Button variant={location.pathname.includes('news') ? 'default' : 'ghost'} size="sm" onClick={() => navigate('/administrator/news')}>News</Button>
         <Button variant={location.pathname.includes('pins') ? 'default' : 'ghost'} size="sm" onClick={() => navigate('/administrator/pins')}>Pins</Button>
+        <Button variant={location.pathname.includes('videos') ? 'default' : 'ghost'} size="sm" onClick={() => navigate('/administrator/videos')}>Video Library</Button>
+        <Button variant={location.pathname.includes('notifier') ? 'default' : 'ghost'} size="sm" onClick={() => navigate('/administrator/notifier')}>Notifier</Button>
+        <Button variant={location.pathname.includes('reports') ? 'default' : 'ghost'} size="sm" onClick={() => navigate('/administrator/reports')}>Reports</Button>
+        <Button variant={location.pathname.includes('manual') ? 'default' : 'ghost'} size="sm" onClick={() => navigate('/administrator/manual')}>Admin Manual</Button>
         {isLevel4 && <Button variant={location.pathname.includes('system') ? 'default' : 'ghost'} size="sm" onClick={() => navigate('/administrator/system')}>System</Button>}
       </div>
 
       <Routes>
         <Route index element={<AdminOverview courses={courses} notes={notes} questions={questions} unusedPins={unusedPins} usedPins={usedPins} />} />
+        <Route path="/manual" element={<AdminManual />} />
+        <Route path="/videos" element={
+          <div className="space-y-6">
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <PlayCircle className="h-5 w-5" />
+                  Link Video to Note
+                </CardTitle>
+                <CardDescription>Select a course and note to attach an unlisted YouTube video URL.</CardDescription>
+              </CardHeader>
+              <form onSubmit={handleLinkVideo}>
+                <CardContent className="space-y-6">
+                  <div className="grid gap-4 md:grid-cols-2">
+                    <div className="space-y-2">
+                      <Label>Filter Level</Label>
+                      <Select value={videoFilterLevel} onValueChange={setVideoFilterLevel}>
+                        <SelectTrigger><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="all">All Levels</SelectItem>
+                          <SelectItem value="100">100 Level</SelectItem>
+                          <SelectItem value="200">200 Level</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Filter Department</Label>
+                      <Select value={videoFilterDept} onValueChange={setVideoFilterDept}>
+                        <SelectTrigger><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="all">All Departments</SelectItem>
+                          <SelectItem value="General">General Courses</SelectItem>
+                          {DEPARTMENTS.map(dept => (
+                            <SelectItem key={dept} value={dept}>{dept}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  </div>
+
+                  <div className="grid gap-4 md:grid-cols-3">
+                    <div className="space-y-2">
+                      <Label>Course</Label>
+                      <Select value={videoLinkCourseId} onValueChange={setVideoLinkCourseId}>
+                        <SelectTrigger><SelectValue placeholder="Select Course" /></SelectTrigger>
+                        <SelectContent>
+                          {courses
+                            .filter(c => videoFilterLevel === 'all' || c.level === videoFilterLevel)
+                            .filter(c => videoFilterDept === 'all' || (videoFilterDept === 'General' ? !c.department : c.department === videoFilterDept))
+                            .map(course => (
+                            <SelectItem key={course.id} value={course.id}>{course.code} - {course.title}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Note</Label>
+                      <Select value={videoLinkNoteId} onValueChange={setVideoLinkNoteId} disabled={!videoLinkCourseId}>
+                        <SelectTrigger><SelectValue placeholder="Select Note" /></SelectTrigger>
+                        <SelectContent>
+                          {notes.filter(n => n.courseId === videoLinkCourseId).map(note => (
+                            <SelectItem key={note.id} value={note.id}>{note.title}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="space-y-2">
+                      <Label>YouTube URL</Label>
+                      <Input 
+                        value={videoUrl} 
+                        onChange={(e) => setVideoUrl(e.target.value)} 
+                        placeholder="e.g. https://youtu.be/..." 
+                        required 
+                      />
+                    </div>
+                  </div>
+                </CardContent>
+                <CardFooter>
+                  <Button type="submit" disabled={loading || !videoLinkNoteId}>Link to Note</Button>
+                </CardFooter>
+              </form>
+            </Card>
+
+            <div className="grid gap-6 md:grid-cols-2">
+              <Card>
+                <CardHeader>
+                  <CardTitle>Video Lessons Library</CardTitle>
+                  <CardDescription>Manage quizzes for notes with linked videos.</CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <div className="space-y-2">
+                    {notes.filter(n => n.videoUrl).length > 0 ? (
+                      notes.filter(n => n.videoUrl).map(note => (
+                        <div key={note.id} className="flex items-center justify-between p-3 border rounded-lg bg-muted/50">
+                          <div>
+                            <p className="font-medium">{note.title}</p>
+                            <p className="text-[10px] text-muted-foreground">{courses.find(c => c.id === note.courseId)?.code}</p>
+                          </div>
+                          <Button size="sm" variant={selectedVideoNote?.id === note.id ? "default" : "outline"} onClick={() => setSelectedVideoNote(note)}>
+                            Manage Quiz
+                          </Button>
+                        </div>
+                      ))
+                    ) : (
+                      <p className="text-sm text-muted-foreground text-center py-4">No videos linked yet.</p>
+                    )}
+                  </div>
+                </CardContent>
+              </Card>
+
+              {selectedVideoNote && (
+                <Card>
+                  <CardHeader>
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <CardTitle className="text-lg">Quiz: {selectedVideoNote.title}</CardTitle>
+                        <CardDescription>Add concept check questions for this video lesson.</CardDescription>
+                      </div>
+                      <Badge variant="outline">{videoQuestions.length} Qs</Badge>
+                    </div>
+                  </CardHeader>
+                  <CardContent className="space-y-6">
+                    <form onSubmit={handleAddVideoQuestion} className="space-y-4 p-4 border rounded-xl bg-primary/5">
+                      <div className="space-y-2">
+                        <Label className="text-xs font-bold uppercase tracking-wider text-muted-foreground">New Question</Label>
+                        <Input value={newVideoQuestion.text} onChange={(e) => setNewVideoQuestion({...newVideoQuestion, text: e.target.value})} placeholder="Question text" required />
+                      </div>
+                      <div className="grid gap-2">
+                        <Label className="text-[10px] font-bold uppercase text-green-600">Correct Answer</Label>
+                        <Input value={newVideoQuestion.correctAnswer} onChange={(e) => setNewVideoQuestion({...newVideoQuestion, correctAnswer: e.target.value})} placeholder="The right answer" required />
+                      </div>
+                      <div className="space-y-2">
+                        <Label className="text-[10px] font-bold uppercase text-muted-foreground">Incorrect Options</Label>
+                        <div className="grid gap-2">
+                          {newVideoQuestion.incorrectAnswers.map((ans, i) => (
+                            <Input 
+                              key={i}
+                              value={ans} 
+                              onChange={(e) => {
+                                const newAns = [...newVideoQuestion.incorrectAnswers];
+                                newAns[i] = e.target.value;
+                                setNewVideoQuestion({...newVideoQuestion, incorrectAnswers: newAns});
+                              }} 
+                              placeholder={`Wrong Option ${i + 1}`}
+                            />
+                          ))}
+                        </div>
+                      </div>
+                      <Button type="submit" className="w-full" disabled={loading}>Add Question</Button>
+                    </form>
+
+                    <div className="space-y-3">
+                      {videoQuestions.map(q => (
+                        <div key={q.id} className="p-3 border rounded-lg space-y-2">
+                          <div className="flex justify-between items-start gap-2">
+                            <p className="text-sm font-medium">{q.text}</p>
+                            <Button variant="ghost" size="icon" className="h-6 w-6 text-destructive" onClick={() => handleDeleteVideoQuestion(selectedVideoNote.id, q.id)}>
+                              <Trash2 className="h-3 w-3" />
+                            </Button>
+                          </div>
+                          <div className="flex flex-wrap gap-1">
+                            <Badge className="bg-green-500/10 text-green-600 border-none text-[9px]">{q.correctAnswer}</Badge>
+                            {q.incorrectAnswers.map((a, i) => (
+                              <Badge key={i} variant="outline" className="text-[9px] opacity-70">{a}</Badge>
+                            ))}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </CardContent>
+                </Card>
+              )}
+            </div>
+          </div>
+        } />
         <Route path="/users" element={
           <div className="grid gap-6 md:grid-cols-2">
             <Card>
@@ -640,61 +1060,108 @@ export default function AdminPanel() {
         } />
 
         <Route path="/courses" element={
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <BookPlus className="h-5 w-5" />
-                Create New Course
-              </CardTitle>
-            </CardHeader>
-            <form onSubmit={handleCreateCourse}>
-              <CardContent className="grid gap-4 md:grid-cols-2">
-                <div className="space-y-2">
-                  <Label>Course Code</Label>
-                  <Input value={newCourse.code} onChange={(e) => setNewCourse({...newCourse, code: e.target.value})} placeholder="MATH101" required />
-                </div>
-                <div className="space-y-2">
-                  <Label>Course Title</Label>
-                  <Input value={newCourse.title} onChange={(e) => setNewCourse({...newCourse, title: e.target.value})} placeholder="General Mathematics I" required />
-                </div>
-                <div className="space-y-2">
-                  <Label>Semester</Label>
-                  <Select value={newCourse.semester} onValueChange={(v) => setNewCourse({...newCourse, semester: v as any})}>
-                    <SelectTrigger><SelectValue /></SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="1st">1st Semester</SelectItem>
-                      <SelectItem value="2nd">2nd Semester</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="space-y-2">
-                  <Label>Level</Label>
-                  <Select value={newCourse.level} onValueChange={(v) => setNewCourse({...newCourse, level: v})}>
-                    <SelectTrigger><SelectValue placeholder="Select Level" /></SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="100">100</SelectItem>
-                      <SelectItem value="200">200</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="space-y-2">
-                  <Label>Department (Optional)</Label>
-                  <Select value={newCourse.department} onValueChange={(v) => setNewCourse({...newCourse, department: v})}>
-                    <SelectTrigger><SelectValue placeholder="General / All Departments" /></SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="general">General / All Departments</SelectItem>
-                      {DEPARTMENTS.map(dept => (
-                        <SelectItem key={dept} value={dept}>{dept}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-              </CardContent>
-              <CardFooter>
-                <Button type="submit" disabled={loading}>Create Course</Button>
-              </CardFooter>
-            </form>
-          </Card>
+          <div className="space-y-6">
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <BookPlus className="h-5 w-5" />
+                  Create New Course
+                </CardTitle>
+              </CardHeader>
+              <form onSubmit={handleCreateCourse}>
+                <CardContent className="grid gap-4 md:grid-cols-2">
+                  <div className="space-y-2">
+                    <Label>Course Code</Label>
+                    <Input value={newCourse.code} onChange={(e) => setNewCourse({...newCourse, code: e.target.value})} placeholder="MATH101" required />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Course Title</Label>
+                    <Input value={newCourse.title} onChange={(e) => setNewCourse({...newCourse, title: e.target.value})} placeholder="General Mathematics I" required />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Semester</Label>
+                    <Select value={newCourse.semester} onValueChange={(v) => setNewCourse({...newCourse, semester: v as any})}>
+                      <SelectTrigger><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="1st">1st Semester</SelectItem>
+                        <SelectItem value="2nd">2nd Semester</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Level</Label>
+                    <Select value={newCourse.level} onValueChange={(v) => setNewCourse({...newCourse, level: v})}>
+                      <SelectTrigger><SelectValue placeholder="Select Level" /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="100">100</SelectItem>
+                        <SelectItem value="200">200</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Department (Optional)</Label>
+                    <Select value={newCourse.department} onValueChange={(v) => setNewCourse({...newCourse, department: v})}>
+                      <SelectTrigger><SelectValue placeholder="General / All Departments" /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="general">General / All Departments</SelectItem>
+                        {DEPARTMENTS.map(dept => (
+                          <SelectItem key={dept} value={dept}>{dept}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </CardContent>
+                <CardFooter>
+                  <Button type="submit" disabled={loading}>Create Course</Button>
+                </CardFooter>
+              </form>
+            </Card>
+
+            <div className="grid gap-4">
+              <h3 className="text-lg font-semibold flex items-center gap-2 px-1">
+                <BookPlus className="h-5 w-5 text-primary" />
+                Existing Courses
+              </h3>
+              <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+                {courses.map(course => (
+                  <Card key={course.id} className="hover:shadow-md transition-shadow">
+                    <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                      <div className="space-y-1">
+                        <CardTitle className="text-sm font-bold">{course.code}</CardTitle>
+                        <CardDescription className="text-xs line-clamp-1">{course.title}</CardDescription>
+                      </div>
+                      <div className="flex items-center gap-1">
+                        <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => {
+                          setCourseToEdit(course);
+                          setEditCourse({
+                            code: course.code,
+                            title: course.title,
+                            semester: course.semester,
+                            level: course.level,
+                            department: course.department || 'general'
+                          });
+                        }} disabled={loading}>
+                          <Pencil className="h-4 w-4 text-primary" />
+                        </Button>
+                        <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive" onClick={() => setCourseToDelete(course.id)} disabled={loading}>
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      </div>
+                    </CardHeader>
+                    <CardContent>
+                      <div className="flex flex-wrap gap-2">
+                        <Badge variant="outline" className="text-[10px]">{course.level} Level</Badge>
+                        <Badge variant="outline" className="text-[10px]">{course.semester} Sem</Badge>
+                        {course.department && course.department !== 'general' && (
+                          <Badge variant="secondary" className="text-[10px] truncate max-w-[120px]">{course.department}</Badge>
+                        )}
+                      </div>
+                    </CardContent>
+                  </Card>
+                ))}
+              </div>
+            </div>
+          </div>
         } />
 
         <Route path="/news" element={
@@ -759,7 +1226,13 @@ export default function AdminPanel() {
                   </div>
                   <div className="space-y-2 md:col-span-2">
                     <Label>Title</Label>
-                    <Input value={newNote.title} onChange={(e) => setNewNote({...newNote, title: e.target.value})} placeholder="Introduction to Calculus" required />
+                    <Input 
+                      value={newNote.title} 
+                      onChange={(e) => setNewNote({...newNote, title: e.target.value})} 
+                      onKeyDown={(e) => e.key === 'Enter' && e.preventDefault()}
+                      placeholder="Introduction to Calculus" 
+                      required 
+                    />
                   </div>
                   <div className="space-y-2 md:col-span-2">
                     <Label>Note Content Builder</Label>
@@ -851,6 +1324,7 @@ export default function AdminPanel() {
                       <Input 
                         value={editNote.title} 
                         onChange={(e) => setEditNote({...editNote, title: e.target.value})} 
+                        onKeyDown={(e) => e.key === 'Enter' && e.preventDefault()}
                         placeholder="e.g., First Order Differential Equations" 
                         required 
                         className="h-10"
@@ -897,6 +1371,78 @@ export default function AdminPanel() {
                 <DialogFooter>
                   <Button variant="outline" onClick={() => setNoteToDelete(null)}>Cancel</Button>
                   <Button variant="destructive" onClick={handleDeleteNote} disabled={loading}>Delete</Button>
+                </DialogFooter>
+              </DialogContent>
+            </Dialog>
+
+            <Dialog open={!!courseToEdit} onOpenChange={(open) => !open && setCourseToEdit(null)}>
+              <DialogContent>
+                <DialogHeader>
+                  <DialogTitle>Edit Course</DialogTitle>
+                  <DialogDescription>Update course details below.</DialogDescription>
+                </DialogHeader>
+                <form onSubmit={handleUpdateCourse}>
+                  <div className="grid gap-4 py-4">
+                    <div className="space-y-2">
+                      <Label>Course Code</Label>
+                      <Input value={editCourse.code} onChange={(e) => setEditCourse({...editCourse, code: e.target.value})} placeholder="MATH101" required />
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Course Title</Label>
+                      <Input value={editCourse.title} onChange={(e) => setEditCourse({...editCourse, title: e.target.value})} placeholder="General Mathematics I" required />
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Semester</Label>
+                      <Select value={editCourse.semester} onValueChange={(v) => setEditCourse({...editCourse, semester: v as any})}>
+                        <SelectTrigger><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="1st">1st Semester</SelectItem>
+                          <SelectItem value="2nd">2nd Semester</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Level</Label>
+                      <Select value={editCourse.level} onValueChange={(v) => setEditCourse({...editCourse, level: v})}>
+                        <SelectTrigger><SelectValue placeholder="Select Level" /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="100">100</SelectItem>
+                          <SelectItem value="200">200</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Department</Label>
+                      <Select value={editCourse.department} onValueChange={(v) => setEditCourse({...editCourse, department: v})}>
+                        <SelectTrigger><SelectValue placeholder="General / All Departments" /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="general">General / All Departments</SelectItem>
+                          {DEPARTMENTS.map(dept => (
+                            <SelectItem key={dept} value={dept}>{dept}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  </div>
+                  <DialogFooter>
+                    <Button type="button" variant="outline" onClick={() => setCourseToEdit(null)}>Cancel</Button>
+                    <Button type="submit" disabled={loading}>Update Course</Button>
+                  </DialogFooter>
+                </form>
+              </DialogContent>
+            </Dialog>
+
+            <Dialog open={!!courseToDelete} onOpenChange={(open) => !open && setCourseToDelete(null)}>
+              <DialogContent>
+                <DialogHeader>
+                  <DialogTitle>Delete Course</DialogTitle>
+                  <DialogDescription>
+                    Are you sure you want to delete this course? All associated notes and questions might be orphaned or inaccessible. This action cannot be undone.
+                  </DialogDescription>
+                </DialogHeader>
+                <DialogFooter>
+                  <Button variant="outline" onClick={() => setCourseToDelete(null)}>Cancel</Button>
+                  <Button variant="destructive" onClick={handleDeleteCourse} disabled={loading}>Delete Course</Button>
                 </DialogFooter>
               </DialogContent>
             </Dialog>
@@ -950,7 +1496,13 @@ export default function AdminPanel() {
                       </div>
                       <div className="space-y-2">
                         <Label>Examination Year</Label>
-                        <Input value={newSheet.year} onChange={(e) => setNewSheet({...newSheet, year: e.target.value})} placeholder="e.g. 2022/2023" required />
+                        <Input 
+                          value={newSheet.year} 
+                          onChange={(e) => setNewSheet({...newSheet, year: e.target.value})} 
+                          onKeyDown={(e) => e.key === 'Enter' && e.preventDefault()}
+                          placeholder="e.g. 2022/2023" 
+                          required 
+                        />
                       </div>
                     </CardContent>
                     <CardFooter>
@@ -1003,7 +1555,7 @@ export default function AdminPanel() {
                       <p className="text-muted-foreground">{selectedSheet.academicLevel} Level • {selectedSheet.semester} Semester</p>
                     </div>
                   </div>
-                  <Badge>{questions.length} Questions</Badge>
+                  <Badge>{sheetQuestions.length} Questions</Badge>
                 </div>
 
                 <Card>
@@ -1050,7 +1602,7 @@ export default function AdminPanel() {
                 </Card>
 
                 <div className="grid gap-4">
-                  {questions.map((q, idx) => (
+                  {sheetQuestions.map((q, idx) => (
                     <Card key={q.id}>
                       <CardHeader className="pb-2">
                         <div className="flex justify-between items-start">
@@ -1065,7 +1617,7 @@ export default function AdminPanel() {
                           </div>
                         </div>
                         <div className="mt-2 prose dark:prose-invert">
-                          <BlockMath math={q.text} />
+                          <MathJax>{`$$${q.text}$$`}</MathJax>
                         </div>
                       </CardHeader>
                       <CardContent>
@@ -1283,18 +1835,33 @@ export default function AdminPanel() {
                     {unusedPins.length > 0 ? (
                       unusedPins.map(pin => (
                         <div key={pin.id} className="flex items-center justify-between p-3 bg-muted rounded-lg border">
-                          <div className="flex flex-col">
-                            <code className="font-mono font-bold tracking-wider">{pin.code}</code>
+                          <div className="flex flex-col gap-1">
+                            <div className="flex items-center gap-2">
+                              <code className="font-mono font-bold tracking-wider">{pin.code}</code>
+                              {pin.type === 'plus' && (
+                                <Badge variant="default" className="text-[8px] h-4 px-1 leading-none bg-primary">PLUS</Badge>
+                              )}
+                            </div>
                             <span className="text-[10px] text-muted-foreground">{new Date(pin.createdAt).toLocaleDateString()}</span>
                           </div>
-                          <Button 
-                            variant="ghost" 
-                            size="icon" 
-                            className="h-8 w-8" 
-                            onClick={() => copyToClipboard(pin.code)}
-                          >
-                            <Copy className="h-4 w-4" />
-                          </Button>
+                          <div className="flex items-center gap-1">
+                            <Button 
+                              variant="ghost" 
+                              size="icon" 
+                              className="h-8 w-8" 
+                              onClick={() => copyToClipboard(pin.code)}
+                            >
+                              <Copy className="h-4 w-4" />
+                            </Button>
+                            <Button 
+                              variant="ghost" 
+                              size="icon" 
+                              className="h-8 w-8 text-destructive hover:bg-destructive/10" 
+                              onClick={() => setPinToDelete(pin.id)}
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </Button>
+                          </div>
                         </div>
                       ))
                     ) : (
@@ -1305,22 +1872,50 @@ export default function AdminPanel() {
               </Card>
 
               <Card>
-                <CardHeader>
-                  <CardTitle>Used Pins History ({usedPins.length})</CardTitle>
-                  <CardDescription>Pins used by students this semester.</CardDescription>
+                <CardHeader className="flex flex-row items-center justify-between space-y-0">
+                  <div className="space-y-1">
+                    <CardTitle>Used Pins History ({usedPins.length})</CardTitle>
+                    <CardDescription>Pins used by students this semester.</CardDescription>
+                  </div>
+                  {usedPins.length > 0 && (
+                    <Button 
+                      variant="ghost" 
+                      size="sm" 
+                      className="text-destructive text-xs hover:bg-destructive/10"
+                      onClick={() => setShowClearConfirm(true)}
+                    >
+                      <RefreshCw className="h-3 w-3 mr-1" />
+                      Clear All
+                    </Button>
+                  )}
                 </CardHeader>
                 <CardContent>
                   <div className="max-h-[400px] overflow-y-auto space-y-2">
                     {usedPins.length > 0 ? (
                       usedPins.map(pin => (
-                        <div key={pin.id} className="p-3 bg-muted/50 rounded-lg border space-y-1">
+                        <div key={pin.id} className="p-3 bg-muted/50 rounded-lg border space-y-2 relative group">
                           <div className="flex items-center justify-between">
-                            <code className="font-mono font-bold text-primary">{pin.code}</code>
+                            <div className="flex items-center gap-2">
+                              <code className="font-mono font-bold text-primary">{pin.code}</code>
+                              {pin.type === 'plus' && (
+                                <Badge variant="default" className="text-[8px] h-4 px-1 leading-none bg-primary">PLUS</Badge>
+                              )}
+                            </div>
                             <span className="text-[10px] text-muted-foreground">{pin.usedAt ? new Date(pin.usedAt).toLocaleString() : 'Unknown'}</span>
                           </div>
-                          <p className="text-[10px] text-muted-foreground truncate">
-                            <span className="font-semibold">Used by:</span> {pin.usedByStudentId || pin.usedBy}
-                          </p>
+                          <div className="flex items-center justify-between">
+                            <p className="text-[10px] text-muted-foreground truncate flex-1">
+                              <span className="font-semibold">Used by:</span> {pin.usedByStudentId || pin.usedBy}
+                            </p>
+                            <Button 
+                              variant="ghost" 
+                              size="icon" 
+                              className="h-6 w-6 text-destructive opacity-0 group-hover:opacity-100 transition-opacity" 
+                              onClick={() => setPinToDelete(pin.id)}
+                            >
+                              <Trash2 className="h-3.5 w-3.5" />
+                            </Button>
+                          </div>
                         </div>
                       ))
                     ) : (
@@ -1330,6 +1925,42 @@ export default function AdminPanel() {
                 </CardContent>
               </Card>
             </div>
+
+            {/* Pin Management Dialogs */}
+            <Dialog open={!!pinToDelete} onOpenChange={(open) => !open && setPinToDelete(null)}>
+              <DialogContent>
+                <DialogHeader>
+                  <DialogTitle>Delete Pin</DialogTitle>
+                  <DialogDescription>
+                    Are you sure you want to delete this activation pin? This action cannot be undone.
+                  </DialogDescription>
+                </DialogHeader>
+                <DialogFooter>
+                  <Button variant="outline" onClick={() => setPinToDelete(null)}>Cancel</Button>
+                  <Button variant="destructive" onClick={handleDeletePin} disabled={loading}>
+                    {loading ? 'Deleting...' : 'Delete Pin'}
+                  </Button>
+                </DialogFooter>
+              </DialogContent>
+            </Dialog>
+
+            <Dialog open={showClearConfirm} onOpenChange={setShowClearConfirm}>
+              <DialogContent>
+                <DialogHeader>
+                  <DialogTitle>Clear Used Pins History</DialogTitle>
+                  <DialogDescription>
+                    This will permanently delete up to 450 used pin records. 
+                    Are you sure you want to proceed?
+                  </DialogDescription>
+                </DialogHeader>
+                <DialogFooter>
+                  <Button variant="outline" onClick={() => setShowClearConfirm(false)}>Cancel</Button>
+                  <Button variant="destructive" onClick={handleClearUsedPins} disabled={loading}>
+                    {loading ? 'Clearing...' : 'Clear All History'}
+                  </Button>
+                </DialogFooter>
+              </DialogContent>
+            </Dialog>
           </div>
         } />
 
@@ -1385,6 +2016,63 @@ export default function AdminPanel() {
                   * Ending a semester will deactivate all Level 1 student accounts.
                 </p>
               </CardFooter>
+            </Card>
+
+            <Card className="border-amber-500/20 bg-amber-500/5">
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <PlayCircle className="h-5 w-5 text-amber-500" />
+                  Promo Mode Setup
+                </CardTitle>
+                <CardDescription>Enable free activations for a limited batch of students (Level 4 Only).</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                {promoConfig?.isActive ? (
+                  <div className="p-4 rounded-xl border border-amber-500/20 bg-amber-500/10 space-y-3">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <Badge className="bg-amber-600 animate-pulse border-none">PROMO ACTIVE</Badge>
+                        <span className="text-sm font-bold">{promoConfig.count} / {promoConfig.quota} Activations</span>
+                      </div>
+                      <Button 
+                        size="sm" 
+                        variant="destructive" 
+                        onClick={() => handleTogglePromo(false)}
+                        disabled={loading}
+                      >
+                        Stop Promo
+                      </Button>
+                    </div>
+                    <div className="w-full bg-muted rounded-full h-2 overflow-hidden">
+                      <div 
+                        className="bg-amber-500 h-full transition-all duration-500" 
+                        style={{ width: `${Math.min(100, (promoConfig.count / promoConfig.quota) * 100)}%` }}
+                      />
+                    </div>
+                  </div>
+                ) : (
+                  <div className="grid gap-4 items-end sm:grid-cols-[1fr,auto]">
+                    <div className="space-y-2">
+                      <Label>Free Activation Quota (x)</Label>
+                      <Input 
+                        type="number" 
+                        placeholder="e.g. 50" 
+                        value={promoQuota === 0 ? '' : promoQuota} 
+                        onChange={(e) => setPromoQuota(parseInt(e.target.value) || 0)}
+                        min="1"
+                        onKeyDown={(e) => e.key === 'Enter' && e.preventDefault()}
+                      />
+                    </div>
+                    <Button 
+                      className="bg-amber-600 hover:bg-amber-700" 
+                      onClick={() => handleTogglePromo(true)}
+                      disabled={loading || promoQuota <= 0}
+                    >
+                      Start Promo Mode
+                    </Button>
+                  </div>
+                )}
+              </CardContent>
             </Card>
 
             <Card className={systemConfig?.maintenanceMode ? "border-destructive" : ""}>
@@ -1500,7 +2188,446 @@ export default function AdminPanel() {
             </Card>
           </div>
         } />
+
+        <Route path="/notifier" element={
+          <div className="space-y-6">
+            <Card className="border-primary/20 bg-primary/5">
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <Bell className="h-5 w-5 text-primary" />
+                  Send Announcement
+                </CardTitle>
+                <CardDescription>Broadcast a notification to users based on specific filters.</CardDescription>
+              </CardHeader>
+              <form onSubmit={handleSendBroadcast}>
+                <CardContent className="space-y-4">
+                  <div className="grid gap-4 md:grid-cols-2">
+                    <div className="space-y-2">
+                      <Label>Target Type</Label>
+                      <Select value={notifyTargetType} onValueChange={(v: any) => setNotifyTargetType(v)}>
+                        <SelectTrigger><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="all">All Users</SelectItem>
+                          <SelectItem value="level">Permission Level</SelectItem>
+                          <SelectItem value="uid">Specific User (UID)</SelectItem>
+                          <SelectItem value="academicLevel">Academic Level</SelectItem>
+                          <SelectItem value="department">Department</SelectItem>
+                          <SelectItem value="level_dept">Level & Department</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+
+                    <div className="space-y-2">
+                      <Label>Target Selection</Label>
+                      {notifyTargetType === 'all' && (
+                        <div className="h-10 flex items-center px-3 bg-muted rounded-md text-sm text-muted-foreground italic">
+                          Targeting everyone
+                        </div>
+                      )}
+                      {notifyTargetType === 'level' && (
+                        <Select value={notifyTargetValue} onValueChange={setNotifyTargetValue}>
+                          <SelectTrigger><SelectValue placeholder="Select Level" /></SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="1">Level 1</SelectItem>
+                            <SelectItem value="1+">Level 1+</SelectItem>
+                            <SelectItem value="2">Level 2</SelectItem>
+                            <SelectItem value="3">Level 3</SelectItem>
+                            <SelectItem value="4">Level 4</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      )}
+                      {notifyTargetType === 'uid' && (
+                        <Input 
+                          placeholder="Paste User UID" 
+                          value={notifyTargetValue} 
+                          onChange={(e) => setNotifyTargetValue(e.target.value)} 
+                          required 
+                        />
+                      )}
+                      {notifyTargetType === 'academicLevel' && (
+                        <Select value={notifyTargetLevel} onValueChange={setNotifyTargetLevel}>
+                          <SelectTrigger><SelectValue /></SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="100">100 Level</SelectItem>
+                            <SelectItem value="200">200 Level</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      )}
+                      {notifyTargetType === 'department' && (
+                        <Select value={notifyTargetDept} onValueChange={setNotifyTargetDept}>
+                          <SelectTrigger><SelectValue placeholder="Select Department" /></SelectTrigger>
+                          <SelectContent>
+                            {DEPARTMENTS.map(dept => (
+                              <SelectItem key={dept} value={dept}>{dept}</SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      )}
+                      {notifyTargetType === 'level_dept' && (
+                        <div className="flex gap-2">
+                          <Select value={notifyTargetLevel} onValueChange={setNotifyTargetLevel}>
+                            <SelectTrigger className="w-[100px]"><SelectValue /></SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="100">100</SelectItem>
+                              <SelectItem value="200">200</SelectItem>
+                            </SelectContent>
+                          </Select>
+                          <Select value={notifyTargetDept} onValueChange={setNotifyTargetDept}>
+                            <SelectTrigger className="flex-1"><SelectValue placeholder="Dept" /></SelectTrigger>
+                            <SelectContent>
+                              {DEPARTMENTS.map(dept => (
+                                <SelectItem key={dept} value={dept}>{dept}</SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label>Title</Label>
+                    <Input 
+                      placeholder="e.g. System Update" 
+                      value={notifyTitle} 
+                      onChange={(e) => setNotifyTitle(e.target.value)} 
+                      required 
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Message</Label>
+                    <Textarea 
+                      placeholder="Type your notification message here..." 
+                      value={notifyMessage} 
+                      onChange={(e) => setNotifyMessage(e.target.value)} 
+                      rows={4} 
+                      required 
+                    />
+                  </div>
+                </CardContent>
+                <CardFooter>
+                  <Button type="submit" disabled={loading} className="w-full h-12 text-lg">
+                    {loading ? 'Sending...' : 'Broadcast Notification'}
+                  </Button>
+                </CardFooter>
+              </form>
+            </Card>
+
+            <Card>
+              <CardHeader>
+                <CardTitle>Sent Announcements</CardTitle>
+                <CardDescription>History of broadcasted notifications.</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-4">
+                  {announcements.length > 0 ? (
+                    announcements.slice(0, 10).map(ann => (
+                      <div key={ann.id} className="p-4 bg-muted/50 rounded-lg border group relative">
+                        <div className="flex justify-between items-start mb-2">
+                          <div>
+                            <h4 className="font-bold">{ann.title}</h4>
+                            <div className="flex items-center gap-2 mt-1">
+                              <Badge variant="outline" className="text-[10px] uppercase">
+                                {ann.targetType.replace('_', ' & ')}: {ann.targetValue}
+                              </Badge>
+                              <span className="text-[10px] text-muted-foreground italic">
+                                {new Date(ann.createdAt).toLocaleString()}
+                              </span>
+                            </div>
+                          </div>
+                          <Button 
+                            variant="ghost" 
+                            size="icon" 
+                            className="h-8 w-8 text-destructive opacity-0 group-hover:opacity-100 transition-opacity"
+                            onClick={() => handleDeleteAnnouncement(ann.id)}
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        </div>
+                        <p className="text-sm text-muted-foreground whitespace-pre-wrap">{ann.message}</p>
+                      </div>
+                    ))
+                  ) : (
+                    <div className="text-center py-8 text-muted-foreground italic">
+                      No announcements sent yet.
+                    </div>
+                  )}
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+        } />
+        <Route path="/reports" element={<AdminReports />} />
       </Routes>
+    </div>
+  );
+}
+
+function AdminManual() {
+  const [selectedTutorial, setSelectedTutorial] = useState<typeof sections[0] | null>(null);
+
+  const sections = [
+    {
+      title: "User Management",
+      icon: <Users className="h-5 w-5" />,
+      content: "Admins can elevate users to different levels (1, 1+, 2, 3, 4) using their specific UID. You can also ban users and provide a reason.",
+      tutorial: (
+        <div className="space-y-4">
+          <p>The User Management system is designed for account moderation and role assignment.</p>
+          <div className="space-y-2">
+            <h4 className="font-bold text-sm">Elevating a User:</h4>
+            <ul className="list-disc pl-5 text-sm space-y-1">
+              <li>Open the <strong>Users</strong> tab.</li>
+              <li>Enter the user's unique <strong>UID</strong> (found in their profile or database).</li>
+              <li>Select the desired <strong>Target Level</strong> (Lvl 3/4 are Admins).</li>
+              <li>Click <strong>Elevate User</strong> to apply changes immediately.</li>
+            </ul>
+          </div>
+          <div className="space-y-2">
+            <h4 className="font-bold text-sm">Banning a User:</h4>
+            <ul className="list-disc pl-5 text-sm space-y-1">
+              <li>Enter the user's <strong>UID</strong>.</li>
+              <li>Provide a <strong>Ban Reason</strong> (this is displayed to the user on login).</li>
+              <li>Click <strong>Ban User</strong>. The user will be logged out and blocked.</li>
+            </ul>
+          </div>
+        </div>
+      )
+    },
+    {
+      title: "Course Management",
+      icon: <BookPlus className="h-5 w-5" />,
+      content: "Create new courses by providing a unique course code, title, semester, level, and department.",
+      tutorial: (
+        <div className="space-y-4">
+          <p>Courses serve as the foundation for organizing all study materials on the platform.</p>
+          <div className="space-y-2">
+            <h4 className="font-bold text-sm">Creating a Course:</h4>
+            <ul className="list-disc pl-5 text-sm space-y-1">
+              <li>Go to the <strong>Courses</strong> tab.</li>
+              <li>Enter <strong>Course Code</strong> (e.g., GST 111) and <strong>Title</strong>.</li>
+              <li>Specify <strong>Semester</strong> and <strong>Level</strong>.</li>
+              <li>Select the <strong>Primary Department</strong>. Common courses (GST) should select 'General'.</li>
+              <li>Click <strong>Create Course</strong>.</li>
+            </ul>
+          </div>
+          <p className="text-xs text-muted-foreground italic bg-muted p-2 rounded">Note: Users will only see courses matching their academic level and department unless they are GST courses.</p>
+        </div>
+      )
+    },
+    {
+      title: "Note Builder & Materials",
+      icon: <FileText className="h-5 w-5" />,
+      content: "Use the Note Builder for rich text content, math equations, and linked resources.",
+      tutorial: (
+        <div className="space-y-4">
+          <p>The Note Builder is a powerful tool for creating high-quality, readable study guides.</p>
+          <div className="space-y-2">
+            <h4 className="font-bold text-sm">Structure:</h4>
+            <ul className="list-disc pl-5 text-sm space-y-1">
+              <li><strong>Headings:</strong> Use `#` for title, `##` for subheadings.</li>
+              <li><strong>Math Expressions:</strong> Wrap formulas in `$$` for KaTeX rendering (e.g., `$$E=mc^2$$`).</li>
+              <li><strong>Video Links:</strong> You can link YouTube videos to specific notes in the <strong>Video Library</strong> tab.</li>
+            </ul>
+          </div>
+          <div className="space-y-2">
+            <h4 className="font-bold text-sm">Workflow:</h4>
+            <ol className="list-decimal pl-5 text-sm space-y-1">
+              <li>Select a <strong>Course</strong> to host the note.</li>
+              <li>Choose <strong>Note Type</strong> (Lecture, Summary, or Punch).</li>
+              <li>Draft your content in the editor.</li>
+              <li>Use the <strong>Preview</strong> toggle to see how it looks for students.</li>
+              <li>Click <strong>Save Note</strong>.</li>
+            </ol>
+          </div>
+        </div>
+      )
+    },
+    {
+      title: "CBT & Past Questions",
+      icon: <HistoryIcon className="h-5 w-5" />,
+      content: "Organize exams into Question Sheets with detailed explanations for every answer.",
+      tutorial: (
+        <div className="space-y-4">
+          <p>CBT practice is a core feature for examination preparation.</p>
+          <div className="space-y-2">
+            <h4 className="font-bold text-sm">Creating an Exam:</h4>
+            <ol className="list-decimal pl-5 text-sm space-y-1">
+              <li>In the <strong>CBT</strong> tab, create a <strong>Question Sheet</strong> first.</li>
+              <li>Provide metadata: Course, Semester, Academic Year.</li>
+              <li>Once created, select the sheet from the list.</li>
+              <li>Add questions one-by-one: Text, Correct Answer, and 3 Incorrect options.</li>
+              <li>Add an <strong>Explanation</strong> to help students learn from their mistakes.</li>
+            </ol>
+          </div>
+          <p className="text-xs text-amber-600 font-bold border-l-2 border-amber-500 pl-2">Remember to set 'Is Available' to true for students to see the sheet.</p>
+        </div>
+      )
+    },
+    {
+      title: "Activation Pins",
+      icon: <Key className="h-5 w-5" />,
+      content: "Generate secure 12-digit pins for account activation and tier upgrades.",
+      tutorial: (
+        <div className="space-y-4">
+          <p>Pins are the primary monetization and access control mechanism.</p>
+          <div className="space-y-2">
+            <h4 className="font-bold text-sm">Pin Types:</h4>
+            <ul className="list-disc pl-5 text-sm space-y-1">
+              <li><strong>Standard:</strong> Activates Level 1 accounts for one semester.</li>
+              <li><strong>Plus:</strong> Grants Level 1+ (VIP) status with extra benefits.</li>
+            </ul>
+          </div>
+          <div className="space-y-2">
+            <h4 className="font-bold text-sm">Management:</h4>
+            <ul className="list-disc pl-5 text-sm space-y-1">
+              <li>Pins can only be generated when a semester is **Active**.</li>
+              <li>Copy and send pins directly to students.</li>
+              <li>Monitor the **Used Pins** history to prevent fraud.</li>
+            </ul>
+          </div>
+        </div>
+      )
+    },
+    {
+      title: "Notifier (Broadcasts)",
+      icon: <Bell className="h-5 w-5" />,
+      content: "Send targeted messages to students using the Notifier system.",
+      tutorial: (
+        <div className="space-y-4">
+          <p>Keep the student body updated with real-time broadcasts.</p>
+          <div className="space-y-2">
+            <h4 className="font-bold text-sm">Targeting Options:</h4>
+            <ul className="list-disc pl-5 text-sm space-y-1">
+              <li><strong>All:</strong> Every user in the system.</li>
+              <li><strong>Academic Level:</strong> Specific year (Currently 100L or 200L).</li>
+              <li><strong>Department:</strong> Specific faculty group.</li>
+              <li><strong>Uids:</strong> Direct message to one specific user.</li>
+            </ul>
+          </div>
+          <p className="text-xs text-muted-foreground italic">Tip: Use descriptive titles and concise messages for higher engagement.</p>
+        </div>
+      )
+    },
+    {
+      title: "System Control",
+      icon: <Settings className="h-5 w-5" />,
+      content: "Manage semester states and global system maintenance (Level 4 Admins only).",
+      tutorial: (
+        <div className="space-y-4">
+          <p>These are 'God Mode' controls that impact the entire platform.</p>
+          <div className="space-y-2">
+            <h4 className="font-bold text-sm">Semester Transition:</h4>
+            <ul className="list-disc pl-5 text-sm space-y-1">
+              <li><strong>Starting 1st/2nd:</strong> Opens materials for the current session.</li>
+              <li><strong>Ending Semester:</strong> Triggers global reset.</li>
+            </ul>
+          </div>
+          <div className="space-y-2">
+            <h4 className="font-bold text-sm">Maintenance Mode:</h4>
+            <ul className="list-disc pl-5 text-sm space-y-1">
+              <li>Use during database updates or critical fixes.</li>
+              <li>Locks all students out while allowing Admins to continue work.</li>
+            </ul>
+          </div>
+        </div>
+      )
+    },
+    {
+      title: "Referral Policy",
+      icon: <UserPlus className="h-5 w-5" />,
+      content: "Policy enforcement for the automated referral and point system.",
+      tutorial: (
+        <div className="space-y-4">
+          <p>Understanding the anti-fraud measures in the referral system.</p>
+          <p className="text-sm">The software automatically blocks Levels {">"}= 1+ from participation. This is hardcoded into the business logic to prevent Admins or VIP users from farming points using their influence.</p>
+          <div className="p-3 bg-destructive/5 rounded border border-destructive/20 text-destructive text-xs font-bold uppercase tracking-tight">
+            Level 1+ / 2 / 3 / 4 Restricted
+          </div>
+        </div>
+      )
+    }
+  ];
+
+  return (
+    <div className="grid gap-6">
+      <Card className="border-primary/20 bg-primary/5">
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <HelpCircle className="h-6 w-6 text-primary" />
+            Administrator Operations Manual
+          </CardTitle>
+          <CardDescription>Comprehensive guide for Pantheon platform administrators. Click any card to view detailed tutorial.</CardDescription>
+        </CardHeader>
+      </Card>
+
+      <div className="grid gap-4 md:grid-cols-2">
+        {sections.map((section, idx) => (
+          <Card 
+            key={idx} 
+            className="hover:border-primary/30 transition-all cursor-pointer hover:shadow-md hover:scale-[1.01] active:scale-100"
+            onClick={() => setSelectedTutorial(section)}
+          >
+            <CardHeader className="flex flex-row items-center gap-3 space-y-0 pb-2">
+              <div className="p-2 rounded-lg bg-primary/10 text-primary">
+                {section.icon}
+              </div>
+              <CardTitle className="text-base">{section.title}</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <p className="text-sm text-muted-foreground leading-relaxed">
+                {section.content}
+              </p>
+              <div className="mt-4 flex items-center text-xs font-bold text-primary gap-1 group">
+                View Tutorial <ChevronRight className="h-3 w-3 group-hover:translate-x-0.5 transition-transform" />
+              </div>
+            </CardContent>
+          </Card>
+        ))}
+      </div>
+      
+      <Dialog open={!!selectedTutorial} onOpenChange={() => setSelectedTutorial(null)}>
+        <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto">
+          <DialogHeader>
+            <div className="flex items-center gap-2 mb-2">
+              <div className="p-2 rounded-lg bg-primary/10 text-primary">
+                {selectedTutorial?.icon}
+              </div>
+              <DialogTitle>{selectedTutorial?.title}</DialogTitle>
+            </div>
+            <DialogDescription>
+              Detailed documentation and workflow tutorial.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="py-6 border-y my-4">
+            {selectedTutorial?.tutorial}
+          </div>
+
+          <DialogFooter>
+            <Button onClick={() => setSelectedTutorial(null)}>Close Tutorial</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+      
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-lg">Platform Support</CardTitle>
+          <CardDescription>For technical emergencies or database issues.</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="flex flex-col gap-2">
+            <div className="flex items-center justify-between p-3 bg-muted/50 rounded-lg">
+              <span className="text-sm font-medium">Developer Contact</span>
+              <span className="text-sm text-primary font-mono">support@pantheon.futo</span>
+            </div>
+            <div className="flex items-center justify-between p-3 bg-muted/50 rounded-lg">
+              <span className="text-sm font-medium">Last Audit</span>
+              <span className="text-sm text-muted-foreground">{new Date().toLocaleDateString()}</span>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
     </div>
   );
 }

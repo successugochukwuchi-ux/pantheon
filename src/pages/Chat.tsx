@@ -10,18 +10,32 @@ import { Avatar, AvatarFallback, AvatarImage } from '../components/ui/avatar';
 import { Badge } from '../components/ui/badge';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from '../components/ui/dialog';
 import { Label } from '../components/ui/label';
-import { Send, MessageSquare, Users, Search, ArrowLeft, MoreVertical, Shield, Plus, Check, FileText, BookOpen, ChevronRight } from 'lucide-react';
+import { Send, MessageSquare, Users, Search, ArrowLeft, MoreVertical, Shield, Plus, Check, FileText, BookOpen, ChevronRight, LogOut, Flag, Reply, X as CloseIcon } from 'lucide-react';
 import { toast } from 'sonner';
 import { cn } from '../lib/utils';
 import { UserProfile, Note, Course } from '../types';
 import { useTitle } from '../hooks/useTitle';
+import { 
+  DropdownMenu, 
+  DropdownMenuContent, 
+  DropdownMenuItem, 
+  DropdownMenuTrigger,
+  DropdownMenuSeparator
+} from '../components/ui/dropdown-menu';
+import { deleteDoc } from 'firebase/firestore';
 
 interface Message {
   id: string;
   senderUid: string;
   senderName: string;
+  senderPhotoURL?: string;
   text: string;
   referencedNoteId?: string;
+  replyTo?: {
+    messageId: string;
+    text: string;
+    senderName: string;
+  };
   createdAt: string;
 }
 
@@ -33,6 +47,7 @@ interface ChatRoom {
   lastMessage?: string;
   lastUpdatedAt?: string;
   friendProfile?: UserProfile;
+  typing?: { [uid: string]: boolean };
 }
 
 interface Friend {
@@ -61,7 +76,47 @@ export default function Chat() {
   const [courses, setCourses] = useState<Course[]>([]);
   const [selectedCourseForNote, setSelectedCourseForNote] = useState<string | null>(null);
   const [selectedNote, setSelectedNote] = useState<Note | null>(null);
+  const [replyingTo, setReplyingTo] = useState<Message | null>(null);
+  const [reportReason, setReportReason] = useState('');
+  const [isReportDialogOpen, setIsReportDialogOpen] = useState(false);
+  const [memberProfiles, setMemberProfiles] = useState<{ [uid: string]: UserProfile }>({});
   const scrollRef = useRef<HTMLDivElement>(null);
+  const typingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+
+  // Sound effects
+  const messageSound = useRef(new Audio('https://assets.mixkit.co/active_storage/sfx/2354/2354-preview.mp3'));
+  const notificationSound = useRef(new Audio('https://assets.mixkit.co/active_storage/sfx/2358/2358-preview.mp3'));
+
+  // Fetch profiles for active chat members to ensure consistent avatars
+  useEffect(() => {
+    if (!activeChat) return;
+    
+    const fetchProfiles = async () => {
+      const uidsToFetch = activeChat.uids.filter(uid => !memberProfiles[uid]);
+      if (uidsToFetch.length === 0) return;
+
+      const newProfiles = { ...memberProfiles };
+      let changed = false;
+
+      for (const uid of uidsToFetch) {
+        try {
+          const userDoc = await getDoc(doc(db, 'users', uid));
+          if (userDoc.exists()) {
+            newProfiles[uid] = userDoc.data() as UserProfile;
+            changed = true;
+          }
+        } catch (err) {
+          console.error(`Failed to fetch profile for ${uid}:`, err);
+        }
+      }
+
+      if (changed) {
+        setMemberProfiles(newProfiles);
+      }
+    };
+
+    fetchProfiles();
+  }, [activeChat, memberProfiles]);
 
   // Fetch user notes for reference
   useEffect(() => {
@@ -110,7 +165,16 @@ export default function Chat() {
         const timeB = b.lastUpdatedAt ? new Date(b.lastUpdatedAt).getTime() : 0;
         return timeB - timeA;
       });
+      
       setChats(chatList);
+      
+      // Sync activeChat to pick up typing changes
+      setActiveChat(prev => {
+        if (!prev) return null;
+        const updated = chatList.find(c => c.id === prev.id);
+        return updated ? { ...prev, ...updated } : prev;
+      });
+      
       setLoading(false);
     });
 
@@ -184,6 +248,16 @@ export default function Chat() {
       const msgs = snapshot.docs
         .map(doc => ({ id: doc.id, ...doc.data() } as Message))
         .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
+      
+      if (msgs.length > 0) {
+        const lastMsg = msgs[msgs.length - 1];
+        if (lastMsg && lastMsg.senderUid !== user?.uid) {
+          const lastMsgTime = new Date(lastMsg.createdAt).getTime();
+          if (Date.now() - lastMsgTime < 5000) {
+            messageSound.current.play().catch(() => {});
+          }
+        }
+      }
       setMessages(msgs);
     });
 
@@ -203,17 +277,30 @@ export default function Chat() {
 
     const text = newMessage.trim();
     const noteId = selectedNote?.id;
+    const currentReply = replyingTo;
+    
     setNewMessage('');
     setSelectedNote(null);
+    setReplyingTo(null);
+    handleStopTyping(); // Clear typing status immediately on send
 
     try {
-      const msgData = {
+      const msgData: any = {
         senderUid: user.uid,
         senderName: profile.username || 'User',
+        senderPhotoURL: profile.photoURL || `https://api.dicebear.com/7.x/avataaars/svg?seed=${user.uid}`,
         text,
         referencedNoteId: noteId || null,
         createdAt: new Date().toISOString()
       };
+
+      if (currentReply) {
+        msgData.replyTo = {
+          messageId: currentReply.id,
+          text: currentReply.text,
+          senderName: currentReply.senderName
+        };
+      }
 
       await addDoc(collection(db, 'chats', activeChat.id, 'messages'), msgData);
       
@@ -255,6 +342,83 @@ export default function Chat() {
     setSelectedFriends(prev => 
       prev.includes(uid) ? prev.filter(id => id !== uid) : [...prev, uid]
     );
+  };
+
+  const handleLeaveGroup = async () => {
+    if (!user || !activeChat || activeChat.type !== 'group') return;
+    
+    if (!confirm('Are you sure you want to leave this group?')) return;
+
+    try {
+      const newUids = activeChat.uids.filter(id => id !== user.uid);
+      
+      if (newUids.length === 0) {
+        // Last member leaving, delete the group
+        await deleteDoc(doc(db, 'chats', activeChat.id));
+        toast.success('Group deleted as you were the last member.');
+      } else {
+        // Just remove the user
+        await updateDoc(doc(db, 'chats', activeChat.id), {
+          uids: newUids,
+          lastMessage: `${profile?.username || 'A user'} left the group`,
+          lastUpdatedAt: new Date().toISOString()
+        });
+        toast.success('You left the group');
+      }
+      setActiveChat(null);
+    } catch (err) {
+      toast.error('Failed to leave group');
+    }
+  };
+
+  const handleReportChat = async () => {
+    if (!user || !activeChat || !reportReason.trim()) return;
+    
+    try {
+      await addDoc(collection(db, 'reports'), {
+        reporterId: user.uid,
+        reporterName: profile?.username || 'User',
+        chatId: activeChat.id,
+        chatType: activeChat.type,
+        targetUids: activeChat.uids.filter(id => id !== user.uid),
+        reason: reportReason.trim(),
+        createdAt: new Date().toISOString(),
+        status: 'pending'
+      });
+      toast.success('Chat reported to administrators');
+      setIsReportDialogOpen(false);
+      setReportReason('');
+    } catch (err) {
+      toast.error('Failed to submit report');
+    }
+  };
+
+  const handleTyping = () => {
+    if (!user || !activeChat) return;
+    
+    // Clear existing timeout
+    if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
+    
+    // If not already marked as typing, mark it
+    if (!activeChat.typing?.[user.uid]) {
+      updateDoc(doc(db, 'chats', activeChat.id), {
+        [`typing.${user.uid}`]: true
+      });
+    }
+    
+    // Set timeout to clear typing status
+    typingTimeoutRef.current = setTimeout(() => {
+      handleStopTyping();
+    }, 3000);
+  };
+
+  const handleStopTyping = () => {
+    if (!user || !activeChat) return;
+    if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
+    
+    updateDoc(doc(db, 'chats', activeChat.id), {
+      [`typing.${user.uid}`]: false
+    });
   };
 
   return (
@@ -335,9 +499,11 @@ export default function Chat() {
                   )}
                   onClick={() => setActiveChat(chat)}
                 >
-                  <Avatar className="h-10 w-10 border">
-                    <AvatarImage src={chat.friendProfile?.photoURL} />
-                    <AvatarFallback>{(chat.name || chat.friendProfile?.username || 'C')[0].toUpperCase()}</AvatarFallback>
+                  <Avatar className="h-10 w-10 border shadow-sm">
+                    <AvatarImage src={chat.friendProfile?.photoURL || (chat.type === 'dm' ? `https://api.dicebear.com/7.x/avataaars/svg?seed=${chat.uids.find(id => id !== user?.uid) || chat.id}` : undefined)} />
+                    <AvatarFallback className="bg-primary/10 text-primary font-bold">
+                      {(chat.name || chat.friendProfile?.username || 'C')[0].toUpperCase()}
+                    </AvatarFallback>
                   </Avatar>
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center justify-between">
@@ -372,20 +538,75 @@ export default function Chat() {
                 <Button variant="ghost" size="icon" className="md:hidden" onClick={() => setActiveChat(null)}>
                   <ArrowLeft className="h-4 w-4" />
                 </Button>
-                <Avatar className="h-10 w-10 border">
-                  <AvatarImage src={activeChat.friendProfile?.photoURL} />
-                  <AvatarFallback>{(activeChat.name || activeChat.friendProfile?.username || 'C')[0].toUpperCase()}</AvatarFallback>
+                <Avatar className="h-10 w-10 border shadow-sm">
+                  <AvatarImage src={activeChat.friendProfile?.photoURL || (activeChat.type === 'dm' ? `https://api.dicebear.com/7.x/avataaars/svg?seed=${activeChat.uids.find(id => id !== user?.uid) || activeChat.id}` : undefined)} />
+                  <AvatarFallback className="bg-primary/10 text-primary font-bold">
+                    {(activeChat.name || activeChat.friendProfile?.username || 'C')[0].toUpperCase()}
+                  </AvatarFallback>
                 </Avatar>
                 <div>
                   <CardTitle className="text-sm font-bold">{activeChat.name || activeChat.friendProfile?.username || 'Chat'}</CardTitle>
                   <p className="text-[10px] text-muted-foreground">
-                    {activeChat.type === 'dm' ? 'Direct Message' : 'Group Chat'}
+                    {Object.entries(activeChat.typing || {})
+                      .filter(([uid, isTyping]) => isTyping && uid !== user?.uid)
+                      .length > 0 
+                      ? "User is typing..." 
+                      : (activeChat.type === 'dm' ? 'Direct Message' : 'Group Chat')}
                   </p>
                 </div>
               </div>
-              <Button variant="ghost" size="icon">
-                <MoreVertical className="h-4 w-4" />
-              </Button>
+              <div className="flex items-center gap-1">
+                <Dialog open={isReportDialogOpen} onOpenChange={setIsReportDialogOpen}>
+                  <DialogContent>
+                    <DialogHeader>
+                      <DialogTitle>Report Conversation</DialogTitle>
+                      <DialogDescription>
+                        Please provide a reason for reporting this chat. Our admins will investigate.
+                      </DialogDescription>
+                    </DialogHeader>
+                    <div className="py-4 space-y-4">
+                      <div className="space-y-2">
+                        <Label htmlFor="reason">Reason for Reporting</Label>
+                        <Input 
+                          id="reason" 
+                          placeholder="e.g. Harassment, Spam, etc." 
+                          value={reportReason}
+                          onChange={(e) => setReportReason(e.target.value)}
+                        />
+                      </div>
+                    </div>
+                    <DialogFooter>
+                      <Button variant="outline" onClick={() => setIsReportDialogOpen(false)}>Cancel</Button>
+                      <Button variant="destructive" onClick={handleReportChat} disabled={!reportReason.trim()}>
+                        Submit Report
+                      </Button>
+                    </DialogFooter>
+                  </DialogContent>
+                </Dialog>
+
+                <DropdownMenu>
+                  <DropdownMenuTrigger render={
+                    <Button variant="ghost" size="icon">
+                      <MoreVertical className="h-4 w-4" />
+                    </Button>
+                  } />
+                  <DropdownMenuContent align="end" className="w-48">
+                    <DropdownMenuItem onClick={() => setIsReportDialogOpen(true)} className="text-amber-600 focus:text-amber-700">
+                      <Flag className="mr-2 h-4 w-4" />
+                      Report Chat
+                    </DropdownMenuItem>
+                    {activeChat.type === 'group' && (
+                    <>
+                      <DropdownMenuSeparator />
+                      <DropdownMenuItem onClick={handleLeaveGroup} className="text-destructive focus:text-destructive">
+                        <LogOut className="mr-2 h-4 w-4" />
+                        Leave Group
+                      </DropdownMenuItem>
+                    </>
+                  )}
+                </DropdownMenuContent>
+              </DropdownMenu>
+              </div>
             </CardHeader>
             
             <CardContent 
@@ -396,50 +617,94 @@ export default function Chat() {
                 const isMe = msg.senderUid === user?.uid;
                 const refNote = userNotes.find(n => n.id === msg.referencedNoteId);
                 
+                const senderProfile = memberProfiles[msg.senderUid];
+                const avatarUrl = senderProfile?.photoURL || msg.senderPhotoURL || `https://api.dicebear.com/7.x/avataaars/svg?seed=${msg.senderUid}`;
+                
                 return (
-                  <div key={msg.id} className={cn("flex flex-col max-w-[80%]", isMe ? "ml-auto items-end" : "items-start")}>
-                    {!isMe && activeChat.type === 'group' && (
-                      <span className="text-[10px] font-bold mb-1 px-1 text-muted-foreground">
-                        {msg.senderName}
-                      </span>
-                    )}
-                    <div className={cn(
-                      "px-4 py-2 rounded-2xl text-sm shadow-sm space-y-2 relative group/msg",
-                      isMe 
-                        ? "bg-primary text-primary-foreground rounded-tr-none" 
-                        : "bg-card border rounded-tl-none text-foreground"
-                    )}>
-                      {msg.text && <p className="leading-relaxed">{msg.text}</p>}
-                      {refNote && (
-                        <div 
-                          className={cn(
-                            "p-3 rounded-xl border flex items-center gap-3 cursor-pointer hover:bg-black/5 transition-colors",
-                            isMe ? "bg-white/10 border-white/20" : "bg-muted border-primary/10"
-                          )}
-                          onClick={() => navigate(`/notes?id=${refNote.id}`)}
-                        >
-                          <div className={cn(
-                            "h-10 w-10 rounded-lg flex items-center justify-center shrink-0",
-                            isMe ? "bg-white/20" : "bg-primary/10"
-                          )}>
-                            <FileText className={cn("h-5 w-5", isMe ? "text-white" : "text-primary")} />
-                          </div>
-                          <div className="min-w-0">
-                            <p className={cn("font-bold text-xs truncate", isMe ? "text-white" : "text-foreground")}>{refNote.title}</p>
-                            <p className={cn("text-[10px] opacity-70", isMe ? "text-white/80" : "text-muted-foreground")}>Click to view note</p>
-                          </div>
-                        </div>
+                  <div key={msg.id} className={cn("flex gap-3 max-w-[85%]", isMe ? "ml-auto flex-row-reverse" : "flex-row")}>
+                    <Avatar className="h-8 w-8 mt-1 border shrink-0 shadow-sm">
+                      <AvatarImage src={avatarUrl} />
+                      <AvatarFallback className="bg-muted text-[10px]">{msg.senderName?.[0]?.toUpperCase() || 'U'}</AvatarFallback>
+                    </Avatar>
+                    <div className={cn("flex flex-col", isMe ? "items-end" : "items-start")}>
+                      {activeChat.type === 'group' && !isMe && (
+                        <span className="text-[10px] font-bold mb-1 px-1 text-muted-foreground">
+                          {msg.senderName}
+                        </span>
                       )}
+                      <div className={cn(
+                        "px-4 py-2 rounded-2xl text-sm shadow-sm space-y-2 relative group",
+                        isMe 
+                          ? "bg-primary text-primary-foreground rounded-tr-none" 
+                          : "bg-card border rounded-tl-none text-foreground"
+                      )}>
+                        {msg.replyTo && (
+                          <div className={cn(
+                            "mb-2 p-2 rounded-lg border-l-4 text-[11px] opacity-80",
+                            isMe ? "bg-black/10 border-white/40" : "bg-muted border-primary/40 truncate"
+                          )}>
+                            <p className="font-bold mb-0.5">{msg.replyTo.senderName}</p>
+                            <p className="truncate italic">{msg.replyTo.text}</p>
+                          </div>
+                        )}
+                        {msg.text && <p className="leading-relaxed">{msg.text}</p>}
+                        {refNote && (
+                          <div 
+                            className={cn(
+                              "p-3 rounded-xl border flex items-center gap-3 cursor-pointer hover:bg-black/5 transition-colors",
+                              isMe ? "bg-white/10 border-white/20" : "bg-muted border-primary/10"
+                            )}
+                            onClick={() => navigate(`/notes?id=${refNote.id}`)}
+                          >
+                            <div className={cn(
+                              "h-10 w-10 rounded-lg flex items-center justify-center shrink-0",
+                              isMe ? "bg-white/20" : "bg-primary/10"
+                            )}>
+                              <FileText className={cn("h-5 w-5", isMe ? "text-white" : "text-primary")} />
+                            </div>
+                            <div className="min-w-0">
+                              <p className={cn("font-bold text-xs truncate", isMe ? "text-white" : "text-foreground")}>{refNote.title}</p>
+                              <p className={cn("text-[10px] opacity-70", isMe ? "text-white/80" : "text-muted-foreground")}>Click to view note</p>
+                            </div>
+                          </div>
+                        )}
+                        <Button 
+                          variant="secondary" 
+                          size="icon" 
+                          className={cn(
+                            "h-6 w-6 rounded-full absolute -top-3 transition-all z-10 border shadow-md",
+                            "flex items-center justify-center bg-background",
+                            // On mobile: always visible but smaller/subtler, pushed inside more
+                            // On desktop: hover to show, pushed further out
+                            "opacity-100 lg:opacity-0 lg:group-hover:opacity-100 scale-90 lg:scale-100",
+                            isMe ? "-left-3 lg:-left-8" : "-right-3 lg:-right-8"
+                          )}
+                          onClick={() => setReplyingTo(msg)}
+                        >
+                          <Reply className="h-3 w-3" />
+                        </Button>
+                      </div>
+                      <span className="text-[8px] text-muted-foreground mt-1 px-1">
+                        {new Date(msg.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                      </span>
                     </div>
-                    <span className="text-[8px] text-muted-foreground mt-1 px-1">
-                      {new Date(msg.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                    </span>
                   </div>
                 );
               })}
             </CardContent>
 
             <CardFooter className="p-4 border-t flex flex-col gap-3 bg-background">
+              {replyingTo && (
+                <div className="flex items-center justify-between w-full bg-muted p-2 px-3 rounded-xl border border-primary/20 animate-in fade-in slide-in-from-bottom-2">
+                  <div className="flex flex-col min-w-0">
+                    <p className="text-[10px] text-primary font-bold uppercase tracking-wider">Replying to {replyingTo.senderName}</p>
+                    <p className="text-xs truncate italic text-muted-foreground">{replyingTo.text}</p>
+                  </div>
+                  <Button variant="ghost" size="icon" className="h-7 w-7 rounded-full" onClick={() => setReplyingTo(null)}>
+                    <CloseIcon className="h-4 w-4" />
+                  </Button>
+                </div>
+              )}
               {selectedNote && (
                 <div className="flex items-center justify-between w-full bg-primary/5 p-2 px-3 rounded-xl border border-primary/20 animate-in fade-in slide-in-from-bottom-2">
                   <div className="flex items-center gap-2 overflow-hidden">
@@ -546,7 +811,11 @@ export default function Chat() {
                   <Input 
                     placeholder={selectedNote ? "Add a comment to this note..." : "Type a message..."}
                     value={newMessage}
-                    onChange={(e) => setNewMessage(e.target.value)}
+                    onChange={(e) => {
+                      setNewMessage(e.target.value);
+                      handleTyping();
+                    }}
+                    onBlur={handleStopTyping}
                     className="bg-muted/50 border-none h-10 rounded-xl px-4 focus-visible:ring-primary/20"
                   />
                 </div>

@@ -12,7 +12,7 @@ import { toast } from 'sonner';
 import { Timer, HelpCircle, CheckCircle2, XCircle, ArrowRight, ArrowLeft, RotateCcw, Play, X } from 'lucide-react';
 import { Course, Question, CBTSession, QuestionSheet } from '../types';
 import { motion, AnimatePresence } from 'motion/react';
-import { BlockMath } from 'react-katex';
+import { MathJax } from 'better-react-mathjax';
 import 'katex/dist/katex.min.css';
 import { useTitle } from '../hooks/useTitle';
 
@@ -317,7 +317,7 @@ export default function CBTPractice() {
                   <CardHeader className="pb-3">
                     <div className="flex items-start justify-between gap-4">
                       <div className="prose dark:prose-invert font-medium">
-                        <BlockMath math={`${i + 1}. ${q.text}`} />
+                        <MathJax>{`$$${i + 1}. ${q.text}$$`}</MathJax>
                       </div>
                       {userAnswers[q.id] === q.correctAnswer ? (
                         <CheckCircle2 className="h-6 w-6 text-green-500 shrink-0" />
@@ -397,7 +397,9 @@ export default function CBTPractice() {
           <Card className="min-h-[450px] flex flex-col shadow-lg border-2">
             <CardHeader className="pb-8">
               <div className="prose dark:prose-invert max-w-none text-2xl leading-relaxed">
-                <BlockMath math={currentQuestion.text} />
+                <div className="py-4">
+                  <MathJax>{`$$${currentQuestion.text}$$`}</MathJax>
+                </div>
               </div>
             </CardHeader>
             <CardContent className="flex-1 space-y-4">

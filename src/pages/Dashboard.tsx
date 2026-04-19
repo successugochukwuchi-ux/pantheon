@@ -9,6 +9,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { Alert, AlertDescription, AlertTitle } from '../components/ui/alert';
 import { useTitle } from '../hooks/useTitle';
+import { SystemStatus } from '../components/SystemStatus';
 
 export default function Dashboard() {
   useTitle('Dashboard');
@@ -66,30 +67,18 @@ export default function Dashboard() {
         </Alert>
       )}
 
-      {systemConfig && !isHoliday && (
-        <Alert className="border-primary/50 bg-primary/5">
-          <Info className="h-4 w-4 text-primary" />
-          <AlertTitle className="text-primary">{systemConfig.currentSemester} Semester Active</AlertTitle>
-          <AlertDescription>
-            You are currently in the {systemConfig.currentSemester} semester. All relevant courses are now available.
-          </AlertDescription>
-        </Alert>
-      )}
+      <div className="md:hidden">
+        <SystemStatus />
+      </div>
 
-      {isHoliday && systemConfig && (
+      {isHoliday && (
         <Alert variant="destructive" className="border-destructive/50 bg-destructive/5">
           <AlertCircle className="h-4 w-4" />
-          <AlertTitle>Semester Ended</AlertTitle>
+          <AlertTitle>Courses Restricted</AlertTitle>
           <AlertDescription>
             The academic semester has ended. Access to course materials is restricted until the next semester starts.
           </AlertDescription>
         </Alert>
-      )}
-
-      {!systemConfig && (
-        <div className="h-24 flex items-center justify-center text-muted-foreground animate-pulse">
-          Loading platform status...
-        </div>
       )}
 
       {/* Quick Links */}
