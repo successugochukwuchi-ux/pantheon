@@ -656,14 +656,22 @@ export default function AdminPanel() {
   const handleUpdateSemester = async (semester: Semester) => {
     if (!user) return;
     setLoading(true);
+    console.log(`Updating semester to: ${semester}`);
     try {
       const configRef = doc(db, 'system', 'config');
-      await setDoc(configRef, {
+      const updateData: any = {
         currentSemester: semester,
-        maintenanceMode: systemConfig?.maintenanceMode || false,
         updatedBy: user.uid,
         updatedAt: new Date().toISOString()
-      }, { merge: true });
+      };
+      
+      // Preserve maintenance mode if it exists in current local state
+      if (systemConfig) {
+        updateData.maintenanceMode = systemConfig.maintenanceMode;
+      }
+      
+      await setDoc(configRef, updateData, { merge: true });
+      console.log("System config updated successfully");
 
       // If ending a semester, demote 1+ and deactivate 1
       if (semester === 'none') {
@@ -671,28 +679,34 @@ export default function AdminPanel() {
         let countDeactivated = 0;
         let countDemoted = 0;
 
-        // 1. Deactivate Level 1 users
-        const level1Query = query(collection(db, 'users'), where('level', '==', '1'), where('isActivated', '==', true));
-        const level1Snap = await getDocs(level1Query);
-        level1Snap.docs.forEach((userDoc) => {
-          batch.update(userDoc.ref, { isActivated: false });
-          countDeactivated++;
-        });
+        try {
+          // 1. Deactivate Level 1 users
+          const level1Query = query(collection(db, 'users'), where('level', '==', '1'), where('isActivated', '==', true));
+          const level1Snap = await getDocs(level1Query);
+          level1Snap.docs.forEach((userDoc) => {
+            batch.update(userDoc.ref, { isActivated: false });
+            countDeactivated++;
+          });
 
-        // 2. Demote Level 1+ users while keeping them activated
-        const level1PlusQuery = query(collection(db, 'users'), where('level', '==', '1+'));
-        const level1PlusSnap = await getDocs(level1PlusQuery);
-        level1PlusSnap.docs.forEach((userDoc) => {
-          batch.update(userDoc.ref, { level: '1' });
-          countDemoted++;
-        });
+          // 2. Demote Level 1+ users while keeping them activated
+          const level1PlusQuery = query(collection(db, 'users'), where('level', '==', '1+'));
+          const level1PlusSnap = await getDocs(level1PlusQuery);
+          level1PlusSnap.docs.forEach((userDoc) => {
+            batch.update(userDoc.ref, { level: '1' });
+            countDemoted++;
+          });
 
-        await batch.commit();
-        toast.success(`Semester ended. ${countDeactivated} deactivated, ${countDemoted} demoted.`);
+          await batch.commit();
+          toast.success(`Semester ended. ${countDeactivated} deactivated, ${countDemoted} demoted.`);
+        } catch (innerError: any) {
+          console.error("Batch update failed during semester end:", innerError);
+          toast.error(`Semester config updated, but user reset failed: ${innerError.message}. Please check indexes.`);
+        }
       } else {
         toast.success(`${semester} Semester started.`);
       }
     } catch (error: any) {
+      console.error("Semester update error:", error);
       toast.error(`Failed to update semester: ${error.message}`);
     } finally {
       setLoading(false);

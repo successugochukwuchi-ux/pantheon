@@ -15,7 +15,7 @@ export default function Dashboard() {
   useTitle('Dashboard');
   const navigate = useNavigate();
   const [news, setNews] = useState<NewsItem[]>([]);
-  const { profile, systemConfig, loading } = useAuth();
+  const { profile, systemConfig, loading, isSystemConfigReady } = useAuth();
 
   useEffect(() => {
     if (!profile) return;
@@ -40,8 +40,19 @@ export default function Dashboard() {
     { name: 'Punch Notes', path: '/punch?type=punch', icon: Calculator, color: 'bg-orange-500' },
   ];
 
-  const isHoliday = systemConfig?.currentSemester === 'none' || (!systemConfig && !loading);
+  const isHoliday = isSystemConfigReady && (systemConfig?.currentSemester === 'none' || !systemConfig);
   const isUnactivated = profile && !profile.isActivated;
+
+  if (loading || !isSystemConfigReady) {
+    return (
+      <div className="flex items-center justify-center min-h-[60vh]">
+        <div className="flex flex-col items-center gap-4">
+          <div className="h-8 w-8 animate-spin rounded-full border-4 border-primary border-t-transparent"></div>
+          <p className="text-muted-foreground animate-pulse">Syncing platform status...</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-8">

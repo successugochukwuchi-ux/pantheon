@@ -34,7 +34,7 @@ if (isRealConfig) {
 
 export const auth = getAuth(app);
 setPersistence(auth, browserLocalPersistence).catch(err => console.error("Persistence failed:", err));
-export const db = getFirestore(app);
+export const db = getFirestore(app, firebaseConfig.firestoreDatabaseId);
 
 export enum OperationType {
   CREATE = 'create',

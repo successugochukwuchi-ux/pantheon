@@ -12,6 +12,7 @@ interface AuthContextType {
   promoConfig: PromoConfig | null;
   loading: boolean;
   isAuthReady: boolean;
+  isSystemConfigReady: boolean;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -23,6 +24,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [promoConfig, setPromoConfig] = useState<PromoConfig | null>(null);
   const [loading, setLoading] = useState(true);
   const [isAuthReady, setIsAuthReady] = useState(false);
+  const [isSystemConfigReady, setIsSystemConfigReady] = useState(false);
   const [retryCount, setRetryCount] = useState(0);
 
   useEffect(() => {
@@ -51,8 +53,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           updatedAt: new Date().toISOString()
         });
       }
+      setIsSystemConfigReady(true);
     }, (error) => {
-      console.error("System config listener failed:", error);
+      if (auth.currentUser) {
+        console.error("System config listener failed:", error);
+      }
       // Fallback to default if we can't read it
       setSystemConfig({
         currentSemester: 'none',
@@ -60,6 +65,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         updatedBy: 'system',
         updatedAt: new Date().toISOString()
       });
+      setIsSystemConfigReady(true);
     });
 
     const unsubscribePromo = onSnapshot(doc(db, 'system', 'promo'), (snapshot) => {
@@ -149,7 +155,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   }, [user, retryCount]);
 
   return (
-    <AuthContext.Provider value={{ user, profile, systemConfig, promoConfig, loading, isAuthReady }}>
+    <AuthContext.Provider value={{ user, profile, systemConfig, promoConfig, loading, isAuthReady, isSystemConfigReady }}>
       {children}
     </AuthContext.Provider>
   );
