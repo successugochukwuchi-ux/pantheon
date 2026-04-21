@@ -15,6 +15,36 @@ export default defineConfig(({mode}) => {
         includeAssets: ['favicon.ico', 'apple-touch-icon.png', 'mask-icon.svg'],
         workbox: {
           maximumFileSizeToCacheInBytes: 4000000,
+          runtimeCaching: [
+            {
+              urlPattern: /^https:\/\/i\.imgur\.com\/.*/i,
+              handler: 'CacheFirst',
+              options: {
+                cacheName: 'imgur-images',
+                expiration: {
+                  maxEntries: 100,
+                  maxAgeSeconds: 60 * 60 * 24 * 30 // 30 days
+                },
+                cacheableResponse: {
+                  statuses: [0, 200]
+                }
+              }
+            },
+            {
+              urlPattern: /^https:\/\/picsum\.photos\/.*/i,
+              handler: 'CacheFirst',
+              options: {
+                cacheName: 'picsum-images',
+                expiration: {
+                  maxEntries: 50,
+                  maxAgeSeconds: 60 * 60 * 24 * 7 // 7 days
+                },
+                cacheableResponse: {
+                  statuses: [0, 200]
+                }
+              }
+            }
+          ]
         },
         devOptions: {
           enabled: true

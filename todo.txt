@@ -1,0 +1,18 @@
+# PANTHEON PROJECT TODO
+
+## PHASE 1: MOBILE MIGRATION (REACT NATIVE)
+- [x] Initialize React Native project
+- [x] Setup Firebase for React Native (Auth, Firestore)
+- [x] Port Navigation (Landing, Login, Register)
+- [x] Port Dashboard
+- [x] Port Past Questions & CBT Practice
+- [ ] Port Chat & Social features
+
+## PHASE 2: ADMIN ENHANCEMENTS
+- [x] Allow Level 3 & 4 Admins to see all questions regardless of level
+- [ ] Enhanced Admin Reports dashboard in mobile
+
+## PHASE 3: CORE ACADEMIC EXPERIENCE
+- [ ] Study Materials browser
+- [ ] Video Library
+- [ ] Course Discussions

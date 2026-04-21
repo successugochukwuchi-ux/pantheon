@@ -5,7 +5,7 @@ import { Calendar, Gift, Info } from 'lucide-react';
 import { cn } from '../lib/utils';
 
 export const SystemStatus: React.FC<{ className?: string, variant?: 'default' | 'compact' }> = ({ className, variant = 'default' }) => {
-  const { systemConfig, promoConfig, loading } = useAuth();
+  const { systemConfig, promoConfig, loading, isOnline } = useAuth();
 
   if (loading && !systemConfig) return null;
 
@@ -14,6 +14,11 @@ export const SystemStatus: React.FC<{ className?: string, variant?: 'default' | 
   if (variant === 'compact') {
     return (
       <div className={cn("flex items-center gap-2", className)}>
+        {!isOnline && (
+          <Badge variant="outline" className="text-[10px] bg-muted text-muted-foreground border-dashed">
+            OFFLINE
+          </Badge>
+        )}
         <Badge variant="outline" className={cn(
           "text-[10px] uppercase font-bold",
           isHoliday ? "bg-orange-500/10 text-orange-600 border-orange-500/20" : "bg-green-500/10 text-green-600 border-green-500/20"
@@ -52,6 +57,13 @@ export const SystemStatus: React.FC<{ className?: string, variant?: 'default' | 
           <p className="text-[11px] text-muted-foreground leading-tight">
             All semester courses and materials are currently accessible.
           </p>
+        )}
+
+        {!isOnline && (
+          <div className="flex items-center gap-1.5 mt-2 pt-2 border-t border-border/50 text-[10px] text-muted-foreground">
+            <div className="h-1 w-1 rounded-full bg-orange-500 animate-pulse" />
+            Displaying cached academic status
+          </div>
         )}
       </div>
 

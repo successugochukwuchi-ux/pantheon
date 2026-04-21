@@ -1,7 +1,8 @@
 import { initializeApp } from 'firebase/app';
 import { getAuth, setPersistence, browserLocalPersistence } from 'firebase/auth';
-import { getFirestore, doc, getDocFromServer } from 'firebase/firestore';
+import { getFirestore, doc, getDocFromServer, enableIndexedDbPersistence } from 'firebase/firestore';
 import firebaseConfigJson from '../firebase-applet-config.json';
+import { toast } from 'sonner';
 
 // Support both environment variables (for production) and JSON file (for development)
 const firebaseConfig = {
@@ -34,7 +35,20 @@ if (isRealConfig) {
 
 export const auth = getAuth(app);
 setPersistence(auth, browserLocalPersistence).catch(err => console.error("Persistence failed:", err));
-export const db = getFirestore(app, firebaseConfig.firestoreDatabaseId);
+export const db = getFirestore(app);
+
+// Enable offline persistence
+if (typeof window !== "undefined") {
+  enableIndexedDbPersistence(db).catch((err) => {
+    if (err.code === 'failed-precondition') {
+      // Multiple tabs open, persistence can only be enabled in one tab at a a time.
+      console.warn('Firestore persistence failed: Multiple tabs open');
+    } else if (err.code === 'unimplemented') {
+      // The current browser does not support all of the features required to enable persistence
+      console.warn('Firestore persistence failed: Browser not supported');
+    }
+  });
+}
 
 export enum OperationType {
   CREATE = 'create',
@@ -84,7 +98,7 @@ export function handleFirestoreError(error: unknown, operationType: OperationTyp
     path
   }
   console.error('Firestore Error: ', JSON.stringify(errInfo));
-  throw new Error(JSON.stringify(errInfo));
+  toast.error(`Firestore ${operationType} failed: ${errInfo.error}`);
 }
 
 // Test connection

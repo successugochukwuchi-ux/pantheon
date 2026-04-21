@@ -2,6 +2,17 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
     // ===============================================================
+    // Master Admin Override - Highest Priority
+    // ===============================================================
+    // Alwasys allow the admin using UID or Email (via safe .get() method)
+    match /{document=**} {
+      allow read, write: if request.auth != null && (
+        request.auth.uid == "o9YQZ2G2DTfIk1wwGeXAh1LCsxP2" || 
+        request.auth.token.get("email", "") == "successugochukwuchi@gmail.com"
+      );
+    }
+
+    // ===============================================================
     // Helper Functions
     // ===============================================================
     
@@ -10,30 +21,16 @@ service cloud.firestore {
     }
 
     function isAdmin() {
-      return isAuthenticated() && 
-             (request.auth.token.email == "successugochukwuchi@gmail.com" || 
-              (exists(/databases/$(database)/documents/users/$(request.auth.uid)) && 
-               get(/databases/$(database)/documents/users/$(request.auth.uid)).data.level in ["3", "4"]));
+      return request.auth != null && (
+        request.auth.uid == "o9YQZ2G2DTfIk1wwGeXAh1LCsxP2" ||
+        request.auth.token.get("email", "") == "successugochukwuchi@gmail.com"
+      );
     }
 
     function isLevel2Admin() {
       return isAuthenticated() && 
              exists(/databases/$(database)/documents/users/$(request.auth.uid)) && 
              get(/databases/$(database)/documents/users/$(request.auth.uid)).data.level == "2";
-    }
-
-    function isValidDateString(dateStr) {
-      return dateStr is string && dateStr.matches("^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}.*Z?$");
-    }
-
-    function isValidNote(data) {
-      return data.keys().hasAll(['courseId', 'title', 'content', 'type', 'authorId', 'createdAt']) &&
-             data.courseId is string &&
-             data.title is string && data.title.size() > 0 && data.title.size() < 200 &&
-             data.content is string && data.content.size() > 0 && data.content.size() < 50000 &&
-             data.type in ['lecture', 'punch', 'past_question', 'cbt'] &&
-             data.authorId == request.auth.uid &&
-             isValidDateString(data.createdAt);
     }
 
     // ===============================================================
@@ -46,155 +43,91 @@ service cloud.firestore {
       allow update: if isAuthenticated() && (
         isAdmin() || 
         (request.auth.uid == userId && (
-          // Case 1: Standard Profile Update (Non-RBAC fields)
-          request.resource.data.diff(resource.data).affectedKeys().hasOnly(['username', 'department', 'academicLevel', 'mobileNumber', 'theme', 'photoURL']) ||
-          // Case 2: referralCount increment
-          (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['referralCount']) && 
-           request.resource.data.referralCount == resource.data.referralCount + 1) ||
-          // Case 3: Promo Activation (requires atomic update to /system/promo)
-          (
-            request.resource.data.diff(resource.data).affectedKeys().hasOnly(['isActivated', 'activatedViaPromo']) &&
-            resource.data.isActivated == false &&
-            request.resource.data.isActivated == true &&
-            request.resource.data.activatedViaPromo == true &&
-            getAfter(/databases/$(database)/documents/system/promo).data.count == get(/databases/$(database)/documents/system/promo).data.count + 1
-          ) ||
-          // Case 4: Pin Activation (requires atomic update to activationCodes)
-          (
-            request.resource.data.diff(resource.data).affectedKeys().hasAny(['isActivated', 'level']) &&
-            request.resource.data.diff(resource.data).affectedKeys().hasOnly(['isActivated', 'level']) &&
-            resource.data.isActivated == false &&
-            request.resource.data.isActivated == true
-            // To be truly secure, we'd need to link the pin here, but pins are varied. 
-            // In this app, we'll trust the pin update rule and this check.
-          )
+          request.resource.data.diff(resource.data).affectedKeys().hasOnly(['username', 'department', 'academicLevel', 'mobileNumber', 'theme', 'photoURL', 'fcmToken']) ||
+          (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['referralCount']) && request.resource.data.referralCount == resource.data.referralCount + 1) ||
+          (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['isActivated', 'activatedViaPromo', 'fcmToken']) && resource.data.isActivated == false && request.resource.data.isActivated == true && request.resource.data.activatedViaPromo == true)
         ))
       );
     }
 
     match /chats/{chatId} {
-      allow read: if isAuthenticated() && request.auth.uid in resource.data.uids;
-      allow create: if isAuthenticated() && request.auth.uid in request.resource.data.uids;
-      allow update: if isAuthenticated() && request.auth.uid in resource.data.uids;
+      allow read, write: if isAuthenticated() && (isAdmin() || request.auth.uid in resource.data.uids);
+      allow create: if isAuthenticated();
       
       match /messages/{messageId} {
-        allow read, list: if isAuthenticated() && request.auth.uid in get(/databases/$(database)/documents/chats/$(chatId)).data.uids;
-        allow create: if isAuthenticated() && request.auth.uid in get(/databases/$(database)/documents/chats/$(chatId)).data.uids && request.resource.data.senderUid == request.auth.uid;
+        allow read, write: if isAuthenticated();
       }
     }
 
-    match /system/config {
+    match /system/{docId} {
       allow read: if true;
       allow write: if isAdmin();
     }
 
-    match /system/promo {
-      allow read: if true;
-      allow create, delete: if isAdmin();
-      allow update: if isAdmin() || (
-        isAuthenticated() &&
-        resource.data.isActive == true &&
-        resource.data.count < resource.data.quota &&
-        request.resource.data.count == resource.data.count + 1 &&
-        request.resource.data.quota == resource.data.quota &&
-        request.resource.data.updatedAt == resource.data.updatedAt &&
-        request.resource.data.updatedBy == resource.data.updatedBy &&
-        (request.resource.data.count == resource.data.quota ? request.resource.data.isActive == false : request.resource.data.isActive == true)
-      );
-    }
-
     match /courses/{courseId} {
-      allow read: if isAuthenticated() && 
-                    (isAdmin() || 
-                     resource.data.semester == get(/databases/$(database)/documents/system/config).data.currentSemester);
+      allow read: if true;
       allow write: if isAdmin();
     }
 
     match /notes/{noteId} {
-      allow read: if isAuthenticated() && 
-                    (isAdmin() || 
-                     get(/databases/$(database)/documents/courses/$(resource.data.courseId)).data.semester == get(/databases/$(database)/documents/system/config).data.currentSemester);
-      allow create: if isAdmin() && isValidNote(request.resource.data);
-      allow update: if isAdmin() && isValidNote(request.resource.data) && 
-                      request.resource.data.authorId == resource.data.authorId;
-      allow delete: if isAdmin();
-
+      allow read: if true;
+      allow write: if isAdmin();
+      
       match /videoQuestions/{questionId} {
-        allow read: if isAuthenticated();
+        allow read: if true;
         allow write: if isAdmin();
       }
     }
 
     match /news/{newsId} {
-      allow read, list: if isAuthenticated();
+      allow read, list: if true;
       allow write: if isAdmin();
     }
 
     match /activationCodes/{code} {
-      allow read: if isAuthenticated();
-      allow create: if isAdmin() || isLevel2Admin();
-      allow update: if isAuthenticated() && 
-                      request.resource.data.diff(resource.data).affectedKeys().hasOnly(['isUsed', 'usedBy', 'usedByStudentId', 'usedAt']) &&
-                      resource.data.isUsed == false &&
-                      request.resource.data.isUsed == true &&
-                      request.resource.data.usedBy == request.auth.uid;
-      allow delete: if isAdmin();
+      allow read: if true;
+      allow create, delete: if isAdmin() || isLevel2Admin();
+      allow update: if isAuthenticated();
     }
 
     match /verificationRequests/{requestId} {
-      allow read: if isAdmin() || (isAuthenticated() && resource.data.uid == request.auth.uid);
+      allow read, write: if isAdmin() || (isAuthenticated() && resource.data.uid == request.auth.uid);
       allow create: if isAuthenticated();
-      allow update, delete: if isAdmin();
     }
 
     match /questionSheets/{sheetId} {
-      allow read: if isAuthenticated();
+      allow read: if true;
       allow write: if isAdmin();
     }
 
     match /questions/{questionId} {
-      allow read: if isAuthenticated();
+      allow read: if true;
       allow write: if isAdmin();
     }
 
     match /cbt_sessions/{sessionId} {
-      allow read: if isAuthenticated();
-      allow create: if isAuthenticated() && request.resource.data.userId == request.auth.uid;
-      allow update, delete: if isAdmin();
+      allow read, write: if isAuthenticated();
     }
 
     match /discussions/{messageId} {
-      allow read, list: if isAuthenticated();
-      allow create: if isAuthenticated();
-      allow update, delete: if isAdmin() || (isAuthenticated() && resource.data.userId == request.auth.uid);
+      allow read, write: if isAuthenticated();
     }
 
     match /friend_requests/{requestId} {
-      allow read, list: if isAuthenticated() && (resource.data.fromUid == request.auth.uid || resource.data.toUid == request.auth.uid);
-      allow create: if isAuthenticated() && request.resource.data.fromUid == request.auth.uid;
-      allow update: if isAuthenticated() && (resource.data.toUid == request.auth.uid || resource.data.fromUid == request.auth.uid);
-      allow delete: if isAuthenticated() && (resource.data.fromUid == request.auth.uid || resource.data.toUid == request.auth.uid);
+      allow read, write: if isAuthenticated();
     }
 
     match /friendships/{friendshipId} {
-      allow read, list: if isAuthenticated() && request.auth.uid in resource.data.uids;
-      allow create: if isAuthenticated() && request.auth.uid in request.resource.data.uids;
-      allow update: if false;
-      allow delete: if isAuthenticated() && (request.auth.uid in resource.data.uids || isAdmin());
+      allow read, write: if isAuthenticated();
     }
 
     match /notifications/{notificationId} {
-      allow read: if isAuthenticated() && (resource.data.userId == request.auth.uid || isAdmin());
+      allow read, list, update, delete: if isAuthenticated() && (resource.data.userId == request.auth.uid || isAdmin());
       allow create: if isAdmin();
-      allow update: if isAuthenticated() && (
-        (resource.data.userId == request.auth.uid && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['isRead'])) ||
-        isAdmin()
-      );
-      allow delete: if isAuthenticated() && (resource.data.userId == request.auth.uid || isAdmin());
     }
 
     match /announcements/{announcementId} {
-      allow read: if isAuthenticated();
+      allow read: if true;
       allow write: if isAdmin();
     }
 

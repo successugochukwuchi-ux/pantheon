@@ -51,7 +51,7 @@ export default function PastQuestions() {
       // Only show courses for student's level and current semester
       const filtered = allCourses.filter(c => 
         (isAdmin || c.semester === systemConfig.currentSemester) && 
-        c.level === profile.academicLevel
+        (isAdmin || c.level === profile.academicLevel)
       );
       setCourses(filtered);
       setLoading(false);

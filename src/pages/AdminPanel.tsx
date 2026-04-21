@@ -118,6 +118,7 @@ export default function AdminPanel() {
     content: string;
     type: Note['type'];
   }>({ courseId: '', title: '', content: '', type: 'lecture' });
+  const [createNoteKey, setCreateNoteKey] = useState(0);
   const [noteToDelete, setNoteToDelete] = useState<string | null>(null);
   const [noteToEdit, setNoteToEdit] = useState<Note | null>(null);
   const [editNote, setEditNote] = useState<{
@@ -367,14 +368,46 @@ export default function AdminPanel() {
   };
 
   const handleDeleteCourse = async () => {
-    if (!courseToDelete) return;
+    if (!courseToDelete) {
+      console.warn("Delete attempted without course ID");
+      return;
+    }
+    
     setLoading(true);
+    console.log(`Starting deletion for course: ${courseToDelete}`);
+    
     try {
-      await deleteDoc(doc(db, 'courses', courseToDelete));
-      toast.success('Course deleted');
+      const batch = writeBatch(db);
+      
+      // 1. Delete associated notes
+      const notesQuery = query(collection(db, 'notes'), where('courseId', '==', courseToDelete));
+      const notesSnap = await getDocs(notesQuery);
+      console.log(`Found ${notesSnap.size} associated notes to delete`);
+      notesSnap.docs.forEach(d => batch.delete(d.ref));
+      
+      // 2. Delete associated question sheets
+      const sheetsQuery = query(collection(db, 'questionSheets'), where('courseId', '==', courseToDelete));
+      const sheetsSnap = await getDocs(sheetsQuery);
+      console.log(`Found ${sheetsSnap.size} associated question sheets to delete`);
+      sheetsSnap.docs.forEach(d => batch.delete(d.ref));
+      
+      // 3. Delete associated questions (they have courseId too)
+      const questionsQuery = query(collection(db, 'questions'), where('courseId', '==', courseToDelete));
+      const questionsSnap = await getDocs(questionsQuery);
+      console.log(`Found ${questionsSnap.size} associated questions to delete`);
+      questionsSnap.docs.forEach(d => batch.delete(d.ref));
+      
+      // 4. Finally delete the course itself
+      batch.delete(doc(db, 'courses', courseToDelete));
+      
+      await batch.commit();
+      console.log("Cascading deletion completed successfully");
+      
+      toast.success('Course and all associated materials deleted');
       setCourseToDelete(null);
     } catch (error: any) {
-      toast.error(error.message);
+      console.error("Course deletion failed:", error);
+      toast.error(`Deletion failed: ${error.message}`);
     } finally {
       setLoading(false);
     }
@@ -384,16 +417,19 @@ export default function AdminPanel() {
     e.preventDefault();
     if (!user) return;
     setLoading(true);
+    const toastId = toast.loading("Creating new note...");
     try {
       await addDoc(collection(db, 'notes'), {
         ...newNote,
         authorId: user.uid,
         createdAt: new Date().toISOString()
       });
-      toast.success('Note created successfully');
+      toast.success('Note created successfully', { id: toastId });
       setNewNote({ courseId: '', title: '', content: '', type: 'lecture' });
+      setCreateNoteKey(prev => prev + 1);
     } catch (error: any) {
-      toast.error(error.message);
+      toast.error("Failed to create note", { id: toastId });
+      handleFirestoreError(error, OperationType.WRITE, 'notes');
     } finally {
       setLoading(false);
     }
@@ -415,17 +451,26 @@ export default function AdminPanel() {
 
   const handleUpdateNote = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!noteToEdit) return;
+    console.log("handleUpdateNote triggered", { noteToEdit, editNote });
+    if (!noteToEdit) {
+      toast.error("No note selected for editing");
+      return;
+    }
     setLoading(true);
+    const toastId = toast.loading("Saving changes to note...");
     try {
+      console.log("Updating document...", noteToEdit.id);
       await updateDoc(doc(db, 'notes', noteToEdit.id), {
         ...editNote,
         updatedAt: new Date().toISOString()
       });
-      toast.success('Note updated successfully');
+      console.log("Update successful");
+      toast.success('Note updated successfully', { id: toastId });
       setNoteToEdit(null);
     } catch (error: any) {
-      toast.error(error.message);
+      console.error("Update failed", error);
+      toast.error("Failed to update note", { id: toastId });
+      handleFirestoreError(error, OperationType.WRITE, `notes/${noteToEdit.id}`);
     } finally {
       setLoading(false);
     }
@@ -1252,6 +1297,7 @@ export default function AdminPanel() {
                   <div className="space-y-2 md:col-span-2">
                     <Label>Note Content Builder</Label>
                     <NoteBuilder 
+                      key={`create-note-${createNoteKey}`}
                       initialContent={newNote.content} 
                       onChange={(content) => setNewNote({...newNote, content})} 
                       mode="create"
@@ -1350,6 +1396,7 @@ export default function AdminPanel() {
                   <div className="flex-1 min-h-0 flex flex-col border rounded-xl overflow-hidden shadow-inner">
                     <div className="flex-1 min-h-0">
                       <NoteBuilder 
+                        key={noteToEdit?.id || 'edit-note'}
                         initialContent={editNote.content} 
                         onChange={(content) => setEditNote({...editNote, content})} 
                         mode="edit"
@@ -2659,38 +2706,44 @@ function AdminOverview({ courses, notes, questions, unusedPins, usedPins }: {
 
   useEffect(() => {
     const fetchStats = async () => {
-      const usersSnap = await getDocs(collection(db, 'users'));
-      const users = usersSnap.docs.map(d => d.data());
-      
-      // Group users by join date
-      const groups: Record<string, number> = {};
-      users.forEach(u => {
-        const date = new Date(u.createdAt).toLocaleDateString();
-        groups[date] = (groups[date] || 0) + 1;
-      });
-      
-      const chartData = Object.entries(groups)
-        .map(([date, count]) => ({ date, count }))
-        .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime())
-        .slice(-7);
-      
-      setUserStats(chartData);
+      try {
+        const usersSnap = await getDocs(collection(db, 'users'));
+        const users = usersSnap.docs.map(d => d.data());
+        
+        // Group users by join date
+        const groups: Record<string, number> = {};
+        users.forEach(u => {
+          if (u.createdAt) {
+            const date = new Date(u.createdAt).toLocaleDateString();
+            groups[date] = (groups[date] || 0) + 1;
+          }
+        });
+        
+        const chartData = Object.entries(groups)
+          .map(([date, count]) => ({ date, count }))
+          .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime())
+          .slice(-7);
+        
+        setUserStats(chartData);
 
-      // Group CBT sessions by course
-      const sessionsSnap = await getDocs(collection(db, 'cbt_sessions'));
-      const sessions = sessionsSnap.docs.map(d => d.data());
-      const courseGroups: Record<string, number> = {};
-      sessions.forEach(s => {
-        const course = courses.find(c => c.id === s.courseId)?.code || 'Unknown';
-        courseGroups[course] = (courseGroups[course] || 0) + 1;
-      });
+        // Group CBT sessions by course
+        const sessionsSnap = await getDocs(collection(db, 'cbt_sessions'));
+        const sessions = sessionsSnap.docs.map(d => d.data());
+        const courseGroups: Record<string, number> = {};
+        sessions.forEach(s => {
+          const course = courses.find(c => c.id === s.courseId)?.code || 'Unknown';
+          courseGroups[course] = (courseGroups[course] || 0) + 1;
+        });
 
-      const pieData = Object.entries(courseGroups)
-        .map(([name, value]) => ({ name, value }))
-        .sort((a, b) => b.value - a.value)
-        .slice(0, 5);
-      
-      setCbtStats(pieData);
+        const pieData = Object.entries(courseGroups)
+          .map(([name, value]) => ({ name, value }))
+          .sort((a, b) => b.value - a.value)
+          .slice(0, 5);
+        
+        setCbtStats(pieData);
+      } catch (error) {
+        console.error("Failed to fetch admin stats:", error);
+      }
     };
 
     fetchStats();

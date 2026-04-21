@@ -13,6 +13,7 @@ interface AuthContextType {
   loading: boolean;
   isAuthReady: boolean;
   isSystemConfigReady: boolean;
+  isOnline: boolean;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -20,12 +21,36 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [user, setUser] = useState<User | null>(null);
   const [profile, setProfile] = useState<UserProfile | null>(null);
-  const [systemConfig, setSystemConfig] = useState<SystemConfig | null>(null);
-  const [promoConfig, setPromoConfig] = useState<PromoConfig | null>(null);
+  
+  // Try to load cached config from localStorage for instant offline access
+  const [systemConfig, setSystemConfig] = useState<SystemConfig | null>(() => {
+    const cached = localStorage.getItem('pantheon_system_config');
+    return cached ? JSON.parse(cached) : null;
+  });
+  
+  const [promoConfig, setPromoConfig] = useState<PromoConfig | null>(() => {
+    const cached = localStorage.getItem('pantheon_promo_config');
+    return cached ? JSON.parse(cached) : null;
+  });
+
   const [loading, setLoading] = useState(true);
   const [isAuthReady, setIsAuthReady] = useState(false);
-  const [isSystemConfigReady, setIsSystemConfigReady] = useState(false);
+  const [isSystemConfigReady, setIsSystemConfigReady] = useState(localStorage.getItem('pantheon_system_config') !== null);
+  const [isOnline, setIsOnline] = useState(navigator.onLine);
   const [retryCount, setRetryCount] = useState(0);
+
+  useEffect(() => {
+    const handleOnline = () => setIsOnline(true);
+    const handleOffline = () => setIsOnline(false);
+
+    window.addEventListener('online', handleOnline);
+    window.addEventListener('offline', handleOffline);
+
+    return () => {
+      window.removeEventListener('online', handleOnline);
+      window.removeEventListener('offline', handleOffline);
+    };
+  }, []);
 
   useEffect(() => {
     const unsubscribeAuth = onAuthStateChanged(auth, (firebaseUser) => {
@@ -43,54 +68,69 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   useEffect(() => {
     const unsubscribeConfig = onSnapshot(doc(db, 'system', 'config'), (snapshot) => {
       if (snapshot.exists()) {
-        setSystemConfig(snapshot.data() as SystemConfig);
+        const data = snapshot.data() as SystemConfig;
+        setSystemConfig(data);
+        localStorage.setItem('pantheon_system_config', JSON.stringify(data));
       } else {
         // Initialize default config if missing
-        setSystemConfig({
+        const defaultConfig: SystemConfig = {
           currentSemester: 'none',
           maintenanceMode: false,
           updatedBy: 'system',
           updatedAt: new Date().toISOString()
-        });
+        };
+        setSystemConfig(defaultConfig);
+        localStorage.setItem('pantheon_system_config', JSON.stringify(defaultConfig));
       }
       setIsSystemConfigReady(true);
     }, (error) => {
       if (auth.currentUser) {
         console.error("System config listener failed:", error);
       }
-      // Fallback to default if we can't read it
-      setSystemConfig({
-        currentSemester: 'none',
-        maintenanceMode: false,
-        updatedBy: 'system',
-        updatedAt: new Date().toISOString()
-      });
+      // If we failed and have no state, use default
+      if (!systemConfig) {
+        const defaultConfig: SystemConfig = {
+          currentSemester: 'none',
+          maintenanceMode: false,
+          updatedBy: 'system',
+          updatedAt: new Date().toISOString()
+        };
+        setSystemConfig(defaultConfig);
+      }
       setIsSystemConfigReady(true);
     });
 
     const unsubscribePromo = onSnapshot(doc(db, 'system', 'promo'), (snapshot) => {
       if (snapshot.exists()) {
-        setPromoConfig(snapshot.data() as PromoConfig);
+        const data = snapshot.data() as PromoConfig;
+        setPromoConfig(data);
+        localStorage.setItem('pantheon_promo_config', JSON.stringify(data));
       } else {
-        setPromoConfig({
+        const defaultPromo: PromoConfig = {
           isActive: false,
           quota: 0,
           count: 0,
           updatedAt: new Date().toISOString(),
           updatedBy: 'system'
-        });
+        };
+        setPromoConfig(defaultPromo);
+        localStorage.setItem('pantheon_promo_config', JSON.stringify(defaultPromo));
       }
     }, (error) => {
       if (auth.currentUser) {
         console.error("Promo config listener failed:", error);
       }
       // Set a safe fallback even on error to allow UI to render correctly
-      setPromoConfig(prev => prev || {
-        isActive: false,
-        quota: 0,
-        count: 0,
-        updatedAt: new Date().toISOString(),
-        updatedBy: 'system'
+      setPromoConfig(prev => {
+        if (prev) return prev;
+        const defaultPromo: PromoConfig = {
+          isActive: false,
+          quota: 0,
+          count: 0,
+          updatedAt: new Date().toISOString(),
+          updatedBy: 'system'
+        };
+        return defaultPromo;
       });
     });
 
@@ -155,7 +195,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   }, [user, retryCount]);
 
   return (
-    <AuthContext.Provider value={{ user, profile, systemConfig, promoConfig, loading, isAuthReady, isSystemConfigReady }}>
+    <AuthContext.Provider value={{ user, profile, systemConfig, promoConfig, loading, isAuthReady, isSystemConfigReady, isOnline }}>
       {children}
     </AuthContext.Provider>
   );
