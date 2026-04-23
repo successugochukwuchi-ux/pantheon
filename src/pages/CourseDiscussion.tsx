@@ -11,6 +11,12 @@ import { ArrowLeft, Send, Users, MessageSquare, Shield, FileText, Check, Plus, B
 import { cn } from '../lib/utils';
 import { DiscussionMessage, Course, Note } from '../types';
 import { toast } from 'sonner';
+import { MathJax } from 'better-react-mathjax';
+import ReactMarkdown from 'react-markdown';
+import remarkMath from 'remark-math';
+import rehypeKatex from 'rehype-katex';
+import remarkGfm from 'remark-gfm';
+import 'katex/dist/katex.min.css';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from '../components/ui/dialog';
 
 export default function CourseDiscussion() {
@@ -190,7 +196,11 @@ export default function CourseDiscussion() {
                         ? "bg-primary text-primary-foreground rounded-tr-none" 
                         : "bg-muted rounded-tl-none"
                     )}>
-                      {msg.text && <p>{msg.text}</p>}
+                    <div className="prose dark:prose-invert max-w-none">
+                      <ReactMarkdown remarkPlugins={[remarkMath, remarkGfm]} rehypePlugins={[rehypeKatex]}>
+                        {msg.text}
+                      </ReactMarkdown>
+                    </div>
                       {refNote && (
                         <div 
                           className={cn(

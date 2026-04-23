@@ -13,6 +13,10 @@ import { Timer, HelpCircle, CheckCircle2, XCircle, ArrowRight, ArrowLeft, Rotate
 import { Course, Question, CBTSession, QuestionSheet } from '../types';
 import { motion, AnimatePresence } from 'motion/react';
 import { MathJax } from 'better-react-mathjax';
+import ReactMarkdown from 'react-markdown';
+import remarkMath from 'remark-math';
+import rehypeKatex from 'rehype-katex';
+import remarkGfm from 'remark-gfm';
 import 'katex/dist/katex.min.css';
 import { useTitle } from '../hooks/useTitle';
 
@@ -317,7 +321,9 @@ export default function CBTPractice() {
                   <CardHeader className="pb-3">
                     <div className="flex items-start justify-between gap-4">
                       <div className="prose dark:prose-invert font-medium">
-                        <MathJax>{`$$${i + 1}. ${q.text}$$`}</MathJax>
+                        <ReactMarkdown remarkPlugins={[remarkMath, remarkGfm]} rehypePlugins={[rehypeKatex]}>
+                          {`${i + 1}. ${q.text}`}
+                        </ReactMarkdown>
                       </div>
                       {userAnswers[q.id] === q.correctAnswer ? (
                         <CheckCircle2 className="h-6 w-6 text-green-500 shrink-0" />
@@ -398,7 +404,9 @@ export default function CBTPractice() {
             <CardHeader className="pb-8">
               <div className="prose dark:prose-invert max-w-none text-2xl leading-relaxed">
                 <div className="py-4">
-                  <MathJax>{`$$${currentQuestion.text}$$`}</MathJax>
+                  <ReactMarkdown remarkPlugins={[remarkMath, remarkGfm]} rehypePlugins={[rehypeKatex]}>
+                    {currentQuestion.text}
+                  </ReactMarkdown>
                 </div>
               </div>
             </CardHeader>

@@ -10,6 +10,10 @@ import { History, Play, CheckCircle2, XCircle, ArrowRight, ArrowLeft, RotateCcw 
 import { Course, Question, QuestionSheet } from '../types';
 import { motion, AnimatePresence } from 'motion/react';
 import { MathJax } from 'better-react-mathjax';
+import ReactMarkdown from 'react-markdown';
+import remarkMath from 'remark-math';
+import rehypeKatex from 'rehype-katex';
+import remarkGfm from 'remark-gfm';
 import 'katex/dist/katex.min.css';
 import { useTitle } from '../hooks/useTitle';
 
@@ -213,7 +217,9 @@ export default function PastQuestions() {
             <CardHeader>
               <div className="prose dark:prose-invert max-w-none text-xl leading-relaxed">
                 <div className="py-4">
-                  <MathJax>{`$$${currentQuestion.text}$$`}</MathJax>
+                  <ReactMarkdown remarkPlugins={[remarkMath, remarkGfm]} rehypePlugins={[rehypeKatex]}>
+                    {currentQuestion.text}
+                  </ReactMarkdown>
                 </div>
               </div>
             </CardHeader>

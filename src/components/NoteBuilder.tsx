@@ -35,17 +35,32 @@ import {
   Search,
   FlaskConical,
   Zap,
-  Variable
+  Variable,
+  Table as TableIcon
 } from 'lucide-react';
 import { Button } from './ui/button';
 import { Textarea } from './ui/textarea';
 import { Input } from './ui/input';
 import { Card } from './ui/card';
+import { 
+  Dialog, 
+  DialogContent, 
+  DialogHeader, 
+  DialogTitle,
+  DialogFooter,
+  DialogDescription
+} from './ui/dialog';
+import { Label } from './ui/label';
 import { MathJax } from 'better-react-mathjax';
+import ReactMarkdown from 'react-markdown';
+import remarkMath from 'remark-math';
+import rehypeKatex from 'rehype-katex';
+import remarkGfm from 'remark-gfm';
+import 'katex/dist/katex.min.css';
 import { Rnd } from 'react-rnd';
 import { cn } from '../lib/utils';
 
-export type BlockType = 'text' | 'math' | 'h1' | 'h2' | 'diagram';
+export type BlockType = 'text' | 'math' | 'h1' | 'h2' | 'diagram' | 'table';
 
 export interface NoteBlock {
   id: string;
@@ -182,16 +197,58 @@ const SortableBlock = ({ block, onUpdate, onDelete, onFocus, isPreview }: Sortab
   if (isPreview) {
     return (
       <div className="mb-6">
-        {block.type === 'h1' && <h1 className="text-3xl font-bold mb-4">{block.content}</h1>}
-        {block.type === 'h2' && <h2 className="text-2xl font-bold mb-3">{block.content}</h2>}
+        {block.type === 'h1' && (
+          <h1 className="text-3xl font-bold mb-4">
+            <ReactMarkdown remarkPlugins={[remarkMath, remarkGfm]} rehypePlugins={[rehypeKatex]}>
+              {block.content}
+            </ReactMarkdown>
+          </h1>
+        )}
+        {block.type === 'h2' && (
+          <h2 className="text-2xl font-bold mb-3">
+            <ReactMarkdown remarkPlugins={[remarkMath, remarkGfm]} rehypePlugins={[rehypeKatex]}>
+              {block.content}
+            </ReactMarkdown>
+          </h2>
+        )}
         {block.type === 'text' && (
-          <div className="prose dark:prose-invert max-w-none whitespace-pre-wrap">
-            {block.content}
+          <div className="prose dark:prose-invert max-w-none">
+            <ReactMarkdown remarkPlugins={[remarkMath, remarkGfm]} rehypePlugins={[rehypeKatex]}>
+              {block.content}
+            </ReactMarkdown>
           </div>
         )}
         {block.type === 'math' && block.content && (
           <div className="py-4 flex justify-center bg-muted/30 rounded-lg overflow-x-auto">
-            <MathJax>{`$$${block.content}$$`}</MathJax>
+            <ReactMarkdown remarkPlugins={[remarkMath, remarkGfm]} rehypePlugins={[rehypeKatex]}>
+              {`$$${block.content}$$`}
+            </ReactMarkdown>
+          </div>
+        )}
+        {block.type === 'table' && block.content && (
+          <div className="overflow-x-auto my-4 border rounded-lg">
+            <table className="w-full border-collapse">
+              <tbody>
+                {(() => {
+                  try {
+                    const data = JSON.parse(block.content);
+                    return data.map((row: string[], rowIndex: number) => (
+                      <tr key={rowIndex}>
+                        {row.map((cell, colIndex) => (
+                          <td key={colIndex} className="border p-2 text-sm">
+                            <ReactMarkdown remarkPlugins={[remarkMath, remarkGfm]} rehypePlugins={[rehypeKatex]}>
+                              {cell}
+                            </ReactMarkdown>
+                          </td>
+                        ))}
+                      </tr>
+                    ));
+                  } catch (e) {
+                    return <tr><td className="p-4 text-destructive">Invalid table data</td></tr>;
+                  }
+                })()}
+              </tbody>
+            </table>
           </div>
         )}
         {block.type === 'diagram' && block.content && (
@@ -251,7 +308,7 @@ const SortableBlock = ({ block, onUpdate, onDelete, onFocus, isPreview }: Sortab
             onKeyUp={handleFocus}
             onClick={handleFocus}
             className="min-h-[80px] resize-none border-none px-0 focus-visible:ring-0 placeholder:opacity-50"
-            placeholder="Start typing your notes..."
+            placeholder="Start typing your notes... Use $math$ for inline LaTeX."
           />
         )}
         {block.type === 'math' && (
@@ -268,9 +325,55 @@ const SortableBlock = ({ block, onUpdate, onDelete, onFocus, isPreview }: Sortab
             />
             {block.content && (
               <div className="p-4 bg-muted/30 rounded-lg flex justify-center overflow-x-auto">
-                <MathJax>{`$$${block.content}$$`}</MathJax>
+                <ReactMarkdown remarkPlugins={[remarkMath]} rehypePlugins={[rehypeKatex]}>
+                  {`$$${block.content}$$`}
+                </ReactMarkdown>
               </div>
             )}
+          </div>
+        )}
+        {block.type === 'table' && (
+          <div className="p-4 space-y-4">
+            <div className="overflow-x-auto border rounded-xl bg-muted/10 p-4">
+              <table className="w-full border-collapse min-w-[600px]">
+                <tbody>
+                  {(() => {
+                    try {
+                      const data = JSON.parse(block.content);
+                      return data.map((row: string[], rowIndex: number) => (
+                        <tr key={rowIndex}>
+                          {row.map((cell, colIndex) => (
+                            <td key={colIndex} className="border bg-background p-2">
+                              <Textarea
+                                className="min-h-[60px] w-full text-xs bg-transparent border-none focus-visible:ring-0 resize-none p-1"
+                                value={cell}
+                                onChange={(e) => {
+                                  const newData = [...data];
+                                  newData[rowIndex][colIndex] = e.target.value;
+                                  onUpdate(block.id, JSON.stringify(newData));
+                                }}
+                                onFocus={handleFocus}
+                                placeholder="Text, math or image URL..."
+                              />
+                            </td>
+                          ))}
+                        </tr>
+                      ));
+                    } catch (e) {
+                      return <tr><td className="p-4 text-destructive">Invalid table data</td></tr>;
+                    }
+                  })()}
+                </tbody>
+              </table>
+            </div>
+            <div className="flex justify-end gap-4 text-[10px] text-muted-foreground">
+              <div className="flex items-center gap-1">
+                <Sigma className="h-3 w-3" /> Use $...$ for math
+              </div>
+              <div className="flex items-center gap-1">
+                <ImageIcon className="h-3 w-3" /> Paste URL for diagrams
+              </div>
+            </div>
           </div>
         )}
         {block.type === 'diagram' && (
@@ -393,6 +496,9 @@ export const NoteBuilder: React.FC<NoteBuilderProps> = ({ initialContent, onChan
   const [activeBlockId, setActiveBlockId] = useState<string | null>(null);
   const [cursorPos, setCursorPos] = useState(0);
   const [isPreview, setIsPreview] = useState(false);
+  const [isTableDialogOpen, setIsTableDialogOpen] = useState(false);
+  const [tableRows, setTableRows] = useState(3);
+  const [tableCols, setTableCols] = useState(3);
   const [searchTerm, setSearchTerm] = useState('');
   const [expandedCategories, setExpandedCategories] = useState<Record<string, boolean>>({
     Mathematics: true,
@@ -440,14 +546,41 @@ export const NoteBuilder: React.FC<NoteBuilderProps> = ({ initialContent, onChan
     updateBlocks(blocks.filter(b => b.id !== id));
   };
 
+  const addTable = () => {
+    const emptyRow = Array(tableCols).fill('');
+    const grid = Array(tableRows).fill(null).map(() => [...emptyRow]);
+    const newBlock: NoteBlock = {
+      id: Math.random().toString(36).substr(2, 9),
+      type: 'table',
+      content: JSON.stringify(grid)
+    };
+    updateBlocks([...blocks, newBlock]);
+    setIsTableDialogOpen(false);
+  };
+
   const insertSymbol = (symbol: string) => {
     if (!activeBlockId) return;
     const block = blocks.find(b => b.id === activeBlockId);
     if (!block || (block.type !== 'text' && block.type !== 'math')) return;
 
-    const newContent = block.content.slice(0, cursorPos) + symbol + block.content.slice(cursorPos);
+    // Smart wrap $ for text blocks
+    let finalSymbol = symbol;
+    if (block.type === 'text') {
+      // Check if we are inside $ delimeters
+      const textBefore = block.content.slice(0, cursorPos);
+      const textAfter = block.content.slice(cursorPos);
+      const dollarsBefore = (textBefore.match(/\$/g) || []).length;
+      const dollarsAfter = (textAfter.match(/\$/g) || []).length;
+      
+      const isInsideMath = (dollarsBefore % 2 === 1);
+      if (!isInsideMath) {
+        finalSymbol = `$${symbol}$`;
+      }
+    }
+
+    const newContent = block.content.slice(0, cursorPos) + finalSymbol + block.content.slice(cursorPos);
     updateBlockContent(activeBlockId, newContent);
-    setCursorPos(cursorPos + symbol.length);
+    setCursorPos(cursorPos + finalSymbol.length);
   };
 
   const toggleCategory = (cat: string) => {
@@ -611,6 +744,9 @@ export const NoteBuilder: React.FC<NoteBuilderProps> = ({ initialContent, onChan
             <Button type="button" variant="ghost" size="sm" className="rounded-full gap-2" onClick={() => addBlock('diagram')}>
               <ImageIcon className="h-4 w-4" /> Diagram
             </Button>
+            <Button type="button" variant="ghost" size="sm" className="rounded-full gap-2" onClick={() => setIsTableDialogOpen(true)}>
+              <TableIcon className="h-4 w-4" /> Table
+            </Button>
             <div className="w-px h-4 bg-border mx-1" />
             <Button type="button" variant="default" size="sm" className="rounded-full h-8 w-8 p-0" onClick={() => addBlock('text')}>
               <Plus className="h-4 w-4" />
@@ -623,6 +759,46 @@ export const NoteBuilder: React.FC<NoteBuilderProps> = ({ initialContent, onChan
             )}
           </div>
         )}
+
+        <Dialog open={isTableDialogOpen} onOpenChange={setIsTableDialogOpen}>
+          <DialogContent className="sm:max-w-[425px]">
+            <DialogHeader>
+              <DialogTitle>Insert Table</DialogTitle>
+              <DialogDescription>
+                Choose the dimensions for your new table.
+              </DialogDescription>
+            </DialogHeader>
+            <div className="grid gap-4 py-4">
+              <div className="grid grid-cols-4 items-center gap-4">
+                <Label htmlFor="rows" className="text-right text-xs">Rows</Label>
+                <Input
+                  id="rows"
+                  type="number"
+                  min={1}
+                  max={20}
+                  value={tableRows}
+                  onChange={(e) => setTableRows(parseInt(e.target.value) || 1)}
+                  className="col-span-3 h-8 text-xs"
+                />
+              </div>
+              <div className="grid grid-cols-4 items-center gap-4">
+                <Label htmlFor="cols" className="text-right text-xs">Cols</Label>
+                <Input
+                  id="cols"
+                  type="number"
+                  min={1}
+                  max={10}
+                  value={tableCols}
+                  onChange={(e) => setTableCols(parseInt(e.target.value) || 1)}
+                  className="col-span-3 h-8 text-xs"
+                />
+              </div>
+            </div>
+            <DialogFooter>
+              <Button type="button" onClick={addTable} className="text-xs h-8">Add Table</Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
       </div>
     </div>
   );

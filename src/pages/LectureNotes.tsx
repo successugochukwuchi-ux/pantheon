@@ -9,6 +9,10 @@ import { Badge } from '../components/ui/badge';
 import { Search, BookOpen, ChevronRight, ArrowLeft, AlertCircle, Maximize2 } from 'lucide-react';
 import { Course, Note } from '../types';
 import ReactMarkdown from 'react-markdown';
+import remarkMath from 'remark-math';
+import rehypeKatex from 'rehype-katex';
+import remarkGfm from 'remark-gfm';
+import 'katex/dist/katex.min.css';
 import { Alert, AlertDescription, AlertTitle } from '../components/ui/alert';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '../components/ui/dialog';
 import { MathJax } from 'better-react-mathjax';
@@ -92,16 +96,58 @@ export default function LectureNotes() {
           <CardContent className="space-y-6">
             {blocks.map((block) => (
               <div key={block.id}>
-                {block.type === 'h1' && <h1 className="text-3xl font-bold mb-4">{block.content}</h1>}
-                {block.type === 'h2' && <h2 className="text-2xl font-bold mb-3">{block.content}</h2>}
+                {block.type === 'h1' && (
+                  <h1 className="text-3xl font-bold mb-4">
+                    <ReactMarkdown remarkPlugins={[remarkMath, remarkGfm]} rehypePlugins={[rehypeKatex]}>
+                      {block.content}
+                    </ReactMarkdown>
+                  </h1>
+                )}
+                {block.type === 'h2' && (
+                  <h2 className="text-2xl font-bold mb-3">
+                    <ReactMarkdown remarkPlugins={[remarkMath, remarkGfm]} rehypePlugins={[rehypeKatex]}>
+                      {block.content}
+                    </ReactMarkdown>
+                  </h2>
+                )}
                 {block.type === 'text' && (
                   <div className="prose dark:prose-invert max-w-none">
-                    <ReactMarkdown>{block.content}</ReactMarkdown>
+                    <ReactMarkdown remarkPlugins={[remarkMath, remarkGfm]} rehypePlugins={[rehypeKatex]}>
+                      {block.content}
+                    </ReactMarkdown>
                   </div>
                 )}
                 {block.type === 'math' && (
                   <div className="py-4 overflow-x-auto flex justify-center bg-muted/30 rounded-lg">
-                    <MathJax>{`$$${block.content}$$`}</MathJax>
+                    <ReactMarkdown remarkPlugins={[remarkMath, remarkGfm]} rehypePlugins={[rehypeKatex]}>
+                      {`$$${block.content}$$`}
+                    </ReactMarkdown>
+                  </div>
+                )}
+                {block.type === 'table' && block.content && (
+                  <div className="overflow-x-auto my-4 border rounded-lg">
+                    <table className="w-full border-collapse">
+                      <tbody>
+                        {(() => {
+                          try {
+                            const data = JSON.parse(block.content);
+                            return data.map((row: string[], rowIndex: number) => (
+                              <tr key={rowIndex}>
+                                {row.map((cell, colIndex) => (
+                                  <td key={colIndex} className="border p-4 text-sm min-w-[120px]">
+                                    <ReactMarkdown remarkPlugins={[remarkMath, remarkGfm]} rehypePlugins={[rehypeKatex]}>
+                                      {cell}
+                                    </ReactMarkdown>
+                                  </td>
+                                ))}
+                              </tr>
+                            ));
+                          } catch (e) {
+                            return <tr><td className="p-4 text-destructive">Invalid table data</td></tr>;
+                          }
+                        })()}
+                      </tbody>
+                    </table>
                   </div>
                 )}
                 {block.type === 'diagram' && block.content && (

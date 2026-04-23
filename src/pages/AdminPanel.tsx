@@ -56,6 +56,11 @@ import { NoteBuilder } from '../components/NoteBuilder';
 import AdminReports from './AdminReports';
 import { useTitle } from '../hooks/useTitle';
 import { MathJax } from 'better-react-mathjax';
+import ReactMarkdown from 'react-markdown';
+import remarkMath from 'remark-math';
+import rehypeKatex from 'rehype-katex';
+import remarkGfm from 'remark-gfm';
+import 'katex/dist/katex.min.css';
 import { DEPARTMENTS } from '../constants/departments';
 import { 
   BarChart, 
@@ -1797,7 +1802,9 @@ export default function AdminPanel() {
                           </div>
                         </div>
                         <div className="mt-2 prose dark:prose-invert">
-                          <MathJax>{`$$${q.text}$$`}</MathJax>
+                          <ReactMarkdown remarkPlugins={[remarkMath, remarkGfm]} rehypePlugins={[rehypeKatex]}>
+                            {q.text}
+                          </ReactMarkdown>
                         </div>
                       </CardHeader>
                       <CardContent>
