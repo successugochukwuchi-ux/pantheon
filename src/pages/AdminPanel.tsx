@@ -46,9 +46,11 @@ import {
   Bell,
   AlertOctagon,
   Users,
+  MessageCircle,
   History as HistoryIcon
 } from 'lucide-react';
-import { Course, UserLevel, Semester, Note, Question, ActivationCode, VerificationRequest, QuestionSheet, VideoQuestion, NotificationTarget, Announcement } from '../types';
+import { Course, UserLevel, Semester, Note, Question, ActivationCode, VerificationRequest, QuestionSheet, VideoQuestion, NotificationTarget, Announcement, TelegramConfig } from '../types';
+import { sendTelegramAlert, testTelegramConnection } from '../services/telegramService';
 import { Routes, Route, useNavigate, useLocation } from 'react-router-dom';
 import { NoteBuilder } from '../components/NoteBuilder';
 import AdminReports from './AdminReports';
@@ -176,6 +178,14 @@ export default function AdminPanel() {
   // Promo Mode State
   const [promoQuota, setPromoQuota] = useState(0);
 
+  // Telegram State
+  const [telegramConfig, setTelegramConfig] = useState<TelegramConfig | null>(null);
+  const [editTelegram, setEditTelegram] = useState({
+    botToken: '',
+    chatId: '',
+    isActive: false
+  });
+
   // Video Library State
   const [videoFilterLevel, setVideoFilterLevel] = useState('all');
   const [videoFilterDept, setVideoFilterDept] = useState('all');
@@ -195,33 +205,63 @@ export default function AdminPanel() {
 
     const unsubCourses = onSnapshot(collection(db, 'courses'), (snapshot) => {
       setCourses(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Course)));
+    }, (err) => {
+      console.error("Courses listener failed:", err);
     });
 
     const unsubNotes = onSnapshot(collection(db, 'notes'), (snapshot) => {
       setNotes(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Note)));
+    }, (err) => {
+      console.error("Notes listener failed:", err);
     });
 
     const unsubQuestions = onSnapshot(collection(db, 'questions'), (snapshot) => {
       setQuestions(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Question)));
+    }, (err) => {
+      console.error("Questions listener failed:", err);
     });
 
     const unsubSheets = onSnapshot(collection(db, 'questionSheets'), (snapshot) => {
       setQuestionSheets(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as QuestionSheet)));
+    }, (err) => {
+      console.error("Sheets listener failed:", err);
     });
 
     const unsubPins = onSnapshot(collection(db, 'activationCodes'), (snapshot) => {
       const allPins = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as ActivationCode));
       setUnusedPins(allPins.filter(p => !p.isUsed).sort((a, b) => b.createdAt.localeCompare(a.createdAt)));
       setUsedPins(allPins.filter(p => p.isUsed).sort((a, b) => b.usedAt?.localeCompare(a.usedAt || '') || 0));
+    }, (err) => {
+      console.error("Pins listener failed:", err);
     });
 
     const unsubVerifications = onSnapshot(collection(db, 'verificationRequests'), (snapshot) => {
       setVerificationRequests(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as VerificationRequest)));
+    }, (err) => {
+      console.error("Verifications listener failed:", err);
     });
 
     const unsubAnnouncements = onSnapshot(collection(db, 'announcements'), (snapshot) => {
       setAnnouncements(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Announcement)).sort((a, b) => b.createdAt.localeCompare(a.createdAt)));
+    }, (err) => {
+      console.error("Announcements listener failed:", err);
     });
+
+    // Fetch Telegram Config for Level 4
+    let unsubTelegram = () => {};
+    if (profile.level === '4') {
+      unsubTelegram = onSnapshot(doc(db, 'system', 'telegram'), (snapshot) => {
+        if (snapshot.exists()) {
+          const data = snapshot.data() as TelegramConfig;
+          setTelegramConfig(data);
+          setEditTelegram({
+            botToken: data.botToken || '',
+            chatId: data.chatId || '',
+            isActive: data.isActive || false
+          });
+        }
+      });
+    }
 
     return () => {
       unsubCourses();
@@ -231,6 +271,7 @@ export default function AdminPanel() {
       unsubPins();
       unsubVerifications();
       unsubAnnouncements();
+      unsubTelegram();
     };
   }, [profile]);
 
@@ -302,8 +343,21 @@ export default function AdminPanel() {
         toast.error('User not found');
         return;
       }
+      const userData = userSnap.data();
       await updateDoc(userRef, { level });
       toast.success(`User elevated to Level ${level}`);
+      
+      // Telegram Alert
+      sendTelegramAlert(
+        `<b>ALERT: ACCOUNT PROMOTION</b>\n\n` +
+        `<b>STUDENT:</b> ${userData.username || 'N/A'}\n` +
+        `<b>UID:</b> ${targetUid}\n` +
+        `<b>OLD LEVEL:</b> ${userData.level}\n` +
+        `<b>NEW LEVEL:</b> ${level}\n` +
+        `<b>PROMOTED BY:</b> ${profile?.level} (UID: ${user?.uid})\n` +
+        `<b>TIME:</b> ${new Date().toLocaleString()}`
+      );
+
       setTargetUid('');
     } catch (error: any) {
       toast.error(error.message);
@@ -317,11 +371,27 @@ export default function AdminPanel() {
     setLoading(true);
     try {
       const userRef = doc(db, 'users', targetUid);
+      const userSnap = await getDoc(userRef);
+      const userData = userSnap.exists() ? userSnap.data() : null;
+      
       await updateDoc(userRef, { 
         isBanned, 
         banReason: isBanned ? banReason : '' 
       });
       toast.success(isBanned ? 'User banned' : 'User unbanned');
+
+      if (isBanned) {
+        // Telegram Alert
+        sendTelegramAlert(
+          `<b>ALERT: ACCOUNT BANNED</b>\n\n` +
+          `<b>STUDENT:</b> ${userData?.username || 'N/A'}\n` +
+          `<b>UID:</b> ${targetUid}\n` +
+          `<b>REASON:</b> ${banReason}\n` +
+          `<b>BANNED BY:</b> ${profile?.level} (UID: ${user?.uid})\n` +
+          `<b>TIME:</b> ${new Date().toLocaleString()}`
+        );
+      }
+
       setTargetUid('');
       setBanReason('');
     } catch (error: any) {
@@ -801,6 +871,44 @@ export default function AdminPanel() {
     }
   };
 
+  const handleSaveTelegram = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!isLevel4) return;
+    setLoading(true);
+    try {
+      await setDoc(doc(db, 'system', 'telegram'), {
+        ...editTelegram,
+        updatedAt: new Date().toISOString(),
+        updatedBy: user?.uid
+      });
+      toast.success('Telegram configuration saved');
+    } catch (error: any) {
+      toast.error('Failed to save Telegram config: ' + error.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleTestTelegram = async () => {
+    if (!editTelegram.botToken || !editTelegram.chatId) {
+      toast.error('Token and Chat ID are required for testing');
+      return;
+    }
+    setLoading(true);
+    try {
+      const result = await testTelegramConnection(editTelegram.botToken, editTelegram.chatId);
+      if (result.success) {
+        toast.success('Test message sent successfully! Check your Telegram chat.');
+      } else {
+        toast.error(`Test failed: ${result.error}`);
+      }
+    } catch (error: any) {
+      toast.error('Connection test failed: ' + error.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const handleSendBroadcast = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!user || !notifyTitle || !notifyMessage) return;
@@ -867,6 +975,8 @@ export default function AdminPanel() {
   };
 
   const isLevel4 = profile?.level === '4';
+  const isAtLeastLevel3 = profile?.level === '3' || profile?.level === '4';
+  const isLevel2 = profile?.level === '2';
 
   return (
     <div className="space-y-8">
@@ -877,15 +987,23 @@ export default function AdminPanel() {
 
       <div className="flex flex-wrap gap-2 border-b pb-4">
         <Button variant={location.pathname === '/administrator' ? 'default' : 'ghost'} size="sm" onClick={() => navigate('/administrator')}>Overview</Button>
-        <Button variant={location.pathname.includes('users') ? 'default' : 'ghost'} size="sm" onClick={() => navigate('/administrator/users')}>Users</Button>
-        <Button variant={location.pathname.includes('courses') ? 'default' : 'ghost'} size="sm" onClick={() => navigate('/administrator/courses')}>Courses</Button>
-        <Button variant={location.pathname.includes('notes') ? 'default' : 'ghost'} size="sm" onClick={() => navigate('/administrator/notes')}>Notes</Button>
-        <Button variant={location.pathname.includes('cbt') ? 'default' : 'ghost'} size="sm" onClick={() => navigate('/administrator/cbt')}>CBT</Button>
-        <Button variant={location.pathname.includes('news') ? 'default' : 'ghost'} size="sm" onClick={() => navigate('/administrator/news')}>News</Button>
+        {isAtLeastLevel3 && (
+          <>
+            <Button variant={location.pathname.includes('users') ? 'default' : 'ghost'} size="sm" onClick={() => navigate('/administrator/users')}>Users</Button>
+            <Button variant={location.pathname.includes('courses') ? 'default' : 'ghost'} size="sm" onClick={() => navigate('/administrator/courses')}>Courses</Button>
+            <Button variant={location.pathname.includes('notes') ? 'default' : 'ghost'} size="sm" onClick={() => navigate('/administrator/notes')}>Notes</Button>
+            <Button variant={location.pathname.includes('cbt') ? 'default' : 'ghost'} size="sm" onClick={() => navigate('/administrator/cbt')}>CBT</Button>
+            <Button variant={location.pathname.includes('news') ? 'default' : 'ghost'} size="sm" onClick={() => navigate('/administrator/news')}>News</Button>
+          </>
+        )}
         <Button variant={location.pathname.includes('pins') ? 'default' : 'ghost'} size="sm" onClick={() => navigate('/administrator/pins')}>Pins</Button>
-        <Button variant={location.pathname.includes('videos') ? 'default' : 'ghost'} size="sm" onClick={() => navigate('/administrator/videos')}>Video Library</Button>
-        <Button variant={location.pathname.includes('notifier') ? 'default' : 'ghost'} size="sm" onClick={() => navigate('/administrator/notifier')}>Notifier</Button>
-        <Button variant={location.pathname.includes('reports') ? 'default' : 'ghost'} size="sm" onClick={() => navigate('/administrator/reports')}>Reports</Button>
+        {isAtLeastLevel3 && (
+          <>
+            <Button variant={location.pathname.includes('videos') ? 'default' : 'ghost'} size="sm" onClick={() => navigate('/administrator/videos')}>Video Library</Button>
+            <Button variant={location.pathname.includes('notifier') ? 'default' : 'ghost'} size="sm" onClick={() => navigate('/administrator/notifier')}>Notifier</Button>
+            <Button variant={location.pathname.includes('reports') ? 'default' : 'ghost'} size="sm" onClick={() => navigate('/administrator/reports')}>Reports</Button>
+          </>
+        )}
         <Button variant={location.pathname.includes('manual') ? 'default' : 'ghost'} size="sm" onClick={() => navigate('/administrator/manual')}>Admin Manual</Button>
         {isLevel4 && <Button variant={location.pathname.includes('system') ? 'default' : 'ghost'} size="sm" onClick={() => navigate('/administrator/system')}>System</Button>}
       </div>
@@ -2165,6 +2283,69 @@ export default function AdminPanel() {
                 </div>
               </CardContent>
             </Card>
+
+            {isLevel4 && (
+              <Card className="border-sky-500/20 bg-sky-500/5">
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2 text-sky-600">
+                    <MessageCircle className="h-5 w-5" />
+                    Telegram Alerts Configuration
+                  </CardTitle>
+                  <CardDescription>Set up bot credentials for real-time system alerts.</CardDescription>
+                </CardHeader>
+                <form onSubmit={handleSaveTelegram}>
+                  <CardContent className="space-y-4">
+                    <div className="flex items-center justify-between p-3 bg-white/50 dark:bg-black/20 rounded-lg border border-sky-200 dark:border-sky-900">
+                      <div className="space-y-0.5">
+                        <Label className="text-sm">Alerts Active</Label>
+                        <p className="text-xs text-muted-foreground">Enable or disable all Telegram notifications.</p>
+                      </div>
+                      <div 
+                        className={`w-12 h-6 rounded-full cursor-pointer transition-colors ${editTelegram.isActive ? 'bg-sky-500' : 'bg-muted'}`}
+                        onClick={() => setEditTelegram(prev => ({ ...prev, isActive: !prev.isActive }))}
+                      >
+                        <div className={`w-4 h-4 rounded-full bg-white mt-1 transition-transform ${editTelegram.isActive ? 'translate-x-7' : 'translate-x-1'}`} />
+                      </div>
+                    </div>
+
+                    <div className="space-y-2">
+                      <Label>Bot API Token</Label>
+                      <Input 
+                        type="password" 
+                        value={editTelegram.botToken} 
+                        onChange={(e) => setEditTelegram(prev => ({ ...prev, botToken: e.target.value }))}
+                        placeholder="Enter Telegram Bot Token"
+                        required
+                      />
+                    </div>
+
+                    <div className="space-y-2">
+                      <Label>Chat ID</Label>
+                      <Input 
+                        value={editTelegram.chatId} 
+                        onChange={(e) => setEditTelegram(prev => ({ ...prev, chatId: e.target.value }))}
+                        placeholder="Enter Chat ID or Channel Name"
+                        required
+                      />
+                    </div>
+                  </CardContent>
+                  <CardFooter className="flex gap-2">
+                    <Button 
+                      type="button" 
+                      variant="outline"
+                      className="flex-1"
+                      onClick={handleTestTelegram}
+                      disabled={loading}
+                    >
+                      Test Connection
+                    </Button>
+                    <Button type="submit" className="flex-1 bg-sky-600 hover:bg-sky-700" disabled={loading}>
+                      Save Configuration
+                    </Button>
+                  </CardFooter>
+                </form>
+              </Card>
+            )}
           </div>
         } />
 

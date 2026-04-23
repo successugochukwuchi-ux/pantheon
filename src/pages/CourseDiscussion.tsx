@@ -30,22 +30,33 @@ export default function CourseDiscussion() {
 
   // Fetch all notes for referencing
   useEffect(() => {
-    if (!user) return;
+    if (!user || !profile) return;
     const q = query(collection(db, 'notes'));
     const unsubscribe = onSnapshot(q, (snapshot) => {
       setUserNotes(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Note)));
+    }, (error) => {
+      const isLowLevel = profile.level === '1' || profile.level === '1+';
+      if (!isLowLevel) {
+        console.error('Notes fetch error:', error);
+      }
     });
     return () => unsubscribe();
-  }, [user]);
+  }, [user, profile]);
 
   // Fetch all courses for note selector
   useEffect(() => {
+    if (!profile) return;
     const q = query(collection(db, 'courses'), orderBy('code', 'asc'));
     const unsubscribe = onSnapshot(q, (snapshot) => {
       setCourses(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Course)));
+    }, (error) => {
+      const isLowLevel = profile.level === '1' || profile.level === '1+';
+      if (!isLowLevel) {
+        console.error('Courses fetch error:', error);
+      }
     });
     return () => unsubscribe();
-  }, []);
+  }, [profile]);
 
   useEffect(() => {
     if (isNoteSelectorOpen && !selectedCourseForNote && courseId) {
@@ -97,10 +108,13 @@ export default function CourseDiscussion() {
 
   const handleSendMessage = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!user || !profile || (!newMessage.trim() && !selectedNote) || !courseId) return;
+    if (!user || (!newMessage.trim() && !selectedNote) || !courseId) return;
 
     const text = newMessage.trim();
     const noteId = selectedNote?.id;
+    
+    if (!text && !noteId) return;
+
     setNewMessage('');
     setSelectedNote(null);
 
@@ -108,16 +122,18 @@ export default function CourseDiscussion() {
       await addDoc(collection(db, 'discussions'), {
         courseId,
         userId: user.uid,
-        username: profile.username || 'Anonymous',
-        userLevel: profile.level,
-        userAcademicLevel: profile.academicLevel || profile.level,
+        username: profile?.username || user.displayName || 'Student',
+        userLevel: profile?.level || '1',
+        userAcademicLevel: profile?.academicLevel || profile?.level || '100',
         text,
         referencedNoteId: noteId || null,
         createdAt: new Date().toISOString()
       });
-    } catch (err) {
+    } catch (err: any) {
       console.error('Error sending message:', err);
-      toast.error('Failed to send message');
+      toast.error('Failed to send: ' + (err.message || 'Check connection'));
+      // Restore the text if it failed
+      setNewMessage(text);
     }
   };
 

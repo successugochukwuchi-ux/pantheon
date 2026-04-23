@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useSearchParams, useNavigate } from 'react-router-dom';
 import { collection, query, where, orderBy, onSnapshot, addDoc, doc, getDoc, limit, getDocs, updateDoc } from 'firebase/firestore';
-import { db } from '../firebase';
+import { db, handleFirestoreError, OperationType } from '../firebase';
 import { useAuth } from '../contexts/AuthContext';
 import { Card, CardContent, CardHeader, CardTitle, CardFooter } from '../components/ui/card';
 import { Button } from '../components/ui/button';
@@ -120,22 +120,37 @@ export default function Chat() {
 
   // Fetch user notes for reference
   useEffect(() => {
-    if (!user) return;
+    if (!user || !profile) return;
+    
+    // Only fetch if at least Level 2 (Admins) or if we want to filter in app
+    // For Level 1, we should ideally query with filter, but rules will block broad query
     const q = query(collection(db, 'notes')); 
     const unsubscribe = onSnapshot(q, (snapshot) => {
       setUserNotes(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Note)));
+    }, (error) => {
+      // Don't show technical error to Level 1 students for this auxiliary data
+      const isLowLevel = profile.level === '1' || profile.level === '1+';
+      if (!isLowLevel) {
+        handleFirestoreError(error, OperationType.LIST, 'notes');
+      }
     });
     return () => unsubscribe();
-  }, [user]);
+  }, [user, profile]);
 
   // Fetch all courses for note selector
   useEffect(() => {
+    if (!profile) return;
     const q = query(collection(db, 'courses'), orderBy('code', 'asc'));
     const unsubscribe = onSnapshot(q, (snapshot) => {
       setCourses(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Course)));
+    }, (error) => {
+      const isLowLevel = profile.level === '1' || profile.level === '1+';
+      if (!isLowLevel) {
+        handleFirestoreError(error, OperationType.LIST, 'courses');
+      }
     });
     return () => unsubscribe();
-  }, []);
+  }, [profile]);
 
   // Fetch all chats for the user
   useEffect(() => {
@@ -143,38 +158,50 @@ export default function Chat() {
 
     // Simplified query to avoid composite index requirement
     const q = query(collection(db, 'chats'), where('uids', 'array-contains', user.uid));
-    const unsubscribe = onSnapshot(q, async (snapshot) => {
-      const chatList: ChatRoom[] = [];
-      for (const d of snapshot.docs) {
-        const data = d.data();
-        let friendProfile: UserProfile | undefined;
-        
-        if (data.type === 'dm') {
-          const friendUid = data.uids.find((id: string) => id !== user.uid);
-          const friendDoc = await getDoc(doc(db, 'users', friendUid));
-          if (friendDoc.exists()) {
-            friendProfile = friendDoc.data() as UserProfile;
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const updateChats = async () => {
+        try {
+          const chatList: ChatRoom[] = [];
+          for (const d of snapshot.docs) {
+            const data = d.data();
+            let friendProfile: UserProfile | undefined;
+            
+            if (data.type === 'dm') {
+              const friendUid = data.uids.find((id: string) => id !== user.uid);
+              const friendDoc = await getDoc(doc(db, 'users', friendUid));
+              if (friendDoc.exists()) {
+                friendProfile = friendDoc.data() as UserProfile;
+              }
+            }
+            
+            chatList.push({ id: d.id, ...data, friendProfile } as ChatRoom);
           }
+          // Sort in memory
+          chatList.sort((a, b) => {
+            const timeA = a.lastUpdatedAt ? new Date(a.lastUpdatedAt).getTime() : 0;
+            const timeB = b.lastUpdatedAt ? new Date(b.lastUpdatedAt).getTime() : 0;
+            return timeB - timeA;
+          });
+          
+          setChats(chatList);
+          
+          // Sync activeChat to pick up typing changes
+          setActiveChat(prev => {
+            if (!prev) return null;
+            const updated = chatList.find(c => c.id === prev.id);
+            return updated ? { ...prev, ...updated } : prev;
+          });
+          
+          setLoading(false);
+        } catch (error) {
+          console.error("Error processing chats:", error);
+          setLoading(false);
         }
-        
-        chatList.push({ id: d.id, ...data, friendProfile } as ChatRoom);
-      }
-      // Sort in memory
-      chatList.sort((a, b) => {
-        const timeA = a.lastUpdatedAt ? new Date(a.lastUpdatedAt).getTime() : 0;
-        const timeB = b.lastUpdatedAt ? new Date(b.lastUpdatedAt).getTime() : 0;
-        return timeB - timeA;
-      });
-      
-      setChats(chatList);
-      
-      // Sync activeChat to pick up typing changes
-      setActiveChat(prev => {
-        if (!prev) return null;
-        const updated = chatList.find(c => c.id === prev.id);
-        return updated ? { ...prev, ...updated } : prev;
-      });
-      
+      };
+
+      updateChats();
+    }, (error) => {
+      handleFirestoreError(error, OperationType.LIST, 'chats');
       setLoading(false);
     });
 
@@ -186,19 +213,29 @@ export default function Chat() {
     if (!user) return;
 
     const q = query(collection(db, 'friendships'), where('uids', 'array-contains', user.uid));
-    const unsubscribe = onSnapshot(q, async (snapshot) => {
-      const friendList: Friend[] = [];
-      for (const d of snapshot.docs) {
-        const friendUid = d.data().uids.find((id: string) => id !== user.uid);
-        const friendDoc = await getDoc(doc(db, 'users', friendUid));
-        if (friendDoc.exists()) {
-          friendList.push({
-            uid: friendUid,
-            profile: friendDoc.data() as UserProfile
-          });
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const updateFriends = async () => {
+        try {
+          const friendList: Friend[] = [];
+          for (const d of snapshot.docs) {
+            const friendUid = d.data().uids.find((id: string) => id !== user.uid);
+            const friendDoc = await getDoc(doc(db, 'users', friendUid));
+            if (friendDoc.exists()) {
+              friendList.push({
+                uid: friendUid,
+                profile: friendDoc.data() as UserProfile
+              });
+            }
+          }
+          setFriends(friendList);
+        } catch (error) {
+          console.error("Error processing friends:", error);
         }
-      }
-      setFriends(friendList);
+      };
+      
+      updateFriends();
+    }, (error) => {
+      handleFirestoreError(error, OperationType.LIST, 'friendships');
     });
 
     return () => unsubscribe();
@@ -259,6 +296,8 @@ export default function Chat() {
         }
       }
       setMessages(msgs);
+    }, (error) => {
+      handleFirestoreError(error, OperationType.LIST, `messages_${activeChat.id}`);
     });
 
     return () => unsubscribe();

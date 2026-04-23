@@ -34,7 +34,11 @@ import TermsOfService from './pages/TermsOfService';
 
 import { MaintenanceGuard } from './components/MaintenanceGuard';
 
+import Diagnostic from './pages/Diagnostic';
+
 export default function App() {
+  console.log("[PANTHEON] App Rendering. URL:", window.location.pathname);
+  
   useEffect(() => {
     const handleContextMenu = (e: MouseEvent) => {
       const target = e.target as HTMLElement;
@@ -44,7 +48,17 @@ export default function App() {
 
     const handleCopy = (e: ClipboardEvent) => {
       const target = e.target as HTMLElement;
-      if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA') return;
+      // Allow copying from inputs, textareas, or elements with 'allow-copy' class
+      if (
+        target.tagName === 'INPUT' || 
+        target.tagName === 'TEXTAREA' || 
+        target.closest('.allow-copy') ||
+        (window.getSelection()?.toString() && target.closest('.allow-copy-container'))
+      ) return;
+      
+      // If we are programmatically copying (like using navigator.clipboard), this event might still fire.
+      // But navigator.clipboard.writeText doesn't usually trigger 'copy' event on the document in a way that e.preventDefault() blocks it.
+      // However, if the user manually selects and tries to copy, we block it unless it's an allowed area.
       e.preventDefault();
     };
 
@@ -91,6 +105,7 @@ export default function App() {
               <Route path="/privacy" element={<PrivacyPolicy />} />
               <Route path="/terms" element={<TermsOfService />} />
               <Route path="/banned" element={<Banned />} />
+              <Route path="/diag" element={<Diagnostic />} />
 
               {/* Protected Routes (Require Auth) */}
               <Route path="/activate" element={
@@ -167,7 +182,7 @@ export default function App() {
               } />
 
               <Route path="/friends" element={
-                <ProtectedRoute>
+                <ProtectedRoute requireActivation={false}>
                   <Layout>
                     <Friends />
                   </Layout>
@@ -183,7 +198,7 @@ export default function App() {
               } />
 
               <Route path="/chat" element={
-                <ProtectedRoute>
+                <ProtectedRoute requireActivation={false}>
                   <Layout>
                     <Chat />
                   </Layout>
@@ -191,7 +206,7 @@ export default function App() {
               } />
 
               <Route path="/notifications" element={
-                <ProtectedRoute>
+                <ProtectedRoute requireActivation={false}>
                   <Layout>
                     <Notifications />
                   </Layout>
@@ -207,7 +222,7 @@ export default function App() {
               } />
 
               <Route path="/profile/:userId" element={
-                <ProtectedRoute>
+                <ProtectedRoute requireActivation={false}>
                   <Layout>
                     <PublicProfile />
                   </Layout>
@@ -215,7 +230,7 @@ export default function App() {
               } />
 
               <Route path="/search" element={
-                <ProtectedRoute>
+                <ProtectedRoute requireActivation={false}>
                   <Layout>
                     <SearchResults />
                   </Layout>
@@ -232,7 +247,7 @@ export default function App() {
 
               {/* Admin Routes */}
               <Route path="/administrator/*" element={
-                <ProtectedRoute minLevel="3">
+                <ProtectedRoute minLevel="2">
                   <Layout>
                     <AdminPanel />
                   </Layout>

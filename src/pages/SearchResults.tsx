@@ -5,10 +5,11 @@ import { db } from '../firebase';
 import { UserProfile } from '../types';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
 import { Button } from '../components/ui/button';
-import { User, Search as SearchIcon, Loader2, ArrowLeft, Shield } from 'lucide-react';
+import { User, Search as SearchIcon, Loader2, ArrowLeft, Shield, Copy } from 'lucide-react';
 import { motion } from 'motion/react';
 import { Avatar, AvatarFallback, AvatarImage } from '../components/ui/avatar';
 import { Badge } from '../components/ui/badge';
+import { toast } from 'sonner';
 
 export default function SearchResults() {
   const [searchParams] = useSearchParams();
@@ -54,6 +55,7 @@ export default function SearchResults() {
         setResults(uniqueResults);
       } catch (error) {
         console.error("Search error:", error);
+        toast.error('Failed to load search results');
       } finally {
         setLoading(false);
       }
@@ -115,9 +117,40 @@ export default function SearchResults() {
                         </Badge>
                       )}
                     </div>
-                    <p className="text-sm text-muted-foreground font-mono mt-1">
-                      Student ID: {user.studentId}
-                    </p>
+                    <div className="flex flex-col gap-1 mt-1">
+                      <div className="flex items-center gap-2 allow-copy">
+                        <p className="text-sm text-muted-foreground font-mono">
+                          Student ID: {user.studentId}
+                        </p>
+                        <button 
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            navigator.clipboard.writeText(user.studentId);
+                            toast.success('Student ID copied!');
+                          }}
+                          className="p-1 px-1.5 hover:bg-primary/10 rounded-md transition-colors flex items-center gap-1 group/btn text-[10px] font-bold text-primary"
+                        >
+                          <Copy className="h-3 w-3" />
+                          COPY
+                        </button>
+                      </div>
+                      <div className="flex items-center gap-2 allow-copy">
+                        <p className="text-[11px] text-muted-foreground font-mono truncate max-w-[200px]">
+                          Firebase ID: {user.uid}
+                        </p>
+                        <button 
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            navigator.clipboard.writeText(user.uid);
+                            toast.success('Firebase UID copied!');
+                          }}
+                          className="p-1 px-1.5 hover:bg-primary/10 rounded-md transition-colors flex items-center gap-1 group/btn text-[10px] font-bold text-primary"
+                        >
+                          <Copy className="h-3 w-3" />
+                          COPY
+                        </button>
+                      </div>
+                    </div>
                     <div className="flex gap-4 mt-3">
                       <div className="text-xs px-2 py-1 bg-muted rounded-md font-medium">
                         {(user.level === '3' || user.level === '4') ? `Level ${user.level}` : `${user.academicLevel || user.level} Level`}

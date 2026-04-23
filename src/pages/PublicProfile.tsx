@@ -6,7 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '../co
 import { Avatar, AvatarFallback, AvatarImage } from '../components/ui/avatar';
 import { Badge } from '../components/ui/badge';
 import { Button } from '../components/ui/button';
-import { ArrowLeft, Calendar, Award, Users, BookOpen, Shield, UserPlus, MessageSquare, UserMinus, Clock } from 'lucide-react';
+import { ArrowLeft, Calendar, Award, Users, BookOpen, Shield, UserPlus, MessageSquare, UserMinus, Clock, Copy } from 'lucide-react';
 import { UserProfile, CBTSession, Course } from '../types';
 import { useAuth } from '../contexts/AuthContext';
 import { addDoc, deleteDoc } from 'firebase/firestore';
@@ -201,14 +201,52 @@ export default function PublicProfile() {
         )}
       </div>
     )}
-            <div className="w-full grid grid-cols-2 gap-2 py-4 border-t">
-              <div className="text-center">
-                <p className="text-[10px] uppercase text-muted-foreground font-bold">Referrals</p>
-                <p className="font-bold">{profile.referralCount || 0}</p>
+            <div className="w-full space-y-3 py-4 border-t">
+              <div className="bg-muted/50 p-2 rounded-lg relative group allow-copy">
+                <p className="text-[10px] uppercase text-muted-foreground font-bold mb-1">Student ID</p>
+                <div className="flex items-center justify-between">
+                  <p className="font-mono text-sm font-bold tracking-wider">{profile.studentId}</p>
+                  <Button 
+                    variant="ghost" 
+                    size="icon" 
+                    className="h-6 w-6 text-primary" 
+                    onClick={() => {
+                      navigator.clipboard.writeText(profile.studentId);
+                      toast.success('Student ID copied!');
+                    }}
+                  >
+                    <Copy className="h-3 w-3" />
+                  </Button>
+                </div>
               </div>
-              <div className="text-center">
-                <p className="text-[10px] uppercase text-muted-foreground font-bold">Joined</p>
-                <p className="font-bold text-xs">{new Date(profile.createdAt).toLocaleDateString()}</p>
+              
+              <div className="bg-muted/50 p-2 rounded-lg relative group allow-copy">
+                <p className="text-[10px] uppercase text-muted-foreground font-bold mb-1">Firebase UID</p>
+                <div className="flex items-center justify-between">
+                  <p className="font-mono text-[10px] text-muted-foreground truncate max-w-[150px]">{profile.uid}</p>
+                  <Button 
+                    variant="ghost" 
+                    size="icon" 
+                    className="h-6 w-6 text-primary" 
+                    onClick={() => {
+                      navigator.clipboard.writeText(profile.uid);
+                      toast.success('Firebase UID copied!');
+                    }}
+                  >
+                    <Copy className="h-3 w-3" />
+                  </Button>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-2 pt-2">
+                <div className="text-center">
+                  <p className="text-[10px] uppercase text-muted-foreground font-bold">Referrals</p>
+                  <p className="font-bold">{profile.referralCount || 0}</p>
+                </div>
+                <div className="text-center">
+                  <p className="text-[10px] uppercase text-muted-foreground font-bold">Joined</p>
+                  <p className="font-bold text-xs">{new Date(profile.createdAt).toLocaleDateString()}</p>
+                </div>
               </div>
             </div>
           </CardContent>

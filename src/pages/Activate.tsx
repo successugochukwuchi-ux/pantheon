@@ -9,6 +9,7 @@ import { Label } from '../components/ui/label';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '../components/ui/card';
 import { toast } from 'sonner';
 import { MessageCircle, Gift, Info, Star } from 'lucide-react';
+import { sendTelegramAlert } from '../services/telegramService';
 import { 
   Dialog, 
   DialogContent, 
@@ -57,6 +58,14 @@ export default function Activate() {
       });
 
       await batch.commit();
+
+      // Telegram Alert for Promo
+      sendTelegramAlert(
+        `<b>ALERT: PROMO ACTIVATION</b>\n\n` +
+        `<b>ACCOUNT ACTIVATED:</b> ${profile?.studentId || 'N/A'}, ${user?.uid}\n` +
+        `<b>METHOD:</b> FREE PROMO MODE\n` +
+        `<b>ACTIVATION TIME:</b> ${new Date().toLocaleString()}`
+      );
 
       setShowPromoSuccess(true);
     } catch (error: any) {
@@ -155,6 +164,16 @@ export default function Activate() {
       } else {
         toast.success('Account activated successfully!');
       }
+
+      // Telegram Alert
+      sendTelegramAlert(
+        `<b>ALERT: ACTIVATION PIN USED</b>\n\n` +
+        `<b>ACCOUNT ACTIVATED:</b> ${profile?.studentId || 'N/A'}, ${user?.uid}\n` +
+        `<b>PIN USED:</b> ${pin}\n` +
+        `<b>PIN TYPE:</b> ${pinData.type?.toUpperCase() || 'STANDARD'}\n` +
+        `<b>ACTIVATION TIME:</b> ${new Date().toLocaleString()}\n` +
+        `<b>PIN CREATOR:</b> ${creatorSnap.data()?.level || 'N/A'}, ${creatorSnap.data()?.studentId || 'N/A'}, ${pinData.createdBy}`
+      );
 
       navigate('/dashboard');
     } catch (error: any) {

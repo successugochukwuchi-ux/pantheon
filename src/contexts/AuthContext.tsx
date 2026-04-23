@@ -24,13 +24,23 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   
   // Try to load cached config from localStorage for instant offline access
   const [systemConfig, setSystemConfig] = useState<SystemConfig | null>(() => {
-    const cached = localStorage.getItem('pantheon_system_config');
-    return cached ? JSON.parse(cached) : null;
+    try {
+      const cached = localStorage.getItem('pantheon_system_config');
+      return cached ? JSON.parse(cached) : null;
+    } catch (e) {
+      console.error("Failed to parse cached system config:", e);
+      return null;
+    }
   });
   
   const [promoConfig, setPromoConfig] = useState<PromoConfig | null>(() => {
-    const cached = localStorage.getItem('pantheon_promo_config');
-    return cached ? JSON.parse(cached) : null;
+    try {
+      const cached = localStorage.getItem('pantheon_promo_config');
+      return cached ? JSON.parse(cached) : null;
+    } catch (e) {
+      console.error("Failed to parse cached promo config:", e);
+      return null;
+    }
   });
 
   const [loading, setLoading] = useState(true);
@@ -72,7 +82,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         setSystemConfig(data);
         localStorage.setItem('pantheon_system_config', JSON.stringify(data));
       } else {
-        // Initialize default config if missing
         const defaultConfig: SystemConfig = {
           currentSemester: 'none',
           maintenanceMode: false,
@@ -84,10 +93,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       }
       setIsSystemConfigReady(true);
     }, (error) => {
+      // Silently handle if not authenticated yet, otherwise log
       if (auth.currentUser) {
         console.error("System config listener failed:", error);
       }
-      // If we failed and have no state, use default
       if (!systemConfig) {
         const defaultConfig: SystemConfig = {
           currentSemester: 'none',
@@ -107,9 +116,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         localStorage.setItem('pantheon_promo_config', JSON.stringify(data));
       } else {
         const defaultPromo: PromoConfig = {
-          isActive: false,
-          quota: 0,
-          count: 0,
+          isActive: false, quota: 0, count: 0,
           updatedAt: new Date().toISOString(),
           updatedBy: 'system'
         };
@@ -120,18 +127,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       if (auth.currentUser) {
         console.error("Promo config listener failed:", error);
       }
-      // Set a safe fallback even on error to allow UI to render correctly
-      setPromoConfig(prev => {
-        if (prev) return prev;
-        const defaultPromo: PromoConfig = {
-          isActive: false,
-          quota: 0,
-          count: 0,
+      if (!promoConfig) {
+        setPromoConfig({
+          isActive: false, quota: 0, count: 0,
           updatedAt: new Date().toISOString(),
           updatedBy: 'system'
-        };
-        return defaultPromo;
-      });
+        });
+      }
     });
 
     return () => {

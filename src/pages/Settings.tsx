@@ -10,7 +10,7 @@ import { Label } from '../components/ui/label';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '../components/ui/card';
 import { Avatar, AvatarFallback, AvatarImage } from '../components/ui/avatar';
 import { toast } from 'sonner';
-import { Check, Moon, Sun, Palette, Droplets, TreePine, Eye, EyeOff, Settings as SettingsIcon, User } from 'lucide-react';
+import { Check, Moon, Sun, Palette, Droplets, TreePine, Eye, EyeOff, Settings as SettingsIcon, User, Copy } from 'lucide-react';
 import { useTitle } from '../hooks/useTitle';
 
 export default function Settings() {
@@ -315,12 +315,42 @@ export default function Settings() {
               </span>
             </div>
             <div className="flex flex-col gap-1">
-              <span className="text-xs text-muted-foreground uppercase font-semibold">Student UID (11-digit)</span>
-              <span className="font-mono text-lg bg-muted px-2 py-1 rounded">{profile?.studentId || 'N/A'}</span>
+              <span className="text-xs text-muted-foreground uppercase font-semibold">Student ID (11-digit)</span>
+              <div className="flex items-center gap-2 bg-muted px-2 py-1 rounded allow-copy">
+                <span className="font-mono text-lg">{profile?.studentId || 'N/A'}</span>
+                {profile?.studentId && (
+                  <Button 
+                    variant="ghost" 
+                    size="icon" 
+                    className="h-6 w-6 text-primary" 
+                    onClick={() => {
+                      navigator.clipboard.writeText(profile.studentId);
+                      toast.success('Student ID copied!');
+                    }}
+                  >
+                    <Copy className="h-3 w-3" />
+                  </Button>
+                )}
+              </div>
             </div>
             <div className="flex flex-col gap-1">
               <span className="text-xs text-muted-foreground uppercase font-semibold">Firebase UID</span>
-              <span className="font-mono text-xs bg-muted px-2 py-1 rounded opacity-50">{user?.uid}</span>
+              <div className="flex items-center gap-2 bg-muted px-2 py-1 rounded opacity-50 allow-copy">
+                <span className="font-mono text-xs">{user?.uid}</span>
+                {user?.uid && (
+                  <Button 
+                    variant="ghost" 
+                    size="icon" 
+                    className="h-6 w-6 text-primary" 
+                    onClick={() => {
+                      navigator.clipboard.writeText(user.uid);
+                      toast.success('Firebase UID copied!');
+                    }}
+                  >
+                    <Copy className="h-3 w-3" />
+                  </Button>
+                )}
+              </div>
             </div>
           </CardContent>
         </Card>

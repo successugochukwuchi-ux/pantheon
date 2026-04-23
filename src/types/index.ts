@@ -59,6 +59,12 @@ export interface NewsItem {
   createdAt: string;
 }
 
+export interface TelegramConfig {
+  botToken: string;
+  chatId: string;
+  isActive: boolean;
+}
+
 export interface SystemConfig {
   currentSemester: Semester;
   maintenanceMode: boolean;

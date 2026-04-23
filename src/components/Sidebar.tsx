@@ -95,7 +95,10 @@ export const Sidebar: React.FC<SidebarProps> = ({ onClose }) => {
     };
   }, [user, profile]);
 
+  const isAtLeastLevel2 = profile?.level === '2' || profile?.level === '3' || profile?.level === '4';
+  const isLevel2 = profile?.level === '2';
   const isAdmin = profile?.level === '3' || profile?.level === '4';
+  const isLevel4 = profile?.level === '4';
   const isAdminPath = location.pathname.startsWith('/administrator');
 
   const studentNavItems: { name: string, path: string, icon: any, badge?: number }[] = [
@@ -113,6 +116,12 @@ export const Sidebar: React.FC<SidebarProps> = ({ onClose }) => {
     { name: 'Referrals', path: '/referrals', icon: Users },
   ];
 
+  const level2AdminNavItems: { name: string, path: string, icon: any, badge?: number }[] = [
+    { name: 'Admin Overview', path: '/administrator', icon: Shield },
+    { name: 'Activation Pins', path: '/administrator/pins', icon: Key },
+    { name: 'Admin Manual', path: '/administrator/manual', icon: BookOpen },
+  ];
+
   const adminNavItems: { name: string, path: string, icon: any, badge?: number }[] = [
     { name: 'Admin Overview', path: '/administrator', icon: Shield },
     { name: 'User Management', path: '/administrator/users', icon: Users },
@@ -123,15 +132,17 @@ export const Sidebar: React.FC<SidebarProps> = ({ onClose }) => {
     { name: 'News Management', path: '/administrator/news', icon: Newspaper },
     { name: 'Activation Pins', path: '/administrator/pins', icon: Key },
     { name: 'Video Management', path: '/administrator/videos', icon: PlayCircle },
+    { name: 'Admin Manual', path: '/administrator/manual', icon: BookOpen },
   ];
 
   const level4NavItems: { name: string, path: string, icon: any, badge?: number }[] = [
     ...adminNavItems,
     { name: 'System Control', path: '/administrator/system', icon: Settings },
+    { name: 'System Reports', path: '/administrator/reports', icon: FileText },
   ];
 
   const navItems = isAdminPath 
-    ? (profile?.level === '4' ? level4NavItems : adminNavItems) 
+    ? (profile?.level === '4' ? level4NavItems : (profile?.level === '3' ? adminNavItems : level2AdminNavItems)) 
     : studentNavItems;
 
   return (
@@ -187,18 +198,18 @@ export const Sidebar: React.FC<SidebarProps> = ({ onClose }) => {
           })}
         </div>
 
-        {isAdmin && !isAdminPath && (
+        {isAtLeastLevel2 && !isAdminPath && (
           <div className="py-4 border-t border-sidebar-border mt-4">
-            <p className="px-3 text-xs font-semibold text-sidebar-foreground/50 uppercase tracking-wider mb-2">
-              Administration
+            <p className="px-3 text-xs font-bold text-primary uppercase tracking-widest mb-3">
+              Privileged Access
             </p>
             <Link
               to="/administrator"
               onClick={onClose}
-              className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium text-sidebar-foreground/70 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground transition-all"
+              className="flex items-center gap-3 px-3 py-3 rounded-xl text-sm font-bold bg-primary/10 text-primary hover:bg-primary/20 transition-all shadow-sm border border-primary/20"
             >
               <Shield className="h-4 w-4" />
-              Admin Panel
+              Admin Control Panel
             </Link>
           </div>
         )}

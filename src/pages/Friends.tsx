@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { collection, query, where, onSnapshot, doc, deleteDoc, addDoc, getDoc } from 'firebase/firestore';
-import { db } from '../firebase';
+import { db, handleFirestoreError, OperationType } from '../firebase';
 import { useAuth } from '../contexts/AuthContext';
 import { Button, buttonVariants } from '../components/ui/button';
 import { Avatar, AvatarFallback, AvatarImage } from '../components/ui/avatar';
@@ -72,52 +72,60 @@ export default function Friends() {
     const qRequests = query(collection(db, 'friend_requests'), where('toUid', '==', user.uid), where('status', '==', 'pending'));
     const unsubRequests = onSnapshot(qRequests, (snapshot) => {
       setRequests(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as FriendRequest)));
+    }, (error) => {
+      handleFirestoreError(error, OperationType.LIST, 'friend_requests');
     });
 
     // Listen for friendships
     const qFriends = query(collection(db, 'friendships'), where('uids', 'array-contains', user.uid));
-    const unsubFriends = onSnapshot(qFriends, async (snapshot) => {
+    const unsubFriends = onSnapshot(qFriends, (snapshot) => {
       const friendshipsData = snapshot.docs.map(d => ({ id: d.id, ...d.data() } as any));
       
-      const updatedFriendsList: Friendship[] = [];
-      const currentFriends = friendsRef.current;
-      
-      for (const data of friendshipsData) {
-        const friendUid = data.uids.find((id: string) => id !== user.uid);
-        if (!friendUid) continue;
-
-        const existingFriend = currentFriends.find(f => f.friendUid === friendUid);
+      const updateList = async () => {
+        const updatedFriendsList: Friendship[] = [];
+        const currentFriends = friendsRef.current;
         
-        if (existingFriend && existingFriend.friendProfile) {
-          updatedFriendsList.push({
-            id: data.id,
-            uids: data.uids,
-            friendUid,
-            friendProfile: existingFriend.friendProfile
-          });
-        } else {
-          try {
-            const friendDoc = await getDoc(doc(db, 'users', friendUid));
-            const friendProfile = friendDoc.exists() ? friendDoc.data() as UserProfile : undefined;
-            
+        for (const data of friendshipsData) {
+          const friendUid = data.uids.find((id: string) => id !== user.uid);
+          if (!friendUid) continue;
+
+          const existingFriend = currentFriends.find(f => f.friendUid === friendUid);
+          
+          if (existingFriend && existingFriend.friendProfile) {
             updatedFriendsList.push({
               id: data.id,
               uids: data.uids,
               friendUid,
-              friendProfile
+              friendProfile: existingFriend.friendProfile
             });
-          } catch (error) {
-            console.error("Error fetching friend profile:", error);
-            updatedFriendsList.push({
-              id: data.id,
-              uids: data.uids,
-              friendUid
-            });
+          } else {
+            try {
+              const friendDoc = await getDoc(doc(db, 'users', friendUid));
+              const friendProfile = friendDoc.exists() ? friendDoc.data() as UserProfile : undefined;
+              
+              updatedFriendsList.push({
+                id: data.id,
+                uids: data.uids,
+                friendUid,
+                friendProfile
+              });
+            } catch (error) {
+              console.error("Error fetching friend profile:", error);
+              updatedFriendsList.push({
+                id: data.id,
+                uids: data.uids,
+                friendUid
+              });
+            }
           }
         }
-      }
-      
-      setFriends(updatedFriendsList);
+        setFriends(updatedFriendsList);
+        setLoading(false);
+      };
+
+      updateList();
+    }, (error) => {
+      handleFirestoreError(error, OperationType.LIST, 'friendships');
       setLoading(false);
     });
 

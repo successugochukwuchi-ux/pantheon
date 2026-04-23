@@ -3,9 +3,10 @@ import { collection, query, where, getDocs, limit } from 'firebase/firestore';
 import { db } from '../firebase';
 import { UserProfile } from '../types';
 import { Input } from './ui/input';
-import { Search, User, Loader2, X } from 'lucide-react';
+import { Search, User, Loader2, X, Copy, Check as CheckIcon } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { useNavigate } from 'react-router-dom';
+import { toast } from 'sonner';
 
 export const UserSearch: React.FC = () => {
   const [searchTerm, setSearchTerm] = useState('');
@@ -64,6 +65,7 @@ export const UserSearch: React.FC = () => {
           setIsOpen(true);
         } catch (error) {
           console.error("Search error:", error);
+          toast.error('Search failed. Please try again.');
         } finally {
           setIsSearching(false);
         }
@@ -151,9 +153,38 @@ export const UserSearch: React.FC = () => {
                           </p>
                           <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-muted text-muted-foreground uppercase">Lvl {user.academicLevel || `${user.level}00`}</span>
                         </div>
-                        <p className="text-xs text-muted-foreground font-mono">
-                          ID: {user.studentId}
-                        </p>
+                        <div className="flex flex-col gap-1 mt-0.5">
+                          <div className="flex items-center gap-2 allow-copy">
+                            <p className="text-[10px] text-muted-foreground font-mono">
+                              ID: {user.studentId}
+                            </p>
+                            <button 
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                navigator.clipboard.writeText(user.studentId);
+                                toast.success('Student ID copied!');
+                              }}
+                              className="p-1 hover:bg-primary/10 rounded transition-colors"
+                            >
+                              <Copy className="h-2.5 w-2.5 text-primary" />
+                            </button>
+                          </div>
+                          <div className="flex items-center gap-2 allow-copy">
+                            <p className="text-[10px] text-muted-foreground font-mono truncate max-w-[120px]">
+                              UID: {user.uid}
+                            </p>
+                            <button 
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                navigator.clipboard.writeText(user.uid);
+                                toast.success('Firebase UID copied!');
+                              }}
+                              className="p-1 hover:bg-primary/10 rounded transition-colors"
+                            >
+                              <Copy className="h-2.5 w-2.5 text-primary" />
+                            </button>
+                          </div>
+                        </div>
                       </div>
                     </button>
                   ))}
