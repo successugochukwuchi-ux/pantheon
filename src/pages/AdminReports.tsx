@@ -26,6 +26,9 @@ export default function AdminReports() {
     const unsubscribe = onSnapshot(q, (snapshot) => {
       setReports(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Report)));
       setLoading(false);
+    }, (err) => {
+      setLoading(false);
+      console.error("Reports listener failed:", err);
     });
 
     return () => unsubscribe();

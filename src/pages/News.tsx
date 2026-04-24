@@ -5,6 +5,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '../co
 import { Newspaper, Calendar, Clock, ChevronRight } from 'lucide-react';
 import { motion } from 'motion/react';
 import { Badge } from '../components/ui/badge';
+import { useAuth } from '../contexts/AuthContext';
 import { useTitle } from '../hooks/useTitle';
 
 interface NewsItem {
@@ -20,14 +21,20 @@ export default function News() {
   const [news, setNews] = useState<NewsItem[]>([]);
   const [loading, setLoading] = useState(true);
 
+  const { user } = useAuth();
+
   useEffect(() => {
+    if (!user) return;
     const q = query(collection(db, 'news'), orderBy('createdAt', 'desc'));
     const unsubscribe = onSnapshot(q, (snapshot) => {
       setNews(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as NewsItem)));
       setLoading(false);
+    }, (error) => {
+      console.error("News fetch error:", error);
+      setLoading(false);
     });
     return () => unsubscribe();
-  }, []);
+  }, [user]);
 
   return (
     <div className="max-w-5xl mx-auto space-y-8">

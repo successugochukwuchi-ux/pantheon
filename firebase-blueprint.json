@@ -281,6 +281,20 @@
         "createdAt": { "type": "string", "format": "date-time" }
       },
       "required": ["uids", "createdAt"]
+    },
+    "UserProgress": {
+      "title": "UserProgress",
+      "description": "Tracks student progress on a note or course",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string" },
+        "targetId": { "type": "string" },
+        "type": { "type": "string", "enum": ["note", "course"] },
+        "percentage": { "type": "number" },
+        "completed": { "type": "boolean" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["uid", "targetId", "type", "percentage", "updatedAt"]
     }
   },
   "firestore": {
@@ -359,6 +373,10 @@
     "/friendships/{friendshipId}": {
       "schema": "Friendship",
       "description": "Friendships"
+    },
+    "/progress/{progressId}": {
+      "schema": "UserProgress",
+      "description": "Tracking user progress on notes and courses"
     }
   }
 }

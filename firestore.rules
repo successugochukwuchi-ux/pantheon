@@ -6,6 +6,11 @@ service cloud.firestore {
     // 1. HELPERS & GLOBAL SAFETY
     // ===============================================================
     
+    // Default deny
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
     function isSignedIn() {
       return request.auth != null;
     }
@@ -18,81 +23,88 @@ service cloud.firestore {
       return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
     }
 
-    // High-priority admin check - handles initial email token
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    // High-priority admin check
     function isAdmin() {
       return isSignedIn() && (
         request.auth.token.email == "successugochukwuchi@gmail.com" || 
-        (exists(/databases/$(database)/documents/users/$(request.auth.uid)) && 
-         get(/databases/$(database)/documents/users/$(request.auth.uid)).data.get('level', '1') in ["3", "4"])
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.get('level', '1') in ["3", "4"]
       );
     }
 
     function isLevel2() {
       return isSignedIn() && (
         request.auth.token.email == "successugochukwuchi@gmail.com" ||
-        (exists(/databases/$(database)/documents/users/$(request.auth.uid)) && 
-         get(/databases/$(database)/documents/users/$(request.auth.uid)).data.get('level', '1') in ["2", "3", "4"])
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.get('level', '1') in ["2", "3", "4"]
       );
     }
 
     // ===============================================================
-    // 2. SYSTEM & CONFIG
+    // 2. ENTITY VALIDATORS
     // ===============================================================
-    match /system/{docId} {
-      allow read, list: if isSignedIn();
-      allow write: if isAdmin();
+
+    function isValidCourse(data) {
+      return data.code is string && 
+             data.title is string &&
+             data.semester in ['1st', '2nd'];
+    }
+
+    function isValidNote(data) {
+      return data.courseId is string &&
+             data.title is string &&
+             data.type in ['lecture', 'punch', 'past_question', 'cbt'] &&
+             data.authorId == request.auth.uid;
+    }
+
+    function isValidQuestionSheet(data) {
+      return data.courseId is string &&
+             data.semester in ['1st', '2nd'] &&
+             data.year is string &&
+             data.authorId == request.auth.uid;
+    }
+
+    function isValidQuestion(data) {
+      return data.sheetId is string &&
+             data.courseId is string &&
+             data.text is string &&
+             data.incorrectAnswers is list &&
+             data.authorId == request.auth.uid;
     }
 
     // ===============================================================
-    // 3. USER PROFILES
+    // 3. COLLECTIONS
     // ===============================================================
+
     match /users/{userId} {
-      // Allow user to read their own profile or others (for search/friends)
       allow read: if isSignedIn();
-      // Allow listing users only for admins (security improvement)
       allow list: if isAdmin();
-      allow create: if isOwner(userId);
-      allow update: if isOwner(userId) || isAdmin();
+      allow create: if isOwner(userId) && 
+                      incoming().level == '1' && 
+                      incoming().isActivated == false;
+      allow update: if (isOwner(userId) && 
+                        incoming().diff(existing()).affectedKeys().hasOnly(['username', 'theme', 'referredBy'])) || 
+                      isAdmin();
     }
 
-    // ===============================================================
-    // 4. CHATS & COMMUNICATION
-    // ===============================================================
-    match /chats/{chatId} {
-      allow read, list: if isSignedIn() && (isAdmin() || request.auth.uid in resource.data.get('uids', []));
-      allow create: if isSignedIn() && request.auth.uid in request.resource.data.get('uids', []);
-      allow update: if isSignedIn() && (isAdmin() || request.auth.uid in resource.data.get('uids', []));
-      
-      match /messages/{messageId} {
-        allow read, list: if isSignedIn() && (isAdmin() || request.auth.uid in get(/databases/$(database)/documents/chats/$(chatId)).data.get('uids', []));
-        allow create: if isSignedIn() && (isAdmin() || (request.auth.uid in get(/databases/$(database)/documents/chats/$(chatId)).data.get('uids', []) && request.resource.data.senderUid == request.auth.uid));
-        allow delete: if isAdmin() || (isSignedIn() && resource.data.senderUid == request.auth.uid);
-      }
-    }
-
-    match /friendships/{friendshipId} {
-      allow read, list: if isSignedIn() && (isAdmin() || request.auth.uid in resource.data.get('uids', []));
-      allow create: if isSignedIn() && request.auth.uid in request.resource.data.get('uids', []);
-      allow delete: if isSignedIn() && (isAdmin() || request.auth.uid in resource.data.get('uids', []));
-    }
-
-    match /friend_requests/{requestId} {
-      allow read, list: if isSignedIn() && (resource.data.get('fromUid', '') == request.auth.uid || resource.data.get('toUid', '') == request.auth.uid);
-      allow create: if isSignedIn() && request.resource.data.get('fromUid', '') == request.auth.uid;
-      allow update, delete: if isSignedIn() && (resource.data.get('fromUid', '') == request.auth.uid || resource.data.get('toUid', '') == request.auth.uid);
-    }
-
-    // ===============================================================
-    // 5. ACADEMIC ENGINE
-    // ===============================================================
     match /courses/{courseId} {
       allow read, list: if isSignedIn();
-      allow write: if isAdmin();
+      allow create: if isAdmin() && isValidCourse(incoming());
+      allow update: if isAdmin() && isValidCourse(incoming());
+      allow delete: if isAdmin();
     }
 
     match /notes/{noteId} {
       allow read, list: if isSignedIn();
-      allow write: if isAdmin();
+      allow create: if isAdmin() && isValidNote(incoming());
+      allow update: if isAdmin() && isValidNote(incoming());
+      allow delete: if isAdmin();
       
       match /videoQuestions/{questionId} {
         allow read, list: if isSignedIn();
@@ -100,42 +112,80 @@ service cloud.firestore {
       }
     }
 
-    match /activationCodes/{code} {
-      allow read, list: if isLevel2(); // Restrict to Level 2 and above
-      allow create, update: if isLevel2();
+    match /questionSheets/{sheetId} {
+      allow read, list: if isSignedIn();
+      allow create: if isAdmin() && isValidQuestionSheet(incoming());
+      allow update: if isAdmin() && isValidQuestionSheet(incoming());
       allow delete: if isAdmin();
     }
 
-    // ===============================================================
-    // 6. UTILITY & FALLBACK
-    // ===============================================================
+    match /questions/{questionId} {
+      allow read, list: if isSignedIn();
+      allow create: if isAdmin() && isValidQuestion(incoming());
+      allow update: if isAdmin() && isValidQuestion(incoming());
+      allow delete: if isAdmin();
+    }
+
+    match /activationCodes/{code} {
+      allow read, list: if isLevel2();
+      allow write: if isLevel2();
+      allow delete: if isAdmin();
+    }
+
+    match /verificationRequests/{requestId} {
+      allow read, list: if isLevel2();
+      allow create: if isSignedIn();
+      allow update, delete: if isAdmin();
+    }
+
     match /news/{newsId} { allow read, list: if isSignedIn(); allow write: if isAdmin(); }
-    match /verificationRequests/{requestId} { 
-      allow read, list: if isLevel2(); 
-      allow create: if isSignedIn(); 
-      allow update, delete: if isAdmin(); 
+    match /system/{docId} { allow read, list: if true; allow write: if isAdmin(); }
+    match /cbt_sessions/{sessionId} {
+      allow create: if isSignedIn() && incoming().userId == request.auth.uid;
+      allow read, list: if isAdmin() || (isSignedIn() && resource.data.userId == request.auth.uid);
     }
-    match /questionSheets/{sheetId} { 
-      allow read, list: if isSignedIn(); 
-      allow write: if isAdmin(); 
+    match /discussions/{messageId} { 
+      allow read, list: if isSignedIn();
+      allow create: if isSignedIn() && incoming().userId == request.auth.uid;
+      allow update, delete: if isAdmin() || (isSignedIn() && resource.data.userId == request.auth.uid);
     }
-    match /questions/{questionId} { 
-      allow read, list: if isSignedIn(); 
-      allow write: if isAdmin(); 
+    match /notifications/{notificationId} { 
+      allow read, list, update: if isSignedIn() && resource.data.userId == request.auth.uid; 
+      allow delete: if isSignedIn() && resource.data.userId == request.auth.uid;
     }
-    match /cbt_sessions/{sessionId} { 
-      allow create: if isSignedIn(); 
-      allow read, list: if isAdmin() || (isSignedIn() && resource.data.userId == request.auth.uid); 
-    }
-    match /discussions/{messageId} { allow read, list, create, update, delete: if isSignedIn(); }
-    match /notifications/{notificationId} { allow read, list, update, delete: if isSignedIn() && resource.data.userId == request.auth.uid; }
     match /announcements/{announcementId} { allow read, list: if isSignedIn(); allow write: if isAdmin(); }
     match /reports/{reportId} { allow read, write: if isAdmin(); allow create: if isSignedIn(); }
     match /diagnostics/{docId} { allow read, write: if true; }
 
-    // Final safety fallback
-    match /{document=**} {
-      allow read, write: if false;
+    // Chat rules
+    match /chats/{chatId} {
+      allow read, list: if isSignedIn() && (isAdmin() || request.auth.uid in resource.data.uids);
+      allow create: if isSignedIn() && request.auth.uid in incoming().uids;
+      allow update: if isSignedIn() && (isAdmin() || request.auth.uid in resource.data.uids);
+      
+      match /messages/{messageId} {
+        allow read, list: if isSignedIn() && (isAdmin() || request.auth.uid in get(/databases/$(database)/documents/chats/$(chatId)).data.uids);
+        allow create: if isSignedIn() && (isAdmin() || (request.auth.uid in get(/databases/$(database)/documents/chats/$(chatId)).data.uids && incoming().senderUid == request.auth.uid));
+        allow delete: if isAdmin() || (isSignedIn() && resource.data.senderUid == request.auth.uid);
+      }
+    }
+
+    match /friendships/{friendshipId} {
+      allow read, list: if isSignedIn() && (isAdmin() || request.auth.uid in resource.data.uids);
+      allow create: if isSignedIn() && request.auth.uid in incoming().uids;
+      allow delete: if isSignedIn() && (isAdmin() || request.auth.uid in resource.data.uids);
+    }
+
+    match /friend_requests/{requestId} {
+      allow read, list: if isSignedIn() && (resource.data.fromUid == request.auth.uid || resource.data.toUid == request.auth.uid);
+      allow create: if isSignedIn() && incoming().fromUid == request.auth.uid;
+      allow update, delete: if isSignedIn() && (resource.data.fromUid == request.auth.uid || resource.data.toUid == request.auth.uid);
+    }
+
+    match /progress/{progressId} {
+      allow read, list: if isSignedIn() && resource.data.uid == request.auth.uid;
+      allow create: if isSignedIn() && incoming().uid == request.auth.uid;
+      allow update: if isSignedIn() && (resource.data.uid == request.auth.uid || isAdmin());
     }
   }
 }

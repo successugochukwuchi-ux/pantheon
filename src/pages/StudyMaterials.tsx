@@ -17,6 +17,8 @@ import { Alert, AlertDescription, AlertTitle } from '../components/ui/alert';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '../components/ui/dialog';
 import { MathJax } from 'better-react-mathjax';
 import { NoteBlock } from '../components/NoteBuilder';
+import { NoteProgressTracker } from '../components/NoteProgressTracker';
+import { ScientificCalculator } from '../components/ScientificCalculator';
 import { useSearchParams, useNavigate } from 'react-router-dom';
 import { useTitle } from '../hooks/useTitle';
 
@@ -147,10 +149,12 @@ export default function StudyMaterials() {
         .filter(n => n.type === type)
         .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
       setNotes(filtered);
+    }, (error) => {
+      console.error("Notes fetch error in StudyMaterials:", error);
     });
 
     return () => unsubscribe();
-  }, [selectedCourse, type]);
+  }, [selectedCourse, type, profile]);
 
   const filteredCourses = courses.filter(course => 
     course.code.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -166,22 +170,31 @@ export default function StudyMaterials() {
     }
 
     return (
-      <div className="space-y-6">
-        <Button variant="ghost" onClick={() => setSelectedNote(null)} className="gap-2">
-          <ArrowLeft className="h-4 w-4" /> Back to {typeLabels[type]}
-        </Button>
-        
-        <Card>
-          <CardHeader>
-            <div className="flex items-center justify-between">
-              <div className="space-y-1">
-                <CardTitle className="text-2xl">{selectedNote.title}</CardTitle>
-                <CardDescription>{selectedCourse?.code} - {selectedCourse?.title}</CardDescription>
+      <div className="relative min-h-screen pb-20">
+        <NoteProgressTracker noteId={selectedNote.id} courseId={selectedNote.courseId} />
+        <ScientificCalculator />
+
+        <div className="space-y-6 max-w-4xl mx-auto px-4 py-6">
+          <Button variant="ghost" onClick={() => setSelectedNote(null)} className="gap-2">
+            <ArrowLeft className="h-4 w-4" /> Back to {typeLabels[type]}
+          </Button>
+
+          <Card className="border-primary/20 shadow-xl overflow-hidden">
+            <div className="h-2 bg-primary/10 w-full" />
+            <CardHeader className="bg-muted/30">
+              <div className="flex items-center justify-between">
+                <div className="space-y-1">
+                  <CardTitle className="text-2xl font-bold tracking-tight">{selectedNote.title}</CardTitle>
+                  <CardDescription className="flex items-center gap-2">
+                    <Badge variant="secondary">{selectedCourse?.code}</Badge>
+                    <span className="text-muted-foreground">•</span>
+                    <span>{selectedCourse?.title}</span>
+                  </CardDescription>
+                </div>
+                <Badge className="bg-primary/10 text-primary border-primary/20">{selectedNote.type.replace('_', ' ').toUpperCase()}</Badge>
               </div>
-              <Badge variant="outline">{selectedNote.type.replace('_', ' ').toUpperCase()}</Badge>
-            </div>
-          </CardHeader>
-          <CardContent className="space-y-6">
+            </CardHeader>
+            <CardContent className="space-y-8 p-6 md:p-10">
             {blocks.map((block) => (
               <div key={block.id}>
                 {block.type === 'h1' && (
@@ -281,6 +294,7 @@ export default function StudyMaterials() {
           </DialogContent>
         </Dialog>
       </div>
+    </div>
     );
   }
 

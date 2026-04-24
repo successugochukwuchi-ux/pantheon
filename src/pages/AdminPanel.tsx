@@ -211,25 +211,25 @@ export default function AdminPanel() {
     const unsubCourses = onSnapshot(collection(db, 'courses'), (snapshot) => {
       setCourses(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Course)));
     }, (err) => {
-      console.error("Courses listener failed:", err);
+      handleFirestoreError(err, OperationType.LIST, 'courses');
     });
 
     const unsubNotes = onSnapshot(collection(db, 'notes'), (snapshot) => {
       setNotes(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Note)));
     }, (err) => {
-      console.error("Notes listener failed:", err);
+      handleFirestoreError(err, OperationType.LIST, 'notes');
     });
 
     const unsubQuestions = onSnapshot(collection(db, 'questions'), (snapshot) => {
       setQuestions(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Question)));
     }, (err) => {
-      console.error("Questions listener failed:", err);
+      handleFirestoreError(err, OperationType.LIST, 'questions');
     });
 
     const unsubSheets = onSnapshot(collection(db, 'questionSheets'), (snapshot) => {
       setQuestionSheets(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as QuestionSheet)));
     }, (err) => {
-      console.error("Sheets listener failed:", err);
+      handleFirestoreError(err, OperationType.LIST, 'questionSheets');
     });
 
     const unsubPins = onSnapshot(collection(db, 'activationCodes'), (snapshot) => {
@@ -237,19 +237,19 @@ export default function AdminPanel() {
       setUnusedPins(allPins.filter(p => !p.isUsed).sort((a, b) => b.createdAt.localeCompare(a.createdAt)));
       setUsedPins(allPins.filter(p => p.isUsed).sort((a, b) => b.usedAt?.localeCompare(a.usedAt || '') || 0));
     }, (err) => {
-      console.error("Pins listener failed:", err);
+      handleFirestoreError(err, OperationType.LIST, 'activationCodes');
     });
 
     const unsubVerifications = onSnapshot(collection(db, 'verificationRequests'), (snapshot) => {
       setVerificationRequests(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as VerificationRequest)));
     }, (err) => {
-      console.error("Verifications listener failed:", err);
+      handleFirestoreError(err, OperationType.LIST, 'verificationRequests');
     });
 
     const unsubAnnouncements = onSnapshot(collection(db, 'announcements'), (snapshot) => {
       setAnnouncements(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Announcement)).sort((a, b) => b.createdAt.localeCompare(a.createdAt)));
     }, (err) => {
-      console.error("Announcements listener failed:", err);
+      handleFirestoreError(err, OperationType.LIST, 'announcements');
     });
 
     // Fetch Telegram Config for Level 4
@@ -265,6 +265,8 @@ export default function AdminPanel() {
             isActive: data.isActive || false
           });
         }
+      }, (err) => {
+        handleFirestoreError(err, OperationType.GET, 'system/telegram');
       });
     }
 
@@ -773,6 +775,28 @@ export default function AdminPanel() {
     toast.success('Copied to clipboard');
   };
 
+  const copyNoteAsScript = (note: Note) => {
+    try {
+      const blocks = JSON.parse(note.content);
+      const script = blocks
+        .filter((b: any) => b.type !== 'diagram')
+        .map((b: any) => {
+          if (b.type === 'h1') return `\n[HEADING: ${b.content}]\n`;
+          if (b.type === 'h2') return `\n[SUBHEADING: ${b.content}]\n`;
+          if (b.type === 'math') return `[LATEX: ${b.content}]`;
+          if (b.type === 'table') return `\n[TABLE DATA: ${b.content}]\n`;
+          return b.content;
+        })
+        .join('\n');
+      
+      const course = courses.find(c => c.id === note.courseId);
+      const fullText = `VOICE OVER SCRIPT\nCOURSE: ${course?.code || 'N/A'}\nTITLE: ${note.title}\nTYPE: ${note.type}\n\n--- CONTENT ---\n${script}\n--- END ---`;
+      copyToClipboard(fullText);
+    } catch (e) {
+      copyToClipboard(note.content);
+    }
+  };
+
   const handleUpdateSemester = async (semester: Semester) => {
     if (!user) return;
     setLoading(true);
@@ -1137,12 +1161,26 @@ export default function AdminPanel() {
                     </div>
                   </CardHeader>
                   <CardContent className="space-y-6">
-                    <form onSubmit={handleAddVideoQuestion} className="space-y-4 p-4 border rounded-xl bg-primary/5">
-                      <div className="space-y-2">
-                        <Label className="text-xs font-bold uppercase tracking-wider text-muted-foreground">New Question</Label>
-                        <Input value={newVideoQuestion.text} onChange={(e) => setNewVideoQuestion({...newVideoQuestion, text: e.target.value})} placeholder="Question text" required />
+                    <form onSubmit={handleAddVideoQuestion} className="space-y-6 p-6 border rounded-2xl bg-primary/5 shadow-inner">
+                      <div className="space-y-4">
+                        <div className="space-y-2">
+                          <Label className="text-xs font-bold uppercase tracking-widest text-primary">New Quiz Question</Label>
+                          <Textarea 
+                            value={newVideoQuestion.text} 
+                            onChange={(e) => setNewVideoQuestion({...newVideoQuestion, text: e.target.value})} 
+                            placeholder="Question text (LaTeX supported)" 
+                            className="font-mono bg-background"
+                            required 
+                          />
+                        </div>
+                        <div className="p-3 bg-white/50 dark:bg-black/20 rounded-lg border border-dashed text-sm">
+                          <p className="text-[10px] font-bold uppercase text-muted-foreground mb-1">Text Preview</p>
+                          <ReactMarkdown remarkPlugins={[remarkMath, remarkGfm]} rehypePlugins={[rehypeKatex]}>
+                            {newVideoQuestion.text || '_No preview_'}
+                          </ReactMarkdown>
+                        </div>
                       </div>
-                      <div className="grid gap-2">
+                      <div className="grid gap-4">
                         <Label className="text-[10px] font-bold uppercase text-green-600">Correct Answer</Label>
                         <Input value={newVideoQuestion.correctAnswer} onChange={(e) => setNewVideoQuestion({...newVideoQuestion, correctAnswer: e.target.value})} placeholder="The right answer" required />
                       </div>
@@ -1170,7 +1208,11 @@ export default function AdminPanel() {
                       {videoQuestions.map(q => (
                         <div key={q.id} className="p-3 border rounded-lg space-y-2">
                           <div className="flex justify-between items-start gap-2">
-                            <p className="text-sm font-medium">{q.text}</p>
+                            <div className="text-sm font-medium prose prose-sm dark:prose-invert">
+                              <ReactMarkdown remarkPlugins={[remarkMath, remarkGfm]} rehypePlugins={[rehypeKatex]}>
+                                {q.text}
+                              </ReactMarkdown>
+                            </div>
                             <Button variant="ghost" size="icon" className="h-6 w-6 text-destructive" onClick={() => handleDeleteVideoQuestion(selectedVideoNote.id, q.id)}>
                               <Trash2 className="h-3 w-3" />
                             </Button>
@@ -1453,6 +1495,9 @@ export default function AdminPanel() {
                         <CardDescription>{course?.code} • {note.type.toUpperCase()}</CardDescription>
                       </div>
                       <div className="flex items-center gap-1">
+                        <Button variant="ghost" size="icon" title="Copy as Voice-over Script" onClick={() => copyNoteAsScript(note)} disabled={loading}>
+                          <FileText className="h-4 w-4 text-orange-500" />
+                        </Button>
                         <Button variant="ghost" size="icon" onClick={() => {
                           setNoteToEdit(note);
                           setEditNote({ courseId: note.courseId, title: note.title, content: note.content, type: note.type });
@@ -1891,10 +1936,28 @@ export default function AdminPanel() {
                 </DialogHeader>
                 {editingQuestion && (
                   <form onSubmit={handleUpdateQuestion} className="space-y-4">
-                    <div className="space-y-2">
-                      <Label>Question Text</Label>
-                      <Textarea value={editingQuestion.text} onChange={(e) => setEditingQuestion({...editingQuestion, text: e.target.value})} required />
+                    <div className="space-y-4">
+                      <div className="space-y-2">
+                        <Label>Question Text (Supports LaTeX)</Label>
+                        <Textarea 
+                          value={editingQuestion.text} 
+                          onChange={(e) => setEditingQuestion({...editingQuestion, text: e.target.value})} 
+                          required 
+                          className="min-h-[100px] font-mono"
+                          placeholder="Type question text. Use $...$ for inline or $$...$$ for block LaTeX."
+                        />
+                      </div>
+                      
+                      <div className="p-3 bg-muted/50 rounded-lg border border-dashed">
+                        <p className="text-[10px] font-bold uppercase text-muted-foreground mb-2">Live Preview</p>
+                        <div className="prose prose-sm dark:prose-invert max-w-none">
+                          <ReactMarkdown remarkPlugins={[remarkMath, remarkGfm]} rehypePlugins={[rehypeKatex]}>
+                            {editingQuestion.text || '_No text entered_'}
+                          </ReactMarkdown>
+                        </div>
+                      </div>
                     </div>
+
                     <div className="grid gap-4 md:grid-cols-2">
                       <div className="space-y-2">
                         <Label>Correct Answer</Label>
@@ -1915,9 +1978,24 @@ export default function AdminPanel() {
                         </div>
                       ))}
                     </div>
-                    <div className="space-y-2">
-                      <Label>Explanation</Label>
-                      <Textarea value={editingQuestion.explanation} onChange={(e) => setEditingQuestion({...editingQuestion, explanation: e.target.value})} />
+                    <div className="space-y-4">
+                      <div className="space-y-2">
+                        <Label>Explanation (Supports LaTeX)</Label>
+                        <Textarea 
+                          value={editingQuestion.explanation} 
+                          onChange={(e) => setEditingQuestion({...editingQuestion, explanation: e.target.value})} 
+                          className="font-mono"
+                          placeholder="Explain the answer..."
+                        />
+                      </div>
+                      <div className="p-3 bg-blue-50 dark:bg-blue-900/10 rounded-lg border border-blue-100 dark:border-blue-900/20">
+                        <p className="text-[10px] font-bold uppercase text-blue-600 mb-2">Explanation Preview</p>
+                        <div className="prose prose-sm dark:prose-invert max-w-none">
+                          <ReactMarkdown remarkPlugins={[remarkMath, remarkGfm]} rehypePlugins={[rehypeKatex]}>
+                            {editingQuestion.explanation || '_No explanation provided_'}
+                          </ReactMarkdown>
+                        </div>
+                      </div>
                     </div>
                     <DialogFooter>
                       <Button type="submit" disabled={loading}>Update Question</Button>

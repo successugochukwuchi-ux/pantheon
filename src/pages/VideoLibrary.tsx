@@ -1,14 +1,20 @@
 import React, { useState, useEffect } from 'react';
 import { collection, query, where, onSnapshot, getDocs, doc, getDoc } from 'firebase/firestore';
-import { db } from '../firebase';
+import { db, handleFirestoreError, OperationType } from '../firebase';
 import { useAuth } from '../contexts/AuthContext';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card';
 import { Button } from '../components/ui/button';
 import { Badge } from '../components/ui/badge';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select';
-import { PlayCircle, BookOpen, GraduationCap, ChevronRight, CheckCircle2 } from 'lucide-react';
+import { PlayCircle, BookOpen, GraduationCap, ChevronRight, CheckCircle2, Calculator } from 'lucide-react';
 import { Note, Course, VideoQuestion } from '../types';
 import { toast } from 'sonner';
+import ReactMarkdown from 'react-markdown';
+import remarkMath from 'remark-math';
+import rehypeKatex from 'rehype-katex';
+import remarkGfm from 'remark-gfm';
+import 'katex/dist/katex.min.css';
+import { ScientificCalculator } from '../components/ScientificCalculator';
 
 export default function VideoLibrary() {
   const { profile } = useAuth();
@@ -21,14 +27,17 @@ export default function VideoLibrary() {
   const [showResults, setShowResults] = useState(false);
 
   useEffect(() => {
+    if (!profile) return;
     const unsub = onSnapshot(collection(db, 'courses'), (snapshot) => {
       setCourses(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Course)));
+    }, (err) => {
+      handleFirestoreError(err, OperationType.LIST, 'courses');
     });
     return () => unsub();
-  }, []);
+  }, [profile]);
 
   useEffect(() => {
-    if (!selectedCourseId) {
+    if (!selectedCourseId || !profile) {
       setNotes([]);
       return;
     }
@@ -37,21 +46,25 @@ export default function VideoLibrary() {
       const allNotes = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Note));
       // Filter notes that have a videoUrl
       setNotes(allNotes.filter(n => n.videoUrl));
+    }, (err) => {
+      handleFirestoreError(err, OperationType.LIST, 'notes');
     });
     return () => unsub();
-  }, [selectedCourseId]);
+  }, [selectedCourseId, profile]);
 
   useEffect(() => {
-    if (!selectedNote) {
+    if (!selectedNote || !profile) {
       setQuestions([]);
       return;
     }
     const q = query(collection(db, `notes/${selectedNote.id}/videoQuestions`));
     const unsub = onSnapshot(q, (snapshot) => {
       setQuestions(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as VideoQuestion)));
+    }, (err) => {
+      handleFirestoreError(err, OperationType.LIST, `notes/${selectedNote.id}/videoQuestions`);
     });
     return () => unsub();
-  }, [selectedNote]);
+  }, [selectedNote, profile]);
 
   const handleNoteSelect = (note: Note) => {
     setSelectedNote(note);
@@ -81,6 +94,8 @@ export default function VideoLibrary() {
         <h1 className="text-3xl font-bold tracking-tight">Video Library</h1>
         <p className="text-muted-foreground">Interactive video lessons and quizzes for your courses.</p>
       </div>
+
+      <ScientificCalculator />
 
       <div className="grid gap-8 lg:grid-cols-12">
         {/* Navigation Sidebar */}
@@ -208,7 +223,11 @@ export default function VideoLibrary() {
                         <Card key={q.id} className="border-none shadow-sm ring-1 ring-border overflow-hidden">
                           <CardHeader className="bg-muted/20 pb-4">
                             <span className="text-xs font-bold text-primary uppercase tracking-widest mb-2 block">Question {idx + 1}</span>
-                            <CardTitle className="text-lg leading-relaxed">{q.text}</CardTitle>
+                            <CardTitle className="text-lg leading-relaxed">
+                              <ReactMarkdown remarkPlugins={[remarkMath, remarkGfm]} rehypePlugins={[rehypeKatex]}>
+                                {q.text}
+                              </ReactMarkdown>
+                            </CardTitle>
                           </CardHeader>
                           <CardContent className="pt-6">
                             <div className="grid gap-3">
@@ -234,7 +253,11 @@ export default function VideoLibrary() {
                                     onClick={() => setUserAnswers(prev => ({ ...prev, [q.id]: opt }))}
                                     className={buttonClass}
                                   >
-                                    <span className="flex-1">{opt}</span>
+                                    <span className="flex-1">
+                                      <ReactMarkdown remarkPlugins={[remarkMath, remarkGfm]} rehypePlugins={[rehypeKatex]}>
+                                        {opt}
+                                      </ReactMarkdown>
+                                    </span>
                                     {showResults && isCorrect && <CheckCircle2 className="h-5 w-5 shrink-0" />}
                                   </button>
                                 );

@@ -76,6 +76,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   }, []);
 
   useEffect(() => {
+    // Only fetch these once we have a basic connection, but they are public now
     const unsubscribeConfig = onSnapshot(doc(db, 'system', 'config'), (snapshot) => {
       if (snapshot.exists()) {
         const data = snapshot.data() as SystemConfig;
@@ -93,10 +94,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       }
       setIsSystemConfigReady(true);
     }, (error) => {
-      // Silently handle if not authenticated yet, otherwise log
-      if (auth.currentUser) {
-        console.error("System config listener failed:", error);
-      }
+      // These are public, so failure usually means offline or quota
+      console.error("System config listener details:", error);
       if (!systemConfig) {
         const defaultConfig: SystemConfig = {
           currentSemester: 'none',
@@ -124,9 +123,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         localStorage.setItem('pantheon_promo_config', JSON.stringify(defaultPromo));
       }
     }, (error) => {
-      if (auth.currentUser) {
-        console.error("Promo config listener failed:", error);
-      }
+      console.error("Promo config listener details:", error);
       if (!promoConfig) {
         setPromoConfig({
           isActive: false, quota: 0, count: 0,

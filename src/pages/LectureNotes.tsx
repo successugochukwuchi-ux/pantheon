@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { collection, onSnapshot, query, where } from 'firebase/firestore';
-import { db } from '../firebase';
+import { db, handleFirestoreError, OperationType } from '../firebase';
 import { useAuth } from '../contexts/AuthContext';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card';
 import { Button } from '../components/ui/button';
@@ -17,9 +17,11 @@ import { Alert, AlertDescription, AlertTitle } from '../components/ui/alert';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '../components/ui/dialog';
 import { MathJax } from 'better-react-mathjax';
 import { NoteBlock } from '../components/NoteBuilder';
+import { NoteProgressTracker } from '../components/NoteProgressTracker';
+import { ScientificCalculator } from '../components/ScientificCalculator';
 
 export default function LectureNotes() {
-  const { systemConfig } = useAuth();
+  const { systemConfig, profile } = useAuth();
   const [courses, setCourses] = useState<Course[]>([]);
   const [notes, setNotes] = useState<Note[]>([]);
   const [selectedCourse, setSelectedCourse] = useState<Course | null>(null);
@@ -39,13 +41,15 @@ export default function LectureNotes() {
 
     const unsubscribe = onSnapshot(q, (snapshot) => {
       setCourses(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Course)));
+    }, (error) => {
+      console.error("Courses fetch error:", error);
     });
 
     return () => unsubscribe();
   }, [systemConfig]);
 
   useEffect(() => {
-    if (!selectedCourse) {
+    if (!selectedCourse || !profile) {
       setNotes([]);
       return;
     }
@@ -58,10 +62,12 @@ export default function LectureNotes() {
 
     const unsubscribe = onSnapshot(q, (snapshot) => {
       setNotes(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Note)));
+    }, (error) => {
+      console.error("Notes fetch error:", error);
     });
 
     return () => unsubscribe();
-  }, [selectedCourse]);
+  }, [selectedCourse, profile]);
 
   const filteredCourses = courses.filter(course => 
     course.code.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -78,22 +84,31 @@ export default function LectureNotes() {
     }
 
     return (
-      <div className="space-y-6">
-        <Button variant="ghost" onClick={() => setSelectedNote(null)} className="gap-2">
-          <ArrowLeft className="h-4 w-4" /> Back to Notes
-        </Button>
+      <div className="relative min-h-screen pb-20">
+        <NoteProgressTracker noteId={selectedNote.id} courseId={selectedNote.courseId} />
+        <ScientificCalculator />
         
-        <Card>
-          <CardHeader>
-            <div className="flex items-center justify-between">
-              <div className="space-y-1">
-                <CardTitle className="text-2xl">{selectedNote.title}</CardTitle>
-                <CardDescription>{selectedCourse?.code} - {selectedCourse?.title}</CardDescription>
+        <div className="space-y-6 max-w-4xl mx-auto px-4 py-6">
+          <Button variant="ghost" onClick={() => setSelectedNote(null)} className="gap-2">
+            <ArrowLeft className="h-4 w-4" /> Back to Notes
+          </Button>
+          
+          <Card className="border-primary/20 shadow-xl overflow-hidden">
+            <div className="h-2 bg-primary/10 w-full" />
+            <CardHeader className="bg-muted/30">
+              <div className="flex items-center justify-between">
+                <div className="space-y-1">
+                  <CardTitle className="text-2xl font-bold tracking-tight">{selectedNote.title}</CardTitle>
+                  <CardDescription className="flex items-center gap-2">
+                    <Badge variant="secondary">{selectedCourse?.code}</Badge>
+                    <span className="text-muted-foreground">•</span>
+                    <span>{selectedCourse?.title}</span>
+                  </CardDescription>
+                </div>
+                <Badge className="bg-primary/10 text-primary border-primary/20">{selectedNote.type.toUpperCase()}</Badge>
               </div>
-              <Badge variant="outline">{selectedNote.type.toUpperCase()}</Badge>
-            </div>
-          </CardHeader>
-          <CardContent className="space-y-6">
+            </CardHeader>
+            <CardContent className="space-y-8 p-6 md:p-10">
             {blocks.map((block) => (
               <div key={block.id}>
                 {block.type === 'h1' && (
@@ -193,6 +208,7 @@ export default function LectureNotes() {
           </DialogContent>
         </Dialog>
       </div>
+    </div>
     );
   }
 

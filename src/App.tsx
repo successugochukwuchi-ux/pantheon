@@ -6,6 +6,7 @@ import { Layout } from './components/Layout';
 import { ProtectedRoute } from './components/ProtectedRoute';
 import { Toaster } from './components/ui/sonner';
 import { MathJaxContext } from 'better-react-mathjax';
+import { TooltipProvider } from './components/ui/tooltip';
 
 // Pages
 import Landing from './pages/Landing';
@@ -95,8 +96,9 @@ export default function App() {
     <ThemeProvider>
       <AuthProvider>
         <MathJaxContext config={mathJaxConfig}>
-          <Router>
-          <MaintenanceGuard>
+          <TooltipProvider>
+            <Router>
+            <MaintenanceGuard>
             <Routes>
               {/* Public Routes */}
               <Route path="/" element={<Landing />} />
@@ -260,6 +262,7 @@ export default function App() {
           </MaintenanceGuard>
           <Toaster position="top-center" />
         </Router>
+        </TooltipProvider>
       </MathJaxContext>
     </AuthProvider>
   </ThemeProvider>

@@ -1,32 +1,28 @@
-# Firestore Security Specification - Pantheon
+# Security Specification
 
 ## Data Invariants
-1. A user profile MUST be owned by the user with the same UID.
-2. System configurations are read-only for students.
-3. CBT Sessions must accurately reflect the authenticated user's ID.
-4. Friend requests and friendships are only accessible by the involved users.
-5. Notifications are private to the recipient.
-6. Admins have full override capabilities.
+1. A **Question** must belong to a valid **QuestionSheet**.
+2. A **QuestionSheet** must belong to a valid **Course**.
+3. **User Levels** define access:
+   - Level 1: Public access
+   - Level 2+: Access to activation codes and verifications
+   - Level 3-4: Admin access (courses, notes, sheets, questions)
+4. **Note** types are restricted.
+5. **IDs** must be valid strings with limited size.
 
-## The "Dirty Dozen" Payloads
+## The "Dirty Dozen" Payloads (Red Team Test Cases)
+1. **Unauthenticated Write**: Attempt to create a course without auth.
+2. **Identity Spoofing**: Attempt to create a note with someone else's `authorId`.
+3. **Privilege Escalation**: Attempt to update own `level` from '1' to '4'.
+4. **ID Poisoning**: Attempt to create a document with 1MB ID string.
+5. **Relational Orphan**: Attempt to create a question for a non-existent sheet.
+6. **Immutable Tampering**: Attempt to change `createdAt` on a note.
+7. **Bypass Verification**: Attempt to read `verificationRequests` as a Level 1 user.
+8. **Shadow Field injection**: Attempt to create a user with `isSuperAdmin: true`.
+9. **Terminal State Bypass**: Attempt to update a "completed" report (if applicable).
+10. **Denial of Wallet**: Massive list query on `users` as a regular user.
+11. **PII Leak**: Attempt to read private user fields as another user.
+12. **Status Shortcutting**: Attempt to approve own verification request.
 
-1. **Identity Theft**: Update another user's profile `studentId`.
-2. **Level Escalation**: User updating their own `level` to '4' (Admin).
-3. **Ghost Session**: Creating a `cbt_sessions` document with a different `userId`.
-4. **Promo Spam**: Incrementing `system/promo` count by 100 in one request.
-5. **Private Leak**: Reading notifications of another user.
-6. **Config Tampering**: Changing `system/config` maintenance mode as a student.
-7. **Sheet Injection**: Creating a `questionSheets` doc as a non-admin.
-8. **Discussion Vandalism**: Deleting another user's `DiscussionMessage`.
-9. **Friend Hijack**: Accepting a `friend_request` that wasn't sent to you.
-10. **Chat Snoop**: Reading a `ChatRoom` you are not a member of (in `uids` array).
-11. **PII Exposure**: Fetching full user documents via collection scan if not authorized.
-12. **Status Lock Bypass**: Updating a terminal status in a verification request.
-
-## Test Runner (Conceptual)
-
-The following scenarios are verified to fail in the hardened rules:
-- `db.doc('users/other_uid').update({ studentId: '123' })`
-- `db.doc('system/config').set({ maintenanceMode: true })`
-- `db.collection('notifications').where('userId', '==', 'other_uid').get()`
-- `db.collection('cbt_sessions').add({ userId: 'other_uid', ... })`
+## Test Runner (firestore.rules.test.ts)
+(To be implemented in the testing phase)

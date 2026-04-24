@@ -19,6 +19,7 @@ import rehypeKatex from 'rehype-katex';
 import remarkGfm from 'remark-gfm';
 import 'katex/dist/katex.min.css';
 import { useTitle } from '../hooks/useTitle';
+import { ScientificCalculator } from '../components/ScientificCalculator';
 
 export default function CBTPractice() {
   useTitle('CBT Practice');
@@ -68,13 +69,16 @@ export default function CBTPractice() {
       );
       setCourses(filtered);
       setLoading(false);
+    }, (error) => {
+      console.error("Courses fetch error:", error);
+      setLoading(false);
     });
 
     return () => unsubCourses();
   }, [profile, systemConfig]);
 
   useEffect(() => {
-    if (!selectedCourseId) {
+    if (!selectedCourseId || !profile) {
       setSheets([]);
       setSelectedSheetIds([]);
       return;
@@ -86,9 +90,11 @@ export default function CBTPractice() {
     );
     const unsub = onSnapshot(q, (snapshot) => {
       setSheets(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as QuestionSheet)));
+    }, (error) => {
+      console.error("Sheets fetch error:", error);
     });
     return () => unsub();
-  }, [selectedCourseId]);
+  }, [selectedCourseId, profile]);
 
   const handleStartTest = async () => {
     if (!selectedCourseId) {
@@ -370,7 +376,8 @@ export default function CBTPractice() {
   const optionLabels = ['A', 'B', 'C', 'D'];
 
   return (
-    <div className="max-w-3xl mx-auto space-y-6">
+    <div className="max-w-3xl mx-auto space-y-6 relative">
+      <ScientificCalculator />
       <div className="flex items-center justify-between">
         <div className="space-y-1">
           <h2 className="text-xl font-bold">{courses.find(c => c.id === selectedCourseId)?.code} Simulation</h2>
