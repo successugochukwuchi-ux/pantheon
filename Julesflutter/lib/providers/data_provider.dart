@@ -20,6 +20,7 @@ final coursesProvider = StreamProvider<List<Course>>((ref) {
     query = query.where('semester', isEqualTo: systemConfig.currentSemester);
   }
 
+  // Optimize: Use source selection if possible, but standard snapshots for offline
   return query.snapshots().map((snapshot) {
     var courses = snapshot.docs.map((doc) => Course.fromMap(doc.data() as Map<String, dynamic>, doc.id)).toList();
 
@@ -41,7 +42,7 @@ final newsProvider = StreamProvider<List<NewsItem>>((ref) {
       .collection('news')
       .orderBy('createdAt', descending: true)
       .limit(10)
-      .snapshots()
+      .snapshots(includeMetadataChanges: true) // Optimize for immediate cache return
       .map((snapshot) {
     return snapshot.docs.map((doc) => NewsItem.fromMap(doc.data(), doc.id)).toList();
   });
@@ -51,7 +52,7 @@ final notesProvider = StreamProviderFamily<List<Note>, String>((ref, courseId) {
   return FirebaseFirestore.instance
       .collection('notes')
       .where('courseId', isEqualTo: courseId)
-      .snapshots()
+      .snapshots(includeMetadataChanges: true)
       .map((snapshot) {
     return snapshot.docs.map((doc) => Note.fromMap(doc.data(), doc.id)).toList();
   });

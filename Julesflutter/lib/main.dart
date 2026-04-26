@@ -22,6 +22,7 @@ import 'screens/news_screen.dart';
 import 'screens/video_library_screen.dart';
 import 'screens/discussion_screen.dart';
 import 'screens/chat_screen.dart';
+import 'screens/user_search_screen.dart';
 import 'services/theme_service.dart';
 
 void main() async {
@@ -92,6 +93,7 @@ final _router = GoRouter(
     }),
     GoRoute(path: '/videos', builder: (context, state) => const VideoLibraryScreen()),
     GoRoute(path: '/chat', builder: (context, state) => const ChatScreen()),
+    GoRoute(path: '/search', builder: (context, state) => const UserSearchScreen()),
     GoRoute(path: '/discussions/:courseId', builder: (context, state) => DiscussionScreen(courseId: state.pathParameters['courseId']!)),
   ],
 );
