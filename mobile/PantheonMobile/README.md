@@ -61,4 +61,6 @@ To build the APK, follow these steps ensuring your environment is set to **Java 
 ## Troubleshooting
 
 - **Java Version Mismatch:** If you see `Inconsistent JVM-target compatibility` errors, ensure that your `JAVA_HOME` is strictly set to Java 17 and that no other Java versions are being picked up by Gradle.
+- **Java Heap Space:** If the build fails with "Java heap space" during the `JetifyTransform` or `checkDebugAarMetadata` tasks, ensure `org.gradle.jvmargs` in `gradle.properties` is set to at least `-Xmx4096m`.
+- **Jetifier:** Jetifier is disabled by default in this project (`android.enableJetifier=false`) to improve build performance and memory usage. If you use very old libraries that require it, you may need to re-enable it.
 - **NDK Issues:** The build system expects NDK version `27.1.12297006`. Ensure this is installed via Android Studio or configured in `local.properties`.
