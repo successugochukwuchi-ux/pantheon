@@ -62,7 +62,7 @@ class NoteBlockRenderer extends StatelessWidget {
         return Padding(
           padding: const EdgeInsets.only(bottom: 16),
           child: MarkdownBody(
-            data: content,
+            data: content.replaceAll(r'$', r'$$'), // Simple conversion for inline math
             selectable: true,
             styleSheet: MarkdownStyleSheet(
               p: const TextStyle(fontSize: 16, height: 1.5),
@@ -72,15 +72,16 @@ class NoteBlockRenderer extends StatelessWidget {
       case 'math':
         return Container(
           width: double.infinity,
-          padding: const EdgeInsets.symmetric(vertical: 16),
+          padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 8),
           margin: const EdgeInsets.only(bottom: 16),
           decoration: BoxDecoration(
             color: Colors.grey.shade50,
             borderRadius: BorderRadius.circular(8),
           ),
-          child: Center(
+          child: SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
             child: Math.tex(
-              content,
+              content.replaceAll(r'$', ''),
               textStyle: const TextStyle(fontSize: 18),
               onErrorFallback: (err) => Text(content, style: const TextStyle(fontFamily: 'monospace')),
             ),
