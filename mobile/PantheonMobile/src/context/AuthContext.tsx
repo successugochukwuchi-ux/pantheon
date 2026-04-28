@@ -41,13 +41,15 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         }
         setLoading(false);
       }, (error) => {
-        console.error("Profile fetch error:", error);
+        console.error('Profile fetch error:', error);
         setLoading(false);
       });
     } else {
       setProfile(null);
       // If no user, ensure loading is set to false if it was waiting for profile
-      if (!loading) setLoading(false);
+      if (!loading) {
+        setLoading(false);
+      }
     }
 
     return () => {
