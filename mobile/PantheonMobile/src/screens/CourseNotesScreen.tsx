@@ -19,7 +19,7 @@ export const CourseNotesScreen = ({ route, navigation }: any) => {
         const noteItems = querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Note));
         setNotes(noteItems);
       } catch (error) {
-        console.error("Error fetching notes:", error);
+        console.error('Error fetching notes:', error);
       } finally {
         setLoading(false);
       }

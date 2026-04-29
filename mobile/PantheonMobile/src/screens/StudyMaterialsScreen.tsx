@@ -18,7 +18,7 @@ export const StudyMaterialsScreen = ({ navigation }: any) => {
         const courseItems = querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Course));
         setCourses(courseItems);
       } catch (error) {
-        console.error("Error fetching courses:", error);
+        console.error('Error fetching courses:', error);
       } finally {
         setLoading(false);
       }

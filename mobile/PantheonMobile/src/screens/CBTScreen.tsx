@@ -18,7 +18,7 @@ export const CBTScreen = ({ navigation }: any) => {
         const sheetItems = querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as QuestionSheet));
         setSheets(sheetItems);
       } catch (error) {
-        console.error("Error fetching sheets:", error);
+        console.error('Error fetching sheets:', error);
       } finally {
         setLoading(false);
       }

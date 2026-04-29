@@ -24,7 +24,7 @@ export const DirectChatScreen = ({ route }: any) => {
     const unsubscribe = onSnapshot(q, (snapshot) => {
       const msgs = snapshot.docs.map(document => ({
         id: document.id,
-        ...document.data()
+        ...document.data(),
       } as any));
       setMessages(msgs);
       setLoading(false);
@@ -34,7 +34,7 @@ export const DirectChatScreen = ({ route }: any) => {
   }, [roomId]);
 
   const handleSend = async () => {
-    if (!inputText.trim() || !user) return;
+    if (!inputText.trim() || !user) {return;}
 
     const text = inputText.trim();
     setInputText('');
@@ -51,10 +51,10 @@ export const DirectChatScreen = ({ route }: any) => {
 
       await updateDoc(doc(db, 'chats', roomId), {
         lastMessage: text,
-        lastUpdatedAt: new Date().toISOString()
+        lastUpdatedAt: new Date().toISOString(),
       });
     } catch (error) {
-      console.error("Error sending message:", error);
+      console.error('Error sending message:', error);
     }
   };
 
@@ -78,15 +78,15 @@ export const DirectChatScreen = ({ route }: any) => {
         renderItem={({ item }) => (
           <View style={[
             styles.messageWrapper,
-            item.senderUid === user?.uid ? styles.myMessageWrapper : styles.otherMessageWrapper
+            item.senderUid === user?.uid ? styles.myMessageWrapper : styles.otherMessageWrapper,
           ]}>
             <View style={[
               styles.messageBubble,
-              item.senderUid === user?.uid ? styles.myBubble : styles.otherBubble
+              item.senderUid === user?.uid ? styles.myBubble : styles.otherBubble,
             ]}>
               <Text style={[
                 styles.messageText,
-                item.senderUid === user?.uid ? styles.myMessageText : styles.otherMessageText
+                item.senderUid === user?.uid ? styles.myMessageText : styles.otherMessageText,
               ]}>{item.text}</Text>
             </View>
           </View>

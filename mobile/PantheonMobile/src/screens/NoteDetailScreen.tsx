@@ -16,7 +16,7 @@ export const NoteDetailScreen = ({ route }: any) => {
     .replace(/\n/g, '<br/>');
 
   const source = {
-    html: `<div style="color: ${theme.colors.foreground}; font-family: sans-serif;">${htmlContent}</div>`
+    html: `<div style="color: ${theme.colors.foreground}; font-family: sans-serif;">${htmlContent}</div>`,
   };
 
   return (
@@ -32,7 +32,7 @@ export const NoteDetailScreen = ({ route }: any) => {
             h1: { fontSize: 24, marginBottom: 10, fontWeight: 'bold' },
             h2: { fontSize: 20, marginBottom: 8, fontWeight: 'bold' },
             h3: { fontSize: 18, marginBottom: 6, fontWeight: 'bold' },
-            br: { marginBottom: 5 }
+            br: { marginBottom: 5 },
           }}
         />
       </View>

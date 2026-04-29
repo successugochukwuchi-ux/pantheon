@@ -20,7 +20,7 @@ export const DashboardScreen = ({ navigation }: any) => {
       const newsItems = querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as NewsItem));
       setNews(newsItems);
     } catch (error) {
-      console.error("Error fetching news:", error);
+      console.error('Error fetching news:', error);
     }
   };
 

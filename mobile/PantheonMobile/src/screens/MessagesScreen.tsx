@@ -13,7 +13,7 @@ export const MessagesScreen = ({ navigation }: any) => {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    if (!user) return;
+    if (!user) {return;}
 
     const q = query(
       collection(db, 'chats'),
@@ -26,7 +26,7 @@ export const MessagesScreen = ({ navigation }: any) => {
       setRooms(roomItems);
       setLoading(false);
     }, (error) => {
-      console.error("Error fetching chat rooms:", error);
+      console.error('Error fetching chat rooms:', error);
       setLoading(false);
     });
 

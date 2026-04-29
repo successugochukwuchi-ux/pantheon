@@ -23,7 +23,7 @@ export const CBTQuizScreen = ({ route, navigation }: any) => {
         const questionItems = querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Question));
         setQuestions(questionItems);
       } catch (error) {
-        console.error("Error fetching questions:", error);
+        console.error('Error fetching questions:', error);
       } finally {
         setLoading(false);
       }
@@ -70,7 +70,7 @@ export const CBTQuizScreen = ({ route, navigation }: any) => {
       }
       navigation.replace('CBTResults', { score, total: questions.length, timeSpent });
     } catch (error) {
-      console.error("Error saving session:", error);
+      console.error('Error saving session:', error);
       navigation.replace('CBTResults', { score, total: questions.length, timeSpent });
     }
   };
@@ -108,13 +108,13 @@ export const CBTQuizScreen = ({ route, navigation }: any) => {
             key={index}
             style={[
               styles.option,
-              selectedAnswers[currentIndex] === option && styles.selectedOption
+              selectedAnswers[currentIndex] === option && styles.selectedOption,
             ]}
             onPress={() => handleSelect(option)}
           >
             <Text style={[
               styles.optionText,
-              selectedAnswers[currentIndex] === option && styles.selectedOptionText
+              selectedAnswers[currentIndex] === option && styles.selectedOptionText,
             ]}>{option}</Text>
           </TouchableOpacity>
         ))}

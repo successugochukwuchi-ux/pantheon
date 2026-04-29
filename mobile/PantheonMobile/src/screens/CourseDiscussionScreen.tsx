@@ -25,7 +25,7 @@ export const CourseDiscussionScreen = ({ route }: any) => {
     const unsubscribe = onSnapshot(q, (snapshot) => {
       const msgs = snapshot.docs.map(doc => ({
         id: doc.id,
-        ...doc.data()
+        ...doc.data(),
       } as any));
       setMessages(msgs);
       setLoading(false);
@@ -35,7 +35,7 @@ export const CourseDiscussionScreen = ({ route }: any) => {
   }, [courseId]);
 
   const handleSend = async () => {
-    if (!inputText.trim() || !user) return;
+    if (!inputText.trim() || !user) {return;}
 
     const text = inputText.trim();
     setInputText('');
@@ -50,7 +50,7 @@ export const CourseDiscussionScreen = ({ route }: any) => {
         createdAt: new Date().toISOString(),
       });
     } catch (error) {
-      console.error("Error sending message:", error);
+      console.error('Error sending message:', error);
     }
   };
 
@@ -74,11 +74,11 @@ export const CourseDiscussionScreen = ({ route }: any) => {
         renderItem={({ item }) => (
           <View style={[
             styles.messageWrapper,
-            item.userId === user?.uid ? styles.myMessageWrapper : styles.otherMessageWrapper
+            item.userId === user?.uid ? styles.myMessageWrapper : styles.otherMessageWrapper,
           ]}>
             <View style={[
               styles.messageBubble,
-              item.userId === user?.uid ? styles.myBubble : styles.otherBubble
+              item.userId === user?.uid ? styles.myBubble : styles.otherBubble,
             ]}>
               <View style={styles.senderInfo}>
                 <Text style={styles.senderName}>{item.username}</Text>
@@ -86,7 +86,7 @@ export const CourseDiscussionScreen = ({ route }: any) => {
               </View>
               <Text style={[
                 styles.messageText,
-                item.userId === user?.uid ? styles.myMessageText : styles.otherMessageText
+                item.userId === user?.uid ? styles.myMessageText : styles.otherMessageText,
               ]}>{item.text}</Text>
             </View>
           </View>

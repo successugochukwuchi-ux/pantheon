@@ -37,7 +37,7 @@ const TabNavigator = () => {
         component={DashboardScreen}
         options={{
           tabBarIcon: TabIcons.Home,
-          headerShown: false
+          headerShown: false,
         }}
       />
       <Tab.Screen
@@ -45,7 +45,7 @@ const TabNavigator = () => {
         component={StudyMaterialsScreen}
         options={{
           tabBarIcon: TabIcons.Study,
-          title: 'Courses'
+          title: 'Courses',
         }}
       />
       <Tab.Screen
@@ -53,7 +53,7 @@ const TabNavigator = () => {
         component={MessagesScreen}
         options={{
           tabBarIcon: TabIcons.Messages,
-          title: 'Direct Messages'
+          title: 'Direct Messages',
         }}
       />
       <Tab.Screen
@@ -89,7 +89,7 @@ const Navigation = () => {
     <NavigationContainer>
       <Stack.Navigator screenOptions={{
         headerShown: false,
-        cardStyle: { backgroundColor: theme.colors.background }
+        cardStyle: { backgroundColor: theme.colors.background },
       }}>
         {!user ? (
           <>

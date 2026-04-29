@@ -12,11 +12,11 @@ export const SettingsScreen = () => {
 
   const handleLogout = () => {
     Alert.alert(
-      "Logout",
-      "Are you sure you want to logout?",
+      'Logout',
+      'Are you sure you want to logout?',
       [
-        { text: "Cancel", style: "cancel" },
-        { text: "Logout", style: "destructive", onPress: () => auth.signOut() }
+        { text: 'Cancel', style: 'cancel' },
+        { text: 'Logout', style: 'destructive', onPress: () => auth.signOut() },
       ]
     );
   };
