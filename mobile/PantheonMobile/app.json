@@ -1,7 +1,4 @@
 {
   "name": "PantheonMobile",
-  "displayName": "PantheonMobile",
-  "android": {
-    "package": "com.pantheonmobile"
-  }
+  "displayName": "PantheonMobile"
 }
