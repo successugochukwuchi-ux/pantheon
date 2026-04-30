@@ -26,6 +26,7 @@ import { VideoLibraryScreen } from '../screens/VideoLibraryScreen';
 import { FriendsScreen } from '../screens/FriendsScreen';
 import { UserSearchScreen } from '../screens/UserSearchScreen';
 import { PublicProfileScreen } from '../screens/PublicProfileScreen';
+import { ReferralsScreen } from '../screens/ReferralsScreen';
 
 const Stack = createStackNavigator();
 const Drawer = createDrawerNavigator();
@@ -163,6 +164,13 @@ const DrawerNavigator = () => {
         component={FriendsScreen}
         options={{
           drawerIcon: ({ color, size }) => <UserPlus size={size} color={color} />,
+        }}
+      />
+      <Drawer.Screen
+        name="Referrals"
+        component={ReferralsScreen}
+        options={{
+          drawerIcon: ({ color, size }) => <Users size={size} color={color} />,
         }}
       />
       <Drawer.Screen

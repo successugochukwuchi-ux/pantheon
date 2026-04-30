@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator, Alert } from 'react-native';
+import Clipboard from '@react-native-clipboard/clipboard';
 import { doc, getDoc, collection, query, where, getDocs } from 'firebase/firestore';
 import { db } from '../services/firebase';
 import { useTheme } from '../context/ThemeContext';
@@ -35,6 +36,7 @@ export const PublicProfileScreen = ({ route, navigation }: any) => {
   }, [userId]);
 
   const copyToClipboard = (text: string) => {
+    Clipboard.setString(text);
     Alert.alert('Copied', 'ID copied to clipboard');
   };
 

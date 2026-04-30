@@ -11,7 +11,7 @@ import { DicebearAvatar } from '../components/DicebearAvatar';
 export const MessagesScreen = ({ navigation }: any) => {
   const { user } = useAuth();
   const { colors } = useTheme();
-  const [rooms, setRooms] = useState<ChatRoom[]>([]);
+  const [rooms, setRooms] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
 
   const [isModalVisible, setIsModalVisible] = useState(false);
@@ -28,8 +28,26 @@ export const MessagesScreen = ({ navigation }: any) => {
       orderBy('lastUpdatedAt', 'desc')
     );
 
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      const roomItems = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as ChatRoom));
+    const unsubscribe = onSnapshot(q, async (snapshot) => {
+      const roomItems = [];
+      for (const d of snapshot.docs) {
+          const data = d.data() as ChatRoom;
+          let displayName = data.name;
+          let displayAvatar = null;
+
+          if (data.type === 'dm') {
+              const friendUid = data.uids.find(id => id !== user.uid);
+              if (friendUid) {
+                  const friendDoc = await getDoc(doc(db, 'users', friendUid));
+                  if (friendDoc.exists()) {
+                      const friendData = friendDoc.data() as UserProfile;
+                      displayName = friendData.username;
+                      displayAvatar = friendData.username || friendUid;
+                  }
+              }
+          }
+          roomItems.push({ id: d.id, ...data, displayName, displayAvatar });
+      }
       setRooms(roomItems);
       setLoading(false);
     }, (error) => {
@@ -115,18 +133,18 @@ export const MessagesScreen = ({ navigation }: any) => {
         renderItem={({ item }) => (
           <TouchableOpacity
             style={[styles.roomItem, { borderBottomColor: colors.border }]}
-            onPress={() => navigation.navigate('DirectChat', { roomId: item.id, name: item.name || 'Chat' })}
+            onPress={() => navigation.navigate('DirectChat', { roomId: item.id, name: item.displayName || item.name || 'Chat' })}
           >
             <View style={[styles.avatar, { backgroundColor: colors.muted }]}>
               {item.type === 'dm' ? (
-                  <User size={24} color={colors.mutedForeground} />
+                  item.displayAvatar ? <DicebearAvatar seed={item.displayAvatar} size={50} /> : <User size={24} color={colors.mutedForeground} />
               ) : (
                   <Users size={24} color={colors.primary} />
               )}
             </View>
             <View style={styles.roomContent}>
               <View style={styles.roomHeader}>
-                <Text style={[styles.roomName, { color: colors.foreground }]}>{item.name || 'Direct Message'}</Text>
+                <Text style={[styles.roomName, { color: colors.foreground }]}>{item.displayName || item.name || 'Direct Message'}</Text>
                 <Text style={[styles.roomTime, { color: colors.mutedForeground }]}>
                   {item.lastUpdatedAt ? new Date(item.lastUpdatedAt).toLocaleDateString() : ''}
                 </Text>
@@ -249,6 +267,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     marginRight: 16,
+    overflow: 'hidden',
   },
   roomContent: {
     flex: 1,

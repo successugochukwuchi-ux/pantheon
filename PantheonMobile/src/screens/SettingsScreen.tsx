@@ -8,6 +8,7 @@ import { useTheme } from '../context/ThemeContext';
 import { DicebearAvatar } from '../components/DicebearAvatar';
 import { themes } from '../theme/colors';
 import { Copy, Check, Moon, Sun, Palette, Droplets, TreePine, User, Save } from 'lucide-react-native';
+import Clipboard from '@react-native-clipboard/clipboard';
 
 export const SettingsScreen = () => {
   const { user, profile } = useAuth();
@@ -54,6 +55,7 @@ export const SettingsScreen = () => {
   };
 
   const copyToClipboard = (text: string) => {
+    Clipboard.setString(text);
     Alert.alert('Copied', 'ID copied to clipboard');
   };
 

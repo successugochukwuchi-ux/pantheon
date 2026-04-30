@@ -1,19 +1,20 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, FlatList, TouchableOpacity, TextInput, ActivityIndicator, Alert, ScrollView } from 'react-native';
-import { collection, query, where, onSnapshot, doc, updateDoc, arrayUnion, arrayRemove, addDoc, getDocs, getDoc } from 'firebase/firestore';
+import { View, Text, StyleSheet, FlatList, TouchableOpacity, ActivityIndicator, Alert, ScrollView } from 'react-native';
+import { collection, query, where, onSnapshot, doc, updateDoc, addDoc, getDocs, getDoc, deleteDoc } from 'firebase/firestore';
 import { db } from '../services/firebase';
 import { useAuth } from '../context/AuthContext';
 import { useTheme } from '../context/ThemeContext';
 import { DicebearAvatar } from '../components/DicebearAvatar';
-import { UserPlus, UserMinus, MessageSquare, Search, UserCheck, Clock, Users } from 'lucide-react-native';
+import { UserPlus, UserMinus, MessageSquare, Search, UserCheck, X } from 'lucide-react-native';
 import { UserProfile } from '../types';
 
 export const FriendsScreen = ({ navigation }: any) => {
-  const { user, profile } = useAuth();
+  const { user } = useAuth();
   const { colors } = useTheme();
   const [friends, setFriends] = useState<UserProfile[]>([]);
   const [requests, setRequests] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [activeTab, setActiveTab] = useState<'friends' | 'requests'>('friends');
 
   useEffect(() => {
     if (!user) return;
@@ -25,7 +26,9 @@ export const FriendsScreen = ({ navigation }: any) => {
       for (const d of snapshot.docs) {
           const data = d.data();
           const fromUserDoc = await getDoc(doc(db, 'users', data.fromUid));
-          requestData.push({ id: d.id, ...data, fromUser: fromUserDoc.data() });
+          if (fromUserDoc.exists()) {
+            requestData.push({ id: d.id, ...data, fromUser: fromUserDoc.data() });
+          }
       }
       setRequests(requestData);
     });
@@ -37,9 +40,11 @@ export const FriendsScreen = ({ navigation }: any) => {
       for (const d of snapshot.docs) {
         const data = d.data();
         const friendUid = data.uids.find((uid: string) => uid !== user.uid);
-        const friendDoc = await getDoc(doc(db, 'users', friendUid));
-        if (friendDoc.exists()) {
-          friendProfiles.push(friendDoc.data() as UserProfile);
+        if (friendUid) {
+            const friendDoc = await getDoc(doc(db, 'users', friendUid));
+            if (friendDoc.exists()) {
+              friendProfiles.push(friendDoc.data() as UserProfile);
+            }
         }
       }
       setFriends(friendProfiles);
@@ -76,11 +81,11 @@ export const FriendsScreen = ({ navigation }: any) => {
   const removeFriend = async (friendUid: string) => {
     Alert.alert(
       'Remove Friend',
-      'Are you sure you want to remove this friend?',
+      'Are you sure you want to unfriend this user?',
       [
         { text: 'Cancel', style: 'cancel' },
         {
-          text: 'Remove',
+          text: 'Unfriend',
           style: 'destructive',
           onPress: async () => {
             const q = query(collection(db, 'friendships'), where('uids', 'array-contains', user?.uid));
@@ -116,73 +121,88 @@ export const FriendsScreen = ({ navigation }: any) => {
         </TouchableOpacity>
       </View>
 
-      <ScrollView>
-        {requests.length > 0 && (
-          <View style={styles.section}>
-            <Text style={[styles.sectionTitle, { color: colors.foreground }]}>Pending Requests ({requests.length})</Text>
-            {requests.map(req => (
-              <View key={req.id} style={[styles.item, { backgroundColor: colors.card, borderColor: colors.border }]}>
-                <DicebearAvatar seed={req.fromUser?.username || req.fromUid} />
-                <View style={styles.itemInfo}>
-                  <Text style={[styles.username, { color: colors.foreground }]}>{req.fromUser?.username}</Text>
-                  <Text style={[styles.subtitle, { color: colors.mutedForeground }]}>Sent you a request</Text>
-                </View>
-                <View style={styles.actions}>
-                  <TouchableOpacity onPress={() => acceptRequest(req)} style={[styles.actionBtn, { backgroundColor: colors.primary }]}>
-                    <UserCheck size={18} color={colors.primaryForeground} />
-                  </TouchableOpacity>
-                  <TouchableOpacity onPress={() => rejectRequest(req.id)} style={[styles.actionBtn, { backgroundColor: colors.muted }]}>
-                    <UserMinus size={18} color={colors.destructive} />
-                  </TouchableOpacity>
-                </View>
+      <View style={styles.tabBar}>
+          <TouchableOpacity
+            style={[styles.tab, activeTab === 'friends' && { borderBottomColor: colors.primary, borderBottomWidth: 2 }]}
+            onPress={() => setActiveTab('friends')}
+          >
+              <Text style={[styles.tabText, { color: activeTab === 'friends' ? colors.primary : colors.mutedForeground }]}>Friends ({friends.length})</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[styles.tab, activeTab === 'requests' && { borderBottomColor: colors.primary, borderBottomWidth: 2 }]}
+            onPress={() => setActiveTab('requests')}
+          >
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                <Text style={[styles.tabText, { color: activeTab === 'requests' ? colors.primary : colors.mutedForeground }]}>Requests</Text>
+                {requests.length > 0 && (
+                    <View style={[styles.badge, { backgroundColor: colors.destructive }]}>
+                        <Text style={styles.badgeText}>{requests.length}</Text>
+                    </View>
+                )}
               </View>
-            ))}
-          </View>
-        )}
+          </TouchableOpacity>
+      </View>
 
-        <View style={styles.section}>
-          <Text style={[styles.sectionTitle, { color: colors.foreground }]}>My Friends ({friends.length})</Text>
-          <FlatList
-            data={friends}
-            keyExtractor={item => item.uid}
-            scrollEnabled={false}
-            renderItem={({ item }) => (
-              <TouchableOpacity
-                style={[styles.item, { backgroundColor: colors.card, borderColor: colors.border }]}
-                onPress={() => navigation.navigate('PublicProfile', { userId: item.uid })}
-              >
-                <DicebearAvatar seed={item.username || item.uid} />
-                <View style={styles.itemInfo}>
-                  <Text style={[styles.username, { color: colors.foreground }]}>{item.username}</Text>
-                  <Text style={[styles.subtitle, { color: colors.mutedForeground }]}>Level {item.academicLevel || item.level}</Text>
-                </View>
-                <View style={styles.actions}>
-                  <TouchableOpacity
-                    onPress={() => navigation.navigate('DirectChat', { roomId: null, targetUid: item.uid, name: item.username })}
-                    style={[styles.actionBtn, { backgroundColor: colors.muted }]}
-                  >
-                    <MessageSquare size={18} color={colors.primary} />
-                  </TouchableOpacity>
-                  <TouchableOpacity onPress={() => removeFriend(item.uid)} style={[styles.actionBtn, { backgroundColor: colors.muted }]}>
-                    <UserMinus size={18} color={colors.destructive} />
-                  </TouchableOpacity>
-                </View>
-              </TouchableOpacity>
-            )}
-            ListEmptyComponent={
-              <View style={styles.emptyContainer}>
-                <Users size={48} color={colors.mutedForeground} opacity={0.3} />
-                <Text style={[styles.emptyText, { color: colors.mutedForeground }]}>You haven't added any friends yet.</Text>
-              </View>
+      <FlatList
+        data={activeTab === 'friends' ? friends : requests}
+        keyExtractor={item => item.id || item.uid}
+        renderItem={({ item }) => {
+            if (activeTab === 'friends') {
+                return (
+                    <TouchableOpacity
+                        style={[styles.item, { backgroundColor: colors.card, borderColor: colors.border }]}
+                        onPress={() => navigation.navigate('PublicProfile', { userId: item.uid })}
+                    >
+                        <DicebearAvatar seed={item.username || item.uid} />
+                        <View style={styles.itemInfo}>
+                            <Text style={[styles.username, { color: colors.foreground }]}>{item.username}</Text>
+                            <Text style={[styles.subtitle, { color: colors.mutedForeground }]}>Level {item.academicLevel || item.level}</Text>
+                        </View>
+                        <View style={styles.actions}>
+                            <TouchableOpacity
+                                onPress={() => navigation.navigate('DirectChat', { roomId: null, targetUid: item.uid, name: item.username })}
+                                style={[styles.actionBtn, { backgroundColor: colors.muted }]}
+                            >
+                                <MessageSquare size={18} color={colors.primary} />
+                            </TouchableOpacity>
+                            <TouchableOpacity onPress={() => removeFriend(item.uid)} style={[styles.actionBtn, { backgroundColor: colors.muted }]}>
+                                <UserMinus size={18} color={colors.destructive} />
+                            </TouchableOpacity>
+                        </View>
+                    </TouchableOpacity>
+                );
+            } else {
+                return (
+                    <View style={[styles.item, { backgroundColor: colors.card, borderColor: colors.border }]}>
+                        <DicebearAvatar seed={item.fromUser?.username || item.fromUid} />
+                        <View style={styles.itemInfo}>
+                            <Text style={[styles.username, { color: colors.foreground }]}>{item.fromUser?.username}</Text>
+                            <Text style={[styles.subtitle, { color: colors.mutedForeground }]}>Wants to be friends</Text>
+                        </View>
+                        <View style={styles.actions}>
+                            <TouchableOpacity onPress={() => acceptRequest(item)} style={[styles.actionBtn, { backgroundColor: colors.primary }]}>
+                                <UserCheck size={18} color={colors.primaryForeground} />
+                            </TouchableOpacity>
+                            <TouchableOpacity onPress={() => rejectRequest(item.id)} style={[styles.actionBtn, { backgroundColor: colors.muted }]}>
+                                <X size={18} color={colors.destructive} />
+                            </TouchableOpacity>
+                        </View>
+                    </View>
+                );
             }
-          />
-        </View>
-      </ScrollView>
+        }}
+        ListEmptyComponent={
+            <View style={styles.emptyContainer}>
+                <Text style={[styles.emptyText, { color: colors.mutedForeground }]}>
+                    {activeTab === 'friends' ? "You haven't added any friends yet." : "No pending friend requests."}
+                </Text>
+            </View>
+        }
+        contentContainerStyle={styles.list}
+      />
     </View>
   );
 };
-
-import { deleteDoc } from 'firebase/firestore';
 
 const styles = StyleSheet.create({
   container: {
@@ -206,14 +226,35 @@ const styles = StyleSheet.create({
   searchText: {
     fontSize: 14,
   },
-  section: {
-    paddingHorizontal: 16,
-    marginBottom: 24,
+  tabBar: {
+      flexDirection: 'row',
+      borderBottomWidth: 1,
+      borderBottomColor: 'rgba(0,0,0,0.05)',
   },
-  sectionTitle: {
-    fontSize: 16,
-    fontWeight: 'bold',
-    marginBottom: 12,
+  tab: {
+      flex: 1,
+      paddingVertical: 16,
+      alignItems: 'center',
+  },
+  tabText: {
+      fontWeight: 'bold',
+      fontSize: 14,
+  },
+  badge: {
+      paddingHorizontal: 6,
+      borderRadius: 10,
+      minWidth: 20,
+      height: 20,
+      justifyContent: 'center',
+      alignItems: 'center',
+  },
+  badgeText: {
+      color: '#fff',
+      fontSize: 10,
+      fontWeight: 'bold',
+  },
+  list: {
+    padding: 16,
   },
   item: {
     flexDirection: 'row',

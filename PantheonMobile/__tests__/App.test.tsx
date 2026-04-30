@@ -100,6 +100,25 @@ jest.mock('firebase/firestore', () => ({
   getDocs: jest.fn(),
   addDoc: jest.fn(),
   updateDoc: jest.fn(),
+  getDoc: jest.fn(),
+  setDoc: jest.fn(),
+  deleteDoc: jest.fn(),
+}));
+
+jest.mock('react-native-webview', () => {
+    const React = require('react');
+    const { View } = require('react-native');
+    class WebView extends React.Component {
+        render() {
+            return <View {...this.props} />;
+        }
+    }
+    return { WebView };
+});
+
+jest.mock('@react-native-clipboard/clipboard', () => ({
+  setString: jest.fn(),
+  getString: jest.fn(),
 }));
 
 it('renders correctly', () => {
