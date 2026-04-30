@@ -3,13 +3,13 @@ import { View, Text, StyleSheet, ScrollView, TouchableOpacity, RefreshControl } 
 import { collection, query, limit, getDocs, orderBy } from 'firebase/firestore';
 import { db } from '../services/firebase';
 import { useAuth } from '../context/AuthContext';
-import { theme } from '../theme';
-import { BookOpen, History, Zap, GraduationCap, LogOut } from 'lucide-react-native';
-import { auth } from '../services/firebase';
+import { useTheme } from '../context/ThemeContext';
+import { BookOpen, History, Zap, GraduationCap, Menu } from 'lucide-react-native';
 import { NewsItem } from '../types';
 
 export const DashboardScreen = ({ navigation }: any) => {
   const { profile } = useAuth();
+  const { colors } = useTheme();
   const [news, setNews] = useState<NewsItem[]>([]);
   const [refreshing, setRefreshing] = useState(false);
 
@@ -33,125 +33,120 @@ export const DashboardScreen = ({ navigation }: any) => {
     fetchNews().then(() => setRefreshing(false));
   }, [fetchNews]);
 
-  const handleLogout = () => {
-    auth.signOut();
-  };
-
   return (
     <ScrollView
-      style={styles.container}
+      style={[styles.container, { backgroundColor: colors.background }]}
       refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
     >
       <View style={styles.header}>
         <View>
-          <Text style={styles.welcome}>Welcome back,</Text>
-          <Text style={styles.username}>{profile?.username || 'Student'}</Text>
+          <Text style={[styles.welcome, { color: colors.mutedForeground }]}>Welcome back,</Text>
+          <Text style={[styles.username, { color: colors.foreground }]}>{profile?.username || 'Student'}</Text>
         </View>
-        <TouchableOpacity onPress={handleLogout}>
-          <LogOut size={24} color={theme.colors.foreground} />
+        <TouchableOpacity onPress={() => navigation.openDrawer()}>
+          <Menu size={24} color={colors.foreground} />
         </TouchableOpacity>
       </View>
 
-      <View style={styles.statsContainer}>
-        <View style={styles.statCard}>
-          <Text style={styles.statValue}>{profile?.level || '1'}</Text>
-          <Text style={styles.statLabel}>Level</Text>
+      <View style={[styles.statsContainer, { backgroundColor: colors.muted }]}>
+        <View style={[styles.statCard, { borderRightColor: colors.border }]}>
+          <Text style={[styles.statValue, { color: colors.primary }]}>{profile?.level || '1'}</Text>
+          <Text style={[styles.statLabel, { color: colors.mutedForeground }]}>Level</Text>
         </View>
-        <View style={styles.statCard}>
-          <Text style={styles.statValue}>{profile?.referralCount || 0}</Text>
-          <Text style={styles.statLabel}>Referrals</Text>
+        <View style={[styles.statCard, { borderRightColor: colors.border }]}>
+          <Text style={[styles.statValue, { color: colors.primary }]}>{profile?.referralCount || 0}</Text>
+          <Text style={[styles.statLabel, { color: colors.mutedForeground }]}>Referrals</Text>
         </View>
         <View style={styles.statCardLast}>
-          <Text style={styles.statValue}>{profile?.isActivated ? 'Active' : 'Free'}</Text>
-          <Text style={styles.statLabel}>Status</Text>
+          <Text style={[styles.statValue, { color: colors.primary }]}>{profile?.isActivated ? 'Active' : 'Free'}</Text>
+          <Text style={[styles.statLabel, { color: colors.mutedForeground }]}>Status</Text>
         </View>
       </View>
 
       <View style={styles.section}>
-        <Text style={styles.sectionTitle}>Study Companion</Text>
+        <Text style={[styles.sectionTitle, { color: colors.foreground }]}>Study Companion</Text>
         <View style={styles.grid}>
           <MenuCard
             icon={<BookOpen size={24} color="#3B82F6" />}
             title="Notes"
-            onPress={() => navigation.navigate('Study')}
+            onPress={() => navigation.navigate('Lecture Notes')}
+            colors={colors}
           />
           <MenuCard
             icon={<History size={24} color="#A855F7" />}
             title="Past Questions"
-            onPress={() => navigation.navigate('PastQuestions')}
+            onPress={() => navigation.navigate('Past Questions')}
+            colors={colors}
           />
           <MenuCard
             icon={<Zap size={24} color="#F97316" />}
             title="Punch"
-            onPress={() => navigation.navigate('Punch')}
+            onPress={() => navigation.navigate('Punch Notes')}
+            colors={colors}
           />
           <MenuCard
             icon={<GraduationCap size={24} color="#6366F1" />}
             title="CBT"
-            onPress={() => navigation.navigate('CBT')}
+            onPress={() => navigation.navigate('CBT Practice')}
+            colors={colors}
           />
         </View>
       </View>
 
       <View style={styles.section}>
-        <Text style={styles.sectionTitle}>Latest News</Text>
+        <Text style={[styles.sectionTitle, { color: colors.foreground }]}>Latest News</Text>
         {news.length > 0 ? (
           news.map((item) => (
-            <View key={item.id} style={styles.newsCard}>
-              <Text style={styles.newsTitle}>{item.title}</Text>
-              <Text style={styles.newsContent} numberOfLines={2}>{item.content}</Text>
-              <Text style={styles.newsDate}>{new Date(item.createdAt).toLocaleDateString()}</Text>
+            <View key={item.id} style={[styles.newsCard, { backgroundColor: colors.background, borderColor: colors.border }]}>
+              <Text style={[styles.newsTitle, { color: colors.foreground }]}>{item.title}</Text>
+              <Text style={[styles.newsContent, { color: colors.mutedForeground }]} numberOfLines={2}>{item.content}</Text>
+              <Text style={[styles.newsDate, { color: colors.mutedForeground }]}>{new Date(item.createdAt).toLocaleDateString()}</Text>
             </View>
           ))
         ) : (
-          <Text style={styles.emptyText}>No news at the moment.</Text>
+          <Text style={[styles.emptyText, { color: colors.mutedForeground }]}>No news at the moment.</Text>
         )}
       </View>
     </ScrollView>
   );
 };
 
-const MenuCard = ({ icon, title, onPress }: any) => (
-  <TouchableOpacity style={styles.menuCard} onPress={onPress}>
+const MenuCard = ({ icon, title, onPress, colors }: any) => (
+  <TouchableOpacity style={[styles.menuCard, { backgroundColor: colors.background, borderColor: colors.border }]} onPress={onPress}>
     <View style={styles.iconContainer}>{icon}</View>
-    <Text style={styles.menuTitle}>{title}</Text>
+    <Text style={[styles.menuTitle, { color: colors.foreground }]}>{title}</Text>
   </TouchableOpacity>
 );
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: theme.colors.background,
   },
   header: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    paddingHorizontal: theme.spacing.lg,
-    paddingTop: theme.spacing.xl,
-    paddingBottom: theme.spacing.md,
+    paddingHorizontal: 24,
+    paddingTop: 32,
+    paddingBottom: 16,
   },
   welcome: {
     fontSize: 14,
-    color: theme.colors.mutedForeground,
   },
   username: {
     fontSize: 24,
     fontWeight: 'bold',
-    color: theme.colors.foreground,
   },
   statsContainer: {
     flexDirection: 'row',
-    backgroundColor: theme.colors.muted,
-    margin: theme.spacing.lg,
-    borderRadius: theme.borderRadius.lg,
-    paddingVertical: theme.spacing.md,
+    margin: 24,
+    borderRadius: 16,
+    paddingVertical: 16,
   },
   statCard: {
     flex: 1,
     alignItems: 'center',
     borderRightWidth: 1,
-    borderRightColor: theme.colors.border,
   },
   statCardLast: {
     flex: 1,
@@ -160,71 +155,59 @@ const styles = StyleSheet.create({
   statValue: {
     fontSize: 18,
     fontWeight: 'bold',
-    color: theme.colors.primary,
   },
   statLabel: {
     fontSize: 12,
-    color: theme.colors.mutedForeground,
   },
   section: {
-    paddingHorizontal: theme.spacing.lg,
-    marginBottom: theme.spacing.xl,
+    paddingHorizontal: 24,
+    marginBottom: 32,
   },
   sectionTitle: {
     fontSize: 18,
     fontWeight: 'bold',
-    marginBottom: theme.spacing.md,
-    color: theme.colors.foreground,
+    marginBottom: 16,
   },
   grid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: theme.spacing.md,
+    gap: 16,
     justifyContent: 'space-between',
   },
   menuCard: {
     width: '47%',
-    backgroundColor: theme.colors.background,
     borderWidth: 1,
-    borderColor: theme.colors.border,
-    borderRadius: theme.borderRadius.lg,
-    padding: theme.spacing.md,
+    borderRadius: 16,
+    padding: 16,
     alignItems: 'center',
   },
   iconContainer: {
-    marginBottom: theme.spacing.sm,
+    marginBottom: 8,
   },
   menuTitle: {
     fontSize: 14,
     fontWeight: '600',
-    color: theme.colors.foreground,
   },
   newsCard: {
-    backgroundColor: theme.colors.background,
     borderWidth: 1,
-    borderColor: theme.colors.border,
-    borderRadius: theme.borderRadius.lg,
-    padding: theme.spacing.md,
-    marginBottom: theme.spacing.sm,
+    borderRadius: 16,
+    padding: 16,
+    marginBottom: 8,
   },
   newsTitle: {
     fontSize: 16,
     fontWeight: 'bold',
-    color: theme.colors.foreground,
     marginBottom: 4,
   },
   newsContent: {
     fontSize: 14,
-    color: theme.colors.mutedForeground,
     marginBottom: 8,
   },
   newsDate: {
     fontSize: 12,
-    color: theme.colors.mutedForeground,
   },
   emptyText: {
     textAlign: 'center',
-    color: theme.colors.mutedForeground,
-    marginTop: theme.spacing.md,
+    marginTop: 16,
   },
 });
