@@ -2,12 +2,13 @@ import React, { useEffect, useState } from 'react';
 import { View, Text, StyleSheet, FlatList, TouchableOpacity, ActivityIndicator } from 'react-native';
 import { collection, query, getDocs, where } from 'firebase/firestore';
 import { db } from '../services/firebase';
-import { theme } from '../theme';
+import { useTheme } from '../context/ThemeContext';
 import { Note } from '../types';
-import { ChevronRight, FileText } from 'lucide-react-native';
+import { ChevronRight, FileText, MessageSquare } from 'lucide-react-native';
 
 export const CourseNotesScreen = ({ route, navigation }: any) => {
-  const { courseId } = route.params;
+  const { courseId, courseCode } = route.params;
+  const { colors } = useTheme();
   const [notes, setNotes] = useState<Note[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -29,30 +30,38 @@ export const CourseNotesScreen = ({ route, navigation }: any) => {
 
   if (loading) {
     return (
-      <View style={styles.centered}>
-        <ActivityIndicator size="large" color={theme.colors.primary} />
+      <View style={[styles.centered, { backgroundColor: colors.background }]}>
+        <ActivityIndicator size="large" color={colors.primary} />
       </View>
     );
   }
 
   return (
-    <View style={styles.container}>
+    <View style={[styles.container, { backgroundColor: colors.background }]}>
+      <TouchableOpacity
+        style={[styles.discussionBtn, { backgroundColor: colors.primary }]}
+        onPress={() => navigation.navigate('CourseDiscussion', { courseId, courseCode })}
+      >
+        <MessageSquare size={20} color={colors.primaryForeground} />
+        <Text style={[styles.discussionBtnText, { color: colors.primaryForeground }]}>Join Course Discussion</Text>
+      </TouchableOpacity>
+
       <FlatList
         data={notes}
         keyExtractor={(item) => item.id}
         renderItem={({ item }) => (
           <TouchableOpacity
-            style={styles.noteItem}
+            style={[styles.noteItem, { backgroundColor: colors.card, borderBottomColor: colors.border }]}
             onPress={() => navigation.navigate('NoteDetail', { note: item })}
           >
             <View style={styles.noteInfo}>
-              <FileText size={20} color={theme.colors.primary} />
-              <Text style={styles.noteTitle}>{item.title}</Text>
+              <FileText size={20} color={colors.primary} />
+              <Text style={[styles.noteTitle, { color: colors.foreground }]}>{item.title}</Text>
             </View>
-            <ChevronRight size={18} color={theme.colors.mutedForeground} />
+            <ChevronRight size={18} color={colors.mutedForeground} />
           </TouchableOpacity>
         )}
-        ListEmptyComponent={<Text style={styles.emptyText}>No notes found for this course.</Text>}
+        ListEmptyComponent={<Text style={[styles.emptyText, { color: colors.mutedForeground }]}>No notes found for this course.</Text>}
         contentContainerStyle={styles.list}
       />
     </View>
@@ -62,37 +71,46 @@ export const CourseNotesScreen = ({ route, navigation }: any) => {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: theme.colors.background,
   },
   centered: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
   },
+  discussionBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    margin: 16,
+    padding: 16,
+    borderRadius: 12,
+    gap: 12,
+  },
+  discussionBtnText: {
+    fontWeight: 'bold',
+    fontSize: 16,
+  },
   list: {
-    padding: theme.spacing.lg,
+    paddingHorizontal: 16,
   },
   noteItem: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    padding: theme.spacing.md,
-    backgroundColor: theme.colors.background,
+    padding: 16,
     borderBottomWidth: 1,
-    borderBottomColor: theme.colors.border,
   },
   noteInfo: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: theme.spacing.md,
+    gap: 12,
   },
   noteTitle: {
     fontSize: 16,
-    color: theme.colors.foreground,
+    fontWeight: '500',
   },
   emptyText: {
     textAlign: 'center',
-    color: theme.colors.mutedForeground,
-    marginTop: theme.spacing.xl,
+    marginTop: 32,
   },
 });

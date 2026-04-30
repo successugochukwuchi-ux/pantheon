@@ -47,6 +47,11 @@ android {
             proguardFiles getDefaultProguardFile("proguard-android.txt"), "proguard-rules.pro"
         }
     }
+
+    // Fix for Windows path length limit during reanimated build
+    if (System.getProperty('os.name').toLowerCase().contains('windows')) {
+        buildDir = "C:/tmp/${rootProject.name}/${project.name}"
+    }
 }
 
 dependencies {

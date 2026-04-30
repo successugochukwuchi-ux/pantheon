@@ -3,12 +3,14 @@ import { View, Text, StyleSheet, TouchableOpacity, ActivityIndicator, ScrollView
 import { collection, query, getDocs, where, orderBy, addDoc } from 'firebase/firestore';
 import { db } from '../services/firebase';
 import { useAuth } from '../context/AuthContext';
-import { theme } from '../theme';
+import { useTheme } from '../context/ThemeContext';
 import { Question } from '../types';
+import { MathView } from '../components/MathView';
 
 export const CBTQuizScreen = ({ route, navigation }: any) => {
   const { sheetId } = route.params;
   const { user } = useAuth();
+  const { colors } = useTheme();
   const [questions, setQuestions] = useState<Question[]>([]);
   const [currentIndex, setCurrentIndex] = useState(0);
   const [selectedAnswers, setSelectedAnswers] = useState<{ [key: number]: string }>({});
@@ -59,7 +61,7 @@ export const CBTQuizScreen = ({ route, navigation }: any) => {
 
     try {
       if (user) {
-        await addDoc(collection(db, 'cbt_sessions'), {
+        await addDoc(collection(db, 'cbtResults'), {
           userId: user.uid,
           sheetId: sheetId,
           score: score,
@@ -77,69 +79,95 @@ export const CBTQuizScreen = ({ route, navigation }: any) => {
 
   if (loading) {
     return (
-      <View style={styles.centered}>
-        <ActivityIndicator size="large" color={theme.colors.primary} />
+      <View style={[styles.centered, { backgroundColor: colors.background }]}>
+        <ActivityIndicator size="large" color={colors.primary} />
       </View>
     );
   }
 
   if (questions.length === 0) {
     return (
-      <View style={styles.centered}>
-        <Text>No questions found.</Text>
+      <View style={[styles.centered, { backgroundColor: colors.background }]}>
+        <Text style={{ color: colors.foreground }}>No questions found.</Text>
       </View>
     );
   }
 
   const currentQuestion = questions[currentIndex];
-  // Memoised per-question so options don't re-sort on every state update
   const allOptions = useMemo(() => {
-    if (!currentQuestion) {return [];}
+    if (!currentQuestion) return [];
     return [currentQuestion.correctAnswer, ...currentQuestion.incorrectAnswers].sort();
   }, [currentQuestion]);
 
+  const renderTextWithMath = (text: string) => {
+    const parts = text.split(/(\$.*?\$)/g);
+    return (
+      <Text style={[styles.questionText, { color: colors.foreground }]}>
+        {parts.map((part: string, index: number) => {
+          if (part.startsWith('$') && part.endsWith('$')) {
+            return <MathView key={index} math={part.slice(1, -1)} inline color={colors.foreground} />;
+          }
+          return part;
+        })}
+      </Text>
+    );
+  };
+
   return (
-    <View style={styles.container}>
-      <View style={styles.header}>
-        <Text style={styles.progress}>Question {currentIndex + 1} of {questions.length}</Text>
+    <View style={[styles.container, { backgroundColor: colors.background }]}>
+      <View style={[styles.header, { borderBottomColor: colors.border }]}>
+        <Text style={[styles.progress, { color: colors.mutedForeground }]}>Question {currentIndex + 1} of {questions.length}</Text>
       </View>
 
       <ScrollView style={styles.questionContainer}>
-        <Text style={styles.questionText}>{currentQuestion.text}</Text>
+        {renderTextWithMath(currentQuestion.text)}
 
         {allOptions.map((option, index) => (
           <TouchableOpacity
             key={index}
             style={[
               styles.option,
-              selectedAnswers[currentIndex] === option && styles.selectedOption,
+              { borderColor: colors.border, backgroundColor: colors.card },
+              selectedAnswers[currentIndex] === option && { borderColor: colors.primary, backgroundColor: colors.primary + '1A' },
             ]}
             onPress={() => handleSelect(option)}
           >
-            <Text style={[
-              styles.optionText,
-              selectedAnswers[currentIndex] === option && styles.selectedOptionText,
-            ]}>{option}</Text>
+             {option.includes('$') ? (
+                 <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                    {option.split(/(\$.*?\$)/g).map((part, i) => {
+                        if (part.startsWith('$') && part.endsWith('$')) {
+                            return <MathView key={i} math={part.slice(1, -1)} inline color={colors.foreground} />;
+                        }
+                        return <Text key={i} style={[styles.optionText, { color: colors.foreground }]}>{part}</Text>;
+                    })}
+                 </View>
+             ) : (
+                <Text style={[
+                styles.optionText,
+                { color: colors.foreground },
+                selectedAnswers[currentIndex] === option && { color: colors.primary, fontWeight: 'bold' },
+                ]}>{option}</Text>
+             )}
           </TouchableOpacity>
         ))}
       </ScrollView>
 
-      <View style={styles.footer}>
+      <View style={[styles.footer, { borderTopColor: colors.border }]}>
         <TouchableOpacity
-          style={[styles.navButton, currentIndex === 0 && styles.disabledButton]}
+          style={[styles.navButton, { backgroundColor: colors.muted }, currentIndex === 0 && styles.disabledButton]}
           onPress={handlePrev}
           disabled={currentIndex === 0}
         >
-          <Text style={styles.navButtonText}>Previous</Text>
+          <Text style={[styles.navButtonText, { color: colors.foreground }]}>Previous</Text>
         </TouchableOpacity>
 
         {currentIndex === questions.length - 1 ? (
-          <TouchableOpacity style={styles.submitButton} onPress={handleSubmit}>
-            <Text style={styles.submitButtonText}>Submit</Text>
+          <TouchableOpacity style={[styles.submitButton, { backgroundColor: colors.primary }]} onPress={handleSubmit}>
+            <Text style={[styles.submitButtonText, { color: colors.primaryForeground }]}>Submit</Text>
           </TouchableOpacity>
         ) : (
-          <TouchableOpacity style={styles.navButton} onPress={handleNext}>
-            <Text style={styles.navButtonText}>Next</Text>
+          <TouchableOpacity style={[styles.navButton, { backgroundColor: colors.muted }]} onPress={handleNext}>
+            <Text style={[styles.navButtonText, { color: colors.foreground }]}>Next</Text>
           </TouchableOpacity>
         )}
       </View>
@@ -150,7 +178,6 @@ export const CBTQuizScreen = ({ route, navigation }: any) => {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: theme.colors.background,
   },
   centered: {
     flex: 1,
@@ -158,72 +185,54 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   header: {
-    padding: theme.spacing.lg,
+    padding: 16,
     borderBottomWidth: 1,
-    borderBottomColor: theme.colors.border,
   },
   progress: {
     fontSize: 14,
-    color: theme.colors.mutedForeground,
     fontWeight: '600',
   },
   questionContainer: {
     flex: 1,
-    padding: theme.spacing.lg,
+    padding: 16,
   },
   questionText: {
     fontSize: 18,
     fontWeight: 'bold',
-    color: theme.colors.foreground,
-    marginBottom: theme.spacing.xl,
+    marginBottom: 24,
   },
   option: {
-    padding: theme.spacing.md,
+    padding: 16,
     borderWidth: 1,
-    borderColor: theme.colors.border,
-    borderRadius: theme.borderRadius.md,
-    marginBottom: theme.spacing.md,
-  },
-  selectedOption: {
-    borderColor: theme.colors.primary,
-    backgroundColor: theme.colors.primary + '10',
+    borderRadius: 12,
+    marginBottom: 12,
   },
   optionText: {
     fontSize: 16,
-    color: theme.colors.foreground,
-  },
-  selectedOptionText: {
-    color: theme.colors.primary,
-    fontWeight: 'bold',
   },
   footer: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    padding: theme.spacing.lg,
+    padding: 16,
     borderTopWidth: 1,
-    borderTopColor: theme.colors.border,
   },
   navButton: {
-    paddingVertical: theme.spacing.sm,
-    paddingHorizontal: theme.spacing.lg,
-    borderRadius: theme.borderRadius.md,
-    backgroundColor: theme.colors.secondary,
+    paddingVertical: 10,
+    paddingHorizontal: 20,
+    borderRadius: 8,
   },
   navButtonText: {
-    color: theme.colors.secondaryForeground,
     fontWeight: '600',
   },
   disabledButton: {
     opacity: 0.5,
   },
   submitButton: {
-    paddingVertical: theme.spacing.sm,
-    paddingHorizontal: theme.spacing.lg,
-    borderRadius: theme.borderRadius.md,
-    backgroundColor: theme.colors.primary,
+    paddingVertical: 10,
+    paddingHorizontal: 20,
+    borderRadius: 8,
   },
   submitButtonText: {
-    color: theme.colors.primaryForeground,
     fontWeight: 'bold',
   },
 });

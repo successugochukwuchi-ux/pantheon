@@ -2,11 +2,12 @@ import React, { useEffect, useState } from 'react';
 import { View, Text, StyleSheet, FlatList, TouchableOpacity, ActivityIndicator } from 'react-native';
 import { collection, query, getDocs } from 'firebase/firestore';
 import { db } from '../services/firebase';
-import { theme } from '../theme';
+import { useTheme } from '../context/ThemeContext';
 import { Course } from '../types';
-import { ChevronRight } from 'lucide-react-native';
+import { ChevronRight, MessageSquare } from 'lucide-react-native';
 
 export const StudyMaterialsScreen = ({ navigation }: any) => {
+  const { colors } = useTheme();
   const [courses, setCourses] = useState<Course[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -28,38 +29,39 @@ export const StudyMaterialsScreen = ({ navigation }: any) => {
 
   if (loading) {
     return (
-      <View style={styles.centered}>
-        <ActivityIndicator size="large" color={theme.colors.primary} />
+      <View style={[styles.centered, { backgroundColor: colors.background }]}>
+        <ActivityIndicator size="large" color={colors.primary} />
       </View>
     );
   }
 
   return (
-    <View style={styles.container}>
+    <View style={[styles.container, { backgroundColor: colors.background }]}>
       <FlatList
         data={courses}
         keyExtractor={(item) => item.id}
         renderItem={({ item }) => (
-          <View style={styles.courseItemContainer}>
+          <View style={[styles.courseItemContainer, { backgroundColor: colors.card, borderColor: colors.border }]}>
             <TouchableOpacity
               style={styles.courseItem}
               onPress={() => navigation.navigate('CourseNotes', { courseId: item.id, courseCode: item.code })}
             >
               <View>
-                <Text style={styles.courseCode}>{item.code}</Text>
-                <Text style={styles.courseTitle}>{item.title}</Text>
+                <Text style={[styles.courseCode, { color: colors.primary }]}>{item.code}</Text>
+                <Text style={[styles.courseTitle, { color: colors.mutedForeground }]}>{item.title}</Text>
               </View>
-              <ChevronRight size={20} color={theme.colors.mutedForeground} />
+              <ChevronRight size={20} color={colors.mutedForeground} />
             </TouchableOpacity>
             <TouchableOpacity
-              style={styles.discussionButton}
+              style={[styles.discussionButton, { backgroundColor: colors.muted, borderTopColor: colors.border }]}
               onPress={() => navigation.navigate('CourseDiscussion', { courseId: item.id, courseCode: item.code })}
             >
-              <Text style={styles.discussionButtonText}>Join Discussion</Text>
+              <MessageSquare size={16} color={colors.primary} />
+              <Text style={[styles.discussionButtonText, { color: colors.primary }]}>Join Discussion</Text>
             </TouchableOpacity>
           </View>
         )}
-        ListEmptyComponent={<Text style={styles.emptyText}>No courses found.</Text>}
+        ListEmptyComponent={<Text style={[styles.emptyText, { color: colors.mutedForeground }]}>No courses found.</Text>}
         contentContainerStyle={styles.list}
       />
     </View>
@@ -69,7 +71,6 @@ export const StudyMaterialsScreen = ({ navigation }: any) => {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: theme.colors.background,
   },
   centered: {
     flex: 1,
@@ -77,46 +78,41 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   list: {
-    padding: theme.spacing.lg,
+    padding: 16,
   },
   courseItemContainer: {
-    backgroundColor: theme.colors.background,
     borderWidth: 1,
-    borderColor: theme.colors.border,
-    borderRadius: theme.borderRadius.lg,
-    marginBottom: theme.spacing.md,
+    borderRadius: 12,
+    marginBottom: 16,
     overflow: 'hidden',
   },
   courseItem: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    padding: theme.spacing.md,
+    padding: 16,
   },
   courseCode: {
     fontSize: 16,
     fontWeight: 'bold',
-    color: theme.colors.primary,
   },
   courseTitle: {
     fontSize: 14,
-    color: theme.colors.mutedForeground,
   },
   discussionButton: {
-    backgroundColor: theme.colors.muted,
-    padding: theme.spacing.sm,
+    flexDirection: 'row',
+    gap: 8,
+    padding: 12,
     alignItems: 'center',
+    justifyContent: 'center',
     borderTopWidth: 1,
-    borderTopColor: theme.colors.border,
   },
   discussionButtonText: {
     fontSize: 12,
     fontWeight: 'bold',
-    color: theme.colors.primary,
   },
   emptyText: {
     textAlign: 'center',
-    color: theme.colors.mutedForeground,
-    marginTop: theme.spacing.xl,
+    marginTop: 32,
   },
 });

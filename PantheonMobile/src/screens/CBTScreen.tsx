@@ -2,11 +2,12 @@ import React, { useEffect, useState } from 'react';
 import { View, Text, StyleSheet, FlatList, TouchableOpacity, ActivityIndicator } from 'react-native';
 import { collection, query, getDocs, where } from 'firebase/firestore';
 import { db } from '../services/firebase';
-import { theme } from '../theme';
+import { useTheme } from '../context/ThemeContext';
 import { QuestionSheet } from '../types';
 import { ChevronRight, ClipboardList } from 'lucide-react-native';
 
 export const CBTScreen = ({ navigation }: any) => {
+  const { colors } = useTheme();
   const [sheets, setSheets] = useState<QuestionSheet[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -28,33 +29,35 @@ export const CBTScreen = ({ navigation }: any) => {
 
   if (loading) {
     return (
-      <View style={styles.centered}>
-        <ActivityIndicator size="large" color={theme.colors.primary} />
+      <View style={[styles.centered, { backgroundColor: colors.background }]}>
+        <ActivityIndicator size="large" color={colors.primary} />
       </View>
     );
   }
 
   return (
-    <View style={styles.container}>
+    <View style={[styles.container, { backgroundColor: colors.background }]}>
       <FlatList
         data={sheets}
         keyExtractor={(item) => item.id}
         renderItem={({ item }) => (
           <TouchableOpacity
-            style={styles.sheetItem}
+            style={[styles.sheetItem, { backgroundColor: colors.card, borderColor: colors.border }]}
             onPress={() => navigation.navigate('CBTQuiz', { sheetId: item.id, title: `${item.academicLevel}L ${item.year}` })}
           >
             <View style={styles.sheetInfo}>
-              <ClipboardList size={24} color={theme.colors.primary} />
+              <View style={[styles.iconContainer, { backgroundColor: colors.muted }]}>
+                <ClipboardList size={24} color={colors.primary} />
+              </View>
               <View>
-                <Text style={styles.sheetTitle}>{item.academicLevel} Level - {item.year}</Text>
-                <Text style={styles.sheetSubtitle}>{item.semester} Semester</Text>
+                <Text style={[styles.sheetTitle, { color: colors.foreground }]}>{item.academicLevel} Level - {item.year}</Text>
+                <Text style={[styles.sheetSubtitle, { color: colors.mutedForeground }]}>{item.semester} Semester</Text>
               </View>
             </View>
-            <ChevronRight size={20} color={theme.colors.mutedForeground} />
+            <ChevronRight size={20} color={colors.mutedForeground} />
           </TouchableOpacity>
         )}
-        ListEmptyComponent={<Text style={styles.emptyText}>No CBT practice sessions available.</Text>}
+        ListEmptyComponent={<Text style={[styles.emptyText, { color: colors.mutedForeground }]}>No CBT practice sessions available.</Text>}
         contentContainerStyle={styles.list}
       />
     </View>
@@ -64,7 +67,6 @@ export const CBTScreen = ({ navigation }: any) => {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: theme.colors.background,
   },
   centered: {
     flex: 1,
@@ -72,36 +74,38 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   list: {
-    padding: theme.spacing.lg,
+    padding: 16,
   },
   sheetItem: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    padding: theme.spacing.md,
-    backgroundColor: theme.colors.background,
+    padding: 16,
     borderWidth: 1,
-    borderColor: theme.colors.border,
-    borderRadius: theme.borderRadius.lg,
-    marginBottom: theme.spacing.md,
+    borderRadius: 12,
+    marginBottom: 16,
   },
   sheetInfo: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: theme.spacing.md,
+    gap: 16,
+  },
+  iconContainer: {
+    width: 48,
+    height: 48,
+    borderRadius: 12,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   sheetTitle: {
     fontSize: 16,
     fontWeight: 'bold',
-    color: theme.colors.foreground,
   },
   sheetSubtitle: {
     fontSize: 14,
-    color: theme.colors.mutedForeground,
   },
   emptyText: {
     textAlign: 'center',
-    color: theme.colors.mutedForeground,
-    marginTop: theme.spacing.xl,
+    marginTop: 32,
   },
 });

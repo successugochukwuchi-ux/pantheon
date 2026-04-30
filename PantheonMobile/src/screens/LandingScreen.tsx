@@ -1,38 +1,40 @@
 import React from 'react';
 import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
-import { theme } from '../theme';
+import { useTheme } from '../context/ThemeContext';
 import { ChevronRight, MessageCircle } from 'lucide-react-native';
 
 export const LandingScreen = ({ navigation }: any) => {
+  const { colors } = useTheme();
+
   return (
-    <View style={styles.container}>
+    <View style={[styles.container, { backgroundColor: colors.background }]}>
       <View style={styles.content}>
-        <Text style={styles.brand}>PANTHEON</Text>
-        <Text style={styles.heroTitle}>Master Your Courses with PANTHEON</Text>
-        <Text style={styles.heroSubtitle}>
-          The ultimate study companion for FUTO students. Lecture notes, past questions, CBT practice, and more.
+        <Text style={[styles.brand, { color: colors.primary }]}>PANTHEON</Text>
+        <Text style={[styles.heroTitle, { color: colors.foreground }]}>Master Your Courses with PANTHEON</Text>
+        <Text style={[styles.heroSubtitle, { color: colors.mutedForeground }]}>
+          The ultimate study companion for students. Lecture notes, past questions, CBT practice, and more.
         </Text>
 
         <TouchableOpacity
-          style={styles.primaryButton}
+          style={[styles.primaryButton, { backgroundColor: colors.primary }]}
           onPress={() => navigation.navigate('Register')}
         >
-          <Text style={styles.primaryButtonText}>Get Started Now</Text>
-          <ChevronRight size={20} color={theme.colors.primaryForeground} />
+          <Text style={[styles.primaryButtonText, { color: colors.primaryForeground }]}>Get Started Now</Text>
+          <ChevronRight size={20} color={colors.primaryForeground} />
         </TouchableOpacity>
 
         <TouchableOpacity
           style={styles.secondaryButton}
           onPress={() => navigation.navigate('Login')}
         >
-          <Text style={styles.secondaryButtonText}>Sign In</Text>
+          <Text style={[styles.secondaryButtonText, { color: colors.primary }]}>Sign In</Text>
         </TouchableOpacity>
       </View>
 
       <View style={styles.footer}>
-        <TouchableOpacity style={styles.supportButton}>
+        <TouchableOpacity style={[styles.supportButton, { borderColor: colors.border }]}>
           <MessageCircle size={20} color="#25D366" />
-          <Text style={styles.supportText}>Contact Admin</Text>
+          <Text style={[styles.supportText, { color: colors.foreground }]}>Contact Support</Text>
         </TouchableOpacity>
       </View>
     </View>
@@ -42,8 +44,7 @@ export const LandingScreen = ({ navigation }: any) => {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: theme.colors.background,
-    padding: theme.spacing.lg,
+    padding: 24,
   },
   content: {
     flex: 1,
@@ -53,67 +54,59 @@ const styles = StyleSheet.create({
   brand: {
     fontSize: 24,
     fontWeight: 'bold',
-    color: theme.colors.primary,
     letterSpacing: -1,
-    marginBottom: theme.spacing.xl,
+    marginBottom: 32,
   },
   heroTitle: {
     fontSize: 42,
     fontWeight: '800',
     textAlign: 'center',
-    color: theme.colors.foreground,
     lineHeight: 48,
-    marginBottom: theme.spacing.md,
+    marginBottom: 16,
   },
   heroSubtitle: {
     fontSize: 18,
     textAlign: 'center',
-    color: theme.colors.mutedForeground,
-    marginBottom: theme.spacing.xl * 2,
+    marginBottom: 64,
     lineHeight: 24,
   },
   primaryButton: {
-    backgroundColor: theme.colors.primary,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: theme.spacing.md,
-    paddingHorizontal: theme.spacing.xl,
+    paddingVertical: 16,
+    paddingHorizontal: 32,
     borderRadius: 100,
     width: '100%',
-    marginBottom: theme.spacing.md,
+    marginBottom: 16,
   },
   primaryButtonText: {
-    color: theme.colors.primaryForeground,
     fontSize: 18,
     fontWeight: 'bold',
-    marginRight: theme.spacing.sm,
+    marginRight: 8,
   },
   secondaryButton: {
-    paddingVertical: theme.spacing.md,
+    paddingVertical: 16,
     width: '100%',
     alignItems: 'center',
   },
   secondaryButtonText: {
-    color: theme.colors.primary,
     fontSize: 16,
     fontWeight: '600',
   },
   footer: {
-    paddingBottom: theme.spacing.lg,
+    paddingBottom: 24,
     alignItems: 'center',
   },
   supportButton: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: theme.spacing.sm,
-    padding: theme.spacing.sm,
-    borderRadius: theme.borderRadius.md,
+    gap: 8,
+    padding: 12,
+    borderRadius: 8,
     borderWidth: 1,
-    borderColor: theme.colors.border,
   },
   supportText: {
-    color: theme.colors.foreground,
     fontWeight: '500',
   },
 });
