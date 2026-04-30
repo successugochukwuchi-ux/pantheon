@@ -62,14 +62,16 @@ jest.mock('@react-navigation/stack', () => {
   };
 });
 
-jest.mock('@react-navigation/bottom-tabs', () => {
+jest.mock('@react-navigation/drawer', () => {
   return {
-    createBottomTabNavigator: () => {
+    createDrawerNavigator: () => {
       return {
         Navigator: ({ children }: any) => children,
         Screen: ({ children }: any) => children,
       };
     },
+    DrawerContentScrollView: ({ children }: any) => children,
+    DrawerItemList: ({ children }: any) => children,
   };
 });
 
