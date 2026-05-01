@@ -40,7 +40,9 @@ export const MathView: React.FC<MathViewProps> = ({ math, inline = false, color 
           const displayMode = ${!inline};
           katex.render(math, document.getElementById('math'), {
             displayMode: displayMode,
-            throwOnError: false
+            throwOnError: false,
+            errorColor: "#ef4444",
+            strict: false
           });
         </script>
       </body>

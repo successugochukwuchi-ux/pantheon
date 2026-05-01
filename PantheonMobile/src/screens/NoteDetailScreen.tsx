@@ -20,7 +20,7 @@ export const NoteDetailScreen = ({ route }: any) => {
                     return `<div class="text-block" style="color: ${colors.foreground}; font-size: 16px; line-height: 1.6; margin-bottom: 16px;">${processedText}</div>`;
                 case 'math':
                     return `<div style="margin: 16px 0; display: flex; justify-content: center; color: ${colors.foreground}; font-size: 1.2em;">
-                        \\[${block.content}\\]
+                        \\[${block.content.replace(/\\/g, '\\\\')}\\]
                     </div>`;
                 case 'diagram':
                     const transform = `scale(${block.settings?.flipX ? -1 : 1}, ${block.settings?.flipY ? -1 : 1})`;
@@ -86,7 +86,9 @@ export const NoteDetailScreen = ({ route }: any) => {
                 {left: "\\\\[", right: "\\\\]", display: true},
                 {left: "\\\\(", right: "\\\\)", display: false}
               ],
-              throwOnError: false
+              throwOnError: false,
+              errorColor: "#ef4444",
+              strict: false
             });
           });
         </script>

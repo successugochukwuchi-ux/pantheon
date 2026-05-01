@@ -49,9 +49,10 @@ export const VideoLibraryScreen = ({ navigation }: any) => {
     return (
       <View style={[styles.videoContainer, { height: (width - 32) * (9/16) }]}>
         <WebView
-          source={{ uri: `https://www.youtube.com/embed/${videoId}?modestbranding=1&rel=0&showinfo=0` }}
+          source={{ uri: `https://www.youtube.com/embed/${videoId}?modestbranding=1&rel=0&showinfo=0&controls=1&fs=1` }}
           style={styles.webview}
           allowsFullscreenVideo={true}
+          userAgent="Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Mobile Safari/537.36"
         />
       </View>
     );

@@ -7,7 +7,7 @@ import { Note } from '../types';
 import { ChevronRight, FileText, MessageSquare } from 'lucide-react-native';
 
 export const CourseNotesScreen = ({ route, navigation }: any) => {
-  const { courseId, courseCode } = route.params;
+  const { courseId, courseCode, type } = route.params;
   const { colors } = useTheme();
   const [notes, setNotes] = useState<Note[]>([]);
   const [loading, setLoading] = useState(true);
@@ -15,7 +15,11 @@ export const CourseNotesScreen = ({ route, navigation }: any) => {
   useEffect(() => {
     const fetchNotes = async () => {
       try {
-        const q = query(collection(db, 'notes'), where('courseId', '==', courseId));
+        const q = query(
+          collection(db, 'notes'),
+          where('courseId', '==', courseId),
+          where('type', '==', type || 'lecture')
+        );
         const querySnapshot = await getDocs(q);
         const noteItems = querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Note));
         setNotes(noteItems);
@@ -37,7 +41,7 @@ export const CourseNotesScreen = ({ route, navigation }: any) => {
   }
 
   return (
-    <View style={[styles.container, { backgroundColor: colors.background }]}>
+    <View style={[styles.container, { backgroundColor: colors.background }]} onStartShouldSetResponder={() => true}>
       <TouchableOpacity
         style={[styles.discussionBtn, { backgroundColor: colors.primary }]}
         onPress={() => navigation.navigate('CourseDiscussion', { courseId, courseCode })}
@@ -108,7 +112,9 @@ const styles = StyleSheet.create({
   noteTitle: {
     fontSize: 16,
     fontWeight: '500',
-  },
+    /* Disable text selection */
+    userSelect: 'none',
+  } as any,
   emptyText: {
     textAlign: 'center',
     marginTop: 32,

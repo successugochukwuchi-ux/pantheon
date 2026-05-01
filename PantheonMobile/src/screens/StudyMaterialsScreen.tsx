@@ -6,8 +6,9 @@ import { useTheme } from '../context/ThemeContext';
 import { Course } from '../types';
 import { ChevronRight, MessageSquare } from 'lucide-react-native';
 
-export const StudyMaterialsScreen = ({ navigation }: any) => {
+export const StudyMaterialsScreen = ({ route, navigation }: any) => {
   const { colors } = useTheme();
+  const type = route.params?.type || 'lecture';
   const [courses, setCourses] = useState<Course[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -44,7 +45,7 @@ export const StudyMaterialsScreen = ({ navigation }: any) => {
           <View style={[styles.courseItemContainer, { backgroundColor: colors.card, borderColor: colors.border }]}>
             <TouchableOpacity
               style={styles.courseItem}
-              onPress={() => navigation.navigate('CourseNotes', { courseId: item.id, courseCode: item.code })}
+              onPress={() => navigation.navigate('CourseNotes', { courseId: item.id, courseCode: item.code, type })}
             >
               <View>
                 <Text style={[styles.courseCode, { color: colors.primary }]}>{item.code}</Text>
