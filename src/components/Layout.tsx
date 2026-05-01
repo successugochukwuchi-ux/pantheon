@@ -1,10 +1,13 @@
 import React from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
+import { useFlux } from '../contexts/FluxContext';
 import { 
   Menu, 
   Bell,
-  Shield
+  Shield,
+  Zap,
+  Sparkles
 } from 'lucide-react';
 import { Button } from './ui/button';
 import { Badge } from './ui/badge';
@@ -22,6 +25,7 @@ import { cn } from '../lib/utils';
 
 export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { user, profile } = useAuth();
+  const { isFluxMode } = useFlux();
   const location = useLocation();
   const navigate = useNavigate();
   const [isMobileMenuOpen, setIsMobileMenuOpen] = React.useState(false);
@@ -100,7 +104,10 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
   }, [user, profile]);
 
   return (
-    <div className="min-h-screen bg-background flex transition-opacity duration-150 opacity-100">
+    <div className={cn(
+      "min-h-screen flex transition-colors duration-500",
+      isFluxMode ? "bg-stone-950 text-white" : "bg-background"
+    )}>
       {/* Desktop Sidebar */}
       <aside className="hidden md:flex w-72 flex-col fixed inset-y-0 z-50">
         <Sidebar />
@@ -109,35 +116,59 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
       {/* Main Content Area */}
       <div className="flex-1 flex flex-col md:pl-72">
         {/* Header */}
-        <header className="sticky top-0 z-40 w-full border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
+        <header className={cn(
+          "sticky top-0 z-40 w-full border-b backdrop-blur transition-all duration-500",
+          isFluxMode 
+            ? "bg-stone-950/95 border-pink-500/10" 
+            : "bg-background/95 border-b supports-[backdrop-filter]:bg-background/60"
+        )}>
           <div className="flex h-16 items-center justify-between px-4 md:px-8">
             <div className="flex items-center gap-4">
               {/* Mobile Menu Toggle */}
               <Sheet open={isMobileMenuOpen} onOpenChange={setIsMobileMenuOpen}>
-                <SheetTrigger render={
-                  <Button variant="ghost" size="icon" className="md:hidden">
-                    <Menu className="h-5 w-5" />
-                    <span className="sr-only">Toggle Menu</span>
-                  </Button>
-                } />
-                <SheetContent side="left" className="p-0 w-72">
+                <SheetTrigger 
+                  render={
+                    <Button variant="ghost" size="icon" className="md:hidden">
+                      <Menu className="h-5 w-5" />
+                      <span className="sr-only">Toggle Menu</span>
+                    </Button>
+                  } 
+                />
+                <SheetContent side="left" className="p-0 w-72 h-full">
                   <Sidebar onClose={() => setIsMobileMenuOpen(false)} />
                 </SheetContent>
               </Sheet>
               
-              <h2 className="text-sm font-semibold text-muted-foreground hidden lg:block">
-                {location.pathname === '/dashboard' ? 'Overview' : 
-                 location.pathname.startsWith('/administrator') ? 'Administration' : 
-                 'Academic Portal'}
-              </h2>
+              <div className="flex items-center gap-2">
+                {isFluxMode && (
+                  <div className="bg-pink-500 rounded-lg p-1.5 hidden sm:block">
+                    <Zap className="text-white w-4 h-4 fill-white" />
+                  </div>
+                )}
+                <h2 className={cn(
+                  "text-sm font-black uppercase tracking-tighter",
+                  isFluxMode ? "text-pink-500 flex items-center gap-1.5" : "text-muted-foreground"
+                )}>
+                  {isFluxMode ? (
+                    <>
+                      PANTHEON <span className="text-white">FLUX</span>
+                      <Sparkles size={12} className="text-pink-400" />
+                    </>
+                  ) : (
+                    location.pathname === '/dashboard' ? 'Overview' : 
+                    location.pathname.startsWith('/administrator') ? 'Administration' : 
+                    'Academic Portal'
+                  )}
+                </h2>
+              </div>
             </div>
 
             <div className="flex-1 max-w-md mx-4 hidden md:block">
-              <UserSearch />
+              <UserSearch className={isFluxMode ? "bg-white/5 border-white/5 text-white placeholder:text-stone-500" : ""} />
             </div>
 
             <div className="flex items-center gap-2 md:gap-4">
-              {user && (
+              {user && !isFluxMode && (
                 <div className="hidden lg:block border-l pl-4 h-6 flex items-center">
                   <SystemStatus variant="compact" />
                 </div>

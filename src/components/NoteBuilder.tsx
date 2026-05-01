@@ -36,7 +36,8 @@ import {
   FlaskConical,
   Zap,
   Variable,
-  Table as TableIcon
+  Table as TableIcon,
+  Video
 } from 'lucide-react';
 import { Button } from './ui/button';
 import { Textarea } from './ui/textarea';
@@ -60,7 +61,7 @@ import 'katex/dist/katex.min.css';
 import { Rnd } from 'react-rnd';
 import { cn } from '../lib/utils';
 
-export type BlockType = 'text' | 'math' | 'h1' | 'h2' | 'diagram' | 'table';
+export type BlockType = 'text' | 'math' | 'h1' | 'h2' | 'diagram' | 'table' | 'video';
 
 export interface NoteBlock {
   id: string;
@@ -266,6 +267,18 @@ const SortableBlock = ({ block, onUpdate, onDelete, onFocus, isPreview }: Sortab
             />
           </div>
         )}
+        {block.type === 'video' && block.content && (
+          <div className="aspect-video w-full rounded-xl overflow-hidden shadow-lg border border-white/5 my-4">
+            <iframe
+              src={block.content.includes('youtube.com') || block.content.includes('youtu.be') 
+                ? `https://www.youtube.com/embed/${block.content.split('/').pop()?.split('v=').pop()?.split('&')[0]}`
+                : block.content}
+              className="w-full h-full"
+              allowFullScreen
+              title="Step Video"
+            />
+          </div>
+        )}
       </div>
     );
   }
@@ -460,6 +473,30 @@ const SortableBlock = ({ block, onUpdate, onDelete, onFocus, isPreview }: Sortab
             )}
           </div>
         )}
+        {block.type === 'video' && (
+          <div className="space-y-4">
+            <div className="flex items-center gap-2">
+              <Video className="h-4 w-4 text-pink-500" />
+              <Input 
+                value={block.content} 
+                onChange={(e) => onUpdate(block.id, e.target.value)}
+                placeholder="Enter Video URL (YouTube embed or direct link)"
+                className="bg-muted/50 border-none focus-visible:ring-0"
+              />
+            </div>
+            {block.content && (
+              <div className="aspect-video w-full rounded-xl overflow-hidden bg-muted/10 border border-white/5 flex items-center justify-center">
+                <iframe
+                  src={block.content.includes('youtube.com') || block.content.includes('youtu.be') 
+                    ? `https://www.youtube.com/embed/${block.content.split('/').pop()?.split('v=').pop()?.split('&')[0]}`
+                    : block.content}
+                  className="w-full h-full border-none"
+                  allowFullScreen
+                />
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
       <Button 
@@ -480,6 +517,35 @@ interface NoteBuilderProps {
   onChange: (content: string) => void;
   mode?: 'create' | 'edit';
 }
+
+export const NoteRenderer: React.FC<{ content: string }> = ({ content }) => {
+  const [blocks, setBlocks] = useState<NoteBlock[]>([]);
+
+  useEffect(() => {
+    if (content) {
+      try {
+        setBlocks(JSON.parse(content));
+      } catch (e) {
+        setBlocks([{ id: '1', type: 'text', content: content }]);
+      }
+    }
+  }, [content]);
+
+  return (
+    <div className="space-y-4">
+      {blocks.map((block) => (
+        <SortableBlock 
+          key={block.id} 
+          block={block} 
+          onUpdate={() => {}}
+          onDelete={() => {}}
+          onFocus={() => {}}
+          isPreview={true}
+        />
+      ))}
+    </div>
+  );
+};
 
 export const NoteBuilder: React.FC<NoteBuilderProps> = ({ initialContent, onChange, mode = 'create' }) => {
   const [blocks, setBlocks] = useState<NoteBlock[]>(() => {
@@ -743,6 +809,9 @@ export const NoteBuilder: React.FC<NoteBuilderProps> = ({ initialContent, onChan
             </Button>
             <Button type="button" variant="ghost" size="sm" className="rounded-full gap-2" onClick={() => addBlock('diagram')}>
               <ImageIcon className="h-4 w-4" /> Diagram
+            </Button>
+            <Button type="button" variant="ghost" size="sm" className="rounded-full gap-2" onClick={() => addBlock('video')}>
+              <Video className="h-4 w-4" /> Video
             </Button>
             <Button type="button" variant="ghost" size="sm" className="rounded-full gap-2" onClick={() => setIsTableDialogOpen(true)}>
               <TableIcon className="h-4 w-4" /> Table

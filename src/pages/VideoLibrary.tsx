@@ -15,6 +15,7 @@ import rehypeKatex from 'rehype-katex';
 import remarkGfm from 'remark-gfm';
 import 'katex/dist/katex.min.css';
 import { ScientificCalculator } from '../components/ScientificCalculator';
+import { VideoPlayer } from '../components/VideoPlayer';
 
 export default function VideoLibrary() {
   const { profile } = useAuth();
@@ -70,12 +71,6 @@ export default function VideoLibrary() {
     setSelectedNote(note);
     setUserAnswers({});
     setShowResults(false);
-  };
-
-  const getYouTubeId = (url: string) => {
-    const regExp = /^.*(youtu.be\/|v\/|u\/\w\/|embed\/|watch\?v=|&v=)([^#&?]*).*/;
-    const match = url.match(regExp);
-    return (match && match[2].length === 11) ? match[2] : null;
   };
 
   const calculateScore = () => {
@@ -174,12 +169,9 @@ export default function VideoLibrary() {
               <Card className="overflow-hidden border-none shadow-xl bg-background ring-1 ring-border">
                 <div className="aspect-video bg-black relative">
                   {selectedNote.videoUrl ? (
-                    <iframe
-                      src={`https://www.youtube.com/embed/${getYouTubeId(selectedNote.videoUrl)}`}
-                      title={selectedNote.title}
-                      className="absolute inset-0 w-full h-full border-0"
-                      allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-                      allowFullScreen
+                    <VideoPlayer 
+                      url={selectedNote.videoUrl} 
+                      title={selectedNote.title} 
                     />
                   ) : (
                     <div className="absolute inset-0 flex flex-col items-center justify-center text-white/50 gap-4">

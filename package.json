@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "vite --port=3000 --host=0.0.0.0",
     "build": "vite build",
+    "build:flux": "npm run build --prefix FLUX",
     "preview": "vite preview",
     "clean": "rm -rf dist",
     "lint": "tsc --noEmit"
@@ -34,6 +35,7 @@
     "react-dom": "^19.0.0",
     "react-katex": "^3.1.0",
     "react-markdown": "^10.1.0",
+    "react-player": "^2.16.0",
     "react-rnd": "^10.5.3",
     "react-router-dom": "^7.14.0",
     "recharts": "^3.8.1",

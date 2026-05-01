@@ -1048,7 +1048,7 @@ export default function AdminPanel() {
                   <PlayCircle className="h-5 w-5" />
                   Link Video to Note
                 </CardTitle>
-                <CardDescription>Select a course and note to attach an unlisted YouTube video URL.</CardDescription>
+                <CardDescription>Select a course and note to attach a YouTube or Google Drive video URL.</CardDescription>
               </CardHeader>
               <form onSubmit={handleLinkVideo}>
                 <CardContent className="space-y-6">
@@ -1106,11 +1106,11 @@ export default function AdminPanel() {
                       </Select>
                     </div>
                     <div className="space-y-2">
-                      <Label>YouTube URL</Label>
+                      <Label>Video URL (YouTube or Google Drive)</Label>
                       <Input 
                         value={videoUrl} 
                         onChange={(e) => setVideoUrl(e.target.value)} 
-                        placeholder="e.g. https://youtu.be/..." 
+                        placeholder="YouTube link or Drive file link" 
                         required 
                       />
                     </div>

@@ -78,6 +78,26 @@ service cloud.firestore {
              data.authorId == request.auth.uid;
     }
 
+    function isValidTrack(data) {
+      return data.title is string && data.title.size() <= 200 &&
+             data.description is string && data.description.size() <= 2000 &&
+             data.category is string &&
+             data.difficulty in ['Beginner', 'Intermediate', 'Advanced', 'Elite'] &&
+             data.estimatedHours is number &&
+             data.enrolledCount is number &&
+             data.completedCount is number &&
+             (data.get('steps', null) == null || data.steps is list);
+    }
+
+    function isValidEnrollment(data) {
+      return data.userId == request.auth.uid &&
+             data.trackId is string &&
+             data.status in ['enrolled', 'completed'] &&
+             data.progress is number &&
+             data.enrolledAt is timestamp &&
+             (data.status == 'enrolled' || (data.get('completedAt', null) != null && data.completedAt is timestamp));
+    }
+
     // ===============================================================
     // 3. COLLECTIONS
     // ===============================================================
@@ -114,8 +134,7 @@ service cloud.firestore {
 
     match /questionSheets/{sheetId} {
       allow read, list: if isSignedIn();
-      allow create: if isAdmin() && isValidQuestionSheet(incoming());
-      allow update: if isAdmin() && isValidQuestionSheet(incoming());
+      allow create, update: if isAdmin();
       allow delete: if isAdmin();
     }
 
@@ -183,9 +202,32 @@ service cloud.firestore {
     }
 
     match /progress/{progressId} {
-      allow read, list: if isSignedIn() && resource.data.uid == request.auth.uid;
+      allow read, list: if isSignedIn() && (resource == null || resource.data.uid == request.auth.uid || isAdmin());
       allow create: if isSignedIn() && incoming().uid == request.auth.uid;
       allow update: if isSignedIn() && (resource.data.uid == request.auth.uid || isAdmin());
+      allow delete: if isAdmin();
+    }
+
+    // FLUX Ecosystem
+    match /flux_tracks/{trackId} {
+      allow get: if isSignedIn();
+      allow list: if isSignedIn();
+      allow create, delete: if isAdmin();
+      allow update: if (isAdmin() || (isSignedIn() && isValidTrack(incoming()))) && (
+        isAdmin() || 
+        incoming().diff(existing()).affectedKeys().hasOnly(['enrolledCount', 'completedCount'])
+      );
+    }
+
+    match /flux_enrollments/{enrollmentId} {
+      allow get: if isSignedIn() && (resource.data.userId == request.auth.uid || isAdmin());
+      allow list: if isSignedIn() && (resource.data.userId == request.auth.uid || isAdmin());
+      allow create: if isSignedIn() && isValidEnrollment(incoming());
+      allow update: if isSignedIn() && (isAdmin() || (resource.data.userId == request.auth.uid && isValidEnrollment(incoming()))) && (
+        isAdmin() || 
+        incoming().diff(existing()).affectedKeys().hasOnly(['status', 'completedAt', 'progress'])
+      );
+      allow delete: if isAdmin();
     }
   }
 }

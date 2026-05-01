@@ -295,6 +295,50 @@
         "updatedAt": { "type": "string", "format": "date-time" }
       },
       "required": ["uid", "targetId", "type", "percentage", "updatedAt"]
+    },
+    "FluxTrack": {
+      "title": "FluxTrack",
+      "description": "A learning track in the FLUX ecosystem",
+      "type": "object",
+      "properties": {
+        "title": { "type": "string" },
+        "description": { "type": "string" },
+        "category": { "type": "string" },
+        "icon": { "type": "string" },
+        "bannerImage": { "type": "string" },
+        "difficulty": { "type": "string", "enum": ["Beginner", "Intermediate", "Advanced", "Elite"] },
+        "enrolledCount": { "type": "number" },
+        "completedCount": { "type": "number" },
+        "estimatedHours": { "type": "number" },
+        "steps": { 
+          "type": "array", 
+          "items": { 
+            "type": "object",
+            "properties": {
+              "id": { "type": "string" },
+              "title": { "type": "string" },
+              "content": { "type": "string" }
+            }
+          } 
+        },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "authorId": { "type": "string" }
+      },
+      "required": ["title", "description", "category", "difficulty", "createdAt", "authorId"]
+    },
+    "FluxEnrollment": {
+      "title": "FluxEnrollment",
+      "description": "A user's enrollment in a FLUX track",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "trackId": { "type": "string" },
+        "status": { "type": "string", "enum": ["enrolled", "completed"] },
+        "enrolledAt": { "type": "string", "format": "date-time" },
+        "completedAt": { "type": "string", "format": "date-time" },
+        "progress": { "type": "number" }
+      },
+      "required": ["userId", "trackId", "status", "enrolledAt"]
     }
   },
   "firestore": {
@@ -377,6 +421,14 @@
     "/progress/{progressId}": {
       "schema": "UserProgress",
       "description": "Tracking user progress on notes and courses"
+    },
+    "/flux_tracks/{trackId}": {
+      "schema": "FluxTrack",
+      "description": "Learning tracks in the FLUX ecosystem"
+    },
+    "/flux_enrollments/{enrollmentId}": {
+      "schema": "FluxEnrollment",
+      "description": "User enrollments in FLUX tracks"
     }
   }
 }

@@ -1,0 +1,16 @@
+@import "tailwindcss";
+
+@theme {
+  --color-primary: #ec4899; /* Pink-500 for FLUX's distinctive identity */
+  --color-secondary: #8b5cf6; /* Violet-500 */
+}
+
+:root {
+  background-color: #0c0a09;
+  color: #fafaf9;
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+}

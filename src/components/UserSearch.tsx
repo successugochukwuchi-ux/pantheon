@@ -7,8 +7,9 @@ import { Search, User, Loader2, X, Copy, Check as CheckIcon } from 'lucide-react
 import { motion, AnimatePresence } from 'motion/react';
 import { useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
+import { cn } from '../lib/utils';
 
-export const UserSearch: React.FC = () => {
+export const UserSearch: React.FC<{ className?: string }> = ({ className }) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [results, setResults] = useState<UserProfile[]>([]);
   const [isSearching, setIsSearching] = useState(false);
@@ -87,7 +88,7 @@ export const UserSearch: React.FC = () => {
   };
 
   return (
-    <div className="relative w-full max-w-md" ref={searchRef}>
+    <div className={cn("relative w-full max-w-md", className)} ref={searchRef}>
       <form onSubmit={handleSearch} className="relative">
         <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
         <Input

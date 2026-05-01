@@ -7,6 +7,7 @@ import { ProtectedRoute } from './components/ProtectedRoute';
 import { Toaster } from './components/ui/sonner';
 import { MathJaxContext } from 'better-react-mathjax';
 import { TooltipProvider } from './components/ui/tooltip';
+import { FluxProvider } from './contexts/FluxContext';
 
 // Pages
 import Landing from './pages/Landing';
@@ -34,8 +35,12 @@ import PrivacyPolicy from './pages/PrivacyPolicy';
 import TermsOfService from './pages/TermsOfService';
 
 import { MaintenanceGuard } from './components/MaintenanceGuard';
-
 import Diagnostic from './pages/Diagnostic';
+import FluxDashboard from './pages/flux/FluxDashboard';
+import FluxAdmin from './pages/flux/FluxAdmin';
+import FluxBrowse from './pages/flux/FluxBrowse';
+import FluxTracks from './pages/flux/FluxTracks';
+import FluxPortfolio from './pages/flux/FluxPortfolio';
 
 export default function App() {
   console.log("[PANTHEON] App Rendering. URL:", window.location.pathname);
@@ -49,17 +54,12 @@ export default function App() {
 
     const handleCopy = (e: ClipboardEvent) => {
       const target = e.target as HTMLElement;
-      // Allow copying from inputs, textareas, or elements with 'allow-copy' class
       if (
         target.tagName === 'INPUT' || 
         target.tagName === 'TEXTAREA' || 
         target.closest('.allow-copy') ||
         (window.getSelection()?.toString() && target.closest('.allow-copy-container'))
       ) return;
-      
-      // If we are programmatically copying (like using navigator.clipboard), this event might still fire.
-      // But navigator.clipboard.writeText doesn't usually trigger 'copy' event on the document in a way that e.preventDefault() blocks it.
-      // However, if the user manually selects and tries to copy, we block it unless it's an allowed area.
       e.preventDefault();
     };
 
@@ -95,176 +95,232 @@ export default function App() {
   return (
     <ThemeProvider>
       <AuthProvider>
-        <MathJaxContext config={mathJaxConfig}>
-          <TooltipProvider>
-            <Router>
-            <MaintenanceGuard>
-            <Routes>
-              {/* Public Routes */}
-              <Route path="/" element={<Landing />} />
-              <Route path="/login" element={<Login />} />
-              <Route path="/register" element={<Register />} />
-              <Route path="/privacy" element={<PrivacyPolicy />} />
-              <Route path="/terms" element={<TermsOfService />} />
-              <Route path="/banned" element={<Banned />} />
-              <Route path="/diag" element={<Diagnostic />} />
+        <Router>
+          <FluxProvider>
+            <MathJaxContext config={mathJaxConfig}>
+              <TooltipProvider>
+                <MaintenanceGuard>
+                  <Toaster position="top-center" />
+                  <Routes>
+                    {/* Public Routes */}
+                    <Route path="/" element={<Landing />} />
+                    <Route path="/login" element={<Login />} />
+                    <Route path="/register" element={<Register />} />
+                    <Route path="/privacy" element={<PrivacyPolicy />} />
+                    <Route path="/terms" element={<TermsOfService />} />
+                    <Route path="/banned" element={<Banned />} />
+                    <Route path="/diag" element={<Diagnostic />} />
 
-              {/* Protected Routes (Require Auth) */}
-              <Route path="/activate" element={
-                <ProtectedRoute requireActivation={false}>
-                  <Layout>
-                    <Activate />
-                  </Layout>
-                </ProtectedRoute>
-              } />
+                    {/* FLUX Routes */}
+                    <Route path="/flux" element={
+                      <ProtectedRoute requireActivation={false}>
+                        <Layout>
+                          <FluxDashboard />
+                        </Layout>
+                      </ProtectedRoute>
+                    } />
 
-              {/* Protected Routes (Require Auth & Activation) */}
-              <Route path="/dashboard" element={
-                <ProtectedRoute>
-                  <Layout>
-                    <Dashboard />
-                  </Layout>
-                </ProtectedRoute>
-              } />
+                    <Route path="/flux/browse" element={
+                      <ProtectedRoute requireActivation={false}>
+                        <Layout>
+                          <FluxBrowse />
+                        </Layout>
+                      </ProtectedRoute>
+                    } />
+                    
+                    <Route path="/flux/clubs" element={
+                      <ProtectedRoute requireActivation={false}>
+                        <Layout>
+                          <div className="flex items-center justify-center min-h-[60vh] text-stone-500 font-bold uppercase tracking-widest italic">Clubs coming soon to FLUX</div>
+                        </Layout>
+                      </ProtectedRoute>
+                    } />
 
-              <Route path="/notes" element={
-                <ProtectedRoute>
-                  <Layout>
-                    <StudyMaterials />
-                  </Layout>
-                </ProtectedRoute>
-              } />
+                    <Route path="/flux/tracks" element={
+                      <ProtectedRoute requireActivation={false}>
+                        <Layout>
+                          <FluxTracks />
+                        </Layout>
+                      </ProtectedRoute>
+                    } />
 
-              <Route path="/past-questions" element={
-                <ProtectedRoute>
-                  <Layout>
-                    <PastQuestions />
-                  </Layout>
-                </ProtectedRoute>
-              } />
+                    <Route path="/flux/competitions" element={
+                      <ProtectedRoute requireActivation={false}>
+                        <Layout>
+                          <div className="flex items-center justify-center min-h-[60vh] text-stone-500 font-bold uppercase tracking-widest italic">Competitions coming soon to FLUX</div>
+                        </Layout>
+                      </ProtectedRoute>
+                    } />
 
-              <Route path="/punch" element={
-                <ProtectedRoute>
-                  <Layout>
-                    <StudyMaterials />
-                  </Layout>
-                </ProtectedRoute>
-              } />
+                    <Route path="/flux/portfolio" element={
+                      <ProtectedRoute requireActivation={false}>
+                        <Layout>
+                          <FluxPortfolio />
+                        </Layout>
+                      </ProtectedRoute>
+                    } />
 
-              <Route path="/cbt" element={
-                <ProtectedRoute>
-                  <Layout>
-                    <CBTPractice />
-                  </Layout>
-                </ProtectedRoute>
-              } />
+                    <Route path="/administrator/flux" element={
+                      <ProtectedRoute minLevel="3">
+                        <Layout>
+                          <FluxAdmin />
+                        </Layout>
+                      </ProtectedRoute>
+                    } />
 
-              <Route path="/cbt/results" element={
-                <ProtectedRoute>
-                  <Layout>
-                    <CBTResults />
-                  </Layout>
-                </ProtectedRoute>
-              } />
+                    {/* Protected Routes */}
+                    <Route path="/activate" element={
+                      <ProtectedRoute requireActivation={false}>
+                        <Layout>
+                          <Activate />
+                        </Layout>
+                      </ProtectedRoute>
+                    } />
 
-              <Route path="/referrals" element={
-                <ProtectedRoute>
-                  <Layout>
-                    <Referrals />
-                  </Layout>
-                </ProtectedRoute>
-              } />
+                    <Route path="/dashboard" element={
+                      <ProtectedRoute>
+                        <Layout>
+                          <Dashboard />
+                        </Layout>
+                      </ProtectedRoute>
+                    } />
 
-              <Route path="/news" element={
-                <ProtectedRoute>
-                  <Layout>
-                    <News />
-                  </Layout>
-                </ProtectedRoute>
-              } />
+                    <Route path="/notes" element={
+                      <ProtectedRoute>
+                        <Layout>
+                          <StudyMaterials />
+                        </Layout>
+                      </ProtectedRoute>
+                    } />
 
-              <Route path="/friends" element={
-                <ProtectedRoute requireActivation={false}>
-                  <Layout>
-                    <Friends />
-                  </Layout>
-                </ProtectedRoute>
-              } />
+                    <Route path="/past-questions" element={
+                      <ProtectedRoute>
+                        <Layout>
+                          <PastQuestions />
+                        </Layout>
+                      </ProtectedRoute>
+                    } />
 
-              <Route path="/video-library" element={
-                <ProtectedRoute>
-                  <Layout>
-                    <VideoLibrary />
-                  </Layout>
-                </ProtectedRoute>
-              } />
+                    <Route path="/punch" element={
+                      <ProtectedRoute>
+                        <Layout>
+                          <StudyMaterials />
+                        </Layout>
+                      </ProtectedRoute>
+                    } />
 
-              <Route path="/chat" element={
-                <ProtectedRoute requireActivation={false}>
-                  <Layout>
-                    <Chat />
-                  </Layout>
-                </ProtectedRoute>
-              } />
+                    <Route path="/cbt" element={
+                      <ProtectedRoute>
+                        <Layout>
+                          <CBTPractice />
+                        </Layout>
+                      </ProtectedRoute>
+                    } />
 
-              <Route path="/notifications" element={
-                <ProtectedRoute requireActivation={false}>
-                  <Layout>
-                    <Notifications />
-                  </Layout>
-                </ProtectedRoute>
-              } />
+                    <Route path="/cbt/results" element={
+                      <ProtectedRoute>
+                        <Layout>
+                          <CBTResults />
+                        </Layout>
+                      </ProtectedRoute>
+                    } />
 
-              <Route path="/discussions/:courseId" element={
-                <ProtectedRoute>
-                  <Layout>
-                    <CourseDiscussion />
-                  </Layout>
-                </ProtectedRoute>
-              } />
+                    <Route path="/referrals" element={
+                      <ProtectedRoute>
+                        <Layout>
+                          <Referrals />
+                        </Layout>
+                      </ProtectedRoute>
+                    } />
 
-              <Route path="/profile/:userId" element={
-                <ProtectedRoute requireActivation={false}>
-                  <Layout>
-                    <PublicProfile />
-                  </Layout>
-                </ProtectedRoute>
-              } />
+                    <Route path="/news" element={
+                      <ProtectedRoute>
+                        <Layout>
+                          <News />
+                        </Layout>
+                      </ProtectedRoute>
+                    } />
 
-              <Route path="/search" element={
-                <ProtectedRoute requireActivation={false}>
-                  <Layout>
-                    <SearchResults />
-                  </Layout>
-                </ProtectedRoute>
-              } />
+                    <Route path="/friends" element={
+                      <ProtectedRoute requireActivation={false}>
+                        <Layout>
+                          <Friends />
+                        </Layout>
+                      </ProtectedRoute>
+                    } />
 
-              <Route path="/settings" element={
-                <ProtectedRoute>
-                  <Layout>
-                    <Settings />
-                  </Layout>
-                </ProtectedRoute>
-              } />
+                    <Route path="/video-library" element={
+                      <ProtectedRoute>
+                        <Layout>
+                          <VideoLibrary />
+                        </Layout>
+                      </ProtectedRoute>
+                    } />
 
-              {/* Admin Routes */}
-              <Route path="/administrator/*" element={
-                <ProtectedRoute minLevel="2">
-                  <Layout>
-                    <AdminPanel />
-                  </Layout>
-                </ProtectedRoute>
-              } />
+                    <Route path="/chat" element={
+                      <ProtectedRoute requireActivation={false}>
+                        <Layout>
+                          <Chat />
+                        </Layout>
+                      </ProtectedRoute>
+                    } />
 
-              {/* Fallback */}
-              <Route path="*" element={<Navigate to="/" replace />} />
-            </Routes>
-          </MaintenanceGuard>
-          <Toaster position="top-center" />
+                    <Route path="/notifications" element={
+                      <ProtectedRoute requireActivation={false}>
+                        <Layout>
+                          <Notifications />
+                        </Layout>
+                      </ProtectedRoute>
+                    } />
+
+                    <Route path="/discussions/:courseId" element={
+                      <ProtectedRoute>
+                        <Layout>
+                          <CourseDiscussion />
+                        </Layout>
+                      </ProtectedRoute>
+                    } />
+
+                    <Route path="/profile/:userId" element={
+                      <ProtectedRoute requireActivation={false}>
+                        <Layout>
+                          <PublicProfile />
+                        </Layout>
+                      </ProtectedRoute>
+                    } />
+
+                    <Route path="/search" element={
+                      <ProtectedRoute requireActivation={false}>
+                        <Layout>
+                          <SearchResults />
+                        </Layout>
+                      </ProtectedRoute>
+                    } />
+
+                    <Route path="/settings" element={
+                      <ProtectedRoute>
+                        <Layout>
+                          <Settings />
+                        </Layout>
+                      </ProtectedRoute>
+                    } />
+
+                    <Route path="/administrator/*" element={
+                      <ProtectedRoute minLevel="2">
+                        <Layout>
+                          <AdminPanel />
+                        </Layout>
+                      </ProtectedRoute>
+                    } />
+
+                    <Route path="*" element={<Navigate to="/" replace />} />
+                  </Routes>
+                </MaintenanceGuard>
+              </TooltipProvider>
+            </MathJaxContext>
+          </FluxProvider>
         </Router>
-        </TooltipProvider>
-      </MathJaxContext>
-    </AuthProvider>
-  </ThemeProvider>
+      </AuthProvider>
+    </ThemeProvider>
   );
 }

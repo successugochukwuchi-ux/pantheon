@@ -10,6 +10,7 @@ import {
   Calculator, 
   History, 
   LayoutDashboard,
+  LayoutGrid,
   Shield,
   Users,
   Key,
@@ -20,9 +21,15 @@ import {
   CheckCircle,
   Award,
   PlayCircle,
-  Bell
+  Bell,
+  Zap,
+  Sparkles,
+  Trophy,
+  Compass,
+  Star
 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
+import { useFlux } from '../contexts/FluxContext';
 import { cn } from '../lib/utils';
 import { UserSearch } from './UserSearch';
 import { SystemStatus } from './SystemStatus';
@@ -36,6 +43,7 @@ interface SidebarProps {
 
 export const Sidebar: React.FC<SidebarProps> = ({ onClose }) => {
   const { profile, user } = useAuth();
+  const { isFluxMode, setFluxMode } = useFlux();
   const location = useLocation();
   const [unreadCount, setUnreadCount] = React.useState(0);
 
@@ -76,7 +84,9 @@ export const Sidebar: React.FC<SidebarProps> = ({ onClose }) => {
       specificUnread = snapshot.size;
       updateUnread(specificUnread, announcements);
     }, (error) => {
-      console.error("Sidebar notification listener error:", error);
+      if (auth.currentUser) {
+        console.error("Sidebar notification listener error:", error);
+      }
     });
 
     // Announcements listener
@@ -96,12 +106,17 @@ export const Sidebar: React.FC<SidebarProps> = ({ onClose }) => {
   }, [user, profile]);
 
   const isAtLeastLevel2 = profile?.level === '2' || profile?.level === '3' || profile?.level === '4';
-  const isLevel2 = profile?.level === '2';
   const isAdmin = profile?.level === '3' || profile?.level === '4';
-  const isLevel4 = profile?.level === '4';
   const isAdminPath = location.pathname.startsWith('/administrator');
 
-  const studentNavItems: { name: string, path: string, icon: any, badge?: number }[] = [
+  interface SidebarNavItem {
+    name: string;
+    path: string;
+    icon: any;
+    badge?: number;
+  }
+
+  const studentNavItems: SidebarNavItem[] = [
     { name: 'Dashboard', path: '/dashboard', icon: LayoutDashboard },
     { name: 'Notifications', path: '/notifications', icon: Bell, badge: unreadCount > 0 ? unreadCount : undefined },
     { name: 'Video Library', path: '/video-library', icon: PlayCircle },
@@ -116,13 +131,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ onClose }) => {
     { name: 'Referrals', path: '/referrals', icon: Users },
   ];
 
-  const level2AdminNavItems: { name: string, path: string, icon: any, badge?: number }[] = [
-    { name: 'Admin Overview', path: '/administrator', icon: Shield },
-    { name: 'Activation Pins', path: '/administrator/pins', icon: Key },
-    { name: 'Admin Manual', path: '/administrator/manual', icon: BookOpen },
-  ];
-
-  const adminNavItems: { name: string, path: string, icon: any, badge?: number }[] = [
+  const adminNavItems: SidebarNavItem[] = [
     { name: 'Admin Overview', path: '/administrator', icon: Shield },
     { name: 'User Management', path: '/administrator/users', icon: Users },
     { name: 'Verification Queue', path: '/administrator/verifications', icon: CheckCircle },
@@ -135,24 +144,68 @@ export const Sidebar: React.FC<SidebarProps> = ({ onClose }) => {
     { name: 'Admin Manual', path: '/administrator/manual', icon: BookOpen },
   ];
 
-  const level4NavItems: { name: string, path: string, icon: any, badge?: number }[] = [
+  const level2AdminNavItems: SidebarNavItem[] = [
+    { name: 'Admin Overview', path: '/administrator', icon: Shield },
+    { name: 'Activation Pins', path: '/administrator/pins', icon: Key },
+    { name: 'Admin Manual', path: '/administrator/manual', icon: BookOpen },
+  ];
+
+  const level4NavItems: SidebarNavItem[] = [
     ...adminNavItems,
     { name: 'System Control', path: '/administrator/system', icon: Settings },
     { name: 'System Reports', path: '/administrator/reports', icon: FileText },
   ];
 
-  const navItems = isAdminPath 
-    ? (profile?.level === '4' ? level4NavItems : (profile?.level === '3' ? adminNavItems : level2AdminNavItems)) 
-    : studentNavItems;
+  const fluxNavItems: SidebarNavItem[] = [
+    { name: 'FLUX Dashboard', path: '/flux', icon: Zap },
+    { name: 'Track Browser', path: '/flux/browse', icon: LayoutGrid },
+    { name: 'Skill Tracks', path: '/flux/tracks', icon: Compass },
+    { name: 'Elite Clubs', path: '/flux/clubs', icon: Users },
+    { name: 'Global Contests', path: '/flux/competitions', icon: Trophy },
+    { name: 'Smart Portfolio', path: '/flux/portfolio', icon: Star },
+  ];
+
+  const fluxAdminNavItems: SidebarNavItem[] = [
+    { name: 'FLUX Admin', path: '/administrator/flux', icon: Shield },
+    { name: 'Club Approval', path: '/administrator/flux/clubs', icon: Users },
+    { name: 'Contest Manager', path: '/administrator/flux/contests', icon: Trophy },
+  ];
+
+  const getNavItems = () => {
+    if (isFluxMode) {
+      if (isAdminPath) return fluxAdminNavItems;
+      return fluxNavItems;
+    }
+    
+    if (isAdminPath) {
+      if (profile?.level === '4') return level4NavItems;
+      if (profile?.level === '3') return adminNavItems;
+      return level2AdminNavItems;
+    }
+    
+    return studentNavItems;
+  };
+
+  const navItems = getNavItems();
 
   return (
-    <div className="flex flex-col h-full bg-sidebar text-sidebar-foreground border-r shadow-sm">
+    <div className={cn(
+      "flex flex-col h-full text-sidebar-foreground border-r shadow-sm transition-colors duration-500",
+      isFluxMode ? "bg-stone-950 border-pink-500/10" : "bg-sidebar"
+    )}>
       <div className="p-6">
-        <Link to="/" className="flex items-center gap-2 font-bold text-2xl tracking-tighter text-sidebar-primary">
-          PANTHEON
+        <Link 
+          to={isFluxMode ? "/flux" : "/"} 
+          className={cn(
+            "flex items-center gap-2 font-bold text-2xl tracking-tighter transition-colors",
+            isFluxMode ? "text-pink-500" : "text-sidebar-primary"
+          )}
+        >
+          {isFluxMode ? <Zap className="fill-pink-500" size={24} /> : null}
+          PANTHEON {isFluxMode && <span className="text-white">FLUX</span>}
         </Link>
         <p className="text-[10px] text-sidebar-foreground/60 font-medium uppercase tracking-widest mt-1">
-          {isAdminPath ? 'Admin Portal' : 'Student Portal'}
+          {isFluxMode ? 'EXTRACURRICULAR' : (isAdminPath ? 'Admin Portal' : 'Student Portal')}
         </p>
       </div>
 
@@ -160,14 +213,16 @@ export const Sidebar: React.FC<SidebarProps> = ({ onClose }) => {
         <UserSearch />
       </div>
 
-      <div className="px-6 mb-4">
-        <SystemStatus />
-      </div>
+      {!isFluxMode && (
+        <div className="px-6 mb-4">
+          <SystemStatus />
+        </div>
+      )}
 
-      <nav className="flex-1 px-4 space-y-1 overflow-y-auto">
+      <nav className="flex-1 px-4 space-y-1 overflow-y-auto custom-scrollbar">
         <div className="py-2">
           <p className="px-3 text-xs font-semibold text-sidebar-foreground/50 uppercase tracking-wider mb-2">
-            Main Menu
+            {isFluxMode ? 'Flux Ecosystem' : 'Main Menu'}
           </p>
           {navItems.map((item) => {
             const isActive = location.pathname === item.path;
@@ -177,14 +232,18 @@ export const Sidebar: React.FC<SidebarProps> = ({ onClose }) => {
                 to={item.path}
                 onClick={onClose}
                 className={cn(
-                  "flex items-center justify-between px-3 py-2.5 rounded-lg text-sm font-medium transition-all duration-200 group",
+                  "flex items-center justify-between px-3 py-2.5 rounded-lg text-sm font-medium transition-all duration-200 group mb-0.5",
                   isActive 
-                    ? "bg-sidebar-primary text-sidebar-primary-foreground shadow-md shadow-sidebar-primary/20" 
-                    : "text-sidebar-foreground/70 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+                    ? (isFluxMode 
+                        ? "bg-pink-500 text-white shadow-lg shadow-pink-500/20" 
+                        : "bg-sidebar-primary text-sidebar-primary-foreground shadow-md shadow-sidebar-primary/20") 
+                    : (isFluxMode 
+                        ? "text-stone-400 hover:bg-white/5 hover:text-white" 
+                        : "text-sidebar-foreground/70 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground")
                 )}
               >
                 <div className="flex items-center gap-3">
-                  <item.icon className={cn("h-4 w-4", isActive ? "text-sidebar-primary-foreground" : "text-sidebar-foreground/70 group-hover:text-sidebar-accent-foreground")} />
+                  <item.icon className={cn("h-4 w-4", isActive ? "" : (isFluxMode ? "text-stone-500 group-hover:text-pink-400" : "text-sidebar-foreground/70 group-hover:text-sidebar-accent-foreground"))} />
                   {item.name}
                 </div>
                 {item.badge && (
@@ -198,7 +257,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ onClose }) => {
           })}
         </div>
 
-        {isAtLeastLevel2 && !isAdminPath && (
+        {isAtLeastLevel2 && !isAdminPath && !isFluxMode && (
           <div className="py-4 border-t border-sidebar-border mt-4">
             <p className="px-3 text-xs font-bold text-primary uppercase tracking-widest mb-3">
               Privileged Access
@@ -215,20 +274,51 @@ export const Sidebar: React.FC<SidebarProps> = ({ onClose }) => {
         )}
       </nav>
 
-      <div className="p-4 border-t border-sidebar-border bg-sidebar-accent/20 space-y-2">
+      <div className={cn(
+        "p-4 border-t space-y-2",
+        isFluxMode ? "border-white/5 bg-stone-900/30" : "border-sidebar-border bg-sidebar-accent/20"
+      )}>
+        {isFluxMode ? (
+          <Link
+            to="/dashboard"
+            onClick={() => {
+              setFluxMode(false);
+              onClose?.();
+            }}
+            className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-bold text-stone-400 hover:bg-white/5 hover:text-white transition-all bg-white/5 border border-white/5"
+          >
+            <LayoutDashboard size={16} />
+            Back to Pantheon
+          </Link>
+        ) : (
+          <Link
+            to="/flux"
+            onClick={() => {
+              setFluxMode(true);
+              onClose?.();
+            }}
+            className="flex items-center gap-3 px-3 py-3 rounded-xl text-sm font-black bg-gradient-to-r from-pink-500 to-violet-500 text-white hover:opacity-90 transition-all shadow-lg shadow-pink-500/20 group"
+          >
+            <Zap size={16} className="fill-white group-hover:scale-110 transition-transform" />
+            PANTHEON FLUX
+            <Sparkles size={14} className="ml-auto opacity-50" />
+          </Link>
+        )}
+        
         <Link
           to="/settings"
           onClick={onClose}
           className={cn(
             "flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all",
             location.pathname === '/settings' 
-              ? "bg-sidebar-primary/10 text-sidebar-primary" 
-              : "text-sidebar-foreground/70 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+              ? (isFluxMode ? "bg-white/10 text-white" : "bg-sidebar-primary/10 text-sidebar-primary") 
+              : (isFluxMode ? "text-stone-400 hover:bg-white/5 hover:text-white" : "text-sidebar-foreground/70 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground")
           )}
         >
           <Settings className="h-4 w-4" />
           Settings
         </Link>
+        
         <button
           onClick={async () => {
             const { signOut } = await import('firebase/auth');
