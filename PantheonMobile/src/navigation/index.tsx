@@ -107,8 +107,8 @@ const Navigation = () => {
             <Stack.Screen name="CBTResults" component={CBTResultsScreen} options={{ headerShown: false }} />
             <Stack.Screen name="DirectChat" component={DirectChatScreen} options={({ route }: any) => ({ headerShown: true, title: route.params.name })} />
             <Stack.Screen name="CourseDiscussion" component={CourseDiscussionScreen} options={{ headerShown: true, title: 'Study Group' }} />
-            <Stack.Screen name="PastQuestions" component={StudyMaterialsScreen} />
-            <Stack.Screen name="Punch" component={StudyMaterialsScreen} />
+            <Stack.Screen name="PastQuestions" component={StudyMaterialsScreen} initialParams={{ mode: 'past_questions' }} options={{ headerShown: true, title: 'Past Questions' }} />
+            <Stack.Screen name="Punch" component={StudyMaterialsScreen} initialParams={{ mode: 'punch' }} options={{ headerShown: true, title: 'Punch' }} />
           </>
         )}
       </Stack.Navigator>

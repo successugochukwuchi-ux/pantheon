@@ -5,26 +5,40 @@ import { db } from '../services/firebase';
 import { theme } from '../theme';
 import { QuestionSheet } from '../types';
 import { ChevronRight, ClipboardList } from 'lucide-react-native';
+import ReactNativeAsyncStorage from '@react-native-async-storage/async-storage';
 
-export const CBTScreen = ({ navigation }: any) => {
+export const CBTScreen = ({ route, navigation }: any) => {
+  const { courseId } = route.params || {};
   const [sheets, setSheets] = useState<QuestionSheet[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     const fetchSheets = async () => {
       try {
-        const q = query(collection(db, 'questionSheets'), where('isAvailable', '==', true));
+        let q = query(collection(db, 'questionSheets'), where('isAvailable', '==', true));
+        if (courseId) {
+          q = query(collection(db, 'questionSheets'), where('isAvailable', '==', true), where('courseId', '==', courseId));
+        }
         const querySnapshot = await getDocs(q);
         const sheetItems = querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as QuestionSheet));
         setSheets(sheetItems);
       } catch (error) {
-        console.error('Error fetching sheets:', error);
+        console.error('Error fetching sheets from Firestore, trying offline storage:', error);
+        const storedSheets = await ReactNativeAsyncStorage.getItem('offline_sheets');
+        if (storedSheets) {
+          const allSheets = JSON.parse(storedSheets) as QuestionSheet[];
+          let filtered = allSheets.filter(s => s.isAvailable);
+          if (courseId) {
+            filtered = filtered.filter(s => s.courseId === courseId);
+          }
+          setSheets(filtered);
+        }
       } finally {
         setLoading(false);
       }
     };
     fetchSheets();
-  }, []);
+  }, [courseId]);
 
   if (loading) {
     return (

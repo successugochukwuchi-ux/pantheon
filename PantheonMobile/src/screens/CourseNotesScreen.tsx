@@ -5,6 +5,7 @@ import { db } from '../services/firebase';
 import { theme } from '../theme';
 import { Note } from '../types';
 import { ChevronRight, FileText } from 'lucide-react-native';
+import ReactNativeAsyncStorage from '@react-native-async-storage/async-storage';
 
 export const CourseNotesScreen = ({ route, navigation }: any) => {
   const { courseId } = route.params;
@@ -19,7 +20,12 @@ export const CourseNotesScreen = ({ route, navigation }: any) => {
         const noteItems = querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Note));
         setNotes(noteItems);
       } catch (error) {
-        console.error('Error fetching notes:', error);
+        console.error('Error fetching notes from Firestore, trying offline storage:', error);
+        const storedNotes = await ReactNativeAsyncStorage.getItem('offline_notes');
+        if (storedNotes) {
+          const allNotes = JSON.parse(storedNotes) as Note[];
+          setNotes(allNotes.filter(n => n.courseId === courseId));
+        }
       } finally {
         setLoading(false);
       }

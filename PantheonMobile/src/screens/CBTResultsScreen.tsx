@@ -4,8 +4,8 @@ import { theme } from '../theme';
 import { CheckCircle2, Clock, Trophy } from 'lucide-react-native';
 
 export const CBTResultsScreen = ({ route, navigation }: any) => {
-  const { score, total, timeSpent } = route.params;
-  const percentage = Math.round((score / total) * 100);
+  const { score = 0, total = 0, timeSpent = 0 } = route.params || {};
+  const percentage = total > 0 ? Math.round((score / total) * 100) : 0;
 
   const formatTime = (seconds: number) => {
     const mins = Math.floor(seconds / 60);

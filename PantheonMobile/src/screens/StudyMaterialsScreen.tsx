@@ -5,8 +5,10 @@ import { db } from '../services/firebase';
 import { theme } from '../theme';
 import { Course } from '../types';
 import { ChevronRight } from 'lucide-react-native';
+import ReactNativeAsyncStorage from '@react-native-async-storage/async-storage';
 
-export const StudyMaterialsScreen = ({ navigation }: any) => {
+export const StudyMaterialsScreen = ({ route, navigation }: any) => {
+  const mode = route?.params?.mode || 'study';
   const [courses, setCourses] = useState<Course[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -18,7 +20,11 @@ export const StudyMaterialsScreen = ({ navigation }: any) => {
         const courseItems = querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Course));
         setCourses(courseItems);
       } catch (error) {
-        console.error('Error fetching courses:', error);
+        console.error('Error fetching courses from Firestore, trying offline storage:', error);
+        const storedCourses = await ReactNativeAsyncStorage.getItem('offline_courses');
+        if (storedCourses) {
+          setCourses(JSON.parse(storedCourses));
+        }
       } finally {
         setLoading(false);
       }
@@ -43,7 +49,13 @@ export const StudyMaterialsScreen = ({ navigation }: any) => {
           <View style={styles.courseItemContainer}>
             <TouchableOpacity
               style={styles.courseItem}
-              onPress={() => navigation.navigate('CourseNotes', { courseId: item.id, courseCode: item.code })}
+              onPress={() => {
+                if (mode === 'past_questions') {
+                  navigation.navigate('CBT', { courseId: item.id, courseCode: item.code });
+                } else {
+                  navigation.navigate('CourseNotes', { courseId: item.id, courseCode: item.code, mode });
+                }
+              }}
             >
               <View>
                 <Text style={styles.courseCode}>{item.code}</Text>
@@ -51,12 +63,14 @@ export const StudyMaterialsScreen = ({ navigation }: any) => {
               </View>
               <ChevronRight size={20} color={theme.colors.mutedForeground} />
             </TouchableOpacity>
-            <TouchableOpacity
-              style={styles.discussionButton}
-              onPress={() => navigation.navigate('CourseDiscussion', { courseId: item.id, courseCode: item.code })}
-            >
-              <Text style={styles.discussionButtonText}>Join Discussion</Text>
-            </TouchableOpacity>
+            {mode === 'study' && (
+              <TouchableOpacity
+                style={styles.discussionButton}
+                onPress={() => navigation.navigate('CourseDiscussion', { courseId: item.id, courseCode: item.code })}
+              >
+                <Text style={styles.discussionButtonText}>Join Discussion</Text>
+              </TouchableOpacity>
+            )}
           </View>
         )}
         ListEmptyComponent={<Text style={styles.emptyText}>No courses found.</Text>}

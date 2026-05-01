@@ -5,6 +5,7 @@ import { db } from '../services/firebase';
 import { useAuth } from '../context/AuthContext';
 import { theme } from '../theme';
 import { Question } from '../types';
+import ReactNativeAsyncStorage from '@react-native-async-storage/async-storage';
 
 export const CBTQuizScreen = ({ route, navigation }: any) => {
   const { sheetId } = route.params;
@@ -23,7 +24,12 @@ export const CBTQuizScreen = ({ route, navigation }: any) => {
         const questionItems = querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Question));
         setQuestions(questionItems);
       } catch (error) {
-        console.error('Error fetching questions:', error);
+        console.error('Error fetching questions from Firestore, trying offline storage:', error);
+        const storedQuestions = await ReactNativeAsyncStorage.getItem('offline_questions');
+        if (storedQuestions) {
+          const allQuestions = JSON.parse(storedQuestions) as Question[];
+          setQuestions(allQuestions.filter(q => q.sheetId === sheetId).sort((a, b) => a.order - b.order));
+        }
       } finally {
         setLoading(false);
       }

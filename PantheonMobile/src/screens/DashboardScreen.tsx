@@ -54,7 +54,7 @@ export const DashboardScreen = ({ navigation }: any) => {
 
       <View style={styles.statsContainer}>
         <View style={styles.statCard}>
-          <Text style={styles.statValue}>{profile?.level || '1'}</Text>
+          <Text style={styles.statValue}>{profile?.academicLevel || '100'}</Text>
           <Text style={styles.statLabel}>Level</Text>
         </View>
         <View style={styles.statCard}>

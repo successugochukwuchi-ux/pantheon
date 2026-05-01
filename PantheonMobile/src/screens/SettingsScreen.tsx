@@ -43,8 +43,13 @@ export const SettingsScreen = () => {
         />
         <SettingItem
           icon={<Shield size={20} color={theme.colors.mutedForeground} />}
-          label="Account Level"
-          value={profile?.level}
+          label="Permission Level"
+          value={`Level ${profile?.level || '1'}`}
+        />
+        <SettingItem
+          icon={<User size={20} color={theme.colors.mutedForeground} />}
+          label="Academic Level"
+          value={`${profile?.academicLevel || '100'} Level`}
         />
       </View>
 

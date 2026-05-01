@@ -35,8 +35,18 @@ jest.mock('react-native-gesture-handler', () => {
     DrawerLayoutAndroid: ({ children }: any) => children,
     Switch: ({ children }: any) => children,
     RefreshControl: ({ children }: any) => children,
-    WebView: ({ children }: any) => children,
   };
+});
+
+jest.mock('react-native-webview', () => {
+  const React = require('react');
+  const { View } = require('react-native');
+  class WebView extends React.Component {
+    render() {
+      return <View {...this.props} />;
+    }
+  }
+  return { WebView };
 });
 
 jest.mock('react-native-reanimated', () => {
