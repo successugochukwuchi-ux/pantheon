@@ -70,10 +70,22 @@ export const CBTQuizScreen = ({ route, navigation }: any) => {
           completedAt: new Date().toISOString(),
         });
       }
-      navigation.replace('CBTResults', { score, total: questions.length, timeSpent });
+      navigation.replace('CBTResults', {
+        score,
+        total: questions.length,
+        timeSpent,
+        questions,
+        selectedAnswers
+      });
     } catch (error) {
       console.error('Error saving session:', error);
-      navigation.replace('CBTResults', { score, total: questions.length, timeSpent });
+      navigation.replace('CBTResults', {
+        score,
+        total: questions.length,
+        timeSpent,
+        questions,
+        selectedAnswers
+      });
     }
   };
 
@@ -100,12 +112,18 @@ export const CBTQuizScreen = ({ route, navigation }: any) => {
   }, [currentQuestion]);
 
   const renderTextWithMath = (text: string) => {
-    const parts = text.split(/(\$.*?\$)/g);
+    // Split by $...$, $$...$$, \[...\] and \(...\)
+    const parts = text.split(/(\$\$.*?\$\$|\$.*?\$|\\\[.*?\\\]|\\\(.*?\\\))/g);
     return (
       <Text style={[styles.questionText, { color: colors.foreground }]}>
         {parts.map((part: string, index: number) => {
-          if (part.startsWith('$') && part.endsWith('$')) {
-            return <MathView key={index} math={part.slice(1, -1)} inline color={colors.foreground} />;
+          if ((part.startsWith('$$') && part.endsWith('$$')) || (part.startsWith('\\[') && part.endsWith('\\]'))) {
+            const math = part.startsWith('$$') ? part.slice(2, -2) : part.slice(2, -2);
+            return <MathView key={index} math={math} inline={false} color={colors.foreground} />;
+          }
+          if ((part.startsWith('$') && part.endsWith('$')) || (part.startsWith('\\(') && part.endsWith('\\)'))) {
+            const math = part.startsWith('$') ? part.slice(1, -1) : part.slice(2, -2);
+            return <MathView key={index} math={math} inline color={colors.foreground} />;
           }
           return part;
         })}
@@ -122,34 +140,42 @@ export const CBTQuizScreen = ({ route, navigation }: any) => {
       <ScrollView style={styles.questionContainer}>
         {renderTextWithMath(currentQuestion.text)}
 
-        {allOptions.map((option, index) => (
-          <TouchableOpacity
-            key={index}
-            style={[
-              styles.option,
-              { borderColor: colors.border, backgroundColor: colors.card },
-              selectedAnswers[currentIndex] === option && { borderColor: colors.primary, backgroundColor: colors.primary + '1A' },
-            ]}
-            onPress={() => handleSelect(option)}
-          >
-             {option.includes('$') ? (
-                 <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                    {option.split(/(\$.*?\$)/g).map((part, i) => {
-                        if (part.startsWith('$') && part.endsWith('$')) {
-                            return <MathView key={i} math={part.slice(1, -1)} inline color={colors.foreground} />;
-                        }
-                        return <Text key={i} style={[styles.optionText, { color: colors.foreground }]}>{part}</Text>;
-                    })}
-                 </View>
-             ) : (
-                <Text style={[
-                styles.optionText,
-                { color: colors.foreground },
-                selectedAnswers[currentIndex] === option && { color: colors.primary, fontWeight: 'bold' },
-                ]}>{option}</Text>
-             )}
-          </TouchableOpacity>
-        ))}
+        {allOptions.map((option, index) => {
+          const hasMath = option.includes('$') || option.includes('\\(') || option.includes('\\[');
+          return (
+            <TouchableOpacity
+              key={index}
+              style={[
+                styles.option,
+                { borderColor: colors.border, backgroundColor: colors.card },
+                selectedAnswers[currentIndex] === option && { borderColor: colors.primary, backgroundColor: colors.primary + '1A' },
+              ]}
+              onPress={() => handleSelect(option)}
+            >
+               {hasMath ? (
+                   <View style={{ flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap' }}>
+                      {option.split(/(\$\$.*?\$\$|\$.*?\$|\\\[.*?\\\]|\\\(.*?\\\))/g).map((part, i) => {
+                          if ((part.startsWith('$$') && part.endsWith('$$')) || (part.startsWith('\\[') && part.endsWith('\\]'))) {
+                              const math = part.startsWith('$$') ? part.slice(2, -2) : part.slice(2, -2);
+                              return <MathView key={i} math={math} inline={false} color={colors.foreground} />;
+                          }
+                          if ((part.startsWith('$') && part.endsWith('$')) || (part.startsWith('\\(') && part.endsWith('\\)'))) {
+                              const math = part.startsWith('$') ? part.slice(1, -1) : part.slice(2, -2);
+                              return <MathView key={i} math={math} inline color={colors.foreground} />;
+                          }
+                          return <Text key={i} style={[styles.optionText, { color: colors.foreground }]}>{part}</Text>;
+                      })}
+                   </View>
+               ) : (
+                  <Text style={[
+                  styles.optionText,
+                  { color: colors.foreground },
+                  selectedAnswers[currentIndex] === option && { color: colors.primary, fontWeight: 'bold' },
+                  ]}>{option}</Text>
+               )}
+            </TouchableOpacity>
+          );
+        })}
       </ScrollView>
 
       <View style={[styles.footer, { borderTopColor: colors.border }]}>

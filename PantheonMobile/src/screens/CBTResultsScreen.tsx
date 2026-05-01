@@ -1,14 +1,33 @@
 import React from 'react';
-import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, ScrollView } from 'react-native';
 import { useTheme } from '../context/ThemeContext';
-import { CheckCircle2, Clock, Trophy } from 'lucide-react-native';
+import { CheckCircle2, Clock, Trophy, XCircle, HelpCircle } from 'lucide-react-native';
+import { MathView } from '../components/MathView';
 
 export const CBTResultsScreen = ({ route, navigation }: any) => {
   const { colors } = useTheme();
-  const score = route.params?.score || 0;
-  const total = route.params?.total || 1;
-  const timeSpent = route.params?.timeSpent || 0;
+  const { score = 0, total = 1, timeSpent = 0, questions = [], selectedAnswers = {} } = route.params || {};
   const percentage = Math.round((score / Math.max(1, total)) * 100);
+
+  const renderTextWithMath = (text: string) => {
+    if (!text) return null;
+    const parts = text.split(/(\$\$.*?\$\$|\$.*?\$|\\\[.*?\\\]|\\\(.*?\\\))/g);
+    return (
+      <Text style={{ fontSize: 16, color: colors.foreground }}>
+        {parts.map((part: string, index: number) => {
+          if ((part.startsWith('$$') && part.endsWith('$$')) || (part.startsWith('\\[') && part.endsWith('\\]'))) {
+            const math = part.startsWith('$$') ? part.slice(2, -2) : part.slice(2, -2);
+            return <MathView key={index} math={math} inline={false} color={colors.foreground} />;
+          }
+          if ((part.startsWith('$') && part.endsWith('$')) || (part.startsWith('\\(') && part.endsWith('\\)'))) {
+            const math = part.startsWith('$') ? part.slice(1, -1) : part.slice(2, -2);
+            return <MathView key={index} math={math} inline color={colors.foreground} />;
+          }
+          return part;
+        })}
+      </Text>
+    );
+  };
 
   const formatTime = (seconds: number) => {
     const mins = Math.floor(seconds / 60);
@@ -17,9 +36,9 @@ export const CBTResultsScreen = ({ route, navigation }: any) => {
   };
 
   return (
-    <View style={[styles.container, { backgroundColor: colors.background }]}>
+    <ScrollView style={[styles.container, { backgroundColor: colors.background }]}>
       <View style={styles.content}>
-        <Trophy size={80} color={colors.primary} style={styles.icon} />
+        <Trophy size={60} color={colors.primary} style={styles.icon} />
         <Text style={[styles.title, { color: colors.foreground }]}>CBT Completed!</Text>
         <Text style={[styles.subtitle, { color: colors.mutedForeground }]}>Great job on finishing your practice session.</Text>
 
@@ -49,25 +68,72 @@ export const CBTResultsScreen = ({ route, navigation }: any) => {
           </View>
         </View>
 
+        {questions.length > 0 && (
+          <View style={styles.reviewSection}>
+            <View style={styles.reviewHeader}>
+              <HelpCircle size={24} color={colors.foreground} />
+              <Text style={[styles.reviewTitle, { color: colors.foreground }]}>Detailed Review</Text>
+            </View>
+
+            {questions.map((q: any, i: number) => {
+              const isCorrect = selectedAnswers[i] === q.correctAnswer;
+              return (
+                <View key={i} style={[styles.questionCard, { backgroundColor: colors.card, borderColor: isCorrect ? '#10B98133' : '#EF444433' }]}>
+                  <View style={styles.questionHeader}>
+                    <Text style={[styles.questionIndex, { color: colors.mutedForeground }]}>{i + 1}.</Text>
+                    <View style={{ flex: 1 }}>{renderTextWithMath(q.text)}</View>
+                    {isCorrect ? (
+                      <CheckCircle2 size={20} color="#10B981" />
+                    ) : (
+                      <XCircle size={20} color="#EF4444" />
+                    )}
+                  </View>
+
+                  <View style={styles.answerRow}>
+                    <Text style={[styles.answerLabel, { color: colors.mutedForeground }]}>Your Choice:</Text>
+                    <View style={{ flex: 1 }}>{renderTextWithMath(selectedAnswers[i] || 'Not answered')}</View>
+                  </View>
+
+                  {!isCorrect && (
+                    <View style={styles.answerRow}>
+                      <Text style={[styles.answerLabel, { color: colors.mutedForeground }]}>Correct:</Text>
+                      <View style={{ flex: 1 }}>{renderTextWithMath(q.correctAnswer)}</View>
+                    </View>
+                  )}
+
+                  {q.explanation && (
+                    <View style={[styles.explanationBox, { backgroundColor: colors.muted }]}>
+                      <Text style={[styles.explanationText, { color: colors.foreground }]}>
+                        <Text style={{ fontWeight: 'bold' }}>Explanation: </Text>
+                        {q.explanation}
+                      </Text>
+                    </View>
+                  )}
+                </View>
+              );
+            })}
+          </View>
+        )}
+
         <TouchableOpacity
           style={[styles.primaryButton, { backgroundColor: colors.primary }]}
           onPress={() => navigation.navigate('Dashboard')}
         >
           <Text style={[styles.primaryButtonText, { color: colors.primaryForeground }]}>Back to Dashboard</Text>
         </TouchableOpacity>
+
+        <View style={{ height: 40 }} />
       </View>
-    </View>
+    </ScrollView>
   );
 };
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    padding: 32,
   },
   content: {
-    flex: 1,
-    justifyContent: 'center',
+    padding: 24,
     alignItems: 'center',
   },
   icon: {
@@ -77,17 +143,68 @@ const styles = StyleSheet.create({
     fontSize: 28,
     fontWeight: 'bold',
     marginBottom: 8,
+    textAlign: 'center',
   },
   subtitle: {
     fontSize: 16,
     textAlign: 'center',
-    marginBottom: 64,
+    marginBottom: 32,
   },
   statsContainer: {
     width: '100%',
     borderRadius: 16,
     padding: 24,
-    marginBottom: 64,
+    marginBottom: 32,
+  },
+  reviewSection: {
+    width: '100%',
+    marginBottom: 32,
+  },
+  reviewHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 16,
+  },
+  reviewTitle: {
+    fontSize: 20,
+    fontWeight: 'bold',
+  },
+  questionCard: {
+    padding: 16,
+    borderRadius: 12,
+    borderWidth: 1,
+    marginBottom: 16,
+  },
+  questionHeader: {
+    flexDirection: 'row',
+    gap: 8,
+    marginBottom: 12,
+  },
+  questionIndex: {
+    fontWeight: 'bold',
+  },
+  answerRow: {
+    flexDirection: 'row',
+    gap: 8,
+    marginBottom: 8,
+    paddingLeft: 24,
+  },
+  answerLabel: {
+    fontSize: 14,
+    fontWeight: '600',
+    width: 90,
+  },
+  explanationBox: {
+    marginTop: 12,
+    padding: 12,
+    borderRadius: 8,
+    borderLeftWidth: 3,
+    borderLeftColor: '#3B82F6',
+  },
+  explanationText: {
+    fontSize: 14,
+    fontStyle: 'italic',
   },
   statRow: {
     flexDirection: 'row',

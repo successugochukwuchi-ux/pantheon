@@ -9,7 +9,9 @@ interface MathViewProps {
 }
 
 export const MathView: React.FC<MathViewProps> = ({ math, inline = false, color = '#000' }) => {
-  const { width } = useWindowDimensions();
+  const { width: windowWidth } = useWindowDimensions();
+  const [height, setHeight] = React.useState(inline ? 24 : 60);
+  const [width, setWidth] = React.useState(inline ? 100 : windowWidth - 64);
 
   const html = `
     <!DOCTYPE html>
@@ -21,15 +23,19 @@ export const MathView: React.FC<MathViewProps> = ({ math, inline = false, color 
         <style>
           body {
             margin: 0;
-            padding: ${inline ? '0' : '8px 0'};
-            display: ${inline ? 'inline-block' : 'flex'};
-            justify-content: center;
+            padding: 0;
+            display: ${inline ? 'inline-block' : 'block'};
             background-color: transparent;
             color: ${color};
             font-size: 16px;
           }
           #math {
-            white-space: nowrap;
+            display: ${inline ? 'inline-block' : 'flex'};
+            justify-content: center;
+            padding: ${inline ? '0' : '8px 0'};
+          }
+          .katex-display {
+            margin: 0;
           }
         </style>
       </head>
@@ -38,26 +44,48 @@ export const MathView: React.FC<MathViewProps> = ({ math, inline = false, color 
         <script>
           const math = ${JSON.stringify(math)};
           const displayMode = ${!inline};
-          katex.render(math, document.getElementById('math'), {
-            displayMode: displayMode,
-            throwOnError: false,
-            errorColor: "#ef4444",
-            strict: false
-          });
+          const mathEl = document.getElementById('math');
+          try {
+            katex.render(math, mathEl, {
+              displayMode: displayMode,
+              throwOnError: false,
+              errorColor: "#ef4444",
+              strict: false
+            });
+          } catch (e) {
+            mathEl.textContent = math;
+            mathEl.style.color = '#ef4444';
+          }
+
+          function sendDimensions() {
+            const rect = mathEl.getBoundingClientRect();
+            window.ReactNativeWebView.postMessage(JSON.stringify({
+              height: rect.height,
+              width: rect.width
+            }));
+          }
+
+          window.onload = sendDimensions;
+          // Also send after a short delay for fonts
+          setTimeout(sendDimensions, 500);
         </script>
       </body>
     </html>
   `;
 
   return (
-    <View style={[styles.container, !inline && styles.blockContainer]}>
+    <View style={[styles.container, !inline && styles.blockContainer, { width: inline ? width : '100%', height }]}>
       <WebView
         scrollEnabled={false}
         source={{ html }}
-        style={[
-          styles.webview,
-          { width: inline ? 100 : width - 64, height: inline ? 24 : 60 }
-        ]}
+        onMessage={(event) => {
+          try {
+            const data = JSON.parse(event.nativeEvent.data);
+            if (data.height) setHeight(data.height + 2);
+            if (data.width && inline) setWidth(data.width + 4);
+          } catch (e) {}
+        }}
+        style={styles.webview}
         containerStyle={{ backgroundColor: 'transparent' }}
       />
     </View>

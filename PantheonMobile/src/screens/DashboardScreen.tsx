@@ -50,7 +50,7 @@ export const DashboardScreen = ({ navigation }: any) => {
 
       <View style={[styles.statsContainer, { backgroundColor: colors.muted }]}>
         <View style={[styles.statCard, { borderRightColor: colors.border }]}>
-          <Text style={[styles.statValue, { color: colors.primary }]}>{profile?.level || '1'}</Text>
+          <Text style={[styles.statValue, { color: colors.primary }]}>{profile?.academicLevel || '100'}</Text>
           <Text style={[styles.statLabel, { color: colors.mutedForeground }]}>Level</Text>
         </View>
         <View style={[styles.statCard, { borderRightColor: colors.border }]}>

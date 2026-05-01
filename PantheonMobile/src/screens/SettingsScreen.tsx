@@ -161,6 +161,13 @@ export const SettingsScreen = () => {
 
           <View style={[styles.idRow, { marginTop: 16 }]}>
             <View>
+              <Text style={[styles.idLabel, { color: colors.mutedForeground }]}>PERMISSION LEVEL</Text>
+              <Text style={[styles.idValue, { color: colors.foreground }]}>{profile?.level || '1'}</Text>
+            </View>
+          </View>
+
+          <View style={[styles.idRow, { marginTop: 16 }]}>
+            <View>
               <Text style={[styles.idLabel, { color: colors.mutedForeground }]}>FIREBASE UID</Text>
               <Text selectable style={[styles.idValue, { color: colors.foreground, fontSize: 12 }]}>{user?.uid}</Text>
             </View>

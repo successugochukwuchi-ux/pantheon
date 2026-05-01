@@ -5,8 +5,9 @@ import { collection, onSnapshot, query, where } from 'firebase/firestore';
 import { db } from '../services/firebase';
 import { useAuth } from '../context/AuthContext';
 import { useTheme } from '../context/ThemeContext';
-import { PlayCircle, GraduationCap, ChevronRight, BookOpen } from 'lucide-react-native';
-import { Note, Course } from '../types';
+import { PlayCircle, GraduationCap, ChevronRight, BookOpen, CheckCircle2 } from 'lucide-react-native';
+import { Note, Course, VideoQuestion } from '../types';
+import { MathView } from '../components/MathView';
 
 export const VideoLibraryScreen = ({ navigation }: any) => {
   const { colors } = useTheme();
@@ -14,6 +15,9 @@ export const VideoLibraryScreen = ({ navigation }: any) => {
   const [selectedCourseId, setSelectedCourseId] = useState<string>('');
   const [notes, setNotes] = useState<Note[]>([]);
   const [selectedNote, setSelectedNote] = useState<Note | null>(null);
+  const [questions, setQuestions] = useState<VideoQuestion[]>([]);
+  const [userAnswers, setUserAnswers] = useState<Record<string, string>>({});
+  const [showResults, setShowResults] = useState(false);
   const { width } = useWindowDimensions();
 
   useEffect(() => {
@@ -36,10 +40,48 @@ export const VideoLibraryScreen = ({ navigation }: any) => {
     return () => unsub();
   }, [selectedCourseId]);
 
+  useEffect(() => {
+    if (!selectedNote) {
+      setQuestions([]);
+      return;
+    }
+    const q = query(collection(db, `notes/${selectedNote.id}/videoQuestions`));
+    const unsub = onSnapshot(q, (snapshot) => {
+      setQuestions(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as VideoQuestion)));
+    });
+    return () => unsub();
+  }, [selectedNote]);
+
+  const handleNoteSelect = (note: Note) => {
+    setSelectedNote(note);
+    setUserAnswers({});
+    setShowResults(false);
+  };
+
   const getYouTubeId = (url: string) => {
     const regExp = /^.*(youtu.be\/|v\/|u\/\w\/|embed\/|watch\?v=|&v=)([^#&?]*).*/;
     const match = url.match(regExp);
     return (match && match[2].length === 11) ? match[2] : null;
+  };
+
+  const renderTextWithMath = (text: string) => {
+    if (!text) return null;
+    const parts = text.split(/(\$\$.*?\$\$|\$.*?\$|\\\[.*?\\\]|\\\(.*?\\\))/g);
+    return (
+      <Text style={{ fontSize: 16, color: colors.foreground }}>
+        {parts.map((part: string, index: number) => {
+          if ((part.startsWith('$$') && part.endsWith('$$')) || (part.startsWith('\\[') && part.endsWith('\\]'))) {
+            const math = part.startsWith('$$') ? part.slice(2, -2) : part.slice(2, -2);
+            return <MathView key={index} math={math} inline={false} color={colors.foreground} />;
+          }
+          if ((part.startsWith('$') && part.endsWith('$')) || (part.startsWith('\\(') && part.endsWith('\\)'))) {
+            const math = part.startsWith('$') ? part.slice(1, -1) : part.slice(2, -2);
+            return <MathView key={index} math={math} inline color={colors.foreground} />;
+          }
+          return part;
+        })}
+      </Text>
+    );
   };
 
   const renderVideo = () => {
@@ -100,6 +142,64 @@ export const VideoLibraryScreen = ({ navigation }: any) => {
                     {courses.find(c => c.id === selectedNote.courseId)?.code}
                   </Text>
                 </View>
+
+                {questions.length > 0 && (
+                  <View style={styles.quizSection}>
+                    <Text style={[styles.quizTitle, { color: colors.foreground }]}>Concept Check Quiz</Text>
+                    {questions.map((q, idx) => {
+                      const options = [...q.incorrectAnswers, q.correctAnswer].sort();
+                      return (
+                        <View key={q.id} style={[styles.quizCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
+                          <Text style={[styles.questionNumber, { color: colors.primary }]}>Question {idx + 1}</Text>
+                          <View style={{ marginBottom: 16 }}>{renderTextWithMath(q.text)}</View>
+
+                          {options.map((opt, i) => {
+                            const isSelected = userAnswers[q.id] === opt;
+                            const isCorrect = opt === q.correctAnswer;
+
+                            let optionStyle: any = [styles.optionBtn, { borderColor: colors.border }];
+                            if (showResults) {
+                                if (isCorrect) optionStyle.push({ backgroundColor: '#10B98122', borderColor: '#10B981' });
+                                else if (isSelected) optionStyle.push({ backgroundColor: '#EF444422', borderColor: '#EF4444' });
+                            } else if (isSelected) {
+                                optionStyle.push({ backgroundColor: colors.primary + '11', borderColor: colors.primary });
+                            }
+
+                            return (
+                              <TouchableOpacity
+                                key={i}
+                                disabled={showResults}
+                                style={optionStyle}
+                                onPress={() => setUserAnswers(prev => ({ ...prev, [q.id]: opt }))}
+                              >
+                                <View style={{ flex: 1 }}>{renderTextWithMath(opt)}</View>
+                                {showResults && isCorrect && <CheckCircle2 size={18} color="#10B981" />}
+                              </TouchableOpacity>
+                            );
+                          })}
+                        </View>
+                      );
+                    })}
+
+                    {!showResults ? (
+                      <TouchableOpacity
+                        style={[styles.submitBtn, { backgroundColor: colors.primary }]}
+                        onPress={() => setShowResults(true)}
+                      >
+                        <Text style={[styles.submitBtnText, { color: colors.primaryForeground }]}>Submit Quiz</Text>
+                      </TouchableOpacity>
+                    ) : (
+                      <View style={[styles.resultsBox, { backgroundColor: colors.primary }]}>
+                        <Text style={[styles.resultsText, { color: colors.primaryForeground }]}>
+                          Score: {questions.filter(q => userAnswers[q.id] === q.correctAnswer).length} / {questions.length}
+                        </Text>
+                        <TouchableOpacity onPress={() => { setShowResults(false); setUserAnswers({}); }}>
+                          <Text style={{ color: colors.primaryForeground, textDecorationLine: 'underline', marginTop: 8 }}>Try Again</Text>
+                        </TouchableOpacity>
+                      </View>
+                    )}
+                  </View>
+                )}
               </View>
             )}
 
@@ -109,8 +209,8 @@ export const VideoLibraryScreen = ({ navigation }: any) => {
         keyExtractor={(item) => item.id}
         renderItem={({ item }) => (
           <TouchableOpacity
-            style={[styles.noteItem, { backgroundColor: colors.card, borderColor: colors.border }]}
-            onPress={() => setSelectedNote(item)}
+            style={[styles.noteItem, { backgroundColor: colors.card, borderColor: colors.border }, selectedNote?.id === item.id && { borderColor: colors.primary }]}
+            onPress={() => handleNoteSelect(item)}
           >
             <View style={[styles.iconContainer, { backgroundColor: colors.muted }]}>
               <PlayCircle size={24} color={colors.primary} />
@@ -187,6 +287,55 @@ const styles = StyleSheet.create({
   noteCourse: {
     fontSize: 14,
     marginTop: 2,
+    marginBottom: 16,
+  },
+  quizSection: {
+    marginTop: 24,
+  },
+  quizTitle: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    marginBottom: 16,
+  },
+  quizCard: {
+    padding: 16,
+    borderRadius: 12,
+    borderWidth: 1,
+    marginBottom: 16,
+  },
+  questionNumber: {
+    fontSize: 12,
+    fontWeight: 'bold',
+    textTransform: 'uppercase',
+    marginBottom: 8,
+  },
+  optionBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 12,
+    borderRadius: 8,
+    borderWidth: 1,
+    marginBottom: 8,
+  },
+  submitBtn: {
+    padding: 16,
+    borderRadius: 12,
+    alignItems: 'center',
+    marginTop: 8,
+  },
+  submitBtnText: {
+    fontWeight: 'bold',
+    fontSize: 16,
+  },
+  resultsBox: {
+    padding: 24,
+    borderRadius: 12,
+    alignItems: 'center',
+    marginTop: 8,
+  },
+  resultsText: {
+    fontSize: 18,
+    fontWeight: 'bold',
   },
   sectionTitle: {
     fontSize: 16,
