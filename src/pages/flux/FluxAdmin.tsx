@@ -30,6 +30,7 @@ import { toast } from 'sonner';
 import { motion, AnimatePresence } from 'motion/react';
 import { Badge } from '../../components/ui/badge';
 import { NoteBuilder } from '../../components/NoteBuilder';
+import { cn } from '../../lib/utils';
 
 interface FluxStep {
   id: string;

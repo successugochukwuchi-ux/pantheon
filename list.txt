@@ -1,0 +1,154 @@
+FLUX ENGINE COMPREHENSIVE MATHEMATICAL SYMBOL ARCHIVE (KATEX/LATEX)
+====================================================================
+
+BASIC ARITHMETIC & OPERATORS
+----------------------------
++       : Plus
+-       : Minus
+\pm     : Plus-minus
+\mp     : Minus-plus
+\times  : Multiplication (x)
+\div    : Division
+\ast    : Asterisk
+\star   : Star
+\cdot   : Centered dot
+\circ   : Composition / Circle
+\bullet : Bullet
+\dagger : Dagger
+\ddagger: Double dagger
+\amalg  : Amalgamation
+
+GREEK LETTERS (LOWERCASE)
+-------------------------
+\alpha, \beta, \gamma, \delta, \epsilon, \zeta, \eta, \theta, \iota, \kappa, 
+\lambda, \mu, \nu, \xi, \omicron, \pi, \rho, \sigma, \tau, \upsilon, \phi, 
+\chi, \psi, \omega
+\varepsilon, \vartheta, \varpi, \varrho, \varsigma, \varphi
+
+GREEK LETTERS (UPPERCASE)
+-------------------------
+\Gamma, \Delta, \Theta, \Lambda, \Xi, \Pi, \Sigma, \Upsilon, \Phi, \Psi, \Omega
+
+RELATIONS & COMPARISONS
+-----------------------
+=       : Equals
+\neq    : Not equal
+<       : Less than
+>       : Greater than
+\leq    : Less than or equal
+\geq    : Greater than or equal
+\ll     : Much less than
+\gg     : Much greater than
+\approx : Approximately
+\sim    : Similar
+\simeq  : Similar or equal
+\cong   : Congruent
+\equiv  : Equivalent
+\parallel: Parallel
+\perp   : Perpendicular
+\propto : Proportional
+
+LOGIC & SET THEORY
+------------------
+\forall : For all
+\exists : Exists
+\exists!: Exists unique
+\neg    : Negation (NOT)
+\wedge  : Logical AND
+\vee    : Logical OR
+\in     : Element of
+\notin  : Not an element of
+\subset : Subset
+\supset : Superset
+\subseteq: Subset or equal
+\supseteq: Superset or equal
+\cup    : Union
+\cap    : Intersection
+\setminus: Set difference
+\emptyset: Empty set
+\aleph  : Aleph (cardinality)
+\subset: Real subset
+\supset: Real superset
+
+ARROWS
+------
+\leftarrow    : Left arrow
+\rightarrow   : Right arrow
+\leftrightarrow: Left-right arrow
+\Leftarrow    : Double left arrow
+\Rightarrow   : Double right arrow
+\Leftrightarrow: Double left-right arrow
+\uparrow      : Up arrow
+\downarrow    : Down arrow
+\updownarrow  : Up-down arrow
+\mapsto       : Maps to
+\hookrightarrow: Hooked arrow
+\nearrow      : North-east arrow
+\searrow      : South-east arrow
+\swarrow      : South-west arrow
+\nwarrow      : North-west arrow
+
+DELIMITERS
+----------
+( )     : Parentheses
+[ ]     : Brackets
+\{ \}   : Braces
+| |     : Absolute value / Norm
+\langle \rangle: Angle brackets
+\lfloor \rfloor: Floor
+\lceil \rceil  : Ceiling
+
+CALCULUS & ANALYSIS
+-------------------
+\int    : Integral
+\iint   : Double integral
+\iiint  : Triple integral
+\oint   : Contour integral
+\sum    : Summation
+\prod   : Product
+\coprod : Coproduct
+\lim    : Limit
+\inf    : Infinity
+\partial: Partial derivative
+\nabla  : Del / Gradient
+\sqrt   : Square root
+\sqrt[n]: n-th root
+\exp    : Exponential
+\ln     : Natural log
+\log    : Logarithm
+\sin, \cos, \tan, \sec, \csc, \cot
+
+ACCENTS
+-------
+\hat{a}     : Hat
+\bar{a}     : Bar
+\dot{a}     : Dot
+\ddot{a}    : Double dot
+\tilde{a}   : Tilde
+\vec{a}     : Vector arrow
+\check{a}   : Check
+\overline{a}: Overline
+\underline{a}: Underline
+
+SPECIAL STYLES
+--------------
+\mathbb{R, Z, Q, N, C} : Blackboard Bold (Real, Integers, etc.)
+\mathcal{A, B, C}      : Calligraphic
+\mathfrak{A, B, C}      : Fraktur
+\mathbf{v}             : Bold
+\mathit{x}             : Italic
+
+GEOMETRY & MISC
+---------------
+\angle      : Angle
+\triangle    : Triangle
+\Box        : Box
+\Diamond    : Diamond
+\infty      : Infinity
+\imath      : Dotless i
+\jmath      : Dotless j
+\Re         : Real part
+\Im         : Imaginary part
+\wp         : Weierstrass p
+\ell        : Script l
+\hbar       : Dirac h
