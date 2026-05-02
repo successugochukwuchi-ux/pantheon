@@ -13,7 +13,6 @@ export const RegisterScreen = ({ navigation }: any) => {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [username, setUsername] = useState('');
-  const [studentId, setStudentId] = useState('');
   const [academicLevel, setAcademicLevel] = useState('100');
   const [department, setDepartment] = useState('General');
 
@@ -36,14 +35,13 @@ export const RegisterScreen = ({ navigation }: any) => {
     }
   };
 
-  const handleRegister = async () => {
-    if (!email || !password || !username || !studentId) {
-      Alert.alert('Error', 'Please fill in all fields');
-      return;
-    }
+  const generateStudentId = () => {
+    return Math.floor(Math.random() * 90000000000 + 10000000000).toString();
+  };
 
-    if (studentId.length !== 11 || isNaN(Number(studentId))) {
-      Alert.alert('Error', 'Student ID must be an 11-digit number');
+  const handleRegister = async () => {
+    if (!email || !password || !username) {
+      Alert.alert('Error', 'Please fill in all fields');
       return;
     }
 
@@ -51,6 +49,7 @@ export const RegisterScreen = ({ navigation }: any) => {
     try {
       const userCredential = await createUserWithEmailAndPassword(auth, email, password);
       const user = userCredential.user;
+      const studentId = generateStudentId();
 
       await setDoc(doc(db, 'users', user.uid), {
         uid: user.uid,
@@ -118,21 +117,6 @@ export const RegisterScreen = ({ navigation }: any) => {
         </View>
       </View>
 
-      <View style={styles.inputGroup}>
-        <Text style={[styles.label, { color: colors.foreground }]}>Student ID</Text>
-        <View style={[styles.inputWrapper, { borderColor: colors.border, backgroundColor: colors.card }]}>
-          <Building size={18} color={colors.mutedForeground} style={styles.icon} />
-          <TextInput
-            style={[styles.input, { color: colors.foreground }]}
-            placeholder="11-digit Number"
-            placeholderTextColor={colors.mutedForeground}
-            value={studentId}
-            onChangeText={setStudentId}
-            keyboardType="numeric"
-            maxLength={11}
-          />
-        </View>
-      </View>
 
       <View style={styles.row}>
           <View style={[styles.inputGroup, { flex: 1, marginRight: 8 }]}>

@@ -18,6 +18,9 @@ export const DirectChatScreen = ({ route, navigation }: any) => {
   const [loading, setLoading] = useState(true);
   const [chatRoomId, setChatRoomId] = useState(roomId);
   const [replyingTo, setReplyingTo] = useState<ChatMessage | null>(null);
+  const [isNotePickerVisible, setIsNotePickerVisible] = useState(false);
+  const [availableNotes, setAvailableNotes] = useState<Note[]>([]);
+  const [selectedNote, setSelectedNote] = useState<Note | null>(null);
   const [isReportModalVisible, setIsReportModalVisible] = useState(false);
   const [reportReason, setReportReason] = useState('');
 
@@ -95,6 +98,11 @@ export const DirectChatScreen = ({ route, navigation }: any) => {
         createdAt: new Date().toISOString()
       };
 
+      if (selectedNote) {
+        msgData.referencedNoteId = selectedNote.id;
+        setSelectedNote(null);
+      }
+
       if (currentReply) {
         msgData.replyTo = {
           messageId: currentReply.id,
@@ -132,6 +140,16 @@ export const DirectChatScreen = ({ route, navigation }: any) => {
     }
   };
 
+  const fetchNotes = async () => {
+    try {
+      const q = query(collection(db, 'notes'), limit(20));
+      const snap = await getDocs(q);
+      setAvailableNotes(snap.docs.map(d => ({ id: d.id, ...d.data() } as Note)));
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
   const renderMessage = ({ item }: { item: ChatMessage }) => {
     const isMe = item.senderUid === user?.uid;
 
@@ -156,7 +174,14 @@ export const DirectChatScreen = ({ route, navigation }: any) => {
             {item.referencedNoteId && (
               <TouchableOpacity
                 style={[styles.noteRef, { backgroundColor: isMe ? 'rgba(255,255,255,0.1)' : colors.muted }]}
-                onPress={() => navigation.navigate('NoteDetail', { note: { id: item.referencedNoteId, title: 'Shared Note' } })}
+                onPress={async () => {
+                    const noteDoc = await getDoc(doc(db, 'notes', item.referencedNoteId!));
+                    if (noteDoc.exists()) {
+                        navigation.navigate('NoteDetail', { note: { id: noteDoc.id, ...noteDoc.data() } });
+                    } else {
+                        Alert.alert('Error', 'Note not found');
+                    }
+                }}
               >
                 <FileText size={16} color={isMe ? colors.primaryForeground : colors.primary} />
                 <Text style={[styles.noteRefText, { color: isMe ? colors.primaryForeground : colors.foreground }]}>Shared Note</Text>
@@ -218,7 +243,27 @@ export const DirectChatScreen = ({ route, navigation }: any) => {
           </View>
         )}
 
+        {selectedNote && (
+          <View style={[styles.notePreview, { backgroundColor: colors.muted }]}>
+             <FileText size={16} color={colors.primary} />
+             <Text numberOfLines={1} style={[styles.notePreviewText, { color: colors.foreground }]}>Referencing: {selectedNote.title}</Text>
+             <TouchableOpacity onPress={() => setSelectedNote(null)}>
+                <X size={16} color={colors.mutedForeground} />
+             </TouchableOpacity>
+          </View>
+        )}
+
         <View style={styles.inputRow}>
+          <TouchableOpacity
+            style={[styles.attachBtn, { backgroundColor: colors.muted }]}
+            onPress={() => {
+                fetchNotes();
+                setIsNotePickerVisible(true);
+            }}
+          >
+             <FileText size={20} color={colors.primary} />
+          </TouchableOpacity>
+
           <TextInput
             style={[styles.input, { backgroundColor: colors.muted, color: colors.foreground }]}
             placeholder="Type a message..."
@@ -236,6 +281,36 @@ export const DirectChatScreen = ({ route, navigation }: any) => {
           </TouchableOpacity>
         </View>
       </View>
+
+      <Modal visible={isNotePickerVisible} transparent animationType="slide">
+          <View style={styles.modalOverlay}>
+              <View style={[styles.modalContent, { backgroundColor: colors.card }]}>
+                  <View style={styles.modalHeader}>
+                    <Text style={[styles.modalTitle, { color: colors.foreground }]}>Reference a Note</Text>
+                    <TouchableOpacity onPress={() => setIsNotePickerVisible(false)}>
+                        <X size={24} color={colors.foreground} />
+                    </TouchableOpacity>
+                  </View>
+                  <FlatList
+                    data={availableNotes}
+                    keyExtractor={item => item.id}
+                    renderItem={({ item }) => (
+                        <TouchableOpacity
+                            style={[styles.noteItemPicker, { borderBottomColor: colors.border }]}
+                            onPress={() => {
+                                setSelectedNote(item);
+                                setIsNotePickerVisible(false);
+                            }}
+                        >
+                            <FileText size={20} color={colors.primary} />
+                            <Text style={[styles.noteItemText, { color: colors.foreground }]}>{item.title}</Text>
+                        </TouchableOpacity>
+                    )}
+                    ListEmptyComponent={<ActivityIndicator color={colors.primary} style={{ marginTop: 20 }} />}
+                  />
+              </View>
+          </View>
+      </Modal>
 
       <Modal visible={isReportModalVisible} transparent animationType="fade">
           <View style={styles.modalOverlay}>
@@ -332,6 +407,42 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'flex-end',
     gap: 8,
+  },
+  attachBtn: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  notePreview: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 8,
+    borderRadius: 8,
+    marginBottom: 8,
+    gap: 8,
+  },
+  notePreviewText: {
+    flex: 1,
+    fontSize: 12,
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+  noteItemPicker: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    gap: 12,
+  },
+  noteItemText: {
+    fontSize: 14,
+    fontWeight: '500',
   },
   input: {
     flex: 1,

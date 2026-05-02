@@ -5,13 +5,14 @@ import { db } from '../services/firebase';
 import { useAuth } from '../context/AuthContext';
 import { useTheme } from '../context/ThemeContext';
 import { ChatRoom, UserProfile } from '../types';
-import { User, ChevronRight, Plus, Users, Check, X } from 'lucide-react-native';
+import { User, ChevronRight, Plus, Users, Check, X, MessageSquare } from 'lucide-react-native';
 import { DicebearAvatar } from '../components/DicebearAvatar';
 
 export const MessagesScreen = ({ navigation }: any) => {
   const { user } = useAuth();
   const { colors } = useTheme();
   const [rooms, setRooms] = useState<any[]>([]);
+  const [discussions, setDiscussions] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
 
   const [isModalVisible, setIsModalVisible] = useState(false);
@@ -28,7 +29,7 @@ export const MessagesScreen = ({ navigation }: any) => {
       orderBy('lastUpdatedAt', 'desc')
     );
 
-    const unsubscribe = onSnapshot(q, async (snapshot) => {
+    const unsubChats = onSnapshot(q, async (snapshot) => {
       const roomItems = [];
       for (const d of snapshot.docs) {
           const data = d.data() as ChatRoom;
@@ -49,13 +50,33 @@ export const MessagesScreen = ({ navigation }: any) => {
           roomItems.push({ id: d.id, ...data, displayName, displayAvatar });
       }
       setRooms(roomItems);
-      setLoading(false);
     }, (error) => {
       console.error('Error fetching chat rooms:', error);
-      setLoading(false);
     });
 
-    return () => unsubscribe();
+    // Fetch Course Discussions
+    const fetchDiscussions = async () => {
+        try {
+            const qCourses = query(collection(db, 'courses'));
+            const courseSnap = await getDocs(qCourses);
+            const userCourses = courseSnap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+
+            setDiscussions(userCourses.map(c => ({
+                id: c.id,
+                type: 'discussion',
+                name: `${c.code} Discussion`,
+                code: c.code
+            })));
+        } catch (e) {
+            console.error('Error fetching discussions:', e);
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    fetchDiscussions();
+
+    return () => unsubChats();
   }, [user]);
 
   const fetchFriends = async () => {
@@ -112,6 +133,12 @@ export const MessagesScreen = ({ navigation }: any) => {
     );
   }
 
+  const allConversations = [...rooms, ...discussions].sort((a, b) => {
+      const timeA = a.lastUpdatedAt ? new Date(a.lastUpdatedAt).getTime() : 0;
+      const timeB = b.lastUpdatedAt ? new Date(b.lastUpdatedAt).getTime() : 0;
+      return timeB - timeA;
+  });
+
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
       <View style={styles.headerActions}>
@@ -128,29 +155,37 @@ export const MessagesScreen = ({ navigation }: any) => {
       </View>
 
       <FlatList
-        data={rooms}
+        data={allConversations}
         keyExtractor={(item) => item.id}
         renderItem={({ item }) => (
           <TouchableOpacity
             style={[styles.roomItem, { borderBottomColor: colors.border }]}
-            onPress={() => navigation.navigate('DirectChat', { roomId: item.id, name: item.displayName || item.name || 'Chat' })}
+            onPress={() => {
+                if (item.type === 'discussion') {
+                    navigation.navigate('CourseDiscussion', { courseId: item.id, courseCode: item.code });
+                } else {
+                    navigation.navigate('DirectChat', { roomId: item.id, name: item.displayName || item.name || 'Chat' });
+                }
+            }}
           >
             <View style={[styles.avatar, { backgroundColor: colors.muted }]}>
               {item.type === 'dm' ? (
                   item.displayAvatar ? <DicebearAvatar seed={item.displayAvatar} size={50} /> : <User size={24} color={colors.mutedForeground} />
-              ) : (
+              ) : item.type === 'group' ? (
                   <Users size={24} color={colors.primary} />
+              ) : (
+                  <MessageSquare size={24} color={colors.primary} />
               )}
             </View>
             <View style={styles.roomContent}>
               <View style={styles.roomHeader}>
-                <Text style={[styles.roomName, { color: colors.foreground }]}>{item.displayName || item.name || 'Direct Message'}</Text>
+                <Text style={[styles.roomName, { color: colors.foreground }]}>{item.displayName || item.name || 'Conversation'}</Text>
                 <Text style={[styles.roomTime, { color: colors.mutedForeground }]}>
                   {item.lastUpdatedAt ? new Date(item.lastUpdatedAt).toLocaleDateString() : ''}
                 </Text>
               </View>
               <Text style={[styles.lastMessage, { color: colors.mutedForeground }]} numberOfLines={1}>
-                {item.lastMessage || 'No messages yet'}
+                {item.type === 'discussion' ? `Join ${item.code} study group discussion` : (item.lastMessage || 'No messages yet')}
               </Text>
             </View>
             <ChevronRight size={18} color={colors.border} />
