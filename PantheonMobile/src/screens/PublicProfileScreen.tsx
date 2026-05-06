@@ -23,7 +23,7 @@ export const PublicProfileScreen = ({ route, navigation }: any) => {
           setProfile(userDoc.data() as UserProfile);
         }
 
-        const q = query(collection(db, 'cbtResults'), where('userId', '==', userId));
+        const q = query(collection(db, 'cbt_sessions'), where('userId', '==', userId));
         const cbtSnap = await getDocs(q);
         setCbtResults(cbtSnap.docs.map(d => d.data() as CBTSession));
       } catch (error) {

@@ -19,7 +19,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({ url, title }) => {
   const [seeking, setSeeking] = useState(false);
   const [showControls, setShowControls] = useState(true);
   const playerRef = useRef<ReactPlayer>(null);
-  const controlsTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const controlsTimeoutRef = useRef<any>(null);
 
   const handlePlayPause = () => setPlaying(!playing);
   const handleToggleMute = () => setMuted(!muted);

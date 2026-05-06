@@ -19,6 +19,7 @@ import { MathJax } from 'better-react-mathjax';
 import { NoteBlock } from '../components/NoteBuilder';
 import { NoteProgressTracker } from '../components/NoteProgressTracker';
 import { ScientificCalculator } from '../components/ScientificCalculator';
+import { AIAssistant } from '../components/AIAssistant';
 import { useSearchParams, useNavigate } from 'react-router-dom';
 import { useTitle } from '../hooks/useTitle';
 
@@ -293,6 +294,10 @@ export default function StudyMaterials() {
             </div>
           </DialogContent>
         </Dialog>
+        
+        {selectedNote && (
+          <AIAssistant noteContent={selectedNote.content} noteTitle={selectedNote.title} />
+        )}
       </div>
     </div>
     );

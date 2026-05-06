@@ -7,12 +7,14 @@ import { useAuth } from '../context/AuthContext';
 import { useTheme } from '../context/ThemeContext';
 import { DicebearAvatar } from '../components/DicebearAvatar';
 import { themes } from '../theme/colors';
-import { Copy, Check, Moon, Sun, Palette, Droplets, TreePine, User, Save } from 'lucide-react-native';
+import { Copy, Check, Moon, Sun, Palette, Droplets, TreePine, User, Save, Download } from 'lucide-react-native';
 import Clipboard from '@react-native-clipboard/clipboard';
+import { useNavigation } from '@react-navigation/native';
 
 export const SettingsScreen = () => {
   const { user, profile } = useAuth();
   const { theme: currentTheme, setTheme, colors } = useTheme();
+  const navigation = useNavigation<any>();
 
   const [username, setUsername] = useState(profile?.username || '');
   const [avatarSeed, setAvatarSeed] = useState(profile?.username || user?.uid || 'default');
@@ -147,6 +149,22 @@ export const SettingsScreen = () => {
       </View>
 
       <View style={styles.section}>
+        <Text style={[styles.sectionTitle, { color: colors.foreground }]}>Data Management</Text>
+        <View style={[styles.card, { backgroundColor: colors.card, borderColor: colors.border }]}>
+          <Text style={[styles.description, { color: colors.mutedForeground }]}>
+            Download lecture notes and past questions for offline use. Perfect for studying without data.
+          </Text>
+          <TouchableOpacity
+            style={[styles.saveBtn, { backgroundColor: colors.primary, marginTop: 12 }]}
+            onPress={() => navigation.navigate('NoteGrabber')}
+          >
+            <Download size={20} color={colors.primaryForeground} />
+            <Text style={[styles.saveBtnText, { color: colors.primaryForeground }]}>Open Note Grabber</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+
+      <View style={styles.section}>
         <Text style={[styles.sectionTitle, { color: colors.foreground }]}>Account Identification</Text>
         <View style={[styles.card, { backgroundColor: colors.card, borderColor: colors.border }]}>
           <View style={styles.idRow}>
@@ -251,6 +269,10 @@ const styles = StyleSheet.create({
   },
   saveBtnText: {
     fontWeight: 'bold',
+  },
+  description: {
+    fontSize: 13,
+    lineHeight: 18,
   },
   themeGrid: {
     flexDirection: 'row',

@@ -37,7 +37,7 @@ function processTextContent(raw: string): string {
 }
 
 export const NoteDetailScreen = ({ route }: any) => {
-  const { note } = route.params;
+  const { note, diagrams = {} } = route.params;
   const { colors } = useTheme();
 
   // We pass the raw blocks to the WebView and let it handle the rendering
@@ -51,6 +51,26 @@ export const NoteDetailScreen = ({ route }: any) => {
   } catch (e) {
     blocks = [{ id: 'fallback', type: 'text', content: note.content || '' }];
   }
+
+  // Pre-process blocks to replace remote URLs with cached local data if available
+  const processedBlocks = blocks.map((block: any) => {
+    if (block.type === 'diagram' && diagrams[block.content]) {
+      return { ...block, content: diagrams[block.content], isCached: true };
+    }
+    if (block.type === 'text' && block.content) {
+      let newContent = block.content;
+      Object.entries(diagrams).forEach(([url, base64]) => {
+        // Use a simple string replacement for markdown images
+        // This is safer than a generic global replace which might hit text
+        const mdPattern = `](${url})`;
+        if (newContent.includes(mdPattern)) {
+          newContent = newContent.split(mdPattern).join(`](${base64})`);
+        }
+      });
+      return { ...block, content: newContent };
+    }
+    return block;
+  });
 
   const htmlTemplate = `
     <!DOCTYPE html>
@@ -117,7 +137,7 @@ export const NoteDetailScreen = ({ route }: any) => {
       <body>
         <div id="content"></div>
         <script>
-          const blocks = ${JSON.stringify(blocks)};
+          const blocks = ${JSON.stringify(processedBlocks)};
           const contentEl = document.getElementById('content');
           
           function render() {
@@ -130,7 +150,14 @@ export const NoteDetailScreen = ({ route }: any) => {
               } else if (block.type === 'text') {
                 html += marked.parse(block.content);
               } else if (block.type === 'math') {
-                html += '<div class="math-block">\\\\[ ' + block.content + ' \\\\]</div>';
+                let cleanMath = block.content.trim();
+                // Strip accidental delimiters before wrapping in standard display math markers
+                if (cleanMath.startsWith('$$') && cleanMath.endsWith('$$')) {
+                  cleanMath = cleanMath.slice(2, -2).trim();
+                } else if (cleanMath.startsWith('$') && cleanMath.endsWith('$')) {
+                  cleanMath = cleanMath.slice(1, -1).trim();
+                }
+                html += '<div class="math-block">\\\\[ ' + cleanMath + ' \\\\]</div>';
               } else if (block.type === 'diagram') {
                 const transform = block.settings ? "scale(" + (block.settings.flipX ? -1 : 1) + "," + (block.settings.flipY ? -1 : 1) + ")" : "none";
                 html += '<div style="text-align: center;"><img src="' + block.content + '" style="transform: ' + transform + '; width: ' + (block.settings?.width || 'auto') + 'px; height: ' + (block.settings?.height || 'auto') + 'px;" /></div>';

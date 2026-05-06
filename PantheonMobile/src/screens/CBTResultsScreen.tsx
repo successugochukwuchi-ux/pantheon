@@ -1,32 +1,17 @@
 import React from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, ScrollView } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Image } from 'react-native';
 import { useTheme } from '../context/ThemeContext';
 import { CheckCircle2, Clock, Trophy, XCircle, HelpCircle } from 'lucide-react-native';
 import { MathView } from '../components/MathView';
+import { MathText } from '../components/MathText';
 
 export const CBTResultsScreen = ({ route, navigation }: any) => {
   const { colors } = useTheme();
-  const { score = 0, total = 1, timeSpent = 0, questions = [], selectedAnswers = {} } = route.params || {};
+  const { score = 0, total = 1, timeSpent = 0, questions = [], selectedAnswers = {}, diagrams = {} } = route.params || {};
   const percentage = Math.round((score / Math.max(1, total)) * 100);
 
   const renderTextWithMath = (text: string) => {
-    if (!text) return null;
-    const parts = text.split(/(\$\$.*?\$\$|\$.*?\$|\\\[.*?\\\]|\\\(.*?\\\))/g);
-    return (
-      <Text style={{ fontSize: 16, color: colors.foreground }}>
-        {parts.map((part: string, index: number) => {
-          if ((part.startsWith('$$') && part.endsWith('$$')) || (part.startsWith('\\[') && part.endsWith('\\]'))) {
-            const math = part.startsWith('$$') ? part.slice(2, -2) : part.slice(2, -2);
-            return <MathView key={index} math={math} inline={false} color={colors.foreground} />;
-          }
-          if ((part.startsWith('$') && part.endsWith('$')) || (part.startsWith('\\(') && part.endsWith('\\)'))) {
-            const math = part.startsWith('$') ? part.slice(1, -1) : part.slice(2, -2);
-            return <MathView key={index} math={math} inline color={colors.foreground} />;
-          }
-          return part;
-        })}
-      </Text>
-    );
+    return <MathText text={text} color={colors.foreground} fontSize={16} />;
   };
 
   const formatTime = (seconds: number) => {
@@ -89,6 +74,14 @@ export const CBTResultsScreen = ({ route, navigation }: any) => {
                     )}
                   </View>
 
+                  {q.imageUrl && (
+                    <Image 
+                      source={{ uri: diagrams[q.imageUrl] || q.imageUrl }} 
+                      style={styles.questionImage}
+                      resizeMode="contain"
+                    />
+                  )}
+
                   <View style={styles.answerRow}>
                     <Text style={[styles.answerLabel, { color: colors.mutedForeground }]}>Your Choice:</Text>
                     <View style={{ flex: 1 }}>{renderTextWithMath(selectedAnswers[i] || 'Not answered')}</View>
@@ -105,8 +98,15 @@ export const CBTResultsScreen = ({ route, navigation }: any) => {
                     <View style={[styles.explanationBox, { backgroundColor: colors.muted }]}>
                       <Text style={[styles.explanationText, { color: colors.foreground }]}>
                         <Text style={{ fontWeight: 'bold' }}>Explanation: </Text>
-                        {q.explanation}
+                        <MathText text={q.explanation} color={colors.foreground} fontSize={14} style={{ fontStyle: 'italic' }} />
                       </Text>
+                      {q.explanationImageUrl && (
+                        <Image 
+                          source={{ uri: diagrams[q.explanationImageUrl] || q.explanationImageUrl }} 
+                          style={styles.explanationImage}
+                          resizeMode="contain"
+                        />
+                      )}
                     </View>
                   )}
                 </View>
@@ -205,6 +205,18 @@ const styles = StyleSheet.create({
   explanationText: {
     fontSize: 14,
     fontStyle: 'italic',
+  },
+  questionImage: {
+    width: '100%',
+    height: 150,
+    borderRadius: 8,
+    marginVertical: 12,
+  },
+  explanationImage: {
+    width: '100%',
+    height: 120,
+    borderRadius: 8,
+    marginTop: 8,
   },
   statRow: {
     flexDirection: 'row',

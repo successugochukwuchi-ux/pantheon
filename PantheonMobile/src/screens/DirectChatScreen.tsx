@@ -7,6 +7,7 @@ import { useTheme } from '../context/ThemeContext';
 import { DicebearAvatar } from '../components/DicebearAvatar';
 import { Send, Reply, X, FileText, ChevronRight, Flag, MoreVertical } from 'lucide-react-native';
 import { ChatMessage, Note } from '../types';
+import { MathText } from '../components/MathText';
 
 export const DirectChatScreen = ({ route, navigation }: any) => {
   const { roomId, targetUid, name } = route.params;
@@ -188,9 +189,11 @@ export const DirectChatScreen = ({ route, navigation }: any) => {
                 <ChevronRight size={14} color={isMe ? colors.primaryForeground : colors.mutedForeground} />
               </TouchableOpacity>
             )}
-            <Text style={[styles.messageText, { color: isMe ? colors.primaryForeground : colors.foreground }]}>
-              {item.text}
-            </Text>
+            <MathText 
+              text={item.text} 
+              color={isMe ? colors.primaryForeground : colors.foreground} 
+              fontSize={15} 
+            />
           </TouchableOpacity>
           <Text style={[styles.timeText, { color: colors.mutedForeground }, isMe && { textAlign: 'right' }]}>
             {new Date(item.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}

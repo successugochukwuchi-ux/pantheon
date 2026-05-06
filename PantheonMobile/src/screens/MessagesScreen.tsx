@@ -29,34 +29,54 @@ export const MessagesScreen = ({ navigation }: any) => {
     );
 
     const unsubChats = onSnapshot(q, async (snapshot) => {
-      const roomItems = [];
-      for (const d of snapshot.docs) {
-          const data = d.data() as ChatRoom;
-          let displayName = data.name;
-          let displayAvatar = null;
+      try {
+        const roomItems = [];
+        // Extract all needed profile IDs first
+        const friendUids = snapshot.docs
+          .map(d => d.data() as ChatRoom)
+          .filter(data => data.type === 'dm')
+          .map(data => data.uids.find(id => id !== user.uid))
+          .filter((id): id is string => !!id);
 
-          if (data.type === 'dm') {
-              const friendUid = data.uids.find(id => id !== user.uid);
-              if (friendUid) {
-                  const friendDoc = await getDoc(doc(db, 'users', friendUid));
-                  if (friendDoc.exists()) {
-                      const friendData = friendDoc.data() as UserProfile;
-                      displayName = friendData.username;
-                      displayAvatar = friendData.username || friendUid;
-                  }
-              }
+        // Batch fetch profiles if needed (or rely on single cache)
+        // For simplicity and to avoid 'in' query limit or complexity, 
+        // we'll still use getDoc but with a simple local cache or at least Promise.all
+        const profileMap: { [key: string]: UserProfile } = {};
+        const profilePromises = [...new Set(friendUids)].map(async (uid) => {
+          const friendDoc = await getDoc(doc(db, 'users', uid));
+          if (friendDoc.exists()) {
+            profileMap[uid] = friendDoc.data() as UserProfile;
           }
-          roomItems.push({ id: d.id, ...data, displayName, displayAvatar });
+        });
+        await Promise.all(profilePromises);
+
+        for (const d of snapshot.docs) {
+            const data = d.data() as ChatRoom;
+            let displayName = data.name;
+            let displayAvatar = null;
+
+            if (data.type === 'dm') {
+                const friendUid = data.uids.find(id => id !== user.uid);
+                if (friendUid && profileMap[friendUid]) {
+                    const friendData = profileMap[friendUid];
+                    displayName = friendData.username;
+                    displayAvatar = friendData.username || friendUid;
+                }
+            }
+            roomItems.push({ id: d.id, ...data, displayName, displayAvatar });
+        }
+        
+        // Sort in memory like the web app
+        roomItems.sort((a, b) => {
+            const timeA = a.lastUpdatedAt ? new Date(a.lastUpdatedAt).getTime() : 0;
+            const timeB = b.lastUpdatedAt ? new Date(b.lastUpdatedAt).getTime() : 0;
+            return timeB - timeA;
+        });
+        
+        setRooms(roomItems);
+      } catch (err) {
+        console.error('Error processing chats:', err);
       }
-      
-      // Sort in memory like the web app
-      roomItems.sort((a, b) => {
-          const timeA = a.lastUpdatedAt ? new Date(a.lastUpdatedAt).getTime() : 0;
-          const timeB = b.lastUpdatedAt ? new Date(b.lastUpdatedAt).getTime() : 0;
-          return timeB - timeA;
-      });
-      
-      setRooms(roomItems);
     }, (error) => {
       console.error('Error fetching chat rooms:', error);
     });
@@ -64,7 +84,14 @@ export const MessagesScreen = ({ navigation }: any) => {
     // Fetch Course Discussions
     const fetchDiscussions = async () => {
         try {
-            const qCourses = query(collection(db, 'courses'));
+            const systemDoc = await getDoc(doc(db, 'system', 'config'));
+            const systemConfig = systemDoc.exists() ? systemDoc.data() : null;
+            const currentSemester = systemConfig?.currentSemester || '1st';
+
+            const qCourses = query(
+                collection(db, 'courses'),
+                where('semester', '==', currentSemester)
+            );
             const courseSnap = await getDocs(qCourses);
             const userCourses = courseSnap.docs.map(doc_ => ({ id: doc_.id, ...doc_.data() } as Course));
 

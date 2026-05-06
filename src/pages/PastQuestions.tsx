@@ -16,6 +16,7 @@ import rehypeKatex from 'rehype-katex';
 import remarkGfm from 'remark-gfm';
 import 'katex/dist/katex.min.css';
 import { useTitle } from '../hooks/useTitle';
+import { AIAssistant } from '../components/AIAssistant';
 
 export default function PastQuestions() {
   useTitle('Past Questions');
@@ -294,6 +295,13 @@ export default function PastQuestions() {
           </Card>
         </motion.div>
       </AnimatePresence>
+
+      {examStarted && currentQuestion && (
+        <AIAssistant 
+          noteContent={`Question: ${currentQuestion.text}\nExplanation: ${currentQuestion.explanation || 'None'}\nCorrect Answer: ${currentQuestion.correctAnswer}`} 
+          noteTitle={`Question ${currentIndex + 1}`}
+        />
+      )}
     </div>
   );
 }

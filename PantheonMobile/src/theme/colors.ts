@@ -19,7 +19,9 @@ export const themes = {
     sidebar: '#FAFAFA',
     sidebarForeground: '#252525',
     sidebarPrimary: '#343434',
+    sidebarPrimaryForeground: '#FAFAFA',
     sidebarAccent: '#F7F7F7',
+    sidebarAccentForeground: '#343434',
   },
   dark: {
     background: '#252525',
@@ -41,7 +43,9 @@ export const themes = {
     sidebar: '#343434',
     sidebarForeground: '#FAFAFA',
     sidebarPrimary: '#7C3AED',
+    sidebarPrimaryForeground: '#FAFAFA',
     sidebarAccent: '#444444',
+    sidebarAccentForeground: '#FAFAFA',
   },
   sepia: {
     background: '#f4ecd8',
@@ -63,7 +67,9 @@ export const themes = {
     sidebar: '#ede4ce',
     sidebarForeground: '#433422',
     sidebarPrimary: '#5f4b32',
+    sidebarPrimaryForeground: '#fdfcf0',
     sidebarAccent: '#e1d5b9',
+    sidebarAccentForeground: '#433422',
   },
   ocean: {
     background: '#eef2ff',
@@ -85,7 +91,9 @@ export const themes = {
     sidebar: '#1e1b4b',
     sidebarForeground: '#fdfdff',
     sidebarPrimary: '#312e81',
+    sidebarPrimaryForeground: '#fdfdff',
     sidebarAccent: '#2e2a7a',
+    sidebarAccentForeground: '#fdfdff',
   },
   forest: {
     background: '#f0fdf4',
@@ -107,7 +115,9 @@ export const themes = {
     sidebar: '#064e3b',
     sidebarForeground: '#fdfdfc',
     sidebarPrimary: '#166534',
+    sidebarPrimaryForeground: '#fdfdfc',
     sidebarAccent: '#065f46',
+    sidebarAccentForeground: '#fdfdfc',
   },
   midnight: {
     background: '#020617',
@@ -129,7 +139,9 @@ export const themes = {
     sidebar: '#020617',
     sidebarForeground: '#f8fafc',
     sidebarPrimary: '#6366f1',
+    sidebarPrimaryForeground: '#020617',
     sidebarAccent: '#0f172a',
+    sidebarAccentForeground: '#f8fafc',
   },
   sunset: {
     background: '#fff7ed',
@@ -151,7 +163,9 @@ export const themes = {
     sidebar: '#431407',
     sidebarForeground: '#fffcfb',
     sidebarPrimary: '#9a3412',
+    sidebarPrimaryForeground: '#fffcfb',
     sidebarAccent: '#7c2d12',
+    sidebarAccentForeground: '#fffcfb',
   },
   lavender: {
     background: '#f5f3ff',
@@ -173,7 +187,9 @@ export const themes = {
     sidebar: '#2e1065',
     sidebarForeground: '#fdfdfb',
     sidebarPrimary: '#5b21b6',
+    sidebarPrimaryForeground: '#fdfdfb',
     sidebarAccent: '#4c1d95',
+    sidebarAccentForeground: '#fdfdfb',
   },
 };
 

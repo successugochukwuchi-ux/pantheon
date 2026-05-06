@@ -3,6 +3,7 @@ import { onAuthStateChanged, User } from 'firebase/auth';
 import { doc, onSnapshot } from 'firebase/firestore';
 import { auth, db } from '../services/firebase';
 import { UserProfile } from '../types';
+import { OfflineService } from '../services/offlineService';
 
 interface AuthContextType {
   user: User | null;
@@ -33,15 +34,32 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     let unsubscribeProfile: (() => void) | undefined;
 
     if (user) {
-      unsubscribeProfile = onSnapshot(doc(db, 'users', user.uid), (snapshot) => {
+      // Load from cache immediately for instant UI response
+      const loadFromStorage = async () => {
+        try {
+          const cached = await OfflineService.getCachedProfile(user.uid);
+          if (cached) {
+            setProfile(cached);
+          }
+        } catch (e) {
+          console.log('Error loading initial profile cache');
+        } finally {
+          setLoading(false);
+        }
+      };
+      loadFromStorage();
+
+      unsubscribeProfile = onSnapshot(doc(db, 'users', user.uid), async (snapshot) => {
         if (snapshot.exists()) {
-          setProfile(snapshot.data() as UserProfile);
-        } else {
-          setProfile(null);
+          const data = snapshot.data() as UserProfile;
+          setProfile(data);
+          await OfflineService.cacheProfile(user.uid, data);
         }
         setLoading(false);
-      }, (error) => {
-        console.error('Profile fetch error:', error);
+      }, async (error) => {
+        console.error('Profile fetch error, checking cache fallback:', error);
+        const cached = await OfflineService.getCachedProfile(user.uid);
+        if (cached) setProfile(cached);
         setLoading(false);
       });
     } else {

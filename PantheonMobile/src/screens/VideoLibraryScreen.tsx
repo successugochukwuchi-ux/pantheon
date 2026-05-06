@@ -8,6 +8,7 @@ import { useTheme } from '../context/ThemeContext';
 import { PlayCircle, GraduationCap, ChevronRight, BookOpen, CheckCircle2 } from 'lucide-react-native';
 import { Note, Course, VideoQuestion } from '../types';
 import { MathView } from '../components/MathView';
+import { MathText } from '../components/MathText';
 
 export const VideoLibraryScreen = ({ navigation }: any) => {
   const { colors } = useTheme();
@@ -65,23 +66,7 @@ export const VideoLibraryScreen = ({ navigation }: any) => {
   };
 
   const renderTextWithMath = (text: string) => {
-    if (!text) return null;
-    const parts = text.split(/(\$\$.*?\$\$|\$.*?\$|\\\[.*?\\\]|\\\(.*?\\\))/g);
-    return (
-      <Text style={{ fontSize: 16, color: colors.foreground }}>
-        {parts.map((part: string, index: number) => {
-          if ((part.startsWith('$$') && part.endsWith('$$')) || (part.startsWith('\\[') && part.endsWith('\\]'))) {
-            const math = part.startsWith('$$') ? part.slice(2, -2) : part.slice(2, -2);
-            return <MathView key={index} math={math} inline={false} color={colors.foreground} />;
-          }
-          if ((part.startsWith('$') && part.endsWith('$')) || (part.startsWith('\\(') && part.endsWith('\\)'))) {
-            const math = part.startsWith('$') ? part.slice(1, -1) : part.slice(2, -2);
-            return <MathView key={index} math={math} inline color={colors.foreground} />;
-          }
-          return part;
-        })}
-      </Text>
-    );
+    return <MathText text={text} color={colors.foreground} fontSize={16} />;
   };
 
   const renderVideo = () => {

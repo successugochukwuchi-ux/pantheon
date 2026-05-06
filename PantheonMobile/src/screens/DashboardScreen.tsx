@@ -1,10 +1,11 @@
 import React, { useEffect, useState, useCallback } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, RefreshControl } from 'react-native';
-import { collection, query, limit, getDocs, orderBy } from 'firebase/firestore';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, RefreshControl, Alert } from 'react-native';
+import { collection, query, limit, getDocs, orderBy, doc, getDoc } from 'firebase/firestore';
 import { db } from '../services/firebase';
 import { useAuth } from '../context/AuthContext';
 import { useTheme } from '../context/ThemeContext';
-import { BookOpen, History, Zap, GraduationCap, Menu } from 'lucide-react-native';
+import { OfflineService } from '../services/offlineService';
+import { BookOpen, History, Zap, GraduationCap, Menu, CheckCircle2 } from 'lucide-react-native';
 import { NewsItem } from '../types';
 
 export const DashboardScreen = ({ navigation }: any) => {
@@ -12,17 +13,41 @@ export const DashboardScreen = ({ navigation }: any) => {
   const { colors } = useTheme();
   const [news, setNews] = useState<NewsItem[]>([]);
   const [refreshing, setRefreshing] = useState(false);
+  const [synced, setSynced] = useState(false);
+  const [activeSem, setActiveSem] = useState<string | null>(null);
 
   const fetchNews = useCallback(async () => {
+    if (!profile) return;
+    
+    // Initial Load for Semester
+    const getCachedSem = async () => {
+      const cached = await OfflineService.getCachedSemester(profile.uid);
+      if (cached) {
+         setActiveSem(cached);
+      }
+    };
+    getCachedSem();
+    
+    // Attempt Online Sync
     try {
       const q = query(collection(db, 'news'), orderBy('createdAt', 'desc'), limit(3));
       const querySnapshot = await getDocs(q);
       const newsItems = querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as NewsItem));
       setNews(newsItems);
+
+      // Sync active semester
+      const configDoc = await getDoc(doc(db, 'system', 'config'));
+      if (configDoc.exists()) {
+        const sem = configDoc.data()?.currentSemester || configDoc.data()?.activeSemester || '1st';
+        await OfflineService.syncSemester(profile.uid, sem);
+        setActiveSem(sem);
+        setSynced(true);
+        setTimeout(() => setSynced(false), 3000);
+      }
     } catch (error) {
-      console.error('Error fetching news:', error);
+      console.log('Dashboard operating in offline mode:', error);
     }
-  }, []);
+  }, [profile]);
 
   useEffect(() => {
     fetchNews();
@@ -41,24 +66,37 @@ export const DashboardScreen = ({ navigation }: any) => {
       <View style={styles.header}>
         <View>
           <Text style={[styles.welcome, { color: colors.mutedForeground }]}>Welcome back,</Text>
-          <Text style={[styles.username, { color: colors.foreground }]}>{profile?.username || 'Student'}</Text>
+          <Text style={[styles.username, { color: colors.foreground }]}>
+            {profile?.username || profile?.fullName?.split(' ')[0] || 'Student'}
+          </Text>
         </View>
         <TouchableOpacity onPress={() => navigation.openDrawer()}>
           <Menu size={24} color={colors.foreground} />
         </TouchableOpacity>
       </View>
 
+      {synced && (
+        <View style={[styles.syncBadge, { backgroundColor: colors.primary + '20' }]}>
+          <CheckCircle2 size={14} color={colors.primary} />
+          <Text style={[styles.syncText, { color: colors.primary }]}>Live Sync Completed</Text>
+        </View>
+      )}
+
       <View style={[styles.statsContainer, { backgroundColor: colors.muted }]}>
         <View style={[styles.statCard, { borderRightColor: colors.border }]}>
-          <Text style={[styles.statValue, { color: colors.primary }]}>{profile?.academicLevel || '100'}</Text>
+          <Text style={[styles.statValue, { color: colors.primary }]}>
+            {profile?.academicLevel || profile?.level || '100L'}
+          </Text>
           <Text style={[styles.statLabel, { color: colors.mutedForeground }]}>Level</Text>
         </View>
         <View style={[styles.statCard, { borderRightColor: colors.border }]}>
-          <Text style={[styles.statValue, { color: colors.primary }]}>{profile?.referralCount || 0}</Text>
-          <Text style={[styles.statLabel, { color: colors.mutedForeground }]}>Referrals</Text>
+          <Text style={[styles.statValue, { color: colors.primary }]}>{activeSem || '...'}</Text>
+          <Text style={[styles.statLabel, { color: colors.mutedForeground }]}>Semester</Text>
         </View>
         <View style={styles.statCardLast}>
-          <Text style={[styles.statValue, { color: colors.primary }]}>{profile?.isActivated ? 'Active' : 'Free'}</Text>
+          <Text style={[styles.statValue, { color: colors.primary }]}>
+            {profile?.isActivated ? 'Active' : 'Free'}
+          </Text>
           <Text style={[styles.statLabel, { color: colors.mutedForeground }]}>Status</Text>
         </View>
       </View>
@@ -158,6 +196,21 @@ const styles = StyleSheet.create({
   },
   statLabel: {
     fontSize: 12,
+  },
+  syncBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginHorizontal: 24,
+    marginBottom: -8,
+    marginTop: 8,
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    borderRadius: 8,
+    gap: 6,
+  },
+  syncText: {
+    fontSize: 12,
+    fontWeight: '500',
   },
   section: {
     paddingHorizontal: 24,

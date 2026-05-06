@@ -222,7 +222,10 @@ const SortableBlock = ({ block, onUpdate, onDelete, onFocus, isPreview }: Sortab
         {block.type === 'math' && block.content && (
           <div className="py-4 flex justify-center bg-muted/30 rounded-lg overflow-x-auto">
             <ReactMarkdown remarkPlugins={[remarkMath, remarkGfm]} rehypePlugins={[rehypeKatex]}>
-              {`$$${block.content}$$`}
+              {(() => {
+                const content = block.content.trim().replace(/^\$\$?/, '').replace(/\$\$?$/, '');
+                return `$$${content}$$`;
+              })()}
             </ReactMarkdown>
           </div>
         )}
@@ -339,7 +342,10 @@ const SortableBlock = ({ block, onUpdate, onDelete, onFocus, isPreview }: Sortab
             {block.content && (
               <div className="p-4 bg-muted/30 rounded-lg flex justify-center overflow-x-auto">
                 <ReactMarkdown remarkPlugins={[remarkMath]} rehypePlugins={[rehypeKatex]}>
-                  {`$$${block.content}$$`}
+                  {(() => {
+                    const content = block.content.trim().replace(/^\$\$?/, '').replace(/\$\$?$/, '');
+                    return `$$${content}$$`;
+                  })()}
                 </ReactMarkdown>
               </div>
             )}
@@ -631,22 +637,33 @@ export const NoteBuilder: React.FC<NoteBuilderProps> = ({ initialContent, onChan
 
     // Smart wrap $ for text blocks
     let finalSymbol = symbol;
+    let insertionPos = cursorPos;
+    let contentPrefix = block.content.slice(0, cursorPos);
+    let contentSuffix = block.content.slice(cursorPos);
+
     if (block.type === 'text') {
-      // Check if we are inside $ delimeters
-      const textBefore = block.content.slice(0, cursorPos);
-      const textAfter = block.content.slice(cursorPos);
+      const textBefore = contentPrefix;
       const dollarsBefore = (textBefore.match(/\$/g) || []).length;
-      const dollarsAfter = (textAfter.match(/\$/g) || []).length;
       
       const isInsideMath = (dollarsBefore % 2 === 1);
-      if (!isInsideMath) {
+      const isJustAfterDollar = textBefore.endsWith('$') && !textBefore.endsWith('\\$');
+      
+      if (isInsideMath) {
+        // We are inside $...$, just insert the symbol
+        finalSymbol = symbol;
+      } else if (isJustAfterDollar) {
+        // We are just after the closing $, insert BEFORE it to stay in the math span
+        contentPrefix = contentPrefix.slice(0, -1);
+        finalSymbol = symbol + '$';
+      } else {
+        // We are in plain text, start a new math span
         finalSymbol = `$${symbol}$`;
       }
     }
 
-    const newContent = block.content.slice(0, cursorPos) + finalSymbol + block.content.slice(cursorPos);
+    const newContent = contentPrefix + finalSymbol + contentSuffix;
     updateBlockContent(activeBlockId, newContent);
-    setCursorPos(cursorPos + finalSymbol.length);
+    setCursorPos(contentPrefix.length + finalSymbol.length);
   };
 
   const toggleCategory = (cat: string) => {

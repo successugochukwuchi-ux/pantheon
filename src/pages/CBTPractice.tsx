@@ -20,6 +20,7 @@ import remarkGfm from 'remark-gfm';
 import 'katex/dist/katex.min.css';
 import { useTitle } from '../hooks/useTitle';
 import { ScientificCalculator } from '../components/ScientificCalculator';
+import { AIAssistant } from '../components/AIAssistant';
 
 export default function CBTPractice() {
   useTitle('CBT Practice');
@@ -481,6 +482,13 @@ export default function CBTPractice() {
           </button>
         ))}
       </div>
+
+      {testStarted && !testCompleted && currentQuestion && (
+        <AIAssistant 
+          noteContent={`Question: ${currentQuestion.text}\nOptions: ${(currentQuestion as any).options?.join(', ')}`} 
+          noteTitle={`CBT Question ${currentQuestionIndex + 1}`}
+        />
+      )}
     </div>
   );
 }

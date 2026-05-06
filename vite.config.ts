@@ -14,7 +14,7 @@ export default defineConfig(({mode}) => {
         registerType: 'prompt',
         includeAssets: ['favicon.ico', 'apple-touch-icon.png', 'mask-icon.svg'],
         workbox: {
-          maximumFileSizeToCacheInBytes: 4000000,
+          maximumFileSizeToCacheInBytes: 6000000,
           runtimeCaching: [
             {
               urlPattern: /^https:\/\/i\.imgur\.com\/.*/i,

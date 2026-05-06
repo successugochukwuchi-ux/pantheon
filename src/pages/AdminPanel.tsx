@@ -1868,7 +1868,11 @@ export default function AdminPanel() {
                         {q.explanation && (
                           <div className="mt-4 p-3 bg-blue-50 dark:bg-blue-900/20 rounded-lg text-sm border border-blue-100 dark:border-blue-900/30">
                             <p className="font-bold text-blue-700 dark:text-blue-400 mb-1">Explanation:</p>
-                            <p className="text-muted-foreground">{q.explanation}</p>
+                            <div className="text-muted-foreground prose dark:prose-invert max-w-none">
+                              <ReactMarkdown remarkPlugins={[remarkMath, remarkGfm]} rehypePlugins={[rehypeKatex]}>
+                                {q.explanation}
+                              </ReactMarkdown>
+                            </div>
                           </div>
                         )}
                       </CardContent>

@@ -20,7 +20,7 @@ export const FriendsScreen = ({ navigation }: any) => {
     if (!user) return;
 
     // Listen for friend requests
-    const qRequests = query(collection(db, 'friendRequests'), where('toUid', '==', user.uid), where('status', '==', 'pending'));
+    const qRequests = query(collection(db, 'friend_requests'), where('toUid', '==', user.uid), where('status', '==', 'pending'));
     const unsubRequests = onSnapshot(qRequests, async (snapshot) => {
       const requestData = [];
       for (const d of snapshot.docs) {
@@ -31,6 +31,8 @@ export const FriendsScreen = ({ navigation }: any) => {
           }
       }
       setRequests(requestData);
+    }, (error: any) => {
+      console.error('[FR_LIST_ERR]', error);
     });
 
     // Listen for friendships
@@ -59,22 +61,26 @@ export const FriendsScreen = ({ navigation }: any) => {
 
   const acceptRequest = async (request: any) => {
     try {
-      await updateDoc(doc(db, 'friendRequests', request.id), { status: 'accepted' });
       await addDoc(collection(db, 'friendships'), {
         uids: [user?.uid, request.fromUid],
         createdAt: new Date().toISOString()
       });
+      await deleteDoc(doc(db, 'friend_requests', request.id));
       Alert.alert('Success', 'Friend request accepted!');
-    } catch (error) {
-      Alert.alert('Error', 'Failed to accept request');
+    } catch (error: any) {
+      console.error('[FR_ACCEPT_ERR]', error);
+      const errorCode = error.code || 'UNKNOWN';
+      Alert.alert('Error', `Failed to accept request. (Code: ${errorCode})`);
     }
   };
 
   const rejectRequest = async (requestId: string) => {
     try {
-      await updateDoc(doc(db, 'friendRequests', requestId), { status: 'rejected' });
-    } catch (error) {
-      Alert.alert('Error', 'Failed to reject request');
+      await deleteDoc(doc(db, 'friend_requests', requestId));
+    } catch (error: any) {
+      console.error('[FR_REJECT_ERR]', error);
+      const errorCode = error.code || 'UNKNOWN';
+      Alert.alert('Error', `Failed to reject request. (Code: ${errorCode})`);
     }
   };
 

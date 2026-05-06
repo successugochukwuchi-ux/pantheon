@@ -5,7 +5,7 @@ import { NavigationContainer } from '@react-navigation/native';
 import { AuthProvider, useAuth } from '../context/AuthContext';
 import { ThemeProvider, useTheme } from '../context/ThemeContext';
 import { ActivityIndicator, View, StyleSheet, Text, TouchableOpacity, Linking } from 'react-native';
-import { LayoutDashboard, MessageSquare, Settings, BookOpen, Bell, PlayCircle, History, HelpCircle, Award, Calculator, Newspaper, UserPlus, Users, Shield, LogOut } from 'lucide-react-native';
+import { LayoutDashboard, MessageSquare, Settings, BookOpen, Bell, PlayCircle, History, HelpCircle, Award, Calculator, Newspaper, UserPlus, Users, Shield, LogOut, Download } from 'lucide-react-native';
 import { auth } from '../services/firebase';
 
 import { LandingScreen } from '../screens/LandingScreen';
@@ -27,6 +27,7 @@ import { FriendsScreen } from '../screens/FriendsScreen';
 import { UserSearchScreen } from '../screens/UserSearchScreen';
 import { PublicProfileScreen } from '../screens/PublicProfileScreen';
 import { ReferralsScreen } from '../screens/ReferralsScreen';
+import { NoteGrabberScreen } from '../screens/NoteGrabberScreen';
 
 const Stack = createStackNavigator();
 const Drawer = createDrawerNavigator();
@@ -66,8 +67,8 @@ const CustomDrawerContent = (props: any) => {
           style={styles.footerItem}
           onPress={() => props.navigation.navigate('Settings')}
         >
-          <Settings size={18} color={colors.foreground} />
-          <Text style={[styles.footerText, { color: colors.foreground }]}>Settings</Text>
+          <Settings size={18} color={colors.sidebarForeground} />
+          <Text style={[styles.footerText, { color: colors.sidebarForeground }]}>Settings</Text>
         </TouchableOpacity>
         <TouchableOpacity
           style={styles.footerItem}
@@ -89,11 +90,17 @@ const DrawerNavigator = () => {
       drawerContent={(props) => <CustomDrawerContent {...props} />}
       backBehavior="history"
       screenOptions={{
-        headerStyle: { backgroundColor: colors.background, elevation: 0, shadowOpacity: 0, borderBottomWidth: 1, borderBottomColor: colors.border },
+        headerStyle: { 
+          backgroundColor: colors.background, 
+          elevation: 0, 
+          shadowOpacity: 0, 
+          borderBottomWidth: 1, 
+          borderBottomColor: colors.border 
+        },
         headerTintColor: colors.foreground,
         drawerActiveBackgroundColor: colors.sidebarPrimary,
-        drawerActiveTintColor: colors.primaryForeground,
-        drawerInactiveTintColor: colors.foreground,
+        drawerActiveTintColor: colors.sidebarPrimaryForeground,
+        drawerInactiveTintColor: colors.sidebarForeground + 'B3', // ~70% opacity
         drawerLabelStyle: { marginLeft: -16, fontWeight: '500' },
         drawerItemStyle: { borderRadius: 8, marginVertical: 2 },
       }}
@@ -167,6 +174,13 @@ const DrawerNavigator = () => {
         }}
       />
       <Drawer.Screen
+        name="Note Grabber"
+        component={NoteGrabberScreen}
+        options={{
+          drawerIcon: ({ color, size }) => <Download size={size} color={color} />,
+        }}
+      />
+      <Drawer.Screen
         name="Referrals"
         component={ReferralsScreen}
         options={{
@@ -201,6 +215,14 @@ const Navigation = () => {
       <Stack.Navigator screenOptions={{
         headerShown: false,
         cardStyle: { backgroundColor: colors.background },
+        headerStyle: { 
+          backgroundColor: colors.background,
+          elevation: 0,
+          shadowOpacity: 0,
+          borderBottomWidth: 1,
+          borderBottomColor: colors.border
+        },
+        headerTintColor: colors.foreground,
       }}>
         {!user ? (
           <>
@@ -219,6 +241,7 @@ const Navigation = () => {
             <Stack.Screen name="CourseDiscussion" component={CourseDiscussionScreen} options={{ headerShown: true, title: 'Study Group', headerTintColor: colors.foreground }} />
             <Stack.Screen name="UserSearch" component={UserSearchScreen} options={{ headerShown: true, title: 'Search Users', headerTintColor: colors.foreground }} />
             <Stack.Screen name="PublicProfile" component={PublicProfileScreen} options={{ headerShown: true, title: 'Profile', headerTintColor: colors.foreground }} />
+            <Stack.Screen name="NoteGrabber" component={NoteGrabberScreen} options={{ headerShown: true, title: 'Note Grabber', headerTintColor: colors.foreground }} />
           </>
         )}
       </Stack.Navigator>

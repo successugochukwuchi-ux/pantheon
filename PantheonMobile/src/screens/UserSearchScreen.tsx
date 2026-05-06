@@ -9,7 +9,7 @@ import { Search, UserPlus } from 'lucide-react-native';
 import { UserProfile } from '../types';
 
 export const UserSearchScreen = ({ navigation }: any) => {
-  const { user } = useAuth();
+  const { user, profile } = useAuth();
   const { colors } = useTheme();
   const [searchTerm, setSearchTerm] = useState('');
   const [results, setResults] = useState<UserProfile[]>([]);
@@ -43,7 +43,7 @@ export const UserSearchScreen = ({ navigation }: any) => {
   const sendFriendRequest = async (targetUser: UserProfile) => {
     try {
       const q = query(
-        collection(db, 'friendRequests'),
+        collection(db, 'friend_requests'),
         where('fromUid', '==', user?.uid),
         where('toUid', '==', targetUser.uid),
         where('status', '==', 'pending')
@@ -54,15 +54,18 @@ export const UserSearchScreen = ({ navigation }: any) => {
         return;
       }
 
-      await addDoc(collection(db, 'friendRequests'), {
+      await addDoc(collection(db, 'friend_requests'), {
         fromUid: user?.uid,
+        fromName: profile?.username || 'User',
         toUid: targetUser.uid,
         status: 'pending',
         createdAt: new Date().toISOString()
       });
       Alert.alert('Success', 'Friend request sent!');
-    } catch (error) {
-      Alert.alert('Error', 'Failed to send request');
+    } catch (error: any) {
+      console.error('[FR_SEND_ERR]', error);
+      const errorCode = error.code || 'UNKNOWN';
+      Alert.alert('Error', `Failed to send request. (Code: ${errorCode})\n${error.message}`);
     }
   };
 

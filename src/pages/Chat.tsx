@@ -41,7 +41,7 @@ interface Message {
 
 interface ChatRoom {
   id: string;
-  type: 'dm' | 'group';
+  type: 'dm' | 'group' | 'discussion';
   uids: string[];
   name?: string;
   lastMessage?: string;
@@ -81,7 +81,7 @@ export default function Chat() {
   const [isReportDialogOpen, setIsReportDialogOpen] = useState(false);
   const [memberProfiles, setMemberProfiles] = useState<{ [uid: string]: UserProfile }>({});
   const scrollRef = useRef<HTMLDivElement>(null);
-  const typingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const typingTimeoutRef = useRef<any>(null);
 
   // Sound effects
   const messageSound = useRef(new Audio('https://assets.mixkit.co/active_storage/sfx/2354/2354-preview.mp3'));
@@ -152,14 +152,14 @@ export default function Chat() {
     return () => unsubscribe();
   }, [profile]);
 
-  // Fetch all chats for the user
+  // Fetch all chats and discussions for the user
   useEffect(() => {
     if (!user) return;
 
     // Simplified query to avoid composite index requirement
     const q = query(collection(db, 'chats'), where('uids', 'array-contains', user.uid));
     const unsubscribe = onSnapshot(q, (snapshot) => {
-      const updateChats = async () => {
+      const updateData = async () => {
         try {
           const chatList: ChatRoom[] = [];
           for (const d of snapshot.docs) {
@@ -176,19 +176,41 @@ export default function Chat() {
             
             chatList.push({ id: d.id, ...data, friendProfile } as ChatRoom);
           }
+
+          // Fetch Course Discussions
+          const systemDoc = await getDoc(doc(db, 'system', 'config'));
+          const systemConfig = systemDoc.exists() ? systemDoc.data() : null;
+          const currentSemester = systemConfig?.currentSemester || '1st';
+
+          const qCourses = query(
+            collection(db, 'courses'),
+            where('semester', '==', currentSemester)
+          );
+          const courseSnap = await getDocs(qCourses);
+          const userCourses = courseSnap.docs.map(doc_ => ({ id: doc_.id, ...doc_.data() } as Course));
+          
+          const discussionList = userCourses.map(c => ({
+              id: c.id,
+              type: 'discussion',
+              name: `${c.code} Discussion`,
+              lastMessage: `Join ${c.code} study group`
+          } as any));
+
+          const allConversations = [...chatList, ...discussionList];
+
           // Sort in memory
-          chatList.sort((a, b) => {
+          allConversations.sort((a, b) => {
             const timeA = a.lastUpdatedAt ? new Date(a.lastUpdatedAt).getTime() : 0;
             const timeB = b.lastUpdatedAt ? new Date(b.lastUpdatedAt).getTime() : 0;
             return timeB - timeA;
           });
           
-          setChats(chatList);
+          setChats(allConversations);
           
           // Sync activeChat to pick up typing changes
           setActiveChat(prev => {
             if (!prev) return null;
-            const updated = chatList.find(c => c.id === prev.id);
+            const updated = allConversations.find(c => c.id === prev.id);
             return updated ? { ...prev, ...updated } : prev;
           });
           
@@ -199,7 +221,7 @@ export default function Chat() {
         }
       };
 
-      updateChats();
+      updateData();
     }, (error) => {
       handleFirestoreError(error, OperationType.LIST, 'chats');
       setLoading(false);
@@ -275,16 +297,33 @@ export default function Chat() {
       return;
     }
 
-    // Simplified query to avoid composite index requirement
-    const q = query(
-      collection(db, 'chats', activeChat.id, 'messages'),
-      limit(100)
-    );
+    let q;
+    if (activeChat.type === 'discussion') {
+      q = query(
+        collection(db, 'discussions'),
+        where('courseId', '==', activeChat.id),
+        limit(100)
+      );
+    } else {
+      q = query(
+        collection(db, 'chats', activeChat.id, 'messages'),
+        limit(100)
+      );
+    }
 
     const unsubscribe = onSnapshot(q, (snapshot) => {
-      const msgs = snapshot.docs
-        .map(doc => ({ id: doc.id, ...doc.data() } as Message))
-        .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
+      let msgs = snapshot.docs.map(doc => {
+          const data = doc.data();
+          return { 
+              id: doc.id, 
+              ...data,
+              // Normalize field names if they differ
+              createdAt: data.createdAt,
+              senderUid: data.senderUid || data.userId,
+              senderName: data.senderName || data.username,
+              text: data.text
+          } as Message;
+      }).sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
       
       if (msgs.length > 0) {
         const lastMsg = msgs[msgs.length - 1];
@@ -301,7 +340,7 @@ export default function Chat() {
     });
 
     return () => unsubscribe();
-  }, [activeChat]);
+  }, [activeChat, user]);
 
   // Scroll to bottom
   useEffect(() => {
@@ -333,21 +372,32 @@ export default function Chat() {
         createdAt: new Date().toISOString()
       };
 
-      if (currentReply) {
-        msgData.replyTo = {
-          messageId: currentReply.id,
-          text: currentReply.text,
-          senderName: currentReply.senderName
-        };
-      }
+      if (activeChat.type === 'discussion') {
+          // Discussion specific fields
+          msgData.courseId = activeChat.id;
+          msgData.userId = user.uid;
+          msgData.username = profile.username || 'User';
+          msgData.userLevel = profile.level || '1';
+          msgData.userAcademicLevel = profile.academicLevel || '100';
+          
+          await addDoc(collection(db, 'discussions'), msgData);
+      } else {
+          if (currentReply) {
+            msgData.replyTo = {
+              messageId: currentReply.id,
+              text: currentReply.text,
+              senderName: currentReply.senderName
+            };
+          }
 
-      await addDoc(collection(db, 'chats', activeChat.id, 'messages'), msgData);
-      
-      // Update last message in chat doc
-      await updateDoc(doc(db, 'chats', activeChat.id), {
-        lastMessage: text || `Shared a note: ${selectedNote?.title}`,
-        lastUpdatedAt: new Date().toISOString()
-      });
+          await addDoc(collection(db, 'chats', activeChat.id, 'messages'), msgData);
+          
+          // Update last message in chat doc
+          await updateDoc(doc(db, 'chats', activeChat.id), {
+            lastMessage: text || `Shared a note: ${selectedNote?.title}`,
+            lastUpdatedAt: new Date().toISOString()
+          });
+      }
     } catch (err) {
       toast.error('Failed to send message');
     }

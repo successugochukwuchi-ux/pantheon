@@ -6,6 +6,7 @@ export interface UserProfile {
   studentId: string; // 11-digit numeric ID
   email: string;
   username?: string;
+  fullName?: string;
   department?: string;
   mobileNumber?: string;
   level: UserLevel;
@@ -34,6 +35,7 @@ export interface Course {
 export interface Note {
   id: string;
   courseId: string;
+  courseCode?: string;
   title: string;
   content: string;
   type: 'lecture' | 'punch' | 'past_question' | 'cbt';
@@ -85,6 +87,7 @@ export interface VerificationRequest {
 export interface QuestionSheet {
   id: string;
   courseId: string;
+  courseCode?: string;
   semester: '1st' | '2nd';
   academicLevel: string;
   year: string;
@@ -97,10 +100,13 @@ export interface Question {
   id: string;
   sheetId: string;
   courseId: string;
+  courseCode?: string;
   text: string;
+  imageUrl?: string;
   correctAnswer: string;
   incorrectAnswers: string[];
   explanation?: string;
+  explanationImageUrl?: string;
   order: number;
   authorId: string;
   createdAt: string;

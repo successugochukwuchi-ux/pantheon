@@ -19,6 +19,7 @@ import { MathJax } from 'better-react-mathjax';
 import { NoteBlock } from '../components/NoteBuilder';
 import { NoteProgressTracker } from '../components/NoteProgressTracker';
 import { ScientificCalculator } from '../components/ScientificCalculator';
+import { AIAssistant } from '../components/AIAssistant';
 
 export default function LectureNotes() {
   const { systemConfig, profile } = useAuth();
@@ -207,6 +208,10 @@ export default function LectureNotes() {
             </div>
           </DialogContent>
         </Dialog>
+        
+        {selectedNote && (
+          <AIAssistant noteContent={selectedNote.content} noteTitle={selectedNote.title} />
+        )}
       </div>
     </div>
     );

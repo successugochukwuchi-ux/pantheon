@@ -5,6 +5,7 @@ import { db } from '../services/firebase';
 import { useAuth } from '../context/AuthContext';
 import { theme } from '../theme';
 import { DiscussionMessage, Note } from '../types';
+import { MathText } from '../components/MathText';
 import { Send, FileText, ChevronRight, X } from 'lucide-react-native';
 
 export const CourseDiscussionScreen = ({ route, navigation }: any) => {
@@ -117,10 +118,11 @@ export const CourseDiscussionScreen = ({ route, navigation }: any) => {
                   <ChevronRight size={14} color={item.userId === user?.uid ? theme.colors.primaryForeground : theme.colors.mutedForeground} />
                 </TouchableOpacity>
               )}
-              <Text style={[
-                styles.messageText,
-                item.userId === user?.uid ? styles.myMessageText : styles.otherMessageText,
-              ]}>{item.text}</Text>
+              <MathText 
+                text={item.text} 
+                color={item.userId === user?.uid ? theme.colors.primaryForeground : theme.colors.foreground} 
+                fontSize={15} 
+              />
             </View>
           </View>
         )}

@@ -146,7 +146,9 @@
   --sidebar: oklch(0.2 0.1 240);
   --sidebar-foreground: oklch(0.98 0.01 240);
   --sidebar-primary: oklch(0.45 0.2 240);
+  --sidebar-primary-foreground: oklch(0.98 0.01 240);
   --sidebar-accent: oklch(0.3 0.1 240);
+  --sidebar-accent-foreground: oklch(0.98 0.01 240);
 }
 
 .forest {
@@ -161,7 +163,9 @@
   --sidebar: oklch(0.2 0.08 140);
   --sidebar-foreground: oklch(0.98 0.01 140);
   --sidebar-primary: oklch(0.35 0.15 140);
+  --sidebar-primary-foreground: oklch(0.98 0.01 140);
   --sidebar-accent: oklch(0.25 0.08 140);
+  --sidebar-accent-foreground: oklch(0.98 0.01 140);
 }
 
 .midnight.dark {
@@ -191,7 +195,9 @@
   --sidebar: oklch(0.2 0.1 30);
   --sidebar-foreground: oklch(0.98 0.02 40);
   --sidebar-primary: oklch(0.55 0.25 30);
+  --sidebar-primary-foreground: oklch(0.98 0.02 40);
   --sidebar-accent: oklch(0.3 0.1 30);
+  --sidebar-accent-foreground: oklch(0.98 0.02 40);
 }
 
 .lavender {
@@ -206,7 +212,9 @@
   --sidebar: oklch(0.2 0.1 280);
   --sidebar-foreground: oklch(0.98 0.01 280);
   --sidebar-primary: oklch(0.5 0.2 280);
+  --sidebar-primary-foreground: oklch(0.98 0.01 280);
   --sidebar-accent: oklch(0.3 0.1 280);
+  --sidebar-accent-foreground: oklch(0.98 0.01 280);
 }
 
 .custom {
