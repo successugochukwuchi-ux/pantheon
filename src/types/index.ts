@@ -199,6 +199,15 @@ export interface PromoConfig {
   updatedBy: string;
 }
 
+export interface AIConfig {
+  provider: 'openrouter' | 'groq';
+  model: string;
+  apiKey: string;
+  isActive: boolean;
+  updatedAt: string;
+  updatedBy: string;
+}
+
 export interface Report {
   id: string;
   reporterId: string;

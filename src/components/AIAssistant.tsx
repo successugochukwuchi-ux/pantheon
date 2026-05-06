@@ -6,6 +6,9 @@ import { Button } from './ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Input } from './ui/input';
 import { chatWithHermes, ChatMessage } from '../services/aiService';
+import { doc, onSnapshot } from 'firebase/firestore';
+import { db } from '../firebase';
+import { AIConfig } from '../types';
 import ReactMarkdown from 'react-markdown';
 import remarkMath from 'remark-math';
 import rehypeMathjax from 'rehype-mathjax';
@@ -22,7 +25,17 @@ export function AIAssistant({ noteContent, noteTitle }: AIAssistantProps) {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+  const [aiConfig, setAiConfig] = useState<AIConfig | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const unsub = onSnapshot(doc(db, 'system', 'hermes'), (snapshot) => {
+      if (snapshot.exists()) {
+        setAiConfig(snapshot.data() as AIConfig);
+      }
+    });
+    return () => unsub();
+  }, []);
 
   useEffect(() => {
     if (scrollRef.current) {
@@ -39,7 +52,7 @@ export function AIAssistant({ noteContent, noteTitle }: AIAssistantProps) {
     setIsLoading(true);
 
     try {
-      const response = await chatWithHermes([...messages, userMessage], noteContent);
+      const response = await chatWithHermes([...messages, userMessage], noteContent, aiConfig || undefined);
       setMessages(prev => [...prev, { role: 'assistant', content: response }]);
     } catch (error: any) {
       setMessages(prev => [...prev, { role: 'assistant', content: `Error: ${error.message}` }]);
@@ -47,6 +60,8 @@ export function AIAssistant({ noteContent, noteTitle }: AIAssistantProps) {
       setIsLoading(false);
     }
   };
+
+  if (aiConfig && aiConfig.isActive === false) return null;
 
   return (
     <div className="fixed bottom-6 right-6 z-50 flex flex-col items-end gap-4">

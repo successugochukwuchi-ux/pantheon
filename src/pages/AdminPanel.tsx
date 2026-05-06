@@ -49,7 +49,7 @@ import {
   MessageCircle,
   History as HistoryIcon
 } from 'lucide-react';
-import { Course, UserLevel, Semester, Note, Question, ActivationCode, VerificationRequest, QuestionSheet, VideoQuestion, NotificationTarget, Announcement, TelegramConfig } from '../types';
+import { Course, UserLevel, Semester, Note, Question, ActivationCode, VerificationRequest, QuestionSheet, VideoQuestion, NotificationTarget, Announcement, TelegramConfig, AIConfig } from '../types';
 import { sendTelegramAlert, testTelegramConnection } from '../services/telegramService';
 import { Routes, Route, useNavigate, useLocation } from 'react-router-dom';
 import { NoteBuilder } from '../components/NoteBuilder';
@@ -205,6 +205,15 @@ export default function AdminPanel() {
   });
   const [selectedVideoNote, setSelectedVideoNote] = useState<Note | null>(null);
 
+  // AI Configuration State
+  const [hermesConfig, setHermesConfig] = useState<AIConfig | null>(null);
+  const [editAI, setEditAI] = useState({
+    provider: 'groq' as 'groq' | 'openrouter',
+    model: '',
+    apiKey: '',
+    isActive: true
+  });
+
   useEffect(() => {
     if (!profile) return;
 
@@ -254,6 +263,7 @@ export default function AdminPanel() {
 
     // Fetch Telegram Config for Level 4
     let unsubTelegram = () => {};
+    let unsubAI = () => {};
     if (profile.level === '4') {
       unsubTelegram = onSnapshot(doc(db, 'system', 'telegram'), (snapshot) => {
         if (snapshot.exists()) {
@@ -268,6 +278,21 @@ export default function AdminPanel() {
       }, (err) => {
         handleFirestoreError(err, OperationType.GET, 'system/telegram');
       });
+
+      unsubAI = onSnapshot(doc(db, 'system', 'hermes'), (snapshot) => {
+        if (snapshot.exists()) {
+          const data = snapshot.data() as AIConfig;
+          setHermesConfig(data);
+          setEditAI({
+            provider: data.provider || 'groq',
+            model: data.model || '',
+            apiKey: data.apiKey || '',
+            isActive: data.isActive ?? true
+          });
+        }
+      }, (err) => {
+        handleFirestoreError(err, OperationType.GET, 'system/hermes');
+      });
     }
 
     return () => {
@@ -279,6 +304,7 @@ export default function AdminPanel() {
       unsubVerifications();
       unsubAnnouncements();
       unsubTelegram();
+      unsubAI();
     };
   }, [profile]);
 
@@ -743,6 +769,24 @@ export default function AdminPanel() {
     } catch (error: any) {
       console.error("Delete pin error:", error);
       toast.error('Failed to delete: ' + (error.message || 'Unknown error'));
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleUpdateAI = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!user) return;
+    setLoading(true);
+    try {
+      await setDoc(doc(db, 'system', 'hermes'), {
+        ...editAI,
+        updatedBy: user.uid,
+        updatedAt: new Date().toISOString()
+      });
+      toast.success('Hermes AI configuration updated');
+    } catch (error: any) {
+      toast.error('Failed to update AI config: ' + error.message);
     } finally {
       setLoading(false);
     }
@@ -2372,6 +2416,76 @@ export default function AdminPanel() {
                 </div>
               </CardContent>
             </Card>
+
+            {isLevel4 && (
+              <Card className="border-purple-500/20 bg-purple-500/5">
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2 text-purple-600">
+                    <MessageCircle className="h-5 w-5" />
+                    Hermes AI Configuration
+                  </CardTitle>
+                  <CardDescription>Switch between OpenRouter and Groq for the AI assistant.</CardDescription>
+                </CardHeader>
+                <form onSubmit={handleUpdateAI}>
+                  <CardContent className="space-y-4">
+                    <div className="flex items-center justify-between p-3 bg-white/50 dark:bg-black/20 rounded-lg border border-purple-200 dark:border-purple-900">
+                      <div className="space-y-0.5">
+                        <Label className="text-sm">Hermes Active</Label>
+                        <p className="text-xs text-muted-foreground">Enable or disable the AI assistant globally.</p>
+                      </div>
+                      <div 
+                        className={`w-12 h-6 rounded-full cursor-pointer transition-colors ${editAI.isActive ? 'bg-purple-500' : 'bg-muted'}`}
+                        onClick={() => setEditAI(prev => ({ ...prev, isActive: !prev.isActive }))}
+                      >
+                        <div className={`w-4 h-4 rounded-full bg-white mt-1 transition-transform ${editAI.isActive ? 'translate-x-7' : 'translate-x-1'}`} />
+                      </div>
+                    </div>
+
+                    <div className="space-y-2">
+                      <Label>API Provider</Label>
+                      <Select 
+                        value={editAI.provider} 
+                        onValueChange={(v: 'groq' | 'openrouter') => setEditAI(prev => ({ ...prev, provider: v, model: v === 'groq' ? 'llama-3.1-8b-instant' : 'google/gemini-2.0-flash-001' }))}
+                      >
+                        <SelectTrigger>
+                          <SelectValue placeholder="Select Provider" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="groq">Groq (Faster)</SelectItem>
+                          <SelectItem value="openrouter">OpenRouter (More Models)</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+
+                    <div className="space-y-2">
+                      <Label>Model ID</Label>
+                      <Input 
+                        value={editAI.model} 
+                        onChange={(e) => setEditAI(prev => ({ ...prev, model: e.target.value }))}
+                        placeholder={editAI.provider === 'groq' ? "e.g. llama-3.1-8b-instant" : "e.g. google/gemini-2.0-flash-001"}
+                        required
+                      />
+                    </div>
+
+                    <div className="space-y-2">
+                      <Label>API Key (Optional if hardcoded)</Label>
+                      <Input 
+                        type="password" 
+                        value={editAI.apiKey} 
+                        onChange={(e) => setEditAI(prev => ({ ...prev, apiKey: e.target.value }))}
+                        placeholder="Leave blank to use default system keys"
+                      />
+                      <p className="text-[10px] text-muted-foreground">If provided, this key will override the internal hardcoded key.</p>
+                    </div>
+                  </CardContent>
+                  <CardFooter>
+                    <Button type="submit" className="w-full bg-purple-600 hover:bg-purple-700" disabled={loading}>
+                      Save AI Configuration
+                    </Button>
+                  </CardFooter>
+                </form>
+              </Card>
+            )}
 
             {isLevel4 && (
               <Card className="border-sky-500/20 bg-sky-500/5">
