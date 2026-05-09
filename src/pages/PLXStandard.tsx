@@ -131,10 +131,13 @@ PLX (Pillara Extensible) is a human-readable and AI-friendly note format designe
         </div>
         <Button 
           className="bg-amber-600 hover:bg-amber-700"
-          onClick={() => copyToClipboard(window.location.href)}
+          onClick={() => copyToClipboard(window.location.origin + '/plx.txt')}
         >
-          Copy Share Link
+          Copy Raw Standard URL
         </Button>
+        <p className="text-[10px] text-stone-400">
+          Raw version for terminal/AI: <a href="/plx.txt" className="underline">/plx.txt</a>
+        </p>
       </Card>
     </div>
   );
