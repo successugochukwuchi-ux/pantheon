@@ -86,6 +86,21 @@ import {
   DialogTitle 
 } from '../components/ui/dialog';
 
+const RECOMMENDED_MODELS = {
+  groq: {
+    chat: 'llama-3.3-70b-versatile',
+    magicNote: 'llama-3.2-11b-vision-instruct'
+  },
+  gemini: {
+    chat: 'gemini-2.0-flash-lite',
+    magicNote: 'gemini-2.0-flash-lite'
+  },
+  openrouter: {
+    chat: 'google/gemini-2.0-flash-001',
+    magicNote: 'google/gemini-2.0-flash-001'
+  }
+};
+
 export default function AdminPanel() {
   useTitle('Admin Panel');
   const { profile, user, systemConfig, promoConfig } = useAuth();
@@ -208,8 +223,16 @@ export default function AdminPanel() {
   // AI Configuration State
   const [hermesConfig, setHermesConfig] = useState<AIConfig | null>(null);
   const [editAI, setEditAI] = useState({
-    provider: 'groq' as 'groq' | 'openrouter',
-    model: '',
+    provider: 'groq' as 'groq' | 'openrouter' | 'gemini',
+    model: 'llama-3.3-70b-versatile',
+    apiKey: '',
+    isActive: true
+  });
+
+  const [magicNoteConfig, setMagicNoteConfig] = useState<AIConfig | null>(null);
+  const [editMagicNote, setEditMagicNote] = useState({
+    provider: 'groq' as 'groq' | 'openrouter' | 'gemini',
+    model: 'llama-3.2-11b-vision-instruct',
     apiKey: '',
     isActive: true
   });
@@ -293,6 +316,27 @@ export default function AdminPanel() {
       }, (err) => {
         handleFirestoreError(err, OperationType.GET, 'system/hermes');
       });
+
+      const unsubMagicNote = onSnapshot(doc(db, 'system', 'magicNote'), (snapshot) => {
+        if (snapshot.exists()) {
+          const data = snapshot.data() as AIConfig;
+          setMagicNoteConfig(data);
+          setEditMagicNote({
+            provider: data.provider || 'groq',
+            model: data.model || '',
+            apiKey: data.apiKey || '',
+            isActive: data.isActive ?? true
+          });
+        }
+      }, (err) => {
+        handleFirestoreError(err, OperationType.GET, 'system/magicNote');
+      });
+
+      const originalUnsubAI = unsubAI;
+      unsubAI = () => {
+        originalUnsubAI();
+        unsubMagicNote();
+      };
     }
 
     return () => {
@@ -779,14 +823,36 @@ export default function AdminPanel() {
     if (!user) return;
     setLoading(true);
     try {
+      const sanitizedKey = editAI.apiKey.toString().replace(/\s+/g, '').replace(/['"]/g, '').replace(/[\u200B-\u200D\uFEFF]/g, '');
       await setDoc(doc(db, 'system', 'hermes'), {
         ...editAI,
+        apiKey: sanitizedKey,
         updatedBy: user.uid,
         updatedAt: new Date().toISOString()
       });
-      toast.success('Hermes AI configuration updated');
+      toast.success('Hermes Chat configuration updated');
     } catch (error: any) {
       toast.error('Failed to update AI config: ' + error.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleUpdateMagicNoteAI = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!user) return;
+    setLoading(true);
+    try {
+      const sanitizedKey = editMagicNote.apiKey.toString().replace(/\s+/g, '').replace(/['"]/g, '').replace(/[\u200B-\u200D\uFEFF]/g, '');
+      await setDoc(doc(db, 'system', 'magicNote'), {
+        ...editMagicNote,
+        apiKey: sanitizedKey,
+        updatedBy: user.uid,
+        updatedAt: new Date().toISOString()
+      });
+      toast.success('Magic Note configuration updated');
+    } catch (error: any) {
+      toast.error('Failed to update Magic Note config: ' + error.message);
     } finally {
       setLoading(false);
     }
@@ -2418,73 +2484,176 @@ export default function AdminPanel() {
             </Card>
 
             {isLevel4 && (
-              <Card className="border-purple-500/20 bg-purple-500/5">
-                <CardHeader>
-                  <CardTitle className="flex items-center gap-2 text-purple-600">
-                    <MessageCircle className="h-5 w-5" />
-                    Hermes AI Configuration
-                  </CardTitle>
-                  <CardDescription>Switch between OpenRouter and Groq for the AI assistant.</CardDescription>
-                </CardHeader>
-                <form onSubmit={handleUpdateAI}>
-                  <CardContent className="space-y-4">
-                    <div className="flex items-center justify-between p-3 bg-white/50 dark:bg-black/20 rounded-lg border border-purple-200 dark:border-purple-900">
-                      <div className="space-y-0.5">
-                        <Label className="text-sm">Hermes Active</Label>
-                        <p className="text-xs text-muted-foreground">Enable or disable the AI assistant globally.</p>
+              <div className="grid gap-6 md:grid-cols-2">
+                <Card className="border-purple-500/20 bg-purple-500/5">
+                  <CardHeader>
+                    <CardTitle className="flex items-center gap-2 text-purple-600">
+                      <MessageCircle className="h-5 w-5" />
+                      Hermes Chat Configuration
+                    </CardTitle>
+                    <CardDescription>AI settings for the chatbot assistant.</CardDescription>
+                  </CardHeader>
+                  <form onSubmit={handleUpdateAI}>
+                    <CardContent className="space-y-4">
+                      <div className="flex items-center justify-between p-3 bg-white/50 dark:bg-black/20 rounded-lg border border-purple-200 dark:border-purple-900">
+                        <div className="space-y-0.5">
+                          <Label className="text-sm">Chat Active</Label>
+                          <p className="text-xs text-muted-foreground">Enable or disable the chat assistant.</p>
+                        </div>
+                        <div 
+                          className={`w-12 h-6 rounded-full cursor-pointer transition-colors ${editAI.isActive ? 'bg-purple-500' : 'bg-muted'}`}
+                          onClick={() => setEditAI(prev => ({ ...prev, isActive: !prev.isActive }))}
+                        >
+                          <div className={`w-4 h-4 rounded-full bg-white mt-1 transition-transform ${editAI.isActive ? 'translate-x-7' : 'translate-x-1'}`} />
+                        </div>
                       </div>
-                      <div 
-                        className={`w-12 h-6 rounded-full cursor-pointer transition-colors ${editAI.isActive ? 'bg-purple-500' : 'bg-muted'}`}
-                        onClick={() => setEditAI(prev => ({ ...prev, isActive: !prev.isActive }))}
-                      >
-                        <div className={`w-4 h-4 rounded-full bg-white mt-1 transition-transform ${editAI.isActive ? 'translate-x-7' : 'translate-x-1'}`} />
+
+                      <div className="space-y-2">
+                        <Label>API Provider</Label>
+                        <Select 
+                          value={editAI.provider} 
+                          onValueChange={(v: 'groq' | 'openrouter' | 'gemini') => {
+                            setEditAI(prev => ({ 
+                              ...prev, 
+                              provider: v,
+                              model: RECOMMENDED_MODELS[v].chat
+                            }));
+                          }}
+                        >
+                          <SelectTrigger>
+                            <SelectValue placeholder="Select Provider" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="groq">Groq — Free ✓ (Recommended)</SelectItem>
+                            <SelectItem value="gemini">Google Gemini — Free ✓</SelectItem>
+                            <SelectItem value="openrouter">OpenRouter (More Models)</SelectItem>
+                          </SelectContent>
+                        </Select>
                       </div>
-                    </div>
 
-                    <div className="space-y-2">
-                      <Label>API Provider</Label>
-                      <Select 
-                        value={editAI.provider} 
-                        onValueChange={(v: 'groq' | 'openrouter') => setEditAI(prev => ({ ...prev, provider: v, model: v === 'groq' ? 'llama-3.1-8b-instant' : 'google/gemini-2.0-flash-001' }))}
-                      >
-                        <SelectTrigger>
-                          <SelectValue placeholder="Select Provider" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="groq">Groq (Faster)</SelectItem>
-                          <SelectItem value="openrouter">OpenRouter (More Models)</SelectItem>
-                        </SelectContent>
-                      </Select>
-                    </div>
+                      <div className="space-y-2">
+                        <Label>Model ID</Label>
+                        <Input 
+                          value={editAI.model} 
+                          onChange={(e) => setEditAI(prev => ({ ...prev, model: e.target.value }))}
+                          placeholder={
+                            editAI.provider === 'gemini' 
+                              ? "e.g. gemini-2.0-flash-lite" 
+                              : editAI.provider === 'groq' 
+                                ? "e.g. llama-3.3-70b-versatile" 
+                                : "e.g. google/gemini-2.0-flash-001"
+                          }
+                          required
+                        />
+                      </div>
 
-                    <div className="space-y-2">
-                      <Label>Model ID</Label>
-                      <Input 
-                        value={editAI.model} 
-                        onChange={(e) => setEditAI(prev => ({ ...prev, model: e.target.value }))}
-                        placeholder={editAI.provider === 'groq' ? "e.g. llama-3.1-8b-instant" : "e.g. google/gemini-2.0-flash-001"}
-                        required
-                      />
-                    </div>
+                      <div className="space-y-2">
+                        <Label>API Key (Optional)</Label>
+                        <Input 
+                          type="password" 
+                          value={editAI.apiKey} 
+                          onChange={(e) => setEditAI(prev => ({ ...prev, apiKey: e.target.value }))}
+                          placeholder="Leave blank to use default system keys"
+                        />
+                      </div>
+                    </CardContent>
+                    <CardFooter>
+                      <Button type="submit" className="w-full bg-purple-600 hover:bg-purple-700" disabled={loading}>
+                        Save Chat Config
+                      </Button>
+                    </CardFooter>
+                  </form>
+                </Card>
 
-                    <div className="space-y-2">
-                      <Label>API Key (Optional if hardcoded)</Label>
-                      <Input 
-                        type="password" 
-                        value={editAI.apiKey} 
-                        onChange={(e) => setEditAI(prev => ({ ...prev, apiKey: e.target.value }))}
-                        placeholder="Leave blank to use default system keys"
-                      />
-                      <p className="text-[10px] text-muted-foreground">If provided, this key will override the internal hardcoded key.</p>
-                    </div>
-                  </CardContent>
-                  <CardFooter>
-                    <Button type="submit" className="w-full bg-purple-600 hover:bg-purple-700" disabled={loading}>
-                      Save AI Configuration
-                    </Button>
-                  </CardFooter>
-                </form>
-              </Card>
+                <Card className="border-amber-500/20 bg-amber-500/5">
+                  <CardHeader>
+                    <CardTitle className="flex items-center gap-2 text-amber-600">
+                      <FileText className="h-5 w-5" />
+                      Magic Note Creator AI
+                    </CardTitle>
+                    <CardDescription>AI settings for image-to-note extraction.</CardDescription>
+                  </CardHeader>
+                  <form onSubmit={handleUpdateMagicNoteAI}>
+                    <CardContent className="space-y-4">
+                      <div className="flex items-center justify-between p-3 bg-white/50 dark:bg-black/20 rounded-lg border border-amber-200 dark:border-amber-900">
+                        <div className="space-y-0.5">
+                          <Label className="text-sm">Creator Active</Label>
+                          <p className="text-xs text-muted-foreground">Enable or disable the note creator AI.</p>
+                        </div>
+                        <div 
+                          className={`w-12 h-6 rounded-full cursor-pointer transition-colors ${editMagicNote.isActive ? 'bg-amber-500' : 'bg-muted'}`}
+                          onClick={() => setEditMagicNote(prev => ({ ...prev, isActive: !prev.isActive }))}
+                        >
+                          <div className={`w-4 h-4 rounded-full bg-white mt-1 transition-transform ${editMagicNote.isActive ? 'translate-x-7' : 'translate-x-1'}`} />
+                        </div>
+                      </div>
+
+                      <div className="space-y-2">
+                        <Label>API Provider</Label>
+                        <Select 
+                          value={editMagicNote.provider} 
+                          onValueChange={(v: 'groq' | 'openrouter' | 'gemini') => {
+                            setEditMagicNote(prev => ({ 
+                              ...prev, 
+                              provider: v,
+                              model: RECOMMENDED_MODELS[v].magicNote
+                            }));
+                          }}
+                        >
+                          <SelectTrigger>
+                            <SelectValue placeholder="Select Provider" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="groq">Groq — Free ✓ (Recommended)</SelectItem>
+                            <SelectItem value="gemini">Google Gemini — Free ✓</SelectItem>
+                            <SelectItem value="openrouter">OpenRouter (More Models)</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+
+                      <div className="space-y-2">
+                        <Label>Model ID</Label>
+                        <Input 
+                          value={editMagicNote.model} 
+                          onChange={(e) => setEditMagicNote(prev => ({ ...prev, model: e.target.value }))}
+                          placeholder={
+                            editMagicNote.provider === 'gemini' 
+                              ? "e.g. gemini-2.0-flash-lite" 
+                              : editMagicNote.provider === 'groq' 
+                                ? "e.g. llama-3.2-11b-vision-instruct" 
+                                : "e.g. google/gemini-2.0-flash-001"
+                          }
+                          required
+                        />
+                        <p className="text-[10px] text-muted-foreground">
+                          {editMagicNote.provider === 'groq' ? (
+                            <>🆓 <b>Groq is free</b> — sign up at <a href="https://console.groq.com" target="_blank" rel="noopener noreferrer" className="underline text-amber-600">console.groq.com</a>, create an API key, and paste it here. Recommended vision model: <b>llama-3.2-11b-vision-instruct</b>.</>
+                          ) : editMagicNote.provider === 'gemini' ? (
+                            <>🆓 <b>Google Gemini is free</b> — get your key at <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noopener noreferrer" className="underline text-amber-600">aistudio.google.com/app/apikey</a>. Recommended model: <b>gemini-2.0-flash-lite</b>.</>
+                          ) : (
+                            <>Tip: On OpenRouter, use <b>google/gemini-2.0-flash-001</b> for best results. For free options, check the OpenRouter model list.</>
+                          )}
+                        </p>
+                      </div>
+
+                      <div className="space-y-2">
+                        <Label>API Key (Optional)</Label>
+                        <Input 
+                          type="password" 
+                          value={editMagicNote.apiKey} 
+                          onChange={(e) => setEditMagicNote(prev => ({ ...prev, apiKey: e.target.value }))}
+                          placeholder="Leave blank to use default system keys"
+                        />
+                      </div>
+                    </CardContent>
+                    <CardFooter>
+                      <Button type="submit" className="w-full bg-amber-600 hover:bg-amber-700" disabled={loading}>
+                        Save Creator Config
+                      </Button>
+                    </CardFooter>
+                  </form>
+                </Card>
+              </div>
             )}
 
             {isLevel4 && (

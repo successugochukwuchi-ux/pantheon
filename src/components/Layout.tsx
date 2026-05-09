@@ -216,9 +216,10 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
         <footer className="border-t py-6 px-4 md:px-8">
           <div className="flex flex-col items-center justify-between gap-4 md:flex-row">
             <p className="text-sm text-muted-foreground">
-              Built for FUTO Students. © 2026 Pantheon Team.
+              Built for FUTO Students. © 2026 Pillara Education, a Pillara Company.
             </p>
             <div className="flex items-center gap-4 text-xs text-muted-foreground">
+              <Link to="/plx" className="hover:underline font-medium text-amber-600">PLX Standard</Link>
               <Link to="/terms" className="hover:underline">Terms</Link>
               <Link to="/privacy" className="hover:underline">Privacy</Link>
             </div>

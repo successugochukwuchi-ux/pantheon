@@ -87,6 +87,9 @@ export default function PrivacyPolicy() {
           </section>
         </CardContent>
       </Card>
+      <footer className="mt-12 text-center text-sm text-muted-foreground">
+        © 2026 Pillara Education, a Pillara Company.
+      </footer>
     </div>
   );
 }

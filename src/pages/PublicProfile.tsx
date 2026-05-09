@@ -6,7 +6,21 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '../co
 import { Avatar, AvatarFallback, AvatarImage } from '../components/ui/avatar';
 import { Badge } from '../components/ui/badge';
 import { Button } from '../components/ui/button';
-import { ArrowLeft, Calendar, Award, Users, BookOpen, Shield, UserPlus, MessageSquare, UserMinus, Clock, Copy } from 'lucide-react';
+import { 
+  ArrowLeft, 
+  Calendar, 
+  Award, 
+  Users, 
+  BookOpen, 
+  Shield, 
+  UserPlus, 
+  MessageSquare, 
+  UserMinus, 
+  Clock, 
+  Copy,
+  User as UserIcon,
+  Loader2
+} from 'lucide-react';
 import { UserProfile, CBTSession, Course } from '../types';
 import { useAuth } from '../contexts/AuthContext';
 import { addDoc, deleteDoc } from 'firebase/firestore';
@@ -133,7 +147,18 @@ export default function PublicProfile() {
       </div>
     );
   }
-  if (!profile) return <div className="text-center py-12"><p className="text-muted-foreground">User not found.</p><Button variant="link" onClick={() => navigate(-1)}>Go back</Button></div>;
+  if (loading) return <div className="flex items-center justify-center min-h-[400px]"><Loader2 className="h-8 w-8 animate-spin text-primary" /></div>;
+
+  if (!profile) return (
+    <div className="text-center py-12 px-4">
+      <div className="mb-4 inline-flex h-16 w-16 items-center justify-center rounded-full bg-muted">
+        <UserIcon className="h-8 w-8 text-muted-foreground" />
+      </div>
+      <h2 className="text-xl font-semibold mb-2">Profile Not Found</h2>
+      <p className="text-muted-foreground mb-6">The user you are looking for does not exist or has set their profile to private.</p>
+      <Button variant="outline" onClick={() => navigate(-1)}>Go Back</Button>
+    </div>
+  );
 
   const isAdmin = profile.level === '3' || profile.level === '4';
 

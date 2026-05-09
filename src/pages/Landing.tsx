@@ -185,6 +185,7 @@ export default function Landing() {
           <div className="flex flex-col gap-2">
             <span className="text-2xl font-bold tracking-tighter">PANTHEON</span>
             <p className="text-muted-foreground text-sm max-w-xs">Empowering FUTO students through technology and accessible education.</p>
+            <p className="text-xs text-muted-foreground mt-4">© 2026 Pillara Education, a Pillara Company.</p>
           </div>
           <div className="flex flex-wrap gap-4 md:gap-8 justify-center">
             {user ? (

@@ -69,7 +69,16 @@ export default function Activate() {
 
       setShowPromoSuccess(true);
     } catch (error: any) {
-      toast.error("Failed to activate via promo");
+      console.error("Promo Activation Error:", error);
+      // Check for common ad-blocker or network blockage indicators
+      const errorStr = String(error);
+      if (errorStr.includes('ERR_BLOCKED_BY_CLIENT') || errorStr.includes('blocked-by-client') || errorStr.includes('Network Error')) {
+        toast.error("Activation Blocked: It seems your browser or an ad-blocker is preventing the connection. Please disable Ad-Blockers and try again.", {
+          duration: 10000
+        });
+      } else {
+        handleFirestoreError(error, OperationType.WRITE, `Promo Activation (promo + users/${user?.uid})`);
+      }
     } finally {
       setLoading(false);
     }

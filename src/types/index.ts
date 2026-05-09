@@ -200,12 +200,17 @@ export interface PromoConfig {
 }
 
 export interface AIConfig {
-  provider: 'openrouter' | 'groq';
+  provider: 'openrouter' | 'groq' | 'gemini';
   model: string;
   apiKey: string;
   isActive: boolean;
   updatedAt: string;
   updatedBy: string;
+}
+
+export interface SplitAIConfig {
+  chat: AIConfig;
+  creator: AIConfig;
 }
 
 export interface Report {

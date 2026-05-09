@@ -26,6 +26,7 @@ import {
   Heading2,
   ChevronDown,
   ChevronRight,
+  ChevronUp,
   Image as ImageIcon,
   FlipHorizontal,
   FlipVertical,
@@ -37,7 +38,15 @@ import {
   Zap,
   Variable,
   Table as TableIcon,
-  Video
+  Video,
+  Wand2,
+  Loader2,
+  FileText,
+  Upload,
+  List,
+  ListOrdered,
+  Settings2,
+  PenTool
 } from 'lucide-react';
 import { Button } from './ui/button';
 import { Textarea } from './ui/textarea';
@@ -52,6 +61,7 @@ import {
   DialogDescription
 } from './ui/dialog';
 import { Label } from './ui/label';
+import { motion } from 'motion/react';
 import { MathJax } from 'better-react-mathjax';
 import ReactMarkdown from 'react-markdown';
 import remarkMath from 'remark-math';
@@ -60,8 +70,13 @@ import remarkGfm from 'remark-gfm';
 import 'katex/dist/katex.min.css';
 import { Rnd } from 'react-rnd';
 import { cn } from '../lib/utils';
+import { magicNoteCreator } from '../services/aiService';
+import { toast } from 'sonner';
+import { doc, onSnapshot } from 'firebase/firestore';
+import { db } from '../firebase';
+import { AIConfig } from '../types';
 
-export type BlockType = 'text' | 'math' | 'h1' | 'h2' | 'diagram' | 'table' | 'video';
+export type BlockType = 'text' | 'math' | 'h1' | 'h2' | 'diagram' | 'table' | 'video' | 'bullet-list' | 'numbered-list';
 
 export interface NoteBlock {
   id: string;
@@ -280,6 +295,13 @@ const SortableBlock = ({ block, onUpdate, onDelete, onFocus, isPreview }: Sortab
               allowFullScreen
               title="Step Video"
             />
+          </div>
+        )}
+        {(block.type === 'bullet-list' || block.type === 'numbered-list') && (
+          <div className="prose dark:prose-invert max-w-none my-6">
+            <ReactMarkdown remarkPlugins={[remarkMath, remarkGfm]} rehypePlugins={[rehypeKatex]}>
+              {block.content}
+            </ReactMarkdown>
           </div>
         )}
       </div>
@@ -503,6 +525,24 @@ const SortableBlock = ({ block, onUpdate, onDelete, onFocus, isPreview }: Sortab
             )}
           </div>
         )}
+        {(block.type === 'bullet-list' || block.type === 'numbered-list') && (
+          <div className="space-y-2">
+            <div className="flex items-center gap-2 text-xs text-muted-foreground mb-1 px-1">
+              {block.type === 'bullet-list' ? <List className="h-3 w-3" /> : <ListOrdered className="h-3 w-3" />}
+              <span>{block.type === 'bullet-list' ? 'Bullet Points' : 'Numbered List'} (Use - or 1. for items)</span>
+            </div>
+            <Textarea 
+              ref={textareaRef}
+              value={block.content} 
+              onChange={(e) => onUpdate(block.id, e.target.value)}
+              onFocus={handleFocus}
+              onKeyUp={handleFocus}
+              onClick={handleFocus}
+              className="min-h-[120px] resize-none border-none px-0 focus-visible:ring-0 placeholder:opacity-50 font-mono text-sm"
+              placeholder={block.type === 'bullet-list' ? "- Item 1\n- Item 2" : "1. First\n2. Second"}
+            />
+          </div>
+        )}
       </div>
 
       <Button 
@@ -569,6 +609,11 @@ export const NoteBuilder: React.FC<NoteBuilderProps> = ({ initialContent, onChan
   const [cursorPos, setCursorPos] = useState(0);
   const [isPreview, setIsPreview] = useState(false);
   const [isTableDialogOpen, setIsTableDialogOpen] = useState(false);
+  const [isMagicDialogOpen, setIsMagicDialogOpen] = useState(false);
+  const [isMagicLoading, setIsMagicLoading] = useState(false);
+  const [isToolbarCollapsed, setIsToolbarCollapsed] = useState(false);
+  const [aiConfig, setAiConfig] = useState<AIConfig | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const [tableRows, setTableRows] = useState(3);
   const [tableCols, setTableCols] = useState(3);
   const [searchTerm, setSearchTerm] = useState('');
@@ -577,6 +622,24 @@ export const NoteBuilder: React.FC<NoteBuilderProps> = ({ initialContent, onChan
     Physics: true,
     Chemistry: true
   });
+
+  useEffect(() => {
+    const unsub = onSnapshot(doc(db, 'system', 'magicNote'), (snapshot) => {
+      if (snapshot.exists()) {
+        const data = snapshot.data() as AIConfig;
+        console.log('Magic Note AI Config loaded:', {
+          provider: data.provider,
+          model: data.model,
+          hasApiKey: !!data.apiKey,
+          apiKeyPreview: data.apiKey ? `${data.apiKey.substring(0, 4)}...${data.apiKey.substring(data.apiKey.length - 4)}` : 'none'
+        });
+        setAiConfig(data);
+      } else {
+        console.warn('Magic Note AI Config (system/magicNote) does not exist in Firestore.');
+      }
+    });
+    return () => unsub();
+  }, []);
 
   const sensors = useSensors(
     useSensor(PointerSensor),
@@ -628,6 +691,162 @@ export const NoteBuilder: React.FC<NoteBuilderProps> = ({ initialContent, onChan
     };
     updateBlocks([...blocks, newBlock]);
     setIsTableDialogOpen(false);
+  };
+
+
+  // ─── PDF → Images converter using PDF.js (loaded from CDN, no install needed) ──
+  // ── PDF.js loader (text extraction only — no image rendering) ───────────────
+  const loadPdfJs = async () => {
+    if ((window as any).pdfjsLib) return (window as any).pdfjsLib;
+    await new Promise<void>((resolve, reject) => {
+      const script = document.createElement('script');
+      script.src = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js';
+      script.onload = () => {
+        // Suppress font fetch warnings — we only need text, not rendering
+        (window as any).pdfjsLib.GlobalWorkerOptions.workerSrc =
+          'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+        resolve();
+      };
+      script.onerror = () => reject(new Error('Failed to load PDF.js'));
+      document.head.appendChild(script);
+    });
+    return (window as any).pdfjsLib;
+  };
+
+  // Extract plain text from all PDF pages — fast, no image conversion, no size limits
+  const extractPdfText = async (file: File): Promise<string> => {
+    const pdfjsLib = await loadPdfJs();
+    const pdf = await pdfjsLib.getDocument({
+      data: await file.arrayBuffer(),
+      // Disable font fetching entirely — we only need text content
+      disableFontFace: true,
+      useSystemFonts: false,
+      standardFontDataUrl: undefined,
+    }).promise;
+
+    const pageTexts: string[] = [];
+    for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
+      const page = await pdf.getPage(pageNum);
+      const textContent = await page.getTextContent();
+      // Join text items, preserving line breaks via transform y-position changes
+      let lastY: number | null = null;
+      const lines: string[] = [];
+      let currentLine = '';
+      for (const item of textContent.items as any[]) {
+        const y = item.transform?.[5];
+        if (lastY !== null && Math.abs(y - lastY) > 2) {
+          if (currentLine.trim()) lines.push(currentLine.trim());
+          currentLine = '';
+        }
+        currentLine += item.str;
+        lastY = y;
+      }
+      if (currentLine.trim()) lines.push(currentLine.trim());
+      pageTexts.push(lines.join('\n'));
+    }
+    return pageTexts.join('\n\n--- Page Break ---\n\n');
+  };
+
+  const handleMagicUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (file.size > 50 * 1024 * 1024) {
+      toast.error("File too large (max 50MB)");
+      return;
+    }
+
+    setIsMagicLoading(true);
+    const existingBlocks = blocks.length === 1 && blocks[0].content === '' ? [] : blocks;
+
+    try {
+      let resultBlocks: any[] = [];
+
+      const fileExtension = file.name.split('.').pop()?.toLowerCase();
+
+      if (fileExtension === 'plx' || file.type === 'text/plain') {
+        // ── PLX / TEXT: Parse standard format ───────────────────────────────
+        const text = await file.text();
+        const plxRegex = /\[(H1|H2|MATH|LIST|ORDERED|TABLE|VIDEO|DIAGRAM)\]/g;
+        
+        if (plxRegex.test(text)) {
+          toast.loading('Parsing PLX note...', { id: 'plx-status' });
+          const parts = text.split(/\[(H1|H2|MATH|LIST|ORDERED|TABLE|VIDEO|DIAGRAM)\]/g);
+          
+          if (parts[0].trim()) {
+            resultBlocks.push({ type: 'text', content: parts[0].trim() });
+          }
+          
+          for (let i = 1; i < parts.length; i += 2) {
+            const tagName = parts[i];
+            const content = parts[i+1]?.trim() || '';
+            const typeMap: Record<string, string> = {
+              'H1': 'h1',
+              'H2': 'h2',
+              'MATH': 'math',
+              'LIST': 'bullet-list',
+              'ORDERED': 'numbered-list',
+              'TABLE': 'table',
+              'VIDEO': 'video',
+              'DIAGRAM': 'diagram'
+            };
+            resultBlocks.push({ type: typeMap[tagName] || 'text', content });
+          }
+          toast.dismiss('plx-status');
+        } else if (fileExtension === 'plx') {
+          throw new Error('Invalid PLX format. No standard tags ([H1], [MATH], etc.) found.');
+        } else {
+          // Plain text but not PLX, handle as before or just as a single block?
+          // For now, let's treat it as a text block
+          resultBlocks = [{ type: 'text', content: text }];
+        }
+
+      } else if (file.type === 'application/pdf') {
+        // ── PDF: extract text → AI help (or fallback) ───────────────────────
+        toast.loading('Extracting PDF text…', { id: 'pdf-status' });
+        const pdfText = await extractPdfText(file);
+        toast.dismiss('pdf-status');
+
+        if (!pdfText.trim()) {
+          throw new Error('No text found in PDF. Scanned PDFs are not supported yet.');
+        }
+
+        resultBlocks = await magicNoteCreator(
+          { data: pdfText, mimeType: 'text/plain' },
+          aiConfig || undefined
+        );
+
+      } else if (file.type.startsWith('image/')) {
+        // ── Image: send directly via vision ───────────────────────────────────
+        const reader = new FileReader();
+        const base64 = await new Promise<string>((resolve) => {
+          reader.onload = () => resolve((reader.result as string).split(',')[1]);
+          reader.readAsDataURL(file);
+        });
+        resultBlocks = await magicNoteCreator(
+          { data: base64, mimeType: file.type },
+          aiConfig || undefined
+        );
+      } else {
+        throw new Error('Unsupported file type. Please upload a .plx, .txt, .pdf, or image file.');
+      }
+
+      const uniqueBlocks = resultBlocks.map((b: any) => ({
+        ...b,
+        id: Math.random().toString(36).substr(2, 9)
+      }));
+      updateBlocks([...existingBlocks, ...uniqueBlocks]);
+      toast.success('Note added successfully!');
+      setIsMagicDialogOpen(false);
+
+    } catch (error: any) {
+      toast.dismiss('pdf-status');
+      toast.dismiss('plx-status');
+      toast.error(error.message || 'Failed to process file');
+    } finally {
+      setIsMagicLoading(false);
+      if (fileInputRef.current) fileInputRef.current.value = '';
+    }
   };
 
   const insertSymbol = (symbol: string) => {
@@ -811,32 +1030,93 @@ export const NoteBuilder: React.FC<NoteBuilderProps> = ({ initialContent, onChan
 
         {/* Add Block Toolbar */}
         {!isPreview && (
-          <div className="absolute bottom-6 left-1/2 -translate-x-1/2 flex items-center gap-2 p-2 bg-background border shadow-xl rounded-full z-20">
-            <Button type="button" variant="ghost" size="sm" className="rounded-full gap-2" onClick={() => addBlock('h1')}>
-              <Heading1 className="h-4 w-4" /> H1
+          <div className="absolute bottom-6 left-1/2 -translate-x-1/2 flex items-center gap-1 p-1 bg-background/90 backdrop-blur-md border shadow-2xl rounded-full z-50 transition-all duration-300">
+            <Button 
+              variant="ghost" 
+              size="sm" 
+              className="rounded-full h-8 w-8 p-0 hover:bg-muted" 
+              onClick={() => setIsToolbarCollapsed(!isToolbarCollapsed)}
+              title={isToolbarCollapsed ? "Expand Toolbar" : "Collapse Toolbar"}
+            >
+              {isToolbarCollapsed ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4 transition-transform group-hover:translate-y-0.5" />}
             </Button>
-            <Button type="button" variant="ghost" size="sm" className="rounded-full gap-2" onClick={() => addBlock('h2')}>
-              <Heading2 className="h-4 w-4" /> H2
-            </Button>
-            <Button type="button" variant="ghost" size="sm" className="rounded-full gap-2" onClick={() => addBlock('text')}>
-              <Type className="h-4 w-4" /> Text
-            </Button>
-            <Button type="button" variant="ghost" size="sm" className="rounded-full gap-2" onClick={() => addBlock('math')}>
-              <Sigma className="h-4 w-4" /> Math
-            </Button>
-            <Button type="button" variant="ghost" size="sm" className="rounded-full gap-2" onClick={() => addBlock('diagram')}>
-              <ImageIcon className="h-4 w-4" /> Diagram
-            </Button>
-            <Button type="button" variant="ghost" size="sm" className="rounded-full gap-2" onClick={() => addBlock('video')}>
-              <Video className="h-4 w-4" /> Video
-            </Button>
-            <Button type="button" variant="ghost" size="sm" className="rounded-full gap-2" onClick={() => setIsTableDialogOpen(true)}>
-              <TableIcon className="h-4 w-4" /> Table
-            </Button>
-            <div className="w-px h-4 bg-border mx-1" />
-            <Button type="button" variant="default" size="sm" className="rounded-full h-8 w-8 p-0" onClick={() => addBlock('text')}>
-              <Plus className="h-4 w-4" />
-            </Button>
+
+            {!isToolbarCollapsed && <div className="w-px h-4 bg-border mx-0.5" />}
+
+            {!isToolbarCollapsed ? (
+              <motion.div 
+                initial={{ opacity: 0, scale: 0.9, width: 0 }}
+                animate={{ opacity: 1, scale: 1, width: 'auto' }}
+                exit={{ opacity: 0, scale: 0.9, width: 0 }}
+                className="flex items-center gap-0.5 overflow-hidden h-9 px-0.5"
+              >
+                <div className="flex items-center">
+                  <Button type="button" variant="ghost" size="sm" className="rounded-full gap-2 px-2.5 h-8 hover:bg-muted" onClick={() => addBlock('h1')} title="Large Heading">
+                    <Heading1 className="h-4 w-4" /> <span className="hidden lg:inline text-xs">H1</span>
+                  </Button>
+                  <Button type="button" variant="ghost" size="sm" className="rounded-full gap-2 px-2.5 h-8 hover:bg-muted" onClick={() => addBlock('h2')} title="Small Heading">
+                    <Heading2 className="h-4 w-4" /> <span className="hidden lg:inline text-xs">H2</span>
+                  </Button>
+                  <Button type="button" variant="ghost" size="sm" className="rounded-full gap-2 px-2.5 h-8 hover:bg-muted" onClick={() => addBlock('text')} title="Body Text">
+                    <Type className="h-4 w-4" /> <span className="hidden lg:inline text-xs">Text</span>
+                  </Button>
+                </div>
+
+                <div className="w-px h-4 bg-border mx-0.5" />
+
+                <div className="flex items-center">
+                  <Button type="button" variant="ghost" size="sm" className="rounded-full h-8 w-8 p-0 hover:bg-muted" onClick={() => addBlock('math')} title="Math Formula">
+                    <Sigma className="h-4 w-4" />
+                  </Button>
+                  <Button type="button" variant="ghost" size="sm" className="rounded-full h-8 w-8 p-0 hover:bg-muted" onClick={() => addBlock('diagram')} title="Image/Diagram">
+                    <ImageIcon className="h-4 w-4" />
+                  </Button>
+                  <Button type="button" variant="ghost" size="sm" className="rounded-full h-8 w-8 p-0 hover:bg-muted" onClick={() => addBlock('bullet-list')} title="Bullet List">
+                    <List className="h-4 w-4" />
+                  </Button>
+                  <Button type="button" variant="ghost" size="sm" className="rounded-full h-8 w-8 p-0 hover:bg-muted" onClick={() => addBlock('numbered-list')} title="Numbered List">
+                    <ListOrdered className="h-4 w-4" />
+                  </Button>
+                  <Button type="button" variant="ghost" size="sm" className="rounded-full h-8 w-8 p-0 hover:bg-muted" onClick={() => setIsTableDialogOpen(true)} title="Data Table">
+                    <TableIcon className="h-4 w-4" />
+                  </Button>
+                </div>
+                
+                <div className="w-px h-4 bg-border mx-1" />
+                
+                <Button 
+                  type="button" 
+                  variant="default" 
+                  size="sm" 
+                  className="rounded-full gap-2 h-8 px-3 bg-gradient-to-r from-purple-600 to-pink-600 hover:scale-105 transition-transform shadow-md flex-shrink-0" 
+                  onClick={() => setIsMagicDialogOpen(true)}
+                >
+                  <Wand2 className="h-3.5 w-3.5" /> <span className="text-[11px] font-medium">Magic Note</span>
+                </Button>
+                
+                <div className="w-px h-4 bg-border mx-1" />
+                
+                <Button type="button" variant="default" size="sm" className="rounded-full h-8 w-8 p-0 flex-shrink-0 hover:rotate-90 transition-transform" onClick={() => addBlock('text')} title="Quick Add Text">
+                  <Plus className="h-4 w-4" />
+                </Button>
+              </motion.div>
+            ) : (
+              <div className="flex items-center gap-1 h-9 px-1">
+                <Button 
+                  type="button" 
+                  variant="default" 
+                  size="sm" 
+                  className="rounded-full h-8 w-8 p-0 bg-gradient-to-br from-purple-600 to-pink-600 hover:shadow-lg transition-all hover:scale-110" 
+                  onClick={() => setIsMagicDialogOpen(true)}
+                  title="Magic Note Creator"
+                >
+                  <Wand2 className="h-4 w-4" />
+                </Button>
+                <Button type="button" variant="default" size="sm" className="rounded-full h-8 w-8 p-0 hover:bg-primary/90" onClick={() => addBlock('text')} title="Add Block">
+                  <Plus className="h-4 w-4" />
+                </Button>
+              </div>
+            )}
             {mode === 'edit' && (
               <>
                 <div className="w-px h-4 bg-border mx-1" />
@@ -882,6 +1162,67 @@ export const NoteBuilder: React.FC<NoteBuilderProps> = ({ initialContent, onChan
             </div>
             <DialogFooter>
               <Button type="button" onClick={addTable} className="text-xs h-8">Add Table</Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        <Dialog open={isMagicDialogOpen} onOpenChange={setIsMagicDialogOpen}>
+          <DialogContent className="sm:max-w-[500px]">
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2">
+                <Wand2 className="h-5 w-5 text-purple-500" />
+                Magic Note Creator
+              </DialogTitle>
+              <DialogDescription>
+                Upload a <b>.plx</b> file (Pantheon Extensible Standard) to instantly build your note. 
+                You can also upload PDFs or images for AI-assisted note generation.
+                <br />
+                <a href="/plx" target="_blank" className="text-amber-600 underline font-medium mt-1 inline-block">
+                  View .plx Standard Guide
+                </a>
+              </DialogDescription>
+            </DialogHeader>
+            
+            <div className="py-8">
+              {!isMagicLoading ? (
+                <div 
+                  className="border-2 border-dashed border-muted-foreground/20 rounded-2xl p-10 flex flex-col items-center justify-center gap-4 hover:border-purple-500/50 hover:bg-purple-500/5 transition-all cursor-pointer group"
+                  onClick={() => fileInputRef.current?.click()}
+                >
+                  <div className="h-16 w-16 rounded-full bg-purple-500/10 flex items-center justify-center group-hover:scale-110 transition-transform">
+                    <Upload className="h-8 w-8 text-purple-600" />
+                  </div>
+                  <div className="text-center">
+                    <p className="font-medium text-sm">Click to upload or drag and drop</p>
+                    <p className="text-xs text-muted-foreground mt-1">.plx, PDF, Image or TXP (Max 50MB)</p>
+                  </div>
+                  <input 
+                    type="file" 
+                    ref={fileInputRef}
+                    className="hidden" 
+                    accept=".plx,text/plain,application/pdf,image/*"
+                    onChange={handleMagicUpload}
+                  />
+                </div>
+              ) : (
+                <div className="flex flex-col items-center justify-center py-10 gap-4">
+                  <div className="relative">
+                    <div className="h-16 w-16 rounded-full border-4 border-purple-500/20 border-t-purple-500 animate-spin" />
+                    <Wand2 className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 h-6 w-6 text-purple-500 animate-pulse" />
+                  </div>
+                  <div className="text-center space-y-1">
+                    <p className="font-medium">Hermes is reading your document...</p>
+                    <p className="text-xs text-muted-foreground animate-pulse">This might take a minute for complex files</p>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            <DialogFooter className="sm:justify-start">
+              <div className="flex items-center gap-2 text-[10px] text-muted-foreground bg-muted/50 p-2 rounded-lg w-full">
+                <FileText className="h-3 w-3" />
+                <span>PLX files are parsed instantly. AI handles PDFs and Image extractions.</span>
+              </div>
             </DialogFooter>
           </DialogContent>
         </Dialog>
