@@ -26,8 +26,7 @@ import {
   Sparkles,
   Trophy,
   Compass,
-  Star,
-  Code
+  Star
 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { useFlux } from '../contexts/FluxContext';
@@ -129,7 +128,6 @@ export const Sidebar: React.FC<SidebarProps> = ({ onClose }) => {
     { name: 'News Board', path: '/news', icon: Newspaper },
     { name: 'Chat', path: '/chat', icon: MessageSquare },
     { name: 'Friends', path: '/friends', icon: UserPlus },
-    { name: 'PLX Standard', path: '/plx', icon: Code },
     { name: 'Referrals', path: '/referrals', icon: Users },
   ];
 

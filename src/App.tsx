@@ -33,7 +33,6 @@ import VideoLibrary from './pages/VideoLibrary';
 import Chat from './pages/Chat';
 import PrivacyPolicy from './pages/PrivacyPolicy';
 import TermsOfService from './pages/TermsOfService';
-import PLXStandard from './pages/PLXStandard';
 
 import { MaintenanceGuard } from './components/MaintenanceGuard';
 import Diagnostic from './pages/Diagnostic';
@@ -109,7 +108,6 @@ export default function App() {
                     <Route path="/register" element={<Register />} />
                     <Route path="/privacy" element={<PrivacyPolicy />} />
                     <Route path="/terms" element={<TermsOfService />} />
-                    <Route path="/plx" element={<PLXStandard />} />
                     <Route path="/banned" element={<Banned />} />
                     <Route path="/diag" element={<Diagnostic />} />
 

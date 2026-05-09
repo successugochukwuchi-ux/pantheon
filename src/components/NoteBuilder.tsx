@@ -849,6 +849,43 @@ export const NoteBuilder: React.FC<NoteBuilderProps> = ({ initialContent, onChan
     }
   };
 
+  const downloadPLXStandard = () => {
+    const standard = `[PANTHEON NOTE STANDARD - PLX v1.0]
+
+PLX (Pillara Extensible) is the official structured note format for the Pantheon Note Builder.
+It uses bracketed tags to define blocks of content. AI models like GPT-4, Claude, or Groq understand this format perfectly if you describe it.
+
+[TAGS]:
+[H1] Header 1 - Main Title
+[H2] Header 2 - Subtitle
+[MATH] LaTeX equation (e.g. E=mc^2)
+[LIST] Bullet point list
+[ORDERED] Numbered list
+[TABLE] Markdown table syntax
+[VIDEO] URL to a video (YouTube/Vimeo)
+[DIAGRAM] Mermaid or text-based diagram
+
+INSTRUCTIONS FOR AI:
+1. "Analyze the text provided."
+2. "Generate a summary strictly using the Pantheon PLX tags ([H1], [MATH], etc.)."
+3. "Do not add any text outside of the tags unless it is within a tag's content area."
+4. "Keep it organized and structured."
+
+HOW TO UPLOAD:
+Save the AI's output as a text file with the .plx extension (e.g., lecture.plx) and upload it via the Magic Note Creator.
+`;
+    const blob = new Blob([standard], { type: 'text/plain' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'PANTHEON_STANDARD.txt';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    toast.success('PLX Standard downloaded as .txt');
+  };
+
   const insertSymbol = (symbol: string) => {
     if (!activeBlockId) return;
     const block = blocks.find(b => b.id === activeBlockId);
@@ -1099,6 +1136,18 @@ export const NoteBuilder: React.FC<NoteBuilderProps> = ({ initialContent, onChan
                 <Button type="button" variant="default" size="sm" className="rounded-full h-8 w-8 p-0 flex-shrink-0 hover:rotate-90 transition-transform" onClick={() => addBlock('text')} title="Quick Add Text">
                   <Plus className="h-4 w-4" />
                 </Button>
+                <div className="w-px h-4 bg-border mx-1" />
+                
+                <Button 
+                  type="button" 
+                  variant="ghost" 
+                  size="sm" 
+                  className="rounded-full h-8 px-2 text-[10px] font-bold text-amber-600 hover:text-amber-700 hover:bg-amber-50" 
+                  onClick={downloadPLXStandard}
+                  title="Download PLX Standard (PLXS)"
+                >
+                  PLXS
+                </Button>
               </motion.div>
             ) : (
               <div className="flex items-center gap-1 h-9 px-1">
@@ -1173,13 +1222,20 @@ export const NoteBuilder: React.FC<NoteBuilderProps> = ({ initialContent, onChan
                 <Wand2 className="h-5 w-5 text-purple-500" />
                 Magic Note Creator
               </DialogTitle>
-              <DialogDescription>
-                Upload a <b>.plx</b> file (Pantheon Extensible Standard) to instantly build your note. 
-                You can also upload PDFs or images for AI-assisted note generation.
-                <br />
-                <a href="/plx" target="_blank" className="text-amber-600 underline font-medium mt-1 inline-block">
-                  View .plx Standard Guide
-                </a>
+              <DialogDescription className="space-y-2">
+                <p>
+                  Upload a <b>.plx</b> file (Pantheon Extensible Standard) to instantly build your note. 
+                  You can also upload PDFs or images for AI-assisted note generation.
+                </p>
+                <div className="flex items-center gap-2">
+                  <span className="text-[10px] text-muted-foreground italic">Need the standard for your AI?</span>
+                  <button 
+                    onClick={downloadPLXStandard}
+                    className="text-[10px] text-amber-600 font-bold hover:underline"
+                  >
+                    Download PLXS.txt
+                  </button>
+                </div>
               </DialogDescription>
             </DialogHeader>
             
