@@ -765,42 +765,60 @@ export const NoteBuilder: React.FC<NoteBuilderProps> = ({ initialContent, onChan
       const fileExtension = file.name.split('.').pop()?.toLowerCase();
 
       if (fileExtension === 'plx' || file.type === 'text/plain') {
-        // ── PLX / TEXT: Parse standard format ───────────────────────────────
+        // ── PLX / TEXT: Parse standard format (v2 HTML-style) ────────────────
         const text = await file.text();
-        const plxRegex = /\[(H1|H2|MATH|LIST|ORDERED|TABLE|VIDEO|DIAGRAM)\]/g;
         
-        if (plxRegex.test(text)) {
-          toast.loading('Parsing PLX note...', { id: 'plx-status' });
-          const parts = text.split(/\[(H1|H2|MATH|LIST|ORDERED|TABLE|VIDEO|DIAGRAM)\]/g);
+        // Match both v1 [TAG] and v2 <TAG>content</TAG> for backwards compatibility
+        const v2Tags = ['H1', 'H2', 'MATH', 'LIST', 'ORDERED', 'TABLE', 'VIDEO', 'DIAGRAM'];
+        const tagRegex = /<(H1|H2|MATH|LIST|ORDERED|TABLE|VIDEO|DIAGRAM)>([\s\S]*?)<\/\1>/gi;
+        
+        let match;
+        let foundV2 = false;
+        
+        while ((match = tagRegex.exec(text)) !== null) {
+          foundV2 = true;
+          const tagName = match[1].toUpperCase();
+          let content = match[2].trim();
           
-          if (parts[0].trim()) {
-            resultBlocks.push({ type: 'text', content: parts[0].trim() });
-          }
-          
-          for (let i = 1; i < parts.length; i += 2) {
-            const tagName = parts[i];
-            const content = parts[i+1]?.trim() || '';
-            const typeMap: Record<string, string> = {
-              'H1': 'h1',
-              'H2': 'h2',
-              'MATH': 'math',
-              'LIST': 'bullet-list',
-              'ORDERED': 'numbered-list',
-              'TABLE': 'table',
-              'VIDEO': 'video',
-              'DIAGRAM': 'diagram'
-            };
-            resultBlocks.push({ type: typeMap[tagName] || 'text', content });
-          }
-          toast.dismiss('plx-status');
-        } else if (fileExtension === 'plx') {
-          throw new Error('Invalid PLX format. No standard tags ([H1], [MATH], etc.) found.');
-        } else {
-          // Plain text but not PLX, handle as before or just as a single block?
-          // For now, let's treat it as a text block
-          resultBlocks = [{ type: 'text', content: text }];
+          // Clean up content: remove common AI-added intro lines or excessive indentation
+          content = content.split('\n').map(line => line.replace(/^\s{2,}/, '')).join('\n');
+
+          const typeMap: Record<string, string> = {
+            'H1': 'h1',
+            'H2': 'h2',
+            'MATH': 'math',
+            'LIST': 'bullet-list',
+            'ORDERED': 'numbered-list',
+            'TABLE': 'table',
+            'VIDEO': 'video',
+            'DIAGRAM': 'diagram'
+          };
+          resultBlocks.push({ type: typeMap[tagName] || 'text', content });
         }
 
+        if (!foundV2) {
+          // Fallback to v1 bracket parsing if no <TAG> pairs found
+          const plxRegex = /\[(H1|H2|MATH|LIST|ORDERED|TABLE|VIDEO|DIAGRAM)\]/g;
+          if (plxRegex.test(text)) {
+            toast.loading('Parsing legacy PLX format...', { id: 'plx-status' });
+            const parts = text.split(/\[(H1|H2|MATH|LIST|ORDERED|TABLE|VIDEO|DIAGRAM)\]/g);
+            for (let i = 1; i < parts.length; i += 2) {
+              const tagName = parts[i];
+              const content = parts[i+1]?.trim() || '';
+              const typeMap: Record<string, string> = {
+                'H1': 'h1', 'H2': 'h2', 'MATH': 'math', 'LIST': 'bullet-list',
+                'ORDERED': 'numbered-list', 'TABLE': 'table', 'VIDEO': 'video', 'DIAGRAM': 'diagram'
+              };
+              resultBlocks.push({ type: typeMap[tagName] || 'text', content });
+            }
+          } else if (fileExtension === 'plx') {
+            throw new Error('Invalid PLX format. No valid tags (<H1> or [H1]) found.');
+          } else {
+            resultBlocks = [{ type: 'text', content: text }];
+          }
+        }
+        
+        toast.dismiss('plx-status');
       } else if (file.type === 'application/pdf') {
         // ── PDF: extract text → AI help (or fallback) ───────────────────────
         toast.loading('Extracting PDF text…', { id: 'pdf-status' });
@@ -850,29 +868,61 @@ export const NoteBuilder: React.FC<NoteBuilderProps> = ({ initialContent, onChan
   };
 
   const downloadPLXStandard = () => {
-    const standard = `[PANTHEON NOTE STANDARD - PLX v1.0]
+    const standard = `[PANTHEON NOTE STANDARD - PLX v2.0]
 
-PLX (Pillara Extensible) is the official structured note format for the Pantheon Note Builder.
-It uses bracketed tags to define blocks of content. AI models like GPT-4, Claude, or Groq understand this format perfectly if you describe it.
+PLX (Pillara Extensible) uses a structured HTML-like syntax. 
+AI models understand this tags based format much better than brackets.
 
-[TAGS]:
-[H1] Header 1 - Main Title
-[H2] Header 2 - Subtitle
-[MATH] LaTeX equation (e.g. E=mc^2)
-[LIST] Bullet point list
-[ORDERED] Numbered list
-[TABLE] Markdown table syntax
-[VIDEO] URL to a video (YouTube/Vimeo)
-[DIAGRAM] Mermaid or text-based diagram
+CRITICAL: USE PROPER INDENTATION
+Indentation helps the parser and the user distinguish between different blocks of information.
+Always put tags on their own lines for maximum compatibility.
 
-INSTRUCTIONS FOR AI:
-1. "Analyze the text provided."
-2. "Generate a summary strictly using the Pantheon PLX tags ([H1], [MATH], etc.)."
-3. "Do not add any text outside of the tags unless it is within a tag's content area."
-4. "Keep it organized and structured."
+[SUPPORTED TAGS]:
 
-HOW TO UPLOAD:
-Save the AI's output as a text file with the .plx extension (e.g., lecture.plx) and upload it via the Magic Note Creator.
+<H1>
+  Main Title of the Note
+</H1>
+
+<H2>
+  Sub-header or Section Title
+</H2>
+
+<MATH>
+  Write LaTeX here. Example: \\frac{-b \\pm \\sqrt{b^2-4ac}}{2a}
+</MATH>
+
+<LIST>
+  - Use bullet points
+  - For unordered information
+</LIST>
+
+<ORDERED>
+  1. Use numbers
+  2. For step-by-step processes
+</ORDERED>
+
+<TABLE>
+  | Column 1 | Column 2 |
+  |----------|----------|
+  | Data A   | Data B   |
+</TABLE>
+
+<VIDEO>
+  https://www.youtube.com/watch?v=example
+</VIDEO>
+
+<DIAGRAM>
+  Use mermaid or text-based diagrams here.
+</DIAGRAM>
+
+[AI PROMPT STRATEGY]:
+1. "Analyze the provided technical/lecture content."
+2. "Convert it into a valid Pantheon PLX document using <TAG>... </TAG> syntax."
+3. "Use 2 spaces of indentation inside tags for readability."
+4. "Ensure every opening tag has a matching closing tag."
+
+[SAVE INSTRUCTIONS]:
+Save the final text as a file named "note.plx" (or .txt) then upload it.
 `;
     const blob = new Blob([standard], { type: 'text/plain' });
     const url = URL.createObjectURL(blob);
