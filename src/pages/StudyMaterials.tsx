@@ -6,7 +6,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../co
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
 import { Badge } from '../components/ui/badge';
-import { Search, BookOpen, ChevronRight, ArrowLeft, AlertCircle, History, Calculator, HelpCircle, MessageSquare, Maximize2 } from 'lucide-react';
+import { Search, BookOpen, ChevronRight, ArrowLeft, AlertCircle, History, Calculator, HelpCircle, MessageSquare, Maximize2, CheckCircle2, XCircle, Wand2 } from 'lucide-react';
 import { Course, Note } from '../types';
 import ReactMarkdown from 'react-markdown';
 import remarkMath from 'remark-math';
@@ -272,6 +272,64 @@ export default function StudyMaterials() {
                     </div>
                   </div>
                 )}
+                {block.type === 'question' && (() => {
+                  try {
+                    const data = JSON.parse(block.content || '{"question":"","correct":"","incorrect":[]}');
+                    return (
+                      <Card className="my-6 border-primary/20 bg-primary/5 overflow-hidden ring-1 ring-primary/10">
+                        <CardHeader className="bg-primary/10 pb-4">
+                          <div className="flex items-center gap-2 text-primary font-bold text-sm uppercase tracking-wider">
+                            <HelpCircle className="h-4 w-4" /> Concept Check
+                          </div>
+                          <CardTitle className="text-lg mt-2">
+                            <ReactMarkdown remarkPlugins={[remarkMath, remarkGfm]} rehypePlugins={[rehypeKatex]}>
+                              {data.question}
+                            </ReactMarkdown>
+                          </CardTitle>
+                        </CardHeader>
+                        <CardContent className="pt-6">
+                          <div className="grid gap-3">
+                            {[
+                              { text: data.correct || '', isCorrect: true },
+                              ...(data.incorrect || []).map((a: string) => ({ text: a, isCorrect: false }))
+                            ].sort(() => Math.random() - 0.5).map((opt, i) => (
+                              <div key={i} className="group relative">
+                                <div className="w-full flex items-center justify-between p-4 rounded-xl border border-border bg-background hover:bg-muted transition-all cursor-help">
+                                  <span className="flex-1 text-sm">
+                                    <ReactMarkdown remarkPlugins={[remarkMath, remarkGfm]} rehypePlugins={[rehypeKatex]}>
+                                      {opt.text}
+                                    </ReactMarkdown>
+                                  </span>
+                                  <div className="opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-2">
+                                    {opt.isCorrect ? (
+                                      <CheckCircle2 className="h-5 w-5 text-green-500" />
+                                    ) : (
+                                      <XCircle className="h-5 w-5 text-red-400" />
+                                    )}
+                                  </div>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                          {data.explanation && (
+                            <div className="mt-6 p-4 rounded-xl bg-primary/5 border border-primary/10">
+                              <div className="text-[10px] uppercase font-bold text-primary mb-1 tracking-widest flex items-center gap-2">
+                                <Wand2 className="h-3 w-3" /> Explanation
+                              </div>
+                              <div className="text-sm text-muted-foreground italic">
+                                <ReactMarkdown remarkPlugins={[remarkMath, remarkGfm]} rehypePlugins={[rehypeKatex]}>
+                                  {data.explanation}
+                                </ReactMarkdown>
+                              </div>
+                            </div>
+                          )}
+                        </CardContent>
+                      </Card>
+                    );
+                  } catch (e) {
+                    return <p className="text-destructive text-sm p-4">Invalid question structure</p>;
+                  }
+                })()}
               </div>
             ))}
           </CardContent>

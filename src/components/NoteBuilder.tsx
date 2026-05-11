@@ -46,12 +46,16 @@ import {
   List,
   ListOrdered,
   Settings2,
-  PenTool
+  PenTool,
+  HelpCircle,
+  CheckCircle2,
+  XCircle
 } from 'lucide-react';
 import { Button } from './ui/button';
 import { Textarea } from './ui/textarea';
 import { Input } from './ui/input';
-import { Card } from './ui/card';
+import { Card, CardHeader, CardTitle, CardContent } from './ui/card';
+import { Badge } from './ui/badge';
 import { 
   Dialog, 
   DialogContent, 
@@ -76,7 +80,7 @@ import { doc, onSnapshot } from 'firebase/firestore';
 import { db } from '../firebase';
 import { AIConfig } from '../types';
 
-export type BlockType = 'text' | 'math' | 'h1' | 'h2' | 'diagram' | 'table' | 'video' | 'bullet-list' | 'numbered-list';
+export type BlockType = 'text' | 'math' | 'h1' | 'h2' | 'diagram' | 'table' | 'video' | 'bullet-list' | 'numbered-list' | 'question';
 
 export interface NoteBlock {
   id: string;
@@ -88,6 +92,7 @@ export interface NoteBlock {
     flipX?: boolean;
     flipY?: boolean;
     aspectRatio?: boolean;
+    questionId?: string;
   };
 }
 
@@ -303,6 +308,73 @@ const SortableBlock = ({ block, onUpdate, onDelete, onFocus, isPreview }: Sortab
               {block.content}
             </ReactMarkdown>
           </div>
+        )}
+        {block.type === 'question' && block.content && (
+          <Card className="my-6 border-2 border-primary/20 overflow-hidden">
+            <div className="bg-primary/5 p-3 border-b flex items-center justify-between">
+              <div className="flex items-center gap-2 text-primary font-bold text-sm">
+                <HelpCircle className="h-4 w-4" />
+                Question {block.settings?.questionId ? `#${block.settings.questionId}` : ''}
+              </div>
+              <Badge variant="outline" className="text-[10px]">PLX v4</Badge>
+            </div>
+            <CardContent className="p-6 space-y-4">
+              {(() => {
+                try {
+                  const data = JSON.parse(block.content);
+                  return (
+                    <>
+                      <div className="text-lg font-medium">
+                        <ReactMarkdown remarkPlugins={[remarkMath, remarkGfm]} rehypePlugins={[rehypeKatex]}>
+                          {data.question}
+                        </ReactMarkdown>
+                      </div>
+                      <div className="grid gap-2">
+                        {data.correct && (
+                          <div className="flex items-center gap-3 p-3 rounded-lg border bg-green-500/5 border-green-500/20">
+                            <div className="h-6 w-6 rounded-full bg-green-500 text-white flex items-center justify-center">
+                              <CheckCircle2 className="h-4 w-4" />
+                            </div>
+                            <span className="text-sm">
+                               <ReactMarkdown remarkPlugins={[remarkMath, remarkGfm]} rehypePlugins={[rehypeKatex]}>
+                                {data.correct}
+                              </ReactMarkdown>
+                            </span>
+                          </div>
+                        )}
+                        {data.incorrect?.map((inc: string, i: number) => (
+                          <div key={i} className="flex items-center gap-3 p-3 rounded-lg border bg-muted/30 border-border/50">
+                            <div className="h-6 w-6 rounded-full bg-muted flex items-center justify-center text-muted-foreground">
+                              <XCircle className="h-4 w-4" />
+                            </div>
+                            <span className="text-sm">
+                              <ReactMarkdown remarkPlugins={[remarkMath, remarkGfm]} rehypePlugins={[rehypeKatex]}>
+                                {inc}
+                              </ReactMarkdown>
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                      {data.explanation && (
+                        <div className="mt-4 p-4 rounded-xl bg-primary/5 border border-primary/10">
+                          <div className="text-[10px] uppercase font-bold text-primary mb-1 tracking-widest flex items-center gap-2">
+                            <Wand2 className="h-3 w-3" /> Explanation
+                          </div>
+                          <div className="text-sm text-muted-foreground italic">
+                            <ReactMarkdown remarkPlugins={[remarkMath, remarkGfm]} rehypePlugins={[rehypeKatex]}>
+                              {data.explanation}
+                            </ReactMarkdown>
+                          </div>
+                        </div>
+                      )}
+                    </>
+                  );
+                } catch (e) {
+                  return <div className="text-destructive">Invalid question data</div>;
+                }
+              })()}
+            </CardContent>
+          </Card>
         )}
       </div>
     );
@@ -543,6 +615,110 @@ const SortableBlock = ({ block, onUpdate, onDelete, onFocus, isPreview }: Sortab
             />
           </div>
         )}
+        {block.type === 'question' && (
+          <div className="space-y-4 p-4 bg-muted/10 rounded-xl border border-primary/10">
+            <div className="flex items-center gap-2 text-sm font-bold text-primary mb-2">
+              <HelpCircle className="h-4 w-4" />
+              Question Builder
+            </div>
+            <div className="space-y-2">
+              <Label className="text-[10px] uppercase font-bold text-muted-foreground">Question ID / Number</Label>
+              <Input 
+                value={block.settings?.questionId || ''} 
+                onChange={(e) => onUpdate(block.id, block.content, { ...block.settings, questionId: e.target.value })}
+                placeholder="e.g. 1"
+                className="h-8 bg-background"
+              />
+            </div>
+            {(() => {
+              try {
+                const data = JSON.parse(block.content || '{"question":"","correct":"","incorrect":[""],"explanation":""}');
+                return (
+                  <div className="space-y-3">
+                    <div className="space-y-1">
+                      <Label className="text-[10px] uppercase font-bold text-muted-foreground">Question Text</Label>
+                      <Textarea 
+                        value={data.question}
+                        onChange={(e) => onUpdate(block.id, JSON.stringify({ ...data, question: e.target.value }))}
+                        className="min-h-[60px] bg-background text-sm"
+                        placeholder="What is...?"
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <Label className="text-[10px] uppercase font-bold text-green-600">Correct Answer</Label>
+                      <Input 
+                        value={data.correct}
+                        onChange={(e) => onUpdate(block.id, JSON.stringify({ ...data, correct: e.target.value }))}
+                        className="bg-background text-sm border-green-500/20"
+                        placeholder="The right answer"
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <Label className="text-[10px] uppercase font-bold text-red-400">Incorrect Answers</Label>
+                      <div className="space-y-2">
+                        {data.incorrect?.map((inc: string, i: number) => (
+                          <div key={i} className="flex gap-2">
+                            <Input 
+                              value={inc}
+                              onChange={(e) => {
+                                const newInc = [...data.incorrect];
+                                newInc[i] = e.target.value;
+                                onUpdate(block.id, JSON.stringify({ ...data, incorrect: newInc }));
+                              }}
+                              className="bg-background text-sm"
+                              placeholder={`Option ${i+1}`}
+                            />
+                            <Button 
+                              variant="ghost" 
+                              size="icon" 
+                              className="h-10 w-10 text-muted-foreground"
+                              onClick={() => {
+                                const newInc = data.incorrect.filter((_: any, idx: number) => idx !== i);
+                                onUpdate(block.id, JSON.stringify({ ...data, incorrect: newInc }));
+                              }}
+                            >
+                              <Trash2 className="h-3 w-3" />
+                            </Button>
+                          </div>
+                        ))}
+                        <Button 
+                          variant="outline" 
+                          size="sm" 
+                          className="w-full text-[10px] h-7 border-dashed"
+                          onClick={() => {
+                            const newInc = [...(data.incorrect || []), ""];
+                            onUpdate(block.id, JSON.stringify({ ...data, incorrect: newInc }));
+                          }}
+                        >
+                          <Plus className="h-3 w-3 mr-1" /> Add Option
+                        </Button>
+                      </div>
+                    </div>
+                    <div className="space-y-1">
+                      <Label className="text-[10px] uppercase font-bold text-primary">Explanation (Optional)</Label>
+                      <Textarea 
+                        value={data.explanation || ''}
+                        onChange={(e) => onUpdate(block.id, JSON.stringify({ ...data, explanation: e.target.value }))}
+                        className="min-h-[60px] bg-background text-sm border-primary/20"
+                        placeholder="Explain why the answer is correct..."
+                      />
+                    </div>
+                  </div>
+                );
+              } catch (e) {
+                return (
+                  <Button 
+                    variant="outline" 
+                    className="w-full" 
+                    onClick={() => onUpdate(block.id, JSON.stringify({ question: "", correct: "", incorrect: [""], explanation: "" }))}
+                  >
+                    Reset Question Schema
+                  </Button>
+                );
+              }
+            })()}
+          </div>
+        )}
       </div>
 
       <Button 
@@ -765,12 +941,12 @@ export const NoteBuilder: React.FC<NoteBuilderProps> = ({ initialContent, onChan
       const fileExtension = file.name.split('.').pop()?.toLowerCase();
 
       if (fileExtension === 'plx' || file.type === 'text/plain') {
-        // ── PLX / TEXT: Parse standard format (v2 HTML-style) ────────────────
+        // ── PLX / TEXT: Parse standard format (v4 HTML-style) ────────────────
         const text = await file.text();
         
-        // Match both v1 [TAG] and v2 <TAG>content</TAG> for backwards compatibility
-        const v2Tags = ['H1', 'H2', 'MATH', 'LIST', 'ORDERED', 'TABLE', 'VIDEO', 'DIAGRAM'];
-        const tagRegex = /<(H1|H2|MATH|LIST|ORDERED|TABLE|VIDEO|DIAGRAM)>([\s\S]*?)<\/\1>/gi;
+        // Match both v1 [TAG] and v2/v4 <TAG>content</TAG> for backwards compatibility
+        const validTags = ['H1', 'H2', 'MATH', 'LIST', 'ORDERED', 'TABLE', 'VIDEO', 'DIAGRAM', 'QUES'];
+        const tagRegex = /<(H1|H2|MATH|LIST|ORDERED|TABLE|VIDEO|DIAGRAM|QUES)(?:\s*=\s*"([^"]*)")?>([\s\S]*?)<\/\1>/gi;
         
         let match;
         let foundV2 = false;
@@ -778,10 +954,56 @@ export const NoteBuilder: React.FC<NoteBuilderProps> = ({ initialContent, onChan
         while ((match = tagRegex.exec(text)) !== null) {
           foundV2 = true;
           const tagName = match[1].toUpperCase();
-          let content = match[2].trim();
+          const attr = match[2] || '';
+          let content = match[3].trim();
           
-          // Clean up content: remove common AI-added intro lines or excessive indentation
-          content = content.split('\n').map(line => line.replace(/^\s{2,}/, '')).join('\n');
+          // Indentation Stripper: Remove common leading whitespace from each line 
+          // This prevents lists from being rendered as code blocks in ReactMarkdown
+          const lines = content.split('\n');
+          const minIndent = lines
+            .filter(line => line.trim().length > 0)
+            .reduce((min, line) => {
+              const match = line.match(/^(\s*)/);
+              return match ? Math.min(min, match[1].length) : min;
+            }, Infinity);
+          
+          if (minIndent !== Infinity && minIndent > 0) {
+            content = lines.map(line => line.slice(minIndent)).join('\n');
+          }
+
+          if (tagName === 'TABLE') {
+            // Revamped: Parse CSV-style content to JSON array of arrays
+            const rows = content.split('\n')
+              .filter(row => row.trim().length > 0)
+              .map(row => row.split(',').map(cell => cell.trim()));
+            content = JSON.stringify(rows.length > 0 ? rows : [['']]);
+          }
+
+          if (tagName === 'QUES') {
+            // Robust parsing for internal subtags <COR ="...">, <INC ="..."> and <EXP ="...">
+            // Handles both quoted and unquoted attributes, and self-closing or paired tags
+            const corMatch = /<COR(?:\s*=\s*"([^"]*)"|\s*=\s*([^>\s]+))?\s*>/i.exec(content);
+            const incMatches = [...content.matchAll(/<INC(?:\s*=\s*"([^"]*)"|\s*=\s*([^>\s]+))?\s*>/gi)];
+            const expMatch = /<EXP(?:\s*=\s*"([^"]*)"|\s*=\s*([^>\s]+))?\s*>/i.exec(content);
+            
+            // Extract the question text (everything before the first COR/INC/EXP subtag)
+            const firstSubTag = content.search(/<(COR|INC|EXP)/i);
+            const questionBody = firstSubTag === -1 ? content.trim() : content.substring(0, firstSubTag).trim();
+            
+            const qData = {
+              question: questionBody,
+              correct: corMatch ? (corMatch[1] || corMatch[2] || '') : '',
+              incorrect: incMatches.map(m => m[1] || m[2] || '').filter(Boolean),
+              explanation: expMatch ? (expMatch[1] || expMatch[2] || '') : ''
+            };
+            
+            resultBlocks.push({ 
+              type: 'question', 
+              content: JSON.stringify(qData),
+              settings: { questionId: attr }
+            });
+            continue;
+          }
 
           const typeMap: Record<string, string> = {
             'H1': 'h1',
@@ -793,18 +1015,26 @@ export const NoteBuilder: React.FC<NoteBuilderProps> = ({ initialContent, onChan
             'VIDEO': 'video',
             'DIAGRAM': 'diagram'
           };
-          resultBlocks.push({ type: typeMap[tagName] || 'text', content });
+          resultBlocks.push({ type: typeMap[tagName] || 'text', content, settings: attr ? { questionId: attr } : undefined });
         }
 
         if (!foundV2) {
-          // Fallback to v1 bracket parsing if no <TAG> pairs found
+          // Fallback to legacy bracket parsing
           const plxRegex = /\[(H1|H2|MATH|LIST|ORDERED|TABLE|VIDEO|DIAGRAM)\]/g;
           if (plxRegex.test(text)) {
             toast.loading('Parsing legacy PLX format...', { id: 'plx-status' });
             const parts = text.split(/\[(H1|H2|MATH|LIST|ORDERED|TABLE|VIDEO|DIAGRAM)\]/g);
             for (let i = 1; i < parts.length; i += 2) {
               const tagName = parts[i];
-              const content = parts[i+1]?.trim() || '';
+              let content = parts[i+1]?.trim() || '';
+
+              if (tagName === 'TABLE') {
+                const rows = content.split('\n')
+                  .filter(row => row.trim().length > 0)
+                  .map(row => row.split(',').map(cell => cell.trim()));
+                content = JSON.stringify(rows.length > 0 ? rows : [['']]);
+              }
+
               const typeMap: Record<string, string> = {
                 'H1': 'h1', 'H2': 'h2', 'MATH': 'math', 'LIST': 'bullet-list',
                 'ORDERED': 'numbered-list', 'TABLE': 'table', 'VIDEO': 'video', 'DIAGRAM': 'diagram'
@@ -868,14 +1098,14 @@ export const NoteBuilder: React.FC<NoteBuilderProps> = ({ initialContent, onChan
   };
 
   const downloadPLXStandard = () => {
-    const standard = `[PANTHEON NOTE STANDARD - PLX v2.0]
+    const standard = `[PANTHEON NOTE STANDARD - PLX v4.0]
 
-PLX (Pillara Extensible) uses a structured HTML-like syntax. 
-AI models understand this tags based format much better than brackets.
+PLX (Pillara Extensible) uses a structured HTML-style syntax. 
+AI models understand this tags-based format much better than brackets.
 
 CRITICAL: USE PROPER INDENTATION
-Indentation helps the parser and the user distinguish between different blocks of information.
-Always put tags on their own lines for maximum compatibility.
+Indentation is essential for clarity. Sub-elements and content inside tags should be clearly indented.
+Use 2 spaces per indentation level.
 
 [SUPPORTED TAGS]:
 
@@ -887,8 +1117,18 @@ Always put tags on their own lines for maximum compatibility.
   Sub-header or Section Title
 </H2>
 
+<QUES ="1">
+  Who founded Pantheon?
+  <COR ="Pillara Education">
+  <INC ="Microsoft">
+  <INC ="Google">
+  <INC ="Apple">
+  <EXP ="Pantheon was founded by Pillara Education to revolutionize learning.">
+</QUES>
+*Note: COR = Correct Answer, INC = Incorrect Answer, EXP = Explanation.
+
 <MATH>
-  Write LaTeX here. Example: \\frac{-b \\pm \\sqrt{b^2-4ac}}{2a}
+  Block level LaTeX. Example: \\frac{-b \\pm \\sqrt{b^2-4ac}}{2a}
 </MATH>
 
 <LIST>
@@ -902,10 +1142,11 @@ Always put tags on their own lines for maximum compatibility.
 </ORDERED>
 
 <TABLE>
-  | Column 1 | Column 2 |
-  |----------|----------|
-  | Data A   | Data B   |
+  Name, Age, Department
+  John Doe, 19, Physics
+  Jane Smith, 21, Engineering
 </TABLE>
+*Note: Tables are CSV-style (comma separated). 
 
 <VIDEO>
   https://www.youtube.com/watch?v=example
@@ -915,11 +1156,18 @@ Always put tags on their own lines for maximum compatibility.
   Use mermaid or text-based diagrams here.
 </DIAGRAM>
 
+[INLINE LATEX]:
+You can use inline LaTeX inside any text-based tag (H1, H2, LIST, QUES etc.) by wrapping it in dollar signs.
+Example: The area of a circle is $A = \\pi r^2$ where $r$ is radius.
+
 [AI PROMPT STRATEGY]:
 1. "Analyze the provided technical/lecture content."
 2. "Convert it into a valid Pantheon PLX document using <TAG>... </TAG> syntax."
-3. "Use 2 spaces of indentation inside tags for readability."
-4. "Ensure every opening tag has a matching closing tag."
+3. "Use <QUES ="#"> for any testable questions found in the material."
+4. "Use CSV format for Tables (Heading1, Heading2 followed by data rows)."
+5. "Use $...$ for equations that appear inside sentences."
+6. "Maintain strict 2-space indentation inside all container tags."
+7. "Ensure every opening tag has a matching closing tag."
 
 [SAVE INSTRUCTIONS]:
 Save the final text as a file named "note.plx" (or .txt) then upload it.
@@ -1163,6 +1411,9 @@ Save the final text as a file named "note.plx" (or .txt) then upload it.
                   </Button>
                   <Button type="button" variant="ghost" size="sm" className="rounded-full h-8 w-8 p-0 hover:bg-muted" onClick={() => addBlock('numbered-list')} title="Numbered List">
                     <ListOrdered className="h-4 w-4" />
+                  </Button>
+                  <Button type="button" variant="ghost" size="sm" className="rounded-full h-8 w-8 p-0 hover:bg-muted text-primary" onClick={() => addBlock('question')} title="Add Question Card">
+                    <HelpCircle className="h-4 w-4" />
                   </Button>
                   <Button type="button" variant="ghost" size="sm" className="rounded-full h-8 w-8 p-0 hover:bg-muted" onClick={() => setIsTableDialogOpen(true)} title="Data Table">
                     <TableIcon className="h-4 w-4" />

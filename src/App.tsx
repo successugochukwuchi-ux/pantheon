@@ -36,11 +36,11 @@ import TermsOfService from './pages/TermsOfService';
 
 import { MaintenanceGuard } from './components/MaintenanceGuard';
 import Diagnostic from './pages/Diagnostic';
-import FluxDashboard from './pages/flux/FluxDashboard';
-import FluxAdmin from './pages/flux/FluxAdmin';
-import FluxBrowse from './pages/flux/FluxBrowse';
-import FluxTracks from './pages/flux/FluxTracks';
-import FluxPortfolio from './pages/flux/FluxPortfolio';
+// import FluxDashboard from './pages/flux/FluxDashboard';
+// import FluxAdmin from './pages/flux/FluxAdmin';
+// import FluxBrowse from './pages/flux/FluxBrowse';
+// import FluxTracks from './pages/flux/FluxTracks';
+// import FluxPortfolio from './pages/flux/FluxPortfolio';
 
 export default function App() {
   console.log("[PANTHEON] App Rendering. URL:", window.location.pathname);
@@ -111,7 +111,8 @@ export default function App() {
                     <Route path="/banned" element={<Banned />} />
                     <Route path="/diag" element={<Diagnostic />} />
 
-                    {/* FLUX Routes */}
+                    {/* FLUX Routes (Hidden for Launch) */}
+                    {/* 
                     <Route path="/flux" element={
                       <ProtectedRoute requireActivation={false}>
                         <Layout>
@@ -167,6 +168,7 @@ export default function App() {
                         </Layout>
                       </ProtectedRoute>
                     } />
+                    */}
 
                     {/* Protected Routes */}
                     <Route path="/activate" element={

@@ -140,25 +140,10 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
               </Sheet>
               
               <div className="flex items-center gap-2">
-                {isFluxMode && (
-                  <div className="bg-pink-500 rounded-lg p-1.5 hidden sm:block">
-                    <Zap className="text-white w-4 h-4 fill-white" />
-                  </div>
-                )}
-                <h2 className={cn(
-                  "text-sm font-black uppercase tracking-tighter",
-                  isFluxMode ? "text-pink-500 flex items-center gap-1.5" : "text-muted-foreground"
-                )}>
-                  {isFluxMode ? (
-                    <>
-                      PANTHEON <span className="text-white">FLUX</span>
-                      <Sparkles size={12} className="text-pink-400" />
-                    </>
-                  ) : (
-                    location.pathname === '/dashboard' ? 'Overview' : 
-                    location.pathname.startsWith('/administrator') ? 'Administration' : 
-                    'Academic Portal'
-                  )}
+                <h2 className="text-sm font-black uppercase tracking-tighter text-muted-foreground">
+                  {location.pathname === '/dashboard' ? 'Overview' : 
+                   location.pathname.startsWith('/administrator') ? 'Administration' : 
+                   'Academic Portal'}
                 </h2>
               </div>
             </div>

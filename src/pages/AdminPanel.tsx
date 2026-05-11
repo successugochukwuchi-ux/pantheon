@@ -35,6 +35,7 @@ import {
   Trash2, 
   Plus,
   Pencil,
+  Wand2,
   ChevronRight,
   HelpCircle,
   Copy,
@@ -758,6 +759,144 @@ export default function AdminPanel() {
     }
   };
 
+  const handleMagicImportQuestions = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || !selectedSheet || !user) return;
+    
+    setLoading(true);
+    const toastId = toast.loading("Parsing PLX questions...");
+    
+    try {
+      const text = await file.text();
+      // Simple PLX v4 <QUES> parser
+      const tagRegex = /<([A-Z0-9_]+)(?:\s+=\s*"([^"]*)")?>\s*([\s\S]*?)\s*<\/\1>/g;
+      let match;
+      const importedQuestions: any[] = [];
+      
+      while ((match = tagRegex.exec(text)) !== null) {
+        const tagName = match[1];
+        const content = match[3].trim();
+        
+        if (tagName === 'QUES') {
+          // Robust parsing for internal subtags <COR ="...">, <INC ="..."> and <EXP ="...">
+          const corMatch = /<COR(?:\s*=\s*"([^"]*)"|\s*=\s*([^>\s]+))?\s*>/i.exec(content);
+          const incMatches = [...content.matchAll(/<INC(?:\s*=\s*"([^"]*)"|\s*=\s*([^>\s]+))?\s*>/gi)];
+          const expMatch = /<EXP(?:\s*=\s*"([^"]*)"|\s*=\s*([^>\s]+))?\s*>/i.exec(content);
+          
+          // Extract question text (up to the first tag)
+          const firstTagIndex = content.indexOf('<');
+          const questionText = firstTagIndex === -1 ? content : content.substring(0, firstTagIndex).trim();
+          
+          const correctAnswer = corMatch ? (corMatch[1] || corMatch[2] || '') : '';
+          const incorrectAnswers = incMatches.map(m => m[1] || m[2] || '').filter(Boolean);
+          const explanation = expMatch ? (expMatch[1] || expMatch[2] || '') : '';
+          
+          if (questionText && correctAnswer) {
+            importedQuestions.push({
+              text: questionText,
+              correctAnswer,
+              incorrectAnswers: incorrectAnswers.slice(0, 3),
+              explanation
+            });
+          }
+        }
+      }
+      
+      if (importedQuestions.length === 0) {
+        toast.error("No valid <QUES> blocks found in file.", { id: toastId });
+        return;
+      }
+      
+      const batch = writeBatch(db);
+      let currentOrder = sheetQuestions.length + 1;
+      
+      for (const q of importedQuestions) {
+        const docRef = doc(collection(db, 'questions'));
+        batch.set(docRef, {
+          ...q,
+          sheetId: selectedSheet.id,
+          courseId: selectedSheet.courseId,
+          order: currentOrder++,
+          authorId: user.uid,
+          createdAt: new Date().toISOString()
+        });
+      }
+      
+      await batch.commit();
+      toast.success(`Imported ${importedQuestions.length} questions successfully`, { id: toastId });
+    } catch (error: any) {
+      toast.error(`Import failed: ${error.message}`, { id: toastId });
+    } finally {
+      setLoading(false);
+      e.target.value = ''; // Reset input
+    }
+  };
+
+  const handleMagicImportVideoQuestions = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || !selectedVideoNote) return;
+    
+    setLoading(true);
+    const toastId = toast.loading("Parsing PLX questions for video...");
+    
+    try {
+      const text = await file.text();
+      const tagRegex = /<([A-Z0-9_]+)(?:\s+=\s*"([^"]*)")?>\s*([\s\S]*?)\s*<\/\1>/g;
+      let match;
+      const importedQuestions: any[] = [];
+      
+      while ((match = tagRegex.exec(text)) !== null) {
+        const tagName = match[1];
+        const content = match[3].trim();
+        
+        if (tagName === 'QUES') {
+          const corMatch = /<COR(?:\s*=\s*"([^"]*)"|\s*=\s*([^>\s]+))?\s*>/i.exec(content);
+          const incMatches = [...content.matchAll(/<INC(?:\s*=\s*"([^"]*)"|\s*=\s*([^>\s]+))?\s*>/gi)];
+          const expMatch = /<EXP(?:\s*=\s*"([^"]*)"|\s*=\s*([^>\s]+))?\s*>/i.exec(content);
+          
+          const firstTagIndex = content.indexOf('<');
+          const questionText = firstTagIndex === -1 ? content : content.substring(0, firstTagIndex).trim();
+          
+          const correctAnswer = corMatch ? (corMatch[1] || corMatch[2] || '') : '';
+          const incorrectAnswers = incMatches.map(m => m[1] || m[2] || '').filter(Boolean);
+          const explanation = expMatch ? (expMatch[1] || expMatch[2] || '') : '';
+          
+          if (questionText && correctAnswer) {
+            importedQuestions.push({
+              text: questionText,
+              correctAnswer,
+              incorrectAnswers: incorrectAnswers.slice(0, 3),
+              explanation
+            });
+          }
+        }
+      }
+      
+      if (importedQuestions.length === 0) {
+        toast.error("No valid <QUES> blocks found in file.", { id: toastId });
+        return;
+      }
+      
+      const batch = writeBatch(db);
+      for (const q of importedQuestions) {
+        const docRef = doc(collection(db, `notes/${selectedVideoNote.id}/videoQuestions`));
+        batch.set(docRef, {
+          ...q,
+          noteId: selectedVideoNote.id,
+          createdAt: new Date().toISOString()
+        });
+      }
+      
+      await batch.commit();
+      toast.success(`Imported ${importedQuestions.length} video questions successfully`, { id: toastId });
+    } catch (error: any) {
+      toast.error(`Import failed: ${error.message}`, { id: toastId });
+    } finally {
+      setLoading(false);
+      e.target.value = '';
+    }
+  };
+
   const handlePostNews = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
@@ -1274,7 +1413,27 @@ export default function AdminPanel() {
                     <form onSubmit={handleAddVideoQuestion} className="space-y-6 p-6 border rounded-2xl bg-primary/5 shadow-inner">
                       <div className="space-y-4">
                         <div className="space-y-2">
-                          <Label className="text-xs font-bold uppercase tracking-widest text-primary">New Quiz Question</Label>
+                          <div className="flex items-center justify-between">
+                            <Label className="text-xs font-bold uppercase tracking-widest text-primary">New Quiz Question</Label>
+                            <div className="relative">
+                              <input
+                                type="file"
+                                id="video-plx-import"
+                                className="hidden"
+                                accept=".plx,.txt"
+                                onChange={handleMagicImportVideoQuestions}
+                              />
+                              <Button 
+                                type="button" 
+                                variant="ghost" 
+                                size="sm" 
+                                className="h-7 gap-1.5 text-[10px] font-bold text-primary hover:bg-primary/10"
+                                onClick={() => document.getElementById('video-plx-import')?.click()}
+                              >
+                                <Wand2 className="h-3 w-3" /> Magic Import (PLX)
+                              </Button>
+                            </div>
+                          </div>
                           <Textarea 
                             value={newVideoQuestion.text} 
                             onChange={(e) => setNewVideoQuestion({...newVideoQuestion, text: e.target.value})} 
@@ -1900,7 +2059,27 @@ export default function AdminPanel() {
 
                 <Card>
                   <CardHeader>
-                    <CardTitle className="text-lg">Add New Question</CardTitle>
+                    <div className="flex items-center justify-between">
+                      <CardTitle className="text-lg">Add New Question</CardTitle>
+                      <div className="relative">
+                        <input
+                          type="file"
+                          id="cbt-plx-import"
+                          className="hidden"
+                          accept=".plx,.txt"
+                          onChange={handleMagicImportQuestions}
+                        />
+                        <Button 
+                          type="button" 
+                          variant="outline" 
+                          size="sm" 
+                          className="gap-2 text-primary border-primary/20 hover:bg-primary/5"
+                          onClick={() => document.getElementById('cbt-plx-import')?.click()}
+                        >
+                          <Wand2 className="h-3.5 w-3.5" /> Magic Import (PLX)
+                        </Button>
+                      </div>
+                    </div>
                     <CardDescription>Enter question details. You can use LaTeX for math symbols.</CardDescription>
                   </CardHeader>
                   <form onSubmit={handleCreateQuestion}>
