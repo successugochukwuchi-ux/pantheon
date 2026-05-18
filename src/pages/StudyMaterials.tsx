@@ -6,7 +6,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../co
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
 import { Badge } from '../components/ui/badge';
-import { Search, BookOpen, ChevronRight, ArrowLeft, AlertCircle, History, Calculator, HelpCircle, MessageSquare, Maximize2, CheckCircle2, XCircle, Wand2 } from 'lucide-react';
+import { Search, BookOpen, ChevronRight, ArrowLeft, AlertCircle, History, HelpCircle, MessageSquare, Maximize2, CheckCircle2, XCircle, Wand2 } from 'lucide-react';
 import { Course, Note } from '../types';
 import ReactMarkdown from 'react-markdown';
 import remarkMath from 'remark-math';
@@ -41,7 +41,6 @@ export default function StudyMaterials() {
 
   const typeLabels: Record<string, string> = {
     'lecture': 'Lecture Notes',
-    'punch': 'Punch Notes',
     'past_question': 'Past Questions',
     'cbt': 'CBT Materials'
   };
@@ -50,7 +49,6 @@ export default function StudyMaterials() {
 
   const typeIcons: Record<string, any> = {
     'lecture': BookOpen,
-    'punch': Calculator,
     'past_question': History,
     'cbt': HelpCircle
   };

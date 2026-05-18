@@ -69,7 +69,7 @@ export default function Landing() {
             </div>
             
             <p className="text-xl text-muted-foreground mb-10 max-w-2xl">
-              The ultimate study companion for FUTO students. Lecture notes, past questions, CBT practice, and calculator shortcuts—all in one place, even offline.
+              The ultimate study companion for FUTO students. Lecture notes, past questions, and CBT practice—all in one place, even offline.
             </p>
             
             <div className="flex flex-col sm:flex-row gap-4">
@@ -112,11 +112,6 @@ export default function Landing() {
               icon={<History className="h-8 w-8 text-purple-500" />}
               title="Past Questions"
               description="Practice with years of real exam questions to know exactly what to expect."
-            />
-            <FeatureCard 
-              icon={<Zap className="h-8 w-8 text-orange-500" />}
-              title="Punch Notes"
-              description="Master calculator shortcuts and exam hacks that save you precious time during tests."
             />
             <FeatureCard 
               icon={<Shield className="h-8 w-8 text-green-500" />}
@@ -163,7 +158,7 @@ export default function Landing() {
                   <div className="h-6 w-6 rounded-full bg-white/20 flex items-center justify-center">
                     <ChevronRight className="h-4 w-4" />
                   </div>
-                  <span>Full access to Notes, CBT & Punch Notes</span>
+                  <span>Full access to Notes & CBT</span>
                 </li>
               </ul>
               <Button size="lg" variant="secondary" className="rounded-full px-8" onClick={openWhatsApp}>
@@ -185,7 +180,7 @@ export default function Landing() {
           <div className="flex flex-col gap-2">
             <span className="text-2xl font-bold tracking-tighter">PANTHEON</span>
             <p className="text-muted-foreground text-sm max-w-xs">Empowering FUTO students through technology and accessible education.</p>
-            <p className="text-xs text-muted-foreground mt-4">© 2026 Pillara Education, a Pillara Company.</p>
+            <p className="text-xs text-muted-foreground mt-4">© 2026 Pillara Education 2026</p>
           </div>
           <div className="flex flex-wrap gap-4 md:gap-8 justify-center">
             {user ? (

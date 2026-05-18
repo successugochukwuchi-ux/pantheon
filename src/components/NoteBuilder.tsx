@@ -942,11 +942,21 @@ export const NoteBuilder: React.FC<NoteBuilderProps> = ({ initialContent, onChan
 
       if (fileExtension === 'plx' || file.type === 'text/plain') {
         // ── PLX / TEXT: Parse standard format (v4 HTML-style) ────────────────
-        const text = await file.text();
+        const rawText = await file.text();
+        
+        // Requirement: Entire note must be wrapped in <PLX> tags
+        const plxMatch = /<PLX>([\s\S]*?)<\/PLX>/i.exec(rawText);
+        if (!plxMatch) {
+          toast.error('Invalid PLX format: Missing root <PLX> tags');
+          setIsMagicLoading(false);
+          return;
+        }
+        
+        const text = plxMatch[1].trim();
         
         // Match both v1 [TAG] and v2/v4 <TAG>content</TAG> for backwards compatibility
-        const validTags = ['H1', 'H2', 'MATH', 'LIST', 'ORDERED', 'TABLE', 'VIDEO', 'DIAGRAM', 'QUES'];
-        const tagRegex = /<(H1|H2|MATH|LIST|ORDERED|TABLE|VIDEO|DIAGRAM|QUES)(?:\s*=\s*"([^"]*)")?>([\s\S]*?)<\/\1>/gi;
+        const validTags = ['H1', 'H2', 'TEXT', 'B', 'MATH', 'LIST', 'ORDERED', 'TABLE', 'VIDEO', 'DIAGRAM', 'QUES'];
+        const tagRegex = /<(H1|H2|TEXT|B|MATH|LIST|ORDERED|TABLE|VIDEO|DIAGRAM|QUES)(?:\s*=\s*"([^"]*)")?>([\s\S]*?)<\/\1>/gi;
         
         let match;
         let foundV2 = false;
@@ -956,6 +966,9 @@ export const NoteBuilder: React.FC<NoteBuilderProps> = ({ initialContent, onChan
           const tagName = match[1].toUpperCase();
           const attr = match[2] || '';
           let content = match[3].trim();
+          
+          // Pre-processing: Support internal <B> tags by converting them to Markdown bold
+          content = content.replace(/<B>([\s\S]*?)<\/B>/gi, '**$1**');
           
           // Indentation Stripper: Remove common leading whitespace from each line 
           // This prevents lists from being rendered as code blocks in ReactMarkdown
@@ -1008,6 +1021,8 @@ export const NoteBuilder: React.FC<NoteBuilderProps> = ({ initialContent, onChan
           const typeMap: Record<string, string> = {
             'H1': 'h1',
             'H2': 'h2',
+            'TEXT': 'text',
+            'B': 'text',
             'MATH': 'math',
             'LIST': 'bullet-list',
             'ORDERED': 'numbered-list',
@@ -1015,7 +1030,11 @@ export const NoteBuilder: React.FC<NoteBuilderProps> = ({ initialContent, onChan
             'VIDEO': 'video',
             'DIAGRAM': 'diagram'
           };
-          resultBlocks.push({ type: typeMap[tagName] || 'text', content, settings: attr ? { questionId: attr } : undefined });
+          let finalContent = content;
+          if (tagName === 'B') {
+            finalContent = `**${content}**`;
+          }
+          resultBlocks.push({ type: typeMap[tagName] || 'text', content: finalContent, settings: attr ? { questionId: attr } : undefined });
         }
 
         if (!foundV2) {
@@ -1109,6 +1128,10 @@ Use 2 spaces per indentation level.
 
 [SUPPORTED TAGS]:
 
+<PLX>
+  All content must be wrapped in a root <PLX> tag.
+</PLX>
+
 <H1>
   Main Title of the Note
 </H1>
@@ -1117,13 +1140,21 @@ Use 2 spaces per indentation level.
   Sub-header or Section Title
 </H2>
 
+<TEXT>
+  This is a regular text block. You can use <B>bold</B> for emphasis.
+</TEXT>
+
+<B>
+  This entire block will be bolded for extreme emphasis.
+</B>
+
 <QUES ="1">
   Who founded Pantheon?
-  <COR ="Pillara Education">
+  <COR ="Pillara Education 2026">
   <INC ="Microsoft">
   <INC ="Google">
   <INC ="Apple">
-  <EXP ="Pantheon was founded by Pillara Education to revolutionize learning.">
+  <EXP ="Pantheon was founded by Pillara Education 2026 to revolutionize learning.">
 </QUES>
 *Note: COR = Correct Answer, INC = Incorrect Answer, EXP = Explanation.
 
@@ -1162,8 +1193,9 @@ Example: The area of a circle is $A = \\pi r^2$ where $r$ is radius.
 
 [AI PROMPT STRATEGY]:
 1. "Analyze the provided technical/lecture content."
-2. "Convert it into a valid Pantheon PLX document using <TAG>... </TAG> syntax."
-3. "Use <QUES ="#"> for any testable questions found in the material."
+2. "Convert it into a valid Pantheon PLX document wrapped in <PLX> tags using <TAG>... </TAG> syntax internally."
+3. "Always start with <PLX> and end with </PLX>."
+4. "Use <QUES ="#"> for any testable questions found in the material."
 4. "Use CSV format for Tables (Heading1, Heading2 followed by data rows)."
 5. "Use $...$ for equations that appear inside sentences."
 6. "Maintain strict 2-space indentation inside all container tags."

@@ -4,7 +4,7 @@ import { db, handleFirestoreError, OperationType } from '../firebase';
 import { NewsItem, Course } from '../types';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from '../components/ui/card';
 import { Button } from '../components/ui/button';
-import { BookOpen, History, Calculator, Newspaper, AlertCircle, Info, HelpCircle, Trophy, Target } from 'lucide-react';
+import { BookOpen, History, Newspaper, AlertCircle, Info, HelpCircle, Trophy, Target } from 'lucide-react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { Alert, AlertDescription, AlertTitle } from '../components/ui/alert';
@@ -77,7 +77,6 @@ export default function Dashboard() {
     { name: 'Lecture Notes', path: '/notes?type=lecture', icon: BookOpen, color: 'bg-blue-500' },
     { name: 'Past Questions', path: '/past-questions?type=past_question', icon: History, color: 'bg-purple-500' },
     { name: 'CBT Practice', path: '/cbt', icon: HelpCircle, color: 'bg-green-500' },
-    { name: 'Punch Notes', path: '/punch?type=punch', icon: Calculator, color: 'bg-orange-500' },
   ];
 
   const isHoliday = isSystemConfigReady && (systemConfig?.currentSemester === 'none' || !systemConfig);

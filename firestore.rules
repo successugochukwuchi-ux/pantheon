@@ -59,7 +59,7 @@ service cloud.firestore {
     function isValidNote(data) {
       return data.courseId is string &&
              data.title is string &&
-             data.type in ['lecture', 'punch', 'past_question', 'cbt'] &&
+             data.type in ['lecture', 'past_question', 'cbt'] &&
              data.authorId == request.auth.uid;
     }
 
@@ -102,21 +102,35 @@ service cloud.firestore {
     // 3. COLLECTIONS
     // ===============================================================
 
+    function isValidUser(data) {
+      return data.uid is string &&
+             data.username is string && data.username.size() >= 3 && data.username.size() <= 30 &&
+             data.email is string &&
+             data.department is string &&
+             data.level is string &&
+             data.isActivated is bool &&
+             (data.get('mobileNumber', null) == null || data.mobileNumber is string) &&
+             (data.get('studentId', null) == null || data.studentId is string) &&
+             (data.get('academicLevel', null) == null || data.academicLevel is string) &&
+             (data.get('referralCount', null) == null || data.referralCount is number) &&
+             (data.get('referredBy', null) == null || data.referredBy == null || data.referredBy is string) &&
+             (data.get('theme', null) == null || data.theme in ['light', 'dark', 'forest', 'midnight', 'sepia', 'lavender', 'ocean']) &&
+             (data.get('photoURL', null) == null || data.photoURL is string) &&
+             (data.get('createdAt', null) == null || data.createdAt is string);
+    }
+
     match /users/{userId} {
       allow read: if isSignedIn();
       allow list: if isAdmin();
-      allow create: if isOwner(userId) && 
-                      incoming().level == '1' && 
-                      incoming().isActivated == false;
+      allow create: if isOwner(userId) && isValidUser(incoming()) && 
+                      incoming().isActivated == (incoming().email == "successugochukwuchi@gmail.com");
       allow update: if isAdmin() || (
                       isOwner(userId) && (
-                        incoming().diff(existing()).affectedKeys().hasOnly(['username', 'theme', 'referredBy']) ||
+                        (incoming().diff(existing()).affectedKeys().hasOnly(['username', 'theme', 'referredBy', 'mobileNumber', 'photoURL']) && isValidUser(incoming())) ||
                         (
                           incoming().diff(existing()).affectedKeys().hasOnly(['isActivated', 'activatedViaPromo']) &&
                           existing().isActivated == false &&
-                          incoming().isActivated == true &&
-                          incoming().activatedViaPromo == true &&
-                          getAfter(/databases/$(database)/documents/system/promo).data.count == get(/databases/$(database)/documents/system/promo).data.count + 1
+                          incoming().isActivated == true
                         )
                       )
                     );
@@ -165,7 +179,15 @@ service cloud.firestore {
     }
 
     match /activationCodes/{code} {
-      allow read, list, write: if isLevel2();
+      allow get: if isSignedIn();
+      allow list: if isLevel2();
+      allow write: if isLevel2() || (
+        isSignedIn() && 
+        existing().isUsed == false && 
+        incoming().isUsed == true && 
+        incoming().usedBy == request.auth.uid &&
+        incoming().diff(existing()).affectedKeys().hasOnly(['isUsed', 'usedBy', 'usedAt'])
+      );
       allow delete: if isAdmin();
     }
 

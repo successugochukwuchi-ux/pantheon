@@ -146,7 +146,7 @@
         "courseId": { "type": "string" },
         "title": { "type": "string" },
         "content": { "type": "string" },
-        "type": { "type": "string", "enum": ["lecture", "punch", "past_question", "cbt"] },
+        "type": { "type": "string", "enum": ["lecture", "past_question", "cbt"] },
         "authorId": { "type": "string" },
         "createdAt": { "type": "string", "format": "date-time" },
         "updatedAt": { "type": "string", "format": "date-time" }

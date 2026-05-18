@@ -203,14 +203,6 @@ export default function App() {
                       </ProtectedRoute>
                     } />
 
-                    <Route path="/punch" element={
-                      <ProtectedRoute>
-                        <Layout>
-                          <StudyMaterials />
-                        </Layout>
-                      </ProtectedRoute>
-                    } />
-
                     <Route path="/cbt" element={
                       <ProtectedRoute>
                         <Layout>

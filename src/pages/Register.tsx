@@ -237,7 +237,7 @@ export default function Register() {
           </form>
         </Card>
         <footer className="mt-8 text-center text-xs text-muted-foreground">
-          © 2026 Pillara Education, a Pillara Company.
+          © 2026 Pillara Education 2026
         </footer>
       </div>
     </div>

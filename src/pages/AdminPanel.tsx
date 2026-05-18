@@ -767,7 +767,18 @@ export default function AdminPanel() {
     const toastId = toast.loading("Parsing PLX questions...");
     
     try {
-      const text = await file.text();
+      const rawText = await file.text();
+      
+      // Requirement: Entire note must be wrapped in <PLX> tags
+      const plxMatch = /<PLX>([\s\S]*?)<\/PLX>/i.exec(rawText);
+      if (!plxMatch) {
+        toast.error("Invalid PLX format: Missing root <PLX> tags", { id: toastId });
+        setLoading(false);
+        return;
+      }
+      
+      const text = plxMatch[1].trim();
+      
       // Simple PLX v4 <QUES> parser
       const tagRegex = /<([A-Z0-9_]+)(?:\s+=\s*"([^"]*)")?>\s*([\s\S]*?)\s*<\/\1>/g;
       let match;
@@ -778,14 +789,17 @@ export default function AdminPanel() {
         const content = match[3].trim();
         
         if (tagName === 'QUES') {
+          // Pre-processing: Support internal <B> tags by converting them to Markdown bold
+          const processedContent = content.replace(/<B>([\s\S]*?)<\/B>/gi, '**$1**');
+          
           // Robust parsing for internal subtags <COR ="...">, <INC ="..."> and <EXP ="...">
-          const corMatch = /<COR(?:\s*=\s*"([^"]*)"|\s*=\s*([^>\s]+))?\s*>/i.exec(content);
-          const incMatches = [...content.matchAll(/<INC(?:\s*=\s*"([^"]*)"|\s*=\s*([^>\s]+))?\s*>/gi)];
-          const expMatch = /<EXP(?:\s*=\s*"([^"]*)"|\s*=\s*([^>\s]+))?\s*>/i.exec(content);
+          const corMatch = /<COR(?:\s*=\s*"([^"]*)"|\s*=\s*([^>\s]+))?\s*>/i.exec(processedContent);
+          const incMatches = [...processedContent.matchAll(/<INC(?:\s*=\s*"([^"]*)"|\s*=\s*([^>\s]+))?\s*>/gi)];
+          const expMatch = /<EXP(?:\s*=\s*"([^"]*)"|\s*=\s*([^>\s]+))?\s*>/i.exec(processedContent);
           
           // Extract question text (up to the first tag)
-          const firstTagIndex = content.indexOf('<');
-          const questionText = firstTagIndex === -1 ? content : content.substring(0, firstTagIndex).trim();
+          const firstTagIndex = processedContent.indexOf('<');
+          const questionText = firstTagIndex === -1 ? processedContent : processedContent.substring(0, firstTagIndex).trim();
           
           const correctAnswer = corMatch ? (corMatch[1] || corMatch[2] || '') : '';
           const incorrectAnswers = incMatches.map(m => m[1] || m[2] || '').filter(Boolean);
@@ -840,7 +854,18 @@ export default function AdminPanel() {
     const toastId = toast.loading("Parsing PLX questions for video...");
     
     try {
-      const text = await file.text();
+      const rawText = await file.text();
+      
+      // Requirement: Entire note must be wrapped in <PLX> tags
+      const plxMatch = /<PLX>([\s\S]*?)<\/PLX>/i.exec(rawText);
+      if (!plxMatch) {
+        toast.error("Invalid PLX format: Missing root <PLX> tags", { id: toastId });
+        setLoading(false);
+        return;
+      }
+      
+      const text = plxMatch[1].trim();
+      
       const tagRegex = /<([A-Z0-9_]+)(?:\s+=\s*"([^"]*)")?>\s*([\s\S]*?)\s*<\/\1>/g;
       let match;
       const importedQuestions: any[] = [];
@@ -850,12 +875,15 @@ export default function AdminPanel() {
         const content = match[3].trim();
         
         if (tagName === 'QUES') {
-          const corMatch = /<COR(?:\s*=\s*"([^"]*)"|\s*=\s*([^>\s]+))?\s*>/i.exec(content);
-          const incMatches = [...content.matchAll(/<INC(?:\s*=\s*"([^"]*)"|\s*=\s*([^>\s]+))?\s*>/gi)];
-          const expMatch = /<EXP(?:\s*=\s*"([^"]*)"|\s*=\s*([^>\s]+))?\s*>/i.exec(content);
+          // Pre-processing: Support internal <B> tags by converting them to Markdown bold
+          const processedContent = content.replace(/<B>([\s\S]*?)<\/B>/gi, '**$1**');
           
-          const firstTagIndex = content.indexOf('<');
-          const questionText = firstTagIndex === -1 ? content : content.substring(0, firstTagIndex).trim();
+          const corMatch = /<COR(?:\s*=\s*"([^"]*)"|\s*=\s*([^>\s]+))?\s*>/i.exec(processedContent);
+          const incMatches = [...processedContent.matchAll(/<INC(?:\s*=\s*"([^"]*)"|\s*=\s*([^>\s]+))?\s*>/gi)];
+          const expMatch = /<EXP(?:\s*=\s*"([^"]*)"|\s*=\s*([^>\s]+))?\s*>/i.exec(processedContent);
+          
+          const firstTagIndex = processedContent.indexOf('<');
+          const questionText = firstTagIndex === -1 ? processedContent : processedContent.substring(0, firstTagIndex).trim();
           
           const correctAnswer = corMatch ? (corMatch[1] || corMatch[2] || '') : '';
           const incorrectAnswers = incMatches.map(m => m[1] || m[2] || '').filter(Boolean);
@@ -1712,7 +1740,6 @@ export default function AdminPanel() {
                       <SelectTrigger><SelectValue /></SelectTrigger>
                       <SelectContent>
                         <SelectItem value="lecture">Lecture Note</SelectItem>
-                        <SelectItem value="punch">Punch Note</SelectItem>
                         <SelectItem value="past_question">Past Question</SelectItem>
                         <SelectItem value="cbt">CBT Practice</SelectItem>
                       </SelectContent>
@@ -1811,7 +1838,6 @@ export default function AdminPanel() {
                         <SelectTrigger className="h-10"><SelectValue /></SelectTrigger>
                         <SelectContent>
                           <SelectItem value="lecture">Lecture Note</SelectItem>
-                          <SelectItem value="punch">Punch Note</SelectItem>
                           <SelectItem value="past_question">Past Question</SelectItem>
                           <SelectItem value="cbt">CBT Practice</SelectItem>
                         </SelectContent>
@@ -3228,7 +3254,7 @@ function AdminManual() {
             <h4 className="font-bold text-sm">Workflow:</h4>
             <ol className="list-decimal pl-5 text-sm space-y-1">
               <li>Select a <strong>Course</strong> to host the note.</li>
-              <li>Choose <strong>Note Type</strong> (Lecture, Summary, or Punch).</li>
+              <li>Choose <strong>Note Type</strong> (Lecture, Past Question, or CBT).</li>
               <li>Draft your content in the editor.</li>
               <li>Use the <strong>Preview</strong> toggle to see how it looks for students.</li>
               <li>Click <strong>Save Note</strong>.</li>

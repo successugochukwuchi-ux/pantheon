@@ -186,6 +186,25 @@ export default function LectureNotes() {
                     </div>
                   </div>
                 )}
+                {block.type === 'video' && block.content && (
+                  <div className="aspect-video w-full rounded-xl overflow-hidden shadow-lg border border-white/5 my-4">
+                    <iframe
+                      src={block.content.includes('youtube.com') || block.content.includes('youtu.be') 
+                        ? `https://www.youtube.com/embed/${block.content.split('/').pop()?.split('v=').pop()?.split('&')[0]}`
+                        : block.content}
+                      className="w-full h-full"
+                      allowFullScreen
+                      title="Step Video"
+                    />
+                  </div>
+                )}
+                {(block.type === 'bullet-list' || block.type === 'numbered-list') && (
+                  <div className="prose dark:prose-invert max-w-none my-6">
+                    <ReactMarkdown remarkPlugins={[remarkMath, remarkGfm]} rehypePlugins={[rehypeKatex]}>
+                      {block.content}
+                    </ReactMarkdown>
+                  </div>
+                )}
                 {block.type === 'question' && (() => {
                   try {
                     const data = JSON.parse(block.content || '{"question":"","correct":"","incorrect":[]}');

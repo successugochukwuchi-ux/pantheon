@@ -36,7 +36,7 @@ export interface Note {
   courseId: string;
   title: string;
   content: string;
-  type: 'lecture' | 'punch' | 'past_question' | 'cbt';
+  type: 'lecture' | 'past_question' | 'cbt';
   authorId: string;
   videoUrl?: string;
   createdAt: string;
