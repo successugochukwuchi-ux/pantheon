@@ -146,7 +146,7 @@ export default function StudyMaterials() {
       // Filter by type in memory
       const filtered = allNotes
         .filter(n => n.type === type)
-        .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+        .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
       setNotes(filtered);
     }, (error) => {
       console.error("Notes fetch error in StudyMaterials:", error);

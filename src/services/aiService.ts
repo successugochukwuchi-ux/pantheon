@@ -39,7 +39,8 @@ export async function magicNoteCreator(fileData: { data: string, mimeType: strin
     5. SPACING: Ensure sufficient empty text blocks between different sections or after lists to maintain readability.
     6. FORMULAS: Use LaTeX for ALL mathematical formulas or scientific notations within the 'content' field (e.g., $E=mc^2$ or $\\\\frac{a}{b}$).
     7. TABLES: If there are tables, extract them as 'table' blocks where 'content' is a JSON stringified 2D array of strings.
-    8. Return ONLY the JSON array, no markdown fences, no preamble.
+    8. ACCENT & LANGUAGE FIDELITY: Maintain 100% accuracy for foreign languages (such as French, Igbo, Yoruba, Spanish, etc.). Never strip, modify, simplify, or approximate accents, intonation tone marks, diacritics, or subdots (e.g., ọ/Ọ, ụ/Ụ, ị/Ị, ṅ/Ṅ, ñ/Ñ, á, é, í, ó, ú, ọ́, ụ́, ị́, à, è, ì, ò, ù, ọ̀, ụ̀, ị̀, m̄, n̄, ḿ, ń). Precision is critical for language learning notes.
+    9. Return ONLY the JSON array, no markdown fences, no preamble.
   `;
 
   const provider = config?.provider || 'groq';

@@ -62,7 +62,9 @@ export default function LectureNotes() {
     );
 
     const unsubscribe = onSnapshot(q, (snapshot) => {
-      setNotes(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Note)));
+      const allNotes = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Note));
+      const sorted = allNotes.sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
+      setNotes(sorted);
     }, (error) => {
       console.error("Notes fetch error:", error);
     });

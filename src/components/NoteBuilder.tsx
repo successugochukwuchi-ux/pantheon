@@ -43,13 +43,17 @@ import {
   Loader2,
   FileText,
   Upload,
+  Download,
   List,
   ListOrdered,
   Settings2,
   PenTool,
   HelpCircle,
   CheckCircle2,
-  XCircle
+  XCircle,
+  Copy,
+  Check,
+  Sparkles
 } from 'lucide-react';
 import { Button } from './ui/button';
 import { Textarea } from './ui/textarea';
@@ -181,6 +185,163 @@ const MATH_SYMBOLS: Record<string, { icon: any; symbols: (string | { label: stri
     ]
   }
 };
+
+const LANGUAGE_SYMBOLS: Record<string, { icon: any; symbols: (string | { label: string; value: string })[] }> = {
+  "Igbo (Ọnwụ)": {
+    icon: <PenTool className="h-4 w-4" />,
+    symbols: [
+      { label: 'ọ', value: 'ọ' },
+      { label: 'ụ', value: 'ụ' },
+      { label: 'ị', value: 'ị' },
+      { label: 'ṅ', value: 'ṅ' },
+      { label: 'ñ', value: 'ñ' },
+      { label: 'Ọ', value: 'Ọ' },
+      { label: 'Ụ', value: 'Ụ' },
+      { label: 'Ị', value: 'Ị' },
+      { label: 'Ṅ', value: 'Ṅ' },
+      { label: 'Ñ', value: 'Ñ' },
+      { label: 'á', value: 'á' },
+      { label: 'é', value: 'é' },
+      { label: 'í', value: 'í' },
+      { label: 'ó', value: 'ó' },
+      { label: 'ú', value: 'ú' },
+      { label: 'ọ́', value: 'ọ́' },
+      { label: 'ụ́', value: 'ụ́' },
+      { label: 'ị́', value: 'ị́' },
+      { label: 'à', value: 'à' },
+      { label: 'è', value: 'è' },
+      { label: 'ì', value: 'ì' },
+      { label: 'ò', value: 'ò' },
+      { label: 'ù', value: 'ù' },
+      { label: 'ọ̀', value: 'ọ̀' },
+      { label: 'ụ̀', value: 'ụ̀' },
+      { label: 'ị̀', value: 'ị̀' },
+      { label: 'm̄', value: 'm̄' },
+      { label: 'n̄', value: 'n̄' },
+      { label: 'ḿ', value: 'ḿ' },
+      { label: 'ń', value: 'ń' },
+    ]
+  },
+  "French (Français)": {
+    icon: <FileText className="h-4 w-4" />,
+    symbols: [
+      { label: 'é', value: 'é' },
+      { label: 'è', value: 'è' },
+      { label: 'à', value: 'à' },
+      { label: 'ù', value: 'ù' },
+      { label: 'ç', value: 'ç' },
+      { label: 'â', value: 'â' },
+      { label: 'ê', value: 'ê' },
+      { label: 'î', value: 'î' },
+      { label: 'ô', value: 'ô' },
+      { label: 'û', value: 'û' },
+      { label: 'ë', value: 'ë' },
+      { label: 'ï', value: 'ï' },
+      { label: 'ü', value: 'ü' },
+      { label: 'œ', value: 'œ' },
+      { label: 'æ', value: 'æ' },
+      { label: 'É', value: 'É' },
+      { label: 'È', value: 'È' },
+      { label: 'À', value: 'À' },
+      { label: 'Ù', value: 'Ù' },
+      { label: 'Ç', value: 'Ç' },
+      { label: 'Â', value: 'Â' },
+      { label: 'Ê', value: 'Ê' },
+      { label: 'Î', value: 'Î' },
+      { label: 'Ô', value: 'Ô' },
+      { label: 'Û', value: 'Û' },
+      { label: 'Œ', value: 'Œ' },
+    ]
+  },
+  "Yoruba (Yorùbá)": {
+    icon: <PenTool className="h-4 w-4" />,
+    symbols: [
+      { label: 'ẹ', value: 'ẹ' },
+      { label: 'ọ', value: 'ọ' },
+      { label: 'ṣ', value: 'ṣ' },
+      { label: 'Ẹ', value: 'Ẹ' },
+      { label: 'Ọ', value: 'Ọ' },
+      { label: 'Ṣ', value: 'Ṣ' },
+      { label: 'á', value: 'á' },
+      { label: 'é', value: 'é' },
+      { label: 'í', value: 'í' },
+      { label: 'ó', value: 'ó' },
+      { label: 'ú', value: 'ú' },
+      { label: 'ẹ́', value: 'ẹ́' },
+      { label: 'ọ́', value: 'ọ́' },
+      { label: 'à', value: 'à' },
+      { label: 'è', value: 'è' },
+      { label: 'ì', value: 'ì' },
+      { label: 'ò', value: 'ò' },
+      { label: 'ù', value: 'ù' },
+      { label: 'ẹ̀', value: 'ẹ̀' },
+      { label: 'ọ̀', value: 'ọ̀' },
+      { label: 'ā', value: 'ā' },
+      { label: 'ē', value: 'ē' },
+      { label: 'ī', value: 'ī' },
+      { label: 'ō', value: 'ō' },
+      { label: 'ū', value: 'ū' },
+      { label: 'ẹ̄', value: 'ẹ̄' },
+      { label: 'ọ̄', value: 'ọ̄' },
+    ]
+  }
+};
+
+const DEEPSEEK_PROMPT_GUIDE = `You are an expert Pantheon PLX Note Writer. Convert the user's educational material into a valid Pantheon PLX document in the structured HTML-style tag format.
+
+[CRITICAL - PLX FORMAT SPECIFICATION]:
+1. Enclose the entire file inside a root <PLX> tag.
+2. Use ONLY the following supported Pantheon tag blocks:
+   - <H1>Title</H1>: Main notes header.
+   - <H2>Subheader</H2>: Section sub-header.
+   - <TEXT>Normal body paragraph. Use <B>bolding</B> inline inside.</TEXT>
+   - <B>High priority highlight/warning blocks.</B>
+   - <LIST>- Bullet item 1\\n- Bullet item 2</LIST> (prefix items with dashes)
+   - <ORDERED>1. Step 1\\n2. Step 2</ORDERED> (prefix items with numbers)
+   - <MATH>Block level LaTeX. Do NOT use single or double dollards ($) inside this block.</MATH>
+   - <TABLE>Comma-separated CSV standard rows (Header row followed by data rows).</TABLE>
+   - <DIAGRAM>mermaid or text-based charts</DIAGRAM>
+   - <QUES ="#">
+       Multiple-choice question text
+       <COR ="Correct answers option content">
+       <INC ="Incorrect option choice 1">
+       <INC ="Incorrect option choice 2">
+       <INC ="Incorrect option choice 3">
+       <EXP ="Explanation of correct choice">
+     </QUES>
+3. Wrap equations inside text-based tags (H1, H2, TEXT, LIST, QUES) with single dollar signs (e.g., $E=mc^2$).
+4. Keep strict 2-space indentation inside container tags (like <PLX> and <QUES>).
+
+[CRITICAL - LANGUAGE DIACRITICS & ACCENTS]:
+When converting text containing Yoruba, Igbo, French, Spanish, etc., maintain 100% precision. Because complex diacritics (e.g. dotted high/low tones) can get corrupted across LLM generation layers, you may use either native Unicode characters OR write the following keyboard-friendly typing codes. The Pantheon system compiler will automatically parse and expand them into professional diacritics:
+
+1. Subdots / Underdots (Igbo and Yoruba):
+   * o. / O. -> ọ / Ọ
+   * u. / U. -> ụ / Ụ
+   * i. / I. -> ị / Ị
+   * e. / E. -> ẹ / Ẹ
+   * s. / S. -> ṣ / Ṣ
+   * n. / N. -> ṅ / Ṅ
+
+2. Accent Marks & Tone Marks on Subdots:
+   * High tone (Acute) with dot: o.' / ọ' -> ọ́ | e.' / ẹ' -> ẹ́ | u.' / ụ' -> ụ́ | i.' / ị' -> ị́
+   * Low tone (Grave) with dot: o.\` / ọ\` -> ọ̀ | e.\` / ẹ\` -> ẹ̀ | u.\` / ụ\` -> ụ̀ | i.\` / ị\` -> ị̀
+   * Mid tone (Macron) with dot: o.- / ọ- -> ọ̄ | e.- / ẹ- -> ẹ̄
+
+3. Standard Tone Shorthands:
+   * High tone (Acute): a' -> á | e' -> é | i' -> í | o' -> ó | u' -> ú | m' -> ḿ | n' -> ń
+   * Low tone (Grave): a\` -> à | e\` -> è | i\` -> ì | o\` -> ò | u\` -> ù
+   * Mid tone (Macron): a- -> ā | e- -> ē | i- -> ī | o- -> ō | u- -> ū | m- -> m̄ | n- -> n̄
+
+4. European Diacritics:
+   * Cedilla: c, / C, -> ç / Ç
+   * Circumflex: a^ -> â | e^ -> ê | i^ -> î | o^ -> ô | u^ -> û
+   * Umlaut (Diaeresis): e: -> ë | i: -> ï | u: -> ü
+   * Tilde: n~ -> ñ
+
+[OUTPUT RULES]:
+- Output raw PLX format text strictly without markdown fences or preamble.
+- Write naturally, incorporating both native unicode diacritics and shorthands for full resilience.`;
 
 interface SortableBlockProps {
   block: NoteBlock;
@@ -734,6 +895,126 @@ const SortableBlock = ({ block, onUpdate, onDelete, onFocus, isPreview }: Sortab
   );
 };
 
+const applyAccentShortcuts = (text: string): string => {
+  let res = text;
+  
+  // Dotted + High/Low/Mid tone replacements for Igbo & Yoruba (e.g. o.' -> ọ́, o.` -> ọ̀, o.- -> ọ̄)
+  res = res.replace(/o\.'|ọ'/g, 'ọ́');
+  res = res.replace(/u\.'|ụ'/g, 'ụ́');
+  res = res.replace(/i\.'|ị'/g, 'ị́');
+  res = res.replace(/e\.'|ẹ'/g, 'ẹ́');
+  res = res.replace(/O\.'|Ọ'/g, 'Ọ́');
+  res = res.replace(/U\.'|Ụ'/g, 'Ụ́');
+  res = res.replace(/I\.'|Ị'/g, 'Ị́');
+  res = res.replace(/E\.'|Ẹ'/g, 'Ẹ́');
+  
+  res = res.replace(/o\.`|ọ`/g, 'ọ̀');
+  res = res.replace(/u\.`|ụ`/g, 'ụ̀');
+  res = res.replace(/i\.`|ị'/g, 'ị̀');
+  res = res.replace(/e\.`|ẹ`/g, 'ẹ̀');
+  res = res.replace(/O\.`|Ọ`/g, 'Ọ̀');
+  res = res.replace(/U\.`|Ụ`/g, 'Ụ̀');
+  res = res.replace(/I\.`|Ị'/g, 'Ị̀');
+  res = res.replace(/E\.`|Ẹ`/g, 'Ẹ̀');
+
+  res = res.replace(/o\.-|ọ-/g, 'ọ̄');
+  res = res.replace(/e\.-|ẹ-/g, 'ẹ̄');
+  res = res.replace(/O\.-|Ọ-/g, 'Ọ̄');
+  res = res.replace(/E\.-|Ẹ-/g, 'Ẹ̄');
+
+  // Umlaut / Diaeresis (e.g. e: -> ë, i: -> ï)
+  res = res.replace(/e:/g, 'ë');
+  res = res.replace(/i:/g, 'ï');
+  res = res.replace(/u:/g, 'ü');
+  res = res.replace(/E:/g, 'Ë');
+  res = res.replace(/I:/g, 'Ï');
+  res = res.replace(/U:/g, 'Ü');
+
+  // Simple dots for Igbo & Yoruba
+  res = res.replace(/o\./g, 'ọ');
+  res = res.replace(/u\./g, 'ụ');
+  res = res.replace(/i\./g, 'ị');
+  res = res.replace(/e\./g, 'ẹ');
+  res = res.replace(/s\./g, 'ṣ');
+  res = res.replace(/n\./g, 'ṅ');
+  res = res.replace(/O\./g, 'Ọ');
+  res = res.replace(/U\./g, 'Ụ');
+  res = res.replace(/I\./g, 'Ị');
+  res = res.replace(/E\./g, 'Ẹ');
+  res = res.replace(/S\./g, 'Ṣ');
+  res = res.replace(/N\./g, 'Ṅ');
+  res = res.replace(/n~/g, 'ñ');
+  res = res.replace(/N~/g, 'Ñ');
+
+  // Acute accents (e.g. a' -> á)
+  res = res.replace(/a'/g, 'á');
+  res = res.replace(/e'/g, 'é');
+  res = res.replace(/i'/g, 'í');
+  res = res.replace(/o'/g, 'ó');
+  res = res.replace(/u'/g, 'ú');
+  res = res.replace(/A'/g, 'Á');
+  res = res.replace(/E'/g, 'É');
+  res = res.replace(/I'/g, 'Í');
+  res = res.replace(/O'/g, 'Ó');
+  res = res.replace(/U'/g, 'Ú');
+  res = res.replace(/m'/g, 'ḿ');
+  res = res.replace(/n'/g, 'ń');
+  res = res.replace(/M'/g, 'Ḿ');
+  res = res.replace(/N'/g, 'Ń');
+
+  // Grave accents (e.g. a` -> à)
+  res = res.replace(/a`/g, 'à');
+  res = res.replace(/e`/g, 'è');
+  res = res.replace(/i`/g, 'ì');
+  res = res.replace(/o`/g, 'ò');
+  res = res.replace(/u`/g, 'ù');
+  res = res.replace(/A`/g, 'À');
+  res = res.replace(/E`/g, 'È');
+  res = res.replace(/I`/g, 'Ì');
+  res = res.replace(/O`/g, 'Ò');
+  res = res.replace(/U`/g, 'Ù');
+
+  // Macron / Mid voice (e.g. a- -> ā)
+  res = res.replace(/a-/g, 'ā');
+  res = res.replace(/e-/g, 'ē');
+  res = res.replace(/i-/g, 'ī');
+  res = res.replace(/o-/g, 'ō');
+  res = res.replace(/u-/g, 'ū');
+  res = res.replace(/A-/g, 'Ā');
+  res = res.replace(/E-/g, 'Ē');
+  res = res.replace(/I-/g, 'Ī');
+  res = res.replace(/O-/g, 'Ō');
+  res = res.replace(/U-/g, 'Ū');
+  res = res.replace(/m-/g, 'm̄');
+  res = res.replace(/n-/g, 'n̄');
+  res = res.replace(/M-/g, 'M̄');
+  res = res.replace(/N-/g, 'N̄');
+
+  // Cedilla for French (c, -> ç)
+  res = res.replace(/c,/g, 'ç');
+  res = res.replace(/C,/g, 'Ç');
+
+  // Circumflex (e.g. a^ -> â)
+  res = res.replace(/a\^/g, 'â');
+  res = res.replace(/e\^/g, 'ê');
+  res = res.replace(/i\^/g, 'î');
+  res = res.replace(/o\^/g, 'ô');
+  res = res.replace(/u\^/g, 'û');
+  res = res.replace(/A\^/g, 'Â');
+  res = res.replace(/E\^/g, 'Ê');
+  res = res.replace(/I\^/g, 'Î');
+  res = res.replace(/O\^/g, 'Ô');
+  res = res.replace(/U\^/g, 'Û');
+
+  // Ligatures (oe -> œ, ae -> æ)
+  res = res.replace(/oe/g, 'œ');
+  res = res.replace(/ae/g, 'æ');
+  res = res.replace(/OE/g, 'Œ');
+  res = res.replace(/AE/g, 'Æ');
+
+  return res;
+};
+
 interface NoteBuilderProps {
   initialContent?: string;
   onChange: (content: string) => void;
@@ -782,10 +1063,13 @@ export const NoteBuilder: React.FC<NoteBuilderProps> = ({ initialContent, onChan
   });
 
   const [activeBlockId, setActiveBlockId] = useState<string | null>(null);
+  const [activeToolbarTab, setActiveToolbarTab] = useState<'math' | 'lang'>('math');
   const [cursorPos, setCursorPos] = useState(0);
   const [isPreview, setIsPreview] = useState(false);
   const [isTableDialogOpen, setIsTableDialogOpen] = useState(false);
   const [isMagicDialogOpen, setIsMagicDialogOpen] = useState(false);
+  const [isAiPromptDialogOpen, setIsAiPromptDialogOpen] = useState(false);
+  const [copiedPrompt, setCopiedPrompt] = useState(false);
   const [isMagicLoading, setIsMagicLoading] = useState(false);
   const [isToolbarCollapsed, setIsToolbarCollapsed] = useState(false);
   const [aiConfig, setAiConfig] = useState<AIConfig | null>(null);
@@ -796,7 +1080,9 @@ export const NoteBuilder: React.FC<NoteBuilderProps> = ({ initialContent, onChan
   const [expandedCategories, setExpandedCategories] = useState<Record<string, boolean>>({
     Mathematics: true,
     Physics: true,
-    Chemistry: true
+    Chemistry: true,
+    "Igbo (Ọnwụ)": true,
+    "French (Français)": true,
   });
 
   useEffect(() => {
@@ -942,10 +1228,12 @@ export const NoteBuilder: React.FC<NoteBuilderProps> = ({ initialContent, onChan
 
       if (fileExtension === 'plx' || file.type === 'text/plain') {
         // ── PLX / TEXT: Parse standard format (v4 HTML-style) ────────────────
-        const rawText = await file.text();
+        let loadedText = await file.text();
+        // Automatically compile keyboard friendly accent/intonation shortcuts
+        loadedText = applyAccentShortcuts(loadedText);
         
         // Requirement: Entire note must be wrapped in <PLX> tags
-        const plxMatch = /<PLX>([\s\S]*?)<\/PLX>/i.exec(rawText);
+        const plxMatch = /<PLX>([\s\S]*?)<\/PLX>/i.exec(loadedText);
         if (!plxMatch) {
           toast.error('Invalid PLX format: Missing root <PLX> tags');
           setIsMagicLoading(false);
@@ -1191,15 +1479,54 @@ Use 2 spaces per indentation level.
 You can use inline LaTeX inside any text-based tag (H1, H2, LIST, QUES etc.) by wrapping it in dollar signs.
 Example: The area of a circle is $A = \\pi r^2$ where $r$ is radius.
 
+[LANGUAGE ACCENTS & INTU-SHORTHAND COMPLIANCE]:
+When writing language content with diacritics, tonals, or subdots (Igbo, Yoruba, French, Spanish, etc.), maintain 100% precision. The platform's interpreter translates raw Unicode and automatically compiles keyboard-friendly shorthand codes embedded in the notes into standard high-fidelity diacritics:
+
+1. Subdots / Underdots (Igbo/Yoruba):
+   - o. / O. -> ọ / Ọ
+   - u. / U. -> ụ / Ụ
+   - i. / I. -> ị / Ị
+   - e. / E. -> ẹ / Ẹ
+   - s. / S. -> ṣ / Ṣ
+   - n. / N. -> ṅ / Ṅ
+
+2. Vowel Accent & Tonals (Igbo/Yoruba High & Low tones):
+   - High tone over subdot:
+     * o.' / ọ' -> ọ́
+     * u.' / ụ' -> ụ́
+     * i.' / ị' -> ị́
+     * e.' / ẹ' -> ẹ́
+     * O.' / Ọ' -> Ọ́
+   - Low tone over subdot:
+     * o.\` / ọ\` -> ọ̀
+     * u.\` / ụ\` -> ụ̀
+     * i.\` / ị\` -> ị̀
+     * e.\` / ẹ\` -> ẹ̀
+     * O.\` / Ọ\` -> Ọ̀
+   - Mid tone / macron over subdot:
+     * o.- / ọ- -> ọ̄
+     * e.- / ẹ- -> ẹ̄
+   - Standard Tonal/Accent Shortcuts:
+     * High tone (Acute): a' -> á, e' -> é, i' -> í, o' -> ó, u' -> ú, m' -> ḿ, n' -> ń
+     * Low tone (Grave): a\` -> à, e\` -> è, i\` -> ì, o\` -> ò, u\` -> ù
+     * Mid/macron: a- -> ā, e- -> ē, i- -> ī, o- -> ō, u- -> ū, m- -> m̄, n- -> n̄
+
+3. European Diacritics:
+   - French Cedilla: c, / C, -> ç / Ç
+   - French/Spanish Circumflex: a^ -> â, e^ -> ê, i^ -> î, o^ -> ô, u^ -> û
+   - Umlaut (Diaeresis): e: -> ë, i: -> ï, u: -> ü
+   - Tilde: n~ -> ñ
+
 [AI PROMPT STRATEGY]:
 1. "Analyze the provided technical/lecture content."
 2. "Convert it into a valid Pantheon PLX document wrapped in <PLX> tags using <TAG>... </TAG> syntax internally."
 3. "Always start with <PLX> and end with </PLX>."
-4. "Use <QUES ="#"> for any testable questions found in the material."
-4. "Use CSV format for Tables (Heading1, Heading2 followed by data rows)."
-5. "Use $...$ for equations that appear inside sentences."
-6. "Maintain strict 2-space indentation inside all container tags."
-7. "Ensure every opening tag has a matching closing tag."
+4. "Keep 100% structural fidelity of language marks, using the correct native Unicode values OR compiling them via the intuitive [LANGUAGE ACCENTS & INTU-SHORTHAND COMPLIANCE] rules (e.g., writing 'pẹ̀lẹ́' or 'pẹ.\`lẹ.\'' so the platform compiles them perfectly)."
+5. "Use <QUES ="#"> for any testable questions found in the material."
+6. "Use CSV format for Tables (Heading1, Heading2 followed by data rows)."
+7. "Use $...$ for equations that appear inside sentences."
+8. "Maintain strict 2-space indentation inside all container tags."
+9. "Ensure every opening tag has a matching closing tag."
 
 [SAVE INSTRUCTIONS]:
 Save the final text as a file named "note.plx" (or .txt) then upload it.
@@ -1214,6 +1541,86 @@ Save the final text as a file named "note.plx" (or .txt) then upload it.
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
     toast.success('PLX Standard downloaded as .txt');
+  };
+
+  const copyPromptToClipboard = () => {
+    navigator.clipboard.writeText(DEEPSEEK_PROMPT_GUIDE);
+    setCopiedPrompt(true);
+    toast.success('AI Prompt Copied! Paste this directly into DeepSeek/ChatGTP.');
+    setTimeout(() => {
+      setCopiedPrompt(false);
+    }, 2000);
+  };
+
+  const downloadNoteAsPLX = () => {
+    let plxContent = "<PLX>\n";
+    blocks.forEach(block => {
+      const type = block.type;
+      const content = block.content;
+      
+      if (type === 'h1') {
+        plxContent += `  <H1>\n    ${content}\n  </H1>\n\n`;
+      } else if (type === 'h2') {
+        plxContent += `  <H2>\n    ${content}\n  </H2>\n\n`;
+      } else if (type === 'text') {
+        plxContent += `  <TEXT>\n    ${content}\n  </TEXT>\n\n`;
+      } else if (type === 'math') {
+        plxContent += `  <MATH>\n    ${content}\n  </MATH>\n\n`;
+      } else if (type === 'bullet-list') {
+        plxContent += `  <LIST>\n    ${content}\n  </LIST>\n\n`;
+      } else if (type === 'numbered-list') {
+        plxContent += `  <ORDERED>\n    ${content}\n  </ORDERED>\n\n`;
+      } else if (type === 'table') {
+        try {
+          const grid = JSON.parse(content);
+          if (Array.isArray(grid)) {
+            const csvStr = grid.map(row => (Array.isArray(row) ? row.join(', ') : '')).join('\n');
+            plxContent += `  <TABLE>\n    ${csvStr}\n  </TABLE>\n\n`;
+          } else {
+            plxContent += `  <TABLE>\n    ${content}\n  </TABLE>\n\n`;
+          }
+        } catch {
+          plxContent += `  <TABLE>\n    ${content}\n  </TABLE>\n\n`;
+        }
+      } else if (type === 'video') {
+        plxContent += `  <VIDEO>\n    ${content}\n  </VIDEO>\n\n`;
+      } else if (type === 'diagram') {
+        plxContent += `  <DIAGRAM>\n    ${content}\n  </DIAGRAM>\n\n`;
+      } else if (type === 'question') {
+        try {
+          const q = JSON.parse(content);
+          const qIdAttr = block.settings?.questionId ? ` ="${block.settings.questionId}"` : '';
+          plxContent += `  <QUES${qIdAttr}>\n`;
+          plxContent += `    ${q.question}\n`;
+          if (q.correct) {
+            plxContent += `    <COR ="${q.correct}">\n`;
+          }
+          if (Array.isArray(q.incorrect)) {
+            q.incorrect.forEach((inc: string) => {
+              if (inc) plxContent += `    <INC ="${inc}">\n`;
+            });
+          }
+          if (q.explanation) {
+            plxContent += `    <EXP ="${q.explanation}">\n`;
+          }
+          plxContent += `  </QUES>\n\n`;
+        } catch {
+          plxContent += `  <TEXT>\n    ${content}\n  </TEXT>\n\n`;
+        }
+      }
+    });
+    plxContent += "</PLX>";
+
+    const blob = new Blob([plxContent], { type: 'text/plain;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'note.plx';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    toast.success('Note exported successfully as .plx');
   };
 
   const insertSymbol = (symbol: string) => {
@@ -1252,12 +1659,30 @@ Save the final text as a file named "note.plx" (or .txt) then upload it.
     setCursorPos(contentPrefix.length + finalSymbol.length);
   };
 
+  const insertChar = (char: string) => {
+    if (!activeBlockId) {
+      toast.warning('Please click inside a text field first to focus and insert characters.');
+      return;
+    }
+    const block = blocks.find(b => b.id === activeBlockId);
+    if (!block) return;
+
+    // Simply insert at the exact cursor position in the block content
+    const contentPrefix = block.content.slice(0, cursorPos);
+    const contentSuffix = block.content.slice(cursorPos);
+    const newContent = contentPrefix + char + contentSuffix;
+
+    updateBlockContent(activeBlockId, newContent);
+    setCursorPos(contentPrefix.length + char.length);
+  };
+
   const toggleCategory = (cat: string) => {
     setExpandedCategories(prev => ({ ...prev, [cat]: !prev[cat] }));
   };
 
   // Filtered symbols for search
-  const filteredSymbols = Object.entries(MATH_SYMBOLS).reduce((acc, [category, data]) => {
+  const symbolsSource = activeToolbarTab === 'math' ? MATH_SYMBOLS : LANGUAGE_SYMBOLS;
+  const filteredSymbols = Object.entries(symbolsSource).reduce((acc, [category, data]) => {
     const filtered = data.symbols.filter(s => {
       const label = typeof s === 'string' ? s : s.label;
       const value = typeof s === 'string' ? s : s.value;
@@ -1278,27 +1703,113 @@ Save the final text as a file named "note.plx" (or .txt) then upload it.
       {/* Left Toolbar */}
       <div className="w-72 border-r bg-muted/20 flex flex-col">
         <div className="p-4 border-b bg-background space-y-3">
-          <h3 className="font-semibold text-sm flex items-center gap-2">
-            <Sigma className="h-4 w-4" /> Syntax Toolbar
+          <h3 className="font-semibold text-sm flex items-center gap-2 text-foreground">
+            <Sigma className="h-4 w-4 text-primary" /> Syntax & Accent Toolbar
           </h3>
+          
+          {/* Accent and Syntax tabs toggle */}
+          <div className="grid grid-cols-2 gap-1 p-0.5 bg-muted rounded-lg text-xs">
+            <button
+              type="button"
+              onClick={() => { setActiveToolbarTab('math'); setSearchTerm(''); }}
+              className={cn(
+                "py-1.5 rounded-md font-medium transition-all text-center cursor-pointer",
+                activeToolbarTab === 'math' 
+                  ? "bg-background text-foreground shadow-sm" 
+                  : "text-muted-foreground hover:text-foreground hover:bg-background/40"
+              )}
+            >
+              Math & Science
+            </button>
+            <button
+              type="button"
+              onClick={() => { setActiveToolbarTab('lang'); setSearchTerm(''); }}
+              className={cn(
+                "py-1.5 rounded-md font-medium transition-all text-center cursor-pointer",
+                activeToolbarTab === 'lang' 
+                  ? "bg-background text-foreground shadow-sm" 
+                  : "text-muted-foreground hover:text-foreground hover:bg-background/40"
+              )}
+            >
+              Language Accents
+            </button>
+          </div>
+
           <div className="relative">
             <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
             <Input 
-              placeholder="Search syntax..." 
+              placeholder={activeToolbarTab === 'math' ? "Search science syntax..." : "Search accents..."}
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
               onKeyDown={(e) => e.key === 'Enter' && e.preventDefault()}
-              className="pl-9 h-9 text-xs bg-muted/50 border-none focus-visible:ring-1 focus-visible:ring-primary/50"
+              className="pl-9 h-9 text-xs bg-muted/50 border-none focus-visible:ring-1 focus-visible:ring-primary/50 text-foreground"
             />
           </div>
         </div>
         <div className="flex-1 overflow-y-auto p-2 space-y-2">
+          {activeToolbarTab === 'lang' && (
+            <div className="mb-3 p-2.5 bg-primary/5 border border-primary/10 rounded-lg space-y-2 text-xs transition-all">
+              <div className="flex items-center gap-1.5 font-semibold text-primary">
+                <Wand2 className="h-3.5 w-3.5 animate-pulse" />
+                <span>Shorthand Converter</span>
+              </div>
+              <p className="text-[10px] text-muted-foreground leading-normal font-sans">
+                Type standard shortcuts as you write (e.g., <code className="bg-background px-1 rounded border font-mono">o.'</code> &rarr; <strong className="text-foreground">ọ́</strong>, <code className="bg-background px-1 rounded border font-mono">e.</code> &rarr; <strong className="text-foreground">ẹ</strong>, <code className="bg-background px-1 rounded border font-mono">a-</code> &rarr; <strong className="text-foreground">ā</strong>, <code className="bg-background px-1 rounded border font-mono">c,</code> &rarr; <strong className="text-foreground">ç</strong>). Convert them instantly on demand:
+              </p>
+              <div className="flex gap-1.5 pt-1">
+                <Button
+                  type="button"
+                  variant="default"
+                  className="text-[10px] h-7 px-2 flex-1 cursor-pointer"
+                  disabled={!activeBlockId}
+                  onClick={() => {
+                    if (!activeBlockId) return;
+                    const b = blocks.find(x => x.id === activeBlockId);
+                    if (b) {
+                      updateBlockContent(activeBlockId, applyAccentShortcuts(b.content));
+                    }
+                  }}
+                  title={activeBlockId ? "Convert accents inside the currently active block" : "Select a block first to convert"}
+                >
+                  Active Block
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="text-[10px] h-7 px-2 flex-1 cursor-pointer"
+                  onClick={() => {
+                    setBlocks(prev => prev.map(bk => ({
+                      ...bk,
+                      content: applyAccentShortcuts(bk.content)
+                    })));
+                  }}
+                  title="Convert shorthand accents across the entire note"
+                >
+                  Entire Note
+                </Button>
+              </div>
+
+              <div className="pt-2 border-t border-primary/10 flex flex-col gap-1.5">
+                <span className="text-[9px] text-muted-foreground font-semibold">Teaching External AI:</span>
+                <Button
+                  type="button"
+                  onClick={() => setIsAiPromptDialogOpen(true)}
+                  variant="secondary"
+                  className="w-full text-[10px] h-7 px-2 cursor-pointer bg-amber-500/10 hover:bg-amber-500/15 text-amber-700 dark:text-amber-500 hover:text-amber-800 transition-all flex items-center justify-center gap-1.5 font-semibold"
+                >
+                  <Copy className="h-3 w-3" />
+                  Get DeepSeek Prompt Spec
+                </Button>
+              </div>
+            </div>
+          )}
+
           {Object.entries(filteredSymbols).map(([category, data]) => (
             <div key={category} className="space-y-1">
               <button 
                 type="button"
                 onClick={() => toggleCategory(category)}
-                className="w-full flex items-center justify-between p-2 hover:bg-accent rounded-lg text-xs font-medium uppercase tracking-wider text-muted-foreground"
+                className="w-full flex items-center justify-between p-2 hover:bg-accent rounded-lg text-xs font-semibold uppercase tracking-wider text-muted-foreground/90 hover:text-foreground transition-colors"
               >
                 <span className="flex items-center gap-2">
                   {data.icon}
@@ -1314,21 +1825,40 @@ Save the final text as a file named "note.plx" (or .txt) then upload it.
                       type="button"
                       variant="ghost"
                       size="sm"
-                      className="h-10 w-full p-0 text-sm font-serif flex flex-col items-center justify-center hover:bg-primary/10 hover:text-primary transition-all group"
-                      onClick={() => insertSymbol(typeof s === 'string' ? s : s.value)}
+                      className="h-10 w-full p-0 flex flex-col items-center justify-center hover:bg-primary/10 hover:text-primary transition-all group border border-transparent hover:border-primary/20 rounded"
+                      onClick={() => {
+                        if (activeToolbarTab === 'math') {
+                          insertSymbol(typeof s === 'string' ? s : s.value);
+                        } else {
+                          insertChar(typeof s === 'string' ? s : s.value);
+                        }
+                      }}
                       title={typeof s === 'string' ? s : `${s.label}: ${s.value}`}
                     >
-                      {typeof s === 'string' ? (
-                        <MathJax className="text-base pointer-events-none">{`$${s}$`}</MathJax>
+                      {activeToolbarTab === 'math' ? (
+                        typeof s === 'string' ? (
+                          <MathJax className="text-base pointer-events-none font-serif">{`$${s}$`}</MathJax>
+                        ) : (
+                          <div className="flex flex-col items-center justify-center">
+                            <MathJax className="text-[10px] pointer-events-none scale-90 mb-0.5 font-serif">
+                              {`$${s.value}$`}
+                            </MathJax>
+                            <span className="text-[8px] opacity-60 group-hover:opacity-100 truncate w-14 text-center font-sans">
+                              {s.label.slice(0, 8)}
+                            </span>
+                          </div>
+                        )
                       ) : (
-                        <div className="flex flex-col items-center">
-                          <MathJax className="text-[10px] pointer-events-none scale-90 mb-0.5">
-                            {`$${s.value}$`}
-                          </MathJax>
-                          <span className="text-[8px] opacity-60 group-hover:opacity-100 truncate w-14 text-center">
-                            {s.label.slice(0, 8)}
-                          </span>
-                        </div>
+                        typeof s === 'string' ? (
+                          <span className="text-sm pointer-events-none font-sans font-medium text-foreground group-hover:text-primary transition-colors">{s}</span>
+                        ) : (
+                          <div className="flex flex-col items-center justify-center p-0.5 w-full h-full">
+                            <span className="text-sm pointer-events-none font-sans font-semibold text-foreground group-hover:text-primary transition-colors">{s.value}</span>
+                            <span className="text-[8px] opacity-60 group-hover:opacity-100 truncate w-14 text-center font-sans scale-90">
+                              {s.label}
+                            </span>
+                          </div>
+                        )
                       )}
                     </Button>
                   ))}
@@ -1347,25 +1877,39 @@ Save the final text as a file named "note.plx" (or .txt) then upload it.
       {/* Main Canvas */}
       <div className="flex-1 flex flex-col bg-background relative">
         {/* Top Bar for Preview Toggle */}
-        <div className="p-2 border-b flex justify-end gap-2 bg-muted/10">
-          <Button 
-            type="button"
-            variant={isPreview ? "default" : "ghost"} 
-            size="sm" 
-            onClick={() => setIsPreview(true)}
-            className="gap-2"
-          >
-            <Eye className="h-4 w-4" /> Preview
-          </Button>
-          <Button 
-            type="button"
-            variant={!isPreview ? "default" : "ghost"} 
-            size="sm" 
-            onClick={() => setIsPreview(false)}
-            className="gap-2"
-          >
-            <Edit3 className="h-4 w-4" /> Edit
-          </Button>
+        <div className="p-2 border-b flex justify-between items-center px-4 bg-muted/10">
+          <div className="flex items-center gap-2">
+            <Button 
+              type="button"
+              variant="outline" 
+              size="sm" 
+              onClick={downloadNoteAsPLX}
+              className="gap-2 border-purple-500/20 text-purple-700 hover:bg-purple-50 hover:text-purple-800 transition-colors cursor-pointer h-8 text-xs font-semibold"
+              title="Export and download the currently built note as a .plx note file"
+            >
+              <Download className="h-3.5 w-3.5" /> Export as .PLX
+            </Button>
+          </div>
+          <div className="flex gap-2">
+            <Button 
+              type="button"
+              variant={isPreview ? "default" : "ghost"} 
+              size="sm" 
+              onClick={() => setIsPreview(true)}
+              className="gap-2"
+            >
+              <Eye className="h-4 w-4" /> Preview
+            </Button>
+            <Button 
+              type="button"
+              variant={!isPreview ? "default" : "ghost"} 
+              size="sm" 
+              onClick={() => setIsPreview(false)}
+              className="gap-2"
+            >
+              <Edit3 className="h-4 w-4" /> Edit
+            </Button>
+          </div>
         </div>
 
         <div className="flex-1 overflow-y-auto p-8 pb-24">
@@ -1475,11 +2019,22 @@ Save the final text as a file named "note.plx" (or .txt) then upload it.
                   type="button" 
                   variant="ghost" 
                   size="sm" 
-                  className="rounded-full h-8 px-2 text-[10px] font-bold text-amber-600 hover:text-amber-700 hover:bg-amber-50" 
+                  className="rounded-full h-8 px-2 text-[10px] font-bold text-amber-600 hover:text-amber-700 hover:bg-amber-50 animate-pulse" 
                   onClick={downloadPLXStandard}
                   title="Download PLX Standard (PLXS)"
                 >
                   PLXS
+                </Button>
+                <div className="w-px h-4 bg-border mx-1" />
+                <Button 
+                  type="button" 
+                  variant="ghost" 
+                  size="sm" 
+                  className="rounded-full h-8 px-2 text-[10px] font-bold text-purple-600 hover:text-purple-700 hover:bg-purple-50 flex items-center gap-1" 
+                  onClick={() => setIsAiPromptDialogOpen(true)}
+                  title="Copy AI / DeepSeek Prompt Guide"
+                >
+                  <Sparkles className="h-3 w-3 text-purple-500" /> AI Prompt
                 </Button>
               </motion.div>
             ) : (
@@ -1560,13 +2115,20 @@ Save the final text as a file named "note.plx" (or .txt) then upload it.
                   Upload a <b>.plx</b> file (Pantheon Extensible Standard) to instantly build your note. 
                   You can also upload PDFs or images for AI-assisted note generation.
                 </p>
-                <div className="flex items-center gap-2">
-                  <span className="text-[10px] text-muted-foreground italic">Need the standard for your AI?</span>
+                <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                  <span className="text-[10px] text-muted-foreground italic">AI Strategy:</span>
                   <button 
                     onClick={downloadPLXStandard}
-                    className="text-[10px] text-amber-600 font-bold hover:underline"
+                    className="text-[10px] text-amber-600 dark:text-amber-500 font-bold hover:underline cursor-pointer"
                   >
                     Download PLXS.txt
+                  </button>
+                  <span className="text-muted-foreground/30 text-[10px]">&bull;</span>
+                  <button 
+                    onClick={() => setIsAiPromptDialogOpen(true)}
+                    className="text-[10px] text-purple-600 dark:text-purple-400 font-bold hover:underline cursor-pointer flex items-center gap-0.5"
+                  >
+                    <Sparkles className="h-3 w-3 inline" /> Copy DeepSeek Prompt
                   </button>
                 </div>
               </DialogDescription>
@@ -1612,6 +2174,56 @@ Save the final text as a file named "note.plx" (or .txt) then upload it.
                 <FileText className="h-3 w-3" />
                 <span>PLX files are parsed instantly. AI handles PDFs and Image extractions.</span>
               </div>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        <Dialog open={isAiPromptDialogOpen} onOpenChange={setIsAiPromptDialogOpen}>
+          <DialogContent className="sm:max-w-[600px] max-h-[90vh] flex flex-col">
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2">
+                <Sparkles className="h-5 w-5 text-amber-500 animate-pulse" />
+                <span>DeepSeek Accent Writing Guide & Prompt</span>
+              </DialogTitle>
+              <DialogDescription className="text-xs pt-1 leading-normal font-sans">
+                External AIs like <strong>DeepSeek, ChatGPT, or Claude</strong> often struggle with Yoruba or Igbo tone combined subdots (e.g., <code className="bg-muted px-1 rounded font-mono">ọ́</code> or <code className="bg-muted px-1 rounded font-mono">ẹ̀</code>) and output corrupted text. 
+                <br /><br />
+                Copy this specialized <strong>System Prompt</strong>. It teaches the AI our standardized PLX representation and our <strong>Lossless keyboard shorthand codes</strong> (which are automatically compiled upon uploading or button-pressing) to guarantee pristine accents.
+              </DialogDescription>
+            </DialogHeader>
+
+            <div className="flex-1 overflow-y-auto my-3 border rounded-xl bg-slate-900 text-slate-100 p-4 font-mono text-xs select-all whitespace-pre-wrap leading-relaxed relative group">
+              <button
+                onClick={copyPromptToClipboard}
+                className="absolute right-3 top-3 bg-slate-800 hover:bg-slate-700/80 p-1.5 rounded-lg border border-slate-700 text-slate-300 hover:text-white transition-all cursor-pointer flex items-center gap-1.5 shadow-md active:scale-95"
+                title="Copy prompt text to clipboard"
+              >
+                {copiedPrompt ? (
+                  <>
+                    <Check className="h-3.5 w-3.5 text-green-400" />
+                    <span className="text-[10px] font-bold text-green-400 font-sans">Copied!</span>
+                  </>
+                ) : (
+                  <>
+                    <Copy className="h-3.5 w-3.5" />
+                    <span className="text-[10px] font-medium font-sans">Copy</span>
+                  </>
+                )}
+              </button>
+              {DEEPSEEK_PROMPT_GUIDE}
+            </div>
+
+            <DialogFooter className="flex sm:justify-between items-center border-t pt-3.5 gap-2">
+              <button
+                onClick={downloadPLXStandard}
+                className="text-xs text-amber-600 dark:text-amber-500 font-bold hover:underline cursor-pointer"
+                type="button"
+              >
+                Download full PLXS.txt guide
+              </button>
+              <Button type="button" onClick={() => setIsAiPromptDialogOpen(false)} className="text-xs h-9 cursor-pointer">
+                Done, copied!
+              </Button>
             </DialogFooter>
           </DialogContent>
         </Dialog>

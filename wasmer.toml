@@ -13,4 +13,4 @@ module = "server"
 runner = "https://webc.org/runner/wasi"
 
 [command.annotations]
-wasi = { main-args = ["dist", "--spa"] }
+wasi = { args = ["--directory", "dist", "--spa"], main-args = ["--directory", "dist", "--spa"] }

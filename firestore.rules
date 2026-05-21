@@ -60,14 +60,14 @@ service cloud.firestore {
       return data.courseId is string &&
              data.title is string &&
              data.type in ['lecture', 'past_question', 'cbt'] &&
-             data.authorId == request.auth.uid;
+             data.authorId is string;
     }
 
     function isValidQuestionSheet(data) {
       return data.courseId is string &&
              data.semester in ['1st', '2nd'] &&
              data.year is string &&
-             data.authorId == request.auth.uid;
+             data.authorId is string;
     }
 
     function isValidQuestion(data) {
@@ -75,7 +75,7 @@ service cloud.firestore {
              data.courseId is string &&
              data.text is string &&
              data.incorrectAnswers is list &&
-             data.authorId == request.auth.uid;
+             data.authorId is string;
     }
 
     function isValidTrack(data) {
@@ -145,8 +145,8 @@ service cloud.firestore {
 
     match /notes/{noteId} {
       allow read, list: if isSignedIn();
-      allow create: if isAdmin() && isValidNote(incoming());
-      allow update: if isAdmin() && isValidNote(incoming());
+      allow create: if isAdmin() && isValidNote(incoming()) && incoming().authorId == request.auth.uid;
+      allow update: if isAdmin() && isValidNote(incoming()) && (incoming().authorId == existing().authorId || incoming().authorId == request.auth.uid);
       allow delete: if isAdmin();
       
       match /videoQuestions/{questionId} {
@@ -163,8 +163,8 @@ service cloud.firestore {
 
     match /questions/{questionId} {
       allow read, list: if isSignedIn();
-      allow create: if isAdmin() && isValidQuestion(incoming());
-      allow update: if isAdmin() && isValidQuestion(incoming());
+      allow create: if isAdmin() && isValidQuestion(incoming()) && incoming().authorId == request.auth.uid;
+      allow update: if isAdmin() && isValidQuestion(incoming()) && (incoming().authorId == existing().authorId || incoming().authorId == request.auth.uid);
       allow delete: if isAdmin();
     }
 
