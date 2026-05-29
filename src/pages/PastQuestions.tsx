@@ -17,6 +17,7 @@ import remarkGfm from 'remark-gfm';
 import 'katex/dist/katex.min.css';
 import { useTitle } from '../hooks/useTitle';
 import { AIAssistant } from '../components/AIAssistant';
+import { SafeMathRenderer, prepareMarkdownMath } from '../components/SafeMathRenderer';
 
 export default function PastQuestions() {
   useTitle('Past Questions');
@@ -37,9 +38,10 @@ export default function PastQuestions() {
   useEffect(() => {
     if (!profile || !systemConfig) return;
 
-    const isAdmin = profile.level === '3' || profile.level === '4';
+    const showAllSemesters = profile.level === '4';
+    const isStudent = profile.level === '1' || profile.level === '2';
     
-    if (!isAdmin && systemConfig.currentSemester === 'none') {
+    if (!showAllSemesters && systemConfig.currentSemester === 'none') {
       setCourses([]);
       setLoading(false);
       return;
@@ -47,7 +49,7 @@ export default function PastQuestions() {
 
     let q = query(collection(db, 'courses'));
     
-    if (!isAdmin) {
+    if (!showAllSemesters) {
       q = query(collection(db, 'courses'), where('semester', '==', systemConfig.currentSemester));
     }
 
@@ -55,9 +57,10 @@ export default function PastQuestions() {
       const allCourses = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Course));
       // Only show courses for student's level and current semester
       const filtered = allCourses.filter(c => 
-        (isAdmin || c.semester === systemConfig.currentSemester) && 
-        (isAdmin || c.level === profile.academicLevel)
+        (showAllSemesters || c.semester === systemConfig.currentSemester) && 
+        (!isStudent || c.level === profile.academicLevel)
       );
+      filtered.sort((a, b) => a.code.localeCompare(b.code));
       setCourses(filtered);
       setLoading(false);
     });
@@ -76,7 +79,9 @@ export default function PastQuestions() {
       where('isAvailable', '==', true)
     );
     const unsub = onSnapshot(q, (snapshot) => {
-      setSheets(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as QuestionSheet)));
+      const loadedSheets = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as QuestionSheet));
+      loadedSheets.sort((a, b) => b.year.localeCompare(a.year));
+      setSheets(loadedSheets);
     });
     return () => unsub();
   }, [selectedCourseId]);
@@ -219,7 +224,7 @@ export default function PastQuestions() {
               <div className="prose dark:prose-invert max-w-none text-xl leading-relaxed">
                 <div className="py-4">
                   <ReactMarkdown remarkPlugins={[remarkMath, remarkGfm]} rehypePlugins={[rehypeKatex]}>
-                    {currentQuestion.text}
+                    {prepareMarkdownMath(currentQuestion.text)}
                   </ReactMarkdown>
                 </div>
               </div>
@@ -249,7 +254,11 @@ export default function PastQuestions() {
                         <span className={`h-8 w-8 shrink-0 flex items-center justify-center rounded-lg font-bold ${isSelected ? 'bg-primary text-primary-foreground' : 'bg-background text-muted-foreground'}`}>
                           {String.fromCharCode(65 + idx)}
                         </span>
-                        <span className="font-medium">{option}</span>
+                        <span className="font-medium">
+                          <ReactMarkdown remarkPlugins={[remarkMath, remarkGfm]} rehypePlugins={[rehypeKatex]}>
+                            {prepareMarkdownMath(option)}
+                          </ReactMarkdown>
+                        </span>
                       </div>
                       {answered && isCorrect && <CheckCircle2 className="h-5 w-5 text-green-500" />}
                       {answered && isSelected && !isCorrect && <XCircle className="h-5 w-5 text-red-500" />}
@@ -265,7 +274,11 @@ export default function PastQuestions() {
                   className="mt-6 p-4 bg-muted/50 rounded-xl border-l-4 border-primary space-y-2"
                 >
                   <p className="font-bold text-sm uppercase tracking-wider text-primary">Explanation</p>
-                  <p className="text-muted-foreground">{currentQuestion.explanation || "No explanation provided for this question."}</p>
+                  <div className="text-muted-foreground prose dark:prose-invert max-w-none text-sm font-medium">
+                    <ReactMarkdown remarkPlugins={[remarkMath, remarkGfm]} rehypePlugins={[rehypeKatex]}>
+                      {prepareMarkdownMath(currentQuestion.explanation || "No explanation provided for this question.")}
+                    </ReactMarkdown>
+                  </div>
                 </motion.div>
               )}
             </CardContent>

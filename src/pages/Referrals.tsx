@@ -34,11 +34,11 @@ export default function Referrals() {
   }, [user]);
 
   const referralLink = `${window.location.origin}/register?ref=${user?.uid}`;
-  const isRestricted = profile?.level === '1+' || profile?.level === '2' || profile?.level === '3' || profile?.level === '4';
+  const isRestricted = profile?.level === '2' || profile?.level === '3' || profile?.level === '4';
 
   const copyToClipboard = () => {
     if (isRestricted) {
-      toast.error('Level 1+ accounts are not permitted to make referrals.');
+      toast.error('Level 2 and Administrative accounts are not permitted to make referrals.');
       return;
     }
     navigator.clipboard.writeText(referralLink);
@@ -47,7 +47,7 @@ export default function Referrals() {
 
   const shareLink = async () => {
     if (isRestricted) {
-      toast.error('Level 1+ accounts are not permitted to make referrals.');
+      toast.error('Level 2 and Administrative accounts are not permitted to make referrals.');
       return;
     }
     if (navigator.share) {
@@ -80,7 +80,7 @@ export default function Referrals() {
               <CardTitle className="text-sm font-bold">Referrals Restricted</CardTitle>
             </div>
             <CardDescription className="text-xs">
-              Level 1+ and Administrative accounts are not eligible to participate in the referral program to ensure fair rewards for standard students.
+              Level 2 and Administrative accounts are not eligible to participate in the referral program to ensure fair rewards for standard students.
             </CardDescription>
           </CardHeader>
         </Card>

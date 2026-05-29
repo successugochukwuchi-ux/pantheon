@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { doc, getDoc, updateDoc, setDoc, serverTimestamp, writeBatch } from 'firebase/firestore';
+import { doc, getDoc, updateDoc, setDoc, serverTimestamp, writeBatch, collection, query, where, getDocs } from 'firebase/firestore';
 import { db, handleFirestoreError, OperationType } from '../firebase';
 import { useAuth } from '../contexts/AuthContext';
 import { Button } from '../components/ui/button';
@@ -24,7 +24,7 @@ export default function Activate() {
   const [loading, setLoading] = useState(false);
   const [showPromoSuccess, setShowPromoSuccess] = useState(false);
   const [usePinMode, setUsePinMode] = useState(false);
-  const { user, profile, promoConfig } = useAuth();
+  const { user, profile, promoConfig, systemConfig } = useAuth();
   const navigate = useNavigate();
 
   const handlePromoActivate = async () => {
@@ -120,58 +120,65 @@ export default function Activate() {
         await updateDoc(pinRef, {
           isUsed: true,
           usedBy: user?.uid,
-          usedByStudentId: profile?.studentId,
+          usedByStudentId: profile?.studentId || '',
           usedAt: new Date().toISOString()
         });
       } catch (error) {
         handleFirestoreError(error, OperationType.UPDATE, pinPath);
+        return;
       }
 
       // Activate user
       const userPath = `users/${user!.uid}`;
       try {
         const updateData: any = {
-          isActivated: true
+          isActivated: true,
+          level: pinData.type === 'plus' ? '2' : '1'
         };
-        
-        // Grant Level 1+ if it's a PLUS pin
-        if (pinData.type === 'plus') {
-          updateData.level = '1+';
-        }
-        
         await updateDoc(doc(db, 'users', user!.uid), updateData);
       } catch (error) {
         handleFirestoreError(error, OperationType.UPDATE, userPath);
+        return;
       }
 
-      // If pin was created by a Level 2 admin, create a verification request
+      // Automatically check and upgrade referrer if they have reached 5 activated referrals
+      if (profile?.referredBy) {
+        try {
+          const referrerRef = doc(db, 'users', profile.referredBy);
+          const referrerSnap = await getDoc(referrerRef);
+          if (referrerSnap.exists()) {
+            const referrerData = referrerSnap.data();
+            // Query count of other activated referrals
+            const referredQ = query(
+              collection(db, 'users'),
+              where('referredBy', '==', profile.referredBy),
+              where('isActivated', '==', true)
+            );
+            const referredSnap = await getDocs(referredQ);
+            
+            // This newly activated user is counted (they might not be in query snapshot yet depending on latency)
+            const count = referredSnap.docs.filter(d => d.id !== user!.uid).length + 1;
+            
+            if (count >= 5 && referrerData.level === '1') {
+              await updateDoc(referrerRef, { level: '2' });
+              toast.success('Your referrer has been upgraded to Level 2!');
+            }
+          }
+        } catch (error) {
+          console.error("Failed to upgrade referrer on active referrals:", error);
+        }
+      }
+
+      toast.success('Account activated successfully!');
+
+      // Get pin creator profile for telegram alert metadata
       const creatorPath = `users/${pinData.createdBy}`;
       let creatorSnap;
       try {
         const creatorRef = doc(db, 'users', pinData.createdBy);
         creatorSnap = await getDoc(creatorRef);
       } catch (error) {
-        handleFirestoreError(error, OperationType.GET, creatorPath);
-        return;
-      }
-
-      if (creatorSnap.exists() && creatorSnap.data().level === '2') {
-        const verPath = `verificationRequests/${user!.uid}_${pin}`;
-        try {
-          await setDoc(doc(db, 'verificationRequests', `${user!.uid}_${pin}`), {
-            uid: user!.uid,
-            studentId: profile?.studentId,
-            username: profile?.username,
-            code: pin,
-            timestamp: new Date().toISOString(),
-            status: 'pending'
-          });
-        } catch (error) {
-          handleFirestoreError(error, OperationType.WRITE, verPath);
-        }
-        toast.info('Account in verification mode. An admin will confirm shortly.');
-      } else {
-        toast.success('Account activated successfully!');
+        console.error("Failed to get creator snap:", error);
       }
 
       // Telegram Alert
@@ -181,7 +188,7 @@ export default function Activate() {
         `<b>PIN USED:</b> ${pin}\n` +
         `<b>PIN TYPE:</b> ${pinData.type?.toUpperCase() || 'STANDARD'}\n` +
         `<b>ACTIVATION TIME:</b> ${new Date().toLocaleString()}\n` +
-        `<b>PIN CREATOR:</b> ${creatorSnap.data()?.level || 'N/A'}, ${creatorSnap.data()?.studentId || 'N/A'}, ${pinData.createdBy}`
+        `<b>PIN CREATOR:</b> ${creatorSnap?.exists() ? creatorSnap.data()?.level : 'N/A'}, ${creatorSnap?.exists() ? creatorSnap.data()?.studentId : 'N/A'}, ${pinData.createdBy}`
       );
 
       navigate('/dashboard');
@@ -276,7 +283,7 @@ export default function Activate() {
               <div className="space-y-2 text-center py-4">
                 <p className="text-sm font-medium">Pricing & Activation</p>
                 <p className="text-xs text-muted-foreground mb-4">
-                  Semester: ₦3,000 | Yearly: ₦5,000 (Save ₦1,000)
+                  Semester: ₦{(systemConfig?.standardPrice ?? 3000).toLocaleString()} | Two Semesters (PLUS): ₦{(systemConfig?.plusPrice ?? 5000).toLocaleString()}
                 </p>
                 <Button 
                   type="button" 

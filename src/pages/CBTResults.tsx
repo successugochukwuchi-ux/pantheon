@@ -33,11 +33,11 @@ export default function CBTResults() {
       setLoading(false);
     });
 
-    const isAdmin = profile.level === '3' || profile.level === '4';
+    const showAllSemesters = profile.level === '4';
 
     // Fetch courses for labels - filter by semester if not admin
     let coursesQ = query(collection(db, 'courses'));
-    if (!isAdmin) {
+    if (!showAllSemesters) {
       if (systemConfig?.currentSemester && systemConfig.currentSemester !== 'none') {
         coursesQ = query(
           collection(db, 'courses'),

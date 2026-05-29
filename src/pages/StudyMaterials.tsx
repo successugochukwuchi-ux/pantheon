@@ -17,6 +17,7 @@ import { Alert, AlertDescription, AlertTitle } from '../components/ui/alert';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '../components/ui/dialog';
 import { MathJax } from 'better-react-mathjax';
 import { NoteBlock } from '../components/NoteBuilder';
+import { SafeMathRenderer, prepareMarkdownMath } from '../components/SafeMathRenderer';
 import { NoteProgressTracker } from '../components/NoteProgressTracker';
 import { ScientificCalculator } from '../components/ScientificCalculator';
 import { AIAssistant } from '../components/AIAssistant';
@@ -37,7 +38,8 @@ export default function StudyMaterials() {
   const [viewingImage, setViewingImage] = useState<string | null>(null);
 
   const isAdmin = profile?.level === '3' || profile?.level === '4';
-  const isHoliday = systemConfig && systemConfig.currentSemester === 'none' && !isAdmin;
+  const showAllSemesters = profile?.level === '4';
+  const isHoliday = systemConfig && systemConfig.currentSemester === 'none' && !showAllSemesters;
 
   const typeLabels: Record<string, string> = {
     'lecture': 'Lecture Notes',
@@ -86,23 +88,23 @@ export default function StudyMaterials() {
     if (isHoliday) return;
     if (!profile) return;
 
-    // Students MUST wait for systemConfig to have a defined semester to avoid unfiltered query Permission Denied
+    // Students/Vendors MUST wait for systemConfig to have a defined semester to avoid unfiltered query Permission Denied
     const isStudent = profile.level === '1' || profile.level === '2';
-    if (isStudent && (!systemConfig || systemConfig.currentSemester === 'none')) {
+    if (!showAllSemesters && (!systemConfig || systemConfig.currentSemester === 'none')) {
       return;
     }
 
     let q = query(collection(db, 'courses'));
     
-    // Admin sees all, but students see by semester
-    if (!isAdmin) {
+    // Only level 4 sees all semesters, level 3 & students see by semester
+    if (!showAllSemesters) {
       if (systemConfig?.currentSemester && systemConfig.currentSemester !== 'none') {
         q = query(
           collection(db, 'courses'),
           where('semester', '==', systemConfig.currentSemester)
         );
       } else {
-        // If not admin and no semester, don't query at all to prevent rules rejection
+        // If not level 4 and no semester, don't query at all to prevent rules rejection
         setCourses([]);
         return;
       }
@@ -111,8 +113,9 @@ export default function StudyMaterials() {
     const unsubscribe = onSnapshot(q, (snapshot) => {
       let loadedCourses = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Course));
       
-      // Secondary filter by level and department for non-admins
-      if (!isAdmin) {
+      // Secondary filter by level and department ONLY for actual student accounts (level 1 or 2)
+      // Level 3 vendors can see all departments/levels but restricted to current semester
+      if (isStudent) {
         loadedCourses = loadedCourses.filter(course => {
           const userAcademicLevel = profile.academicLevel || profile.level; // Fallback for old accounts
           const isCorrectLevel = String(course.level) === String(userAcademicLevel);
@@ -121,13 +124,14 @@ export default function StudyMaterials() {
         });
       }
       
+      loadedCourses.sort((a, b) => a.code.localeCompare(b.code));
       setCourses(loadedCourses);
     }, (error) => {
       console.error("Courses fetch error in StudyMaterials:", error);
     });
 
     return () => unsubscribe();
-  }, [systemConfig, isHoliday, isAdmin]);
+  }, [systemConfig, isHoliday, showAllSemesters]);
 
   useEffect(() => {
     if (!selectedCourse) {
@@ -199,29 +203,27 @@ export default function StudyMaterials() {
                 {block.type === 'h1' && (
                   <h1 className="text-3xl font-bold mb-4">
                     <ReactMarkdown remarkPlugins={[remarkMath, remarkGfm]} rehypePlugins={[rehypeKatex]}>
-                      {block.content}
+                      {prepareMarkdownMath(block.content)}
                     </ReactMarkdown>
                   </h1>
                 )}
                 {block.type === 'h2' && (
                   <h2 className="text-2xl font-bold mb-3">
                     <ReactMarkdown remarkPlugins={[remarkMath, remarkGfm]} rehypePlugins={[rehypeKatex]}>
-                      {block.content}
+                      {prepareMarkdownMath(block.content)}
                     </ReactMarkdown>
                   </h2>
                 )}
                 {block.type === 'text' && (
                   <div className="prose dark:prose-invert max-w-none">
                     <ReactMarkdown remarkPlugins={[remarkMath, remarkGfm]} rehypePlugins={[rehypeKatex]}>
-                      {block.content}
+                      {prepareMarkdownMath(block.content)}
                     </ReactMarkdown>
                   </div>
                 )}
                 {block.type === 'math' && (
                   <div className="py-4 overflow-x-auto flex justify-center bg-muted/30 rounded-lg">
-                    <ReactMarkdown remarkPlugins={[remarkMath, remarkGfm]} rehypePlugins={[rehypeKatex]}>
-                      {`$$${block.content}$$`}
-                    </ReactMarkdown>
+                    <SafeMathRenderer math={block.content} block={true} />
                   </div>
                 )}
                 {block.type === 'table' && block.content && (
@@ -236,7 +238,7 @@ export default function StudyMaterials() {
                                 {row.map((cell, colIndex) => (
                                   <td key={colIndex} className="border p-4 text-sm min-w-[120px]">
                                     <ReactMarkdown remarkPlugins={[remarkMath, remarkGfm]} rehypePlugins={[rehypeKatex]}>
-                                      {cell}
+                                      {prepareMarkdownMath(cell)}
                                     </ReactMarkdown>
                                   </td>
                                 ))}
@@ -281,7 +283,7 @@ export default function StudyMaterials() {
                           </div>
                           <CardTitle className="text-lg mt-2">
                             <ReactMarkdown remarkPlugins={[remarkMath, remarkGfm]} rehypePlugins={[rehypeKatex]}>
-                              {data.question}
+                              {prepareMarkdownMath(data.question)}
                             </ReactMarkdown>
                           </CardTitle>
                         </CardHeader>
@@ -295,7 +297,7 @@ export default function StudyMaterials() {
                                 <div className="w-full flex items-center justify-between p-4 rounded-xl border border-border bg-background hover:bg-muted transition-all cursor-help">
                                   <span className="flex-1 text-sm">
                                     <ReactMarkdown remarkPlugins={[remarkMath, remarkGfm]} rehypePlugins={[rehypeKatex]}>
-                                      {opt.text}
+                                      {prepareMarkdownMath(opt.text)}
                                     </ReactMarkdown>
                                   </span>
                                   <div className="opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-2">
@@ -316,7 +318,7 @@ export default function StudyMaterials() {
                               </div>
                               <div className="text-sm text-muted-foreground italic">
                                 <ReactMarkdown remarkPlugins={[remarkMath, remarkGfm]} rehypePlugins={[rehypeKatex]}>
-                                  {data.explanation}
+                                  {prepareMarkdownMath(data.explanation)}
                                 </ReactMarkdown>
                               </div>
                             </div>

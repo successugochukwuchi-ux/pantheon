@@ -41,7 +41,7 @@ export default function CourseDiscussion() {
     const unsubscribe = onSnapshot(q, (snapshot) => {
       setUserNotes(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Note)));
     }, (error) => {
-      const isLowLevel = profile.level === '1' || profile.level === '1+';
+      const isLowLevel = profile.level === '1';
       if (!isLowLevel) {
         console.error('Notes fetch error:', error);
       }
@@ -56,7 +56,7 @@ export default function CourseDiscussion() {
     const unsubscribe = onSnapshot(q, (snapshot) => {
       setCourses(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Course)));
     }, (error) => {
-      const isLowLevel = profile.level === '1' || profile.level === '1+';
+      const isLowLevel = profile.level === '1';
       if (!isLowLevel) {
         console.error('Courses fetch error:', error);
       }

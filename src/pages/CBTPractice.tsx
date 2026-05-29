@@ -21,6 +21,7 @@ import 'katex/dist/katex.min.css';
 import { useTitle } from '../hooks/useTitle';
 import { ScientificCalculator } from '../components/ScientificCalculator';
 import { AIAssistant } from '../components/AIAssistant';
+import { SafeMathRenderer, prepareMarkdownMath } from '../components/SafeMathRenderer';
 
 export default function CBTPractice() {
   useTitle('CBT Practice');
@@ -31,8 +32,7 @@ export default function CBTPractice() {
   
   // Setup State
   const [selectedCourseId, setSelectedCourseId] = useState<string>('');
-  const [selectedSheetIds, setSelectedSheetIds] = useState<string[]>([]);
-  const [isTimed, setIsTimed] = useState(false);
+  const [isTimed, setIsTimed ] = useState(false);
   const [duration, setDuration] = useState(30);
   const [numQuestions, setNumQuestions] = useState(20);
   const [testStarted, setTestStarted] = useState(false);
@@ -47,9 +47,10 @@ export default function CBTPractice() {
   useEffect(() => {
     if (!profile || !systemConfig) return;
 
-    const isAdmin = profile.level === '3' || profile.level === '4';
+    const showAllSemesters = profile.level === '4';
+    const isStudent = profile.level === '1' || profile.level === '2';
     
-    if (!isAdmin && systemConfig.currentSemester === 'none') {
+    if (!showAllSemesters && systemConfig.currentSemester === 'none') {
       setCourses([]);
       setLoading(false);
       return;
@@ -57,7 +58,7 @@ export default function CBTPractice() {
 
     let q = query(collection(db, 'courses'));
     
-    if (!isAdmin) {
+    if (!showAllSemesters) {
       q = query(collection(db, 'courses'), where('semester', '==', systemConfig.currentSemester));
     }
 
@@ -65,9 +66,10 @@ export default function CBTPractice() {
       const allCourses = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Course));
       // Only show courses for student's level and current semester
       const filtered = allCourses.filter(c => 
-        (isAdmin || c.semester === systemConfig.currentSemester) && 
-        (isAdmin || c.level === profile.academicLevel)
+        (showAllSemesters || c.semester === systemConfig.currentSemester) && 
+        (!isStudent || c.level === profile.academicLevel)
       );
+      filtered.sort((a, b) => a.code.localeCompare(b.code));
       setCourses(filtered);
       setLoading(false);
     }, (error) => {
@@ -81,7 +83,6 @@ export default function CBTPractice() {
   useEffect(() => {
     if (!selectedCourseId || !profile) {
       setSheets([]);
-      setSelectedSheetIds([]);
       return;
     }
     const q = query(
@@ -106,11 +107,7 @@ export default function CBTPractice() {
     setLoading(true);
     try {
       let pool: Question[] = [];
-      
-      // If no years selected, pull from ALL available years for this course
-      const targetSheetIds = selectedSheetIds.length > 0 
-        ? selectedSheetIds 
-        : sheets.map(s => s.id);
+      const targetSheetIds = sheets.map(s => s.id);
 
       if (targetSheetIds.length === 0) {
         toast.error('No question sheets available for this course');
@@ -118,20 +115,15 @@ export default function CBTPractice() {
         return;
       }
 
-      // Divide questions evenly among selected years
-      const questionsPerYear = Math.ceil(numQuestions / targetSheetIds.length);
-      
-      const allSheetQuestions = await Promise.all(
+      const allSheetsQuestions = await Promise.all(
         targetSheetIds.map(async (sheetId) => {
           const q = query(collection(db, 'questions'), where('sheetId', '==', sheetId));
           const snap = await getDocs(q);
-          const qs = snap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Question));
-          // Shuffle and pick
-          return qs.sort(() => Math.random() - 0.5).slice(0, questionsPerYear);
+          return snap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Question));
         })
       );
 
-      pool = allSheetQuestions.flat().sort(() => Math.random() - 0.5).slice(0, numQuestions);
+      pool = allSheetsQuestions.flat().sort(() => Math.random() - 0.5).slice(0, numQuestions);
 
       if (pool.length === 0) {
         toast.error('No questions available');
@@ -240,33 +232,10 @@ export default function CBTPractice() {
                   ))}
                 </SelectContent>
               </Select>
+              {selectedCourseId && sheets.length === 0 && (
+                <p className="text-xs text-muted-foreground italic mt-1.5">No years/materials available for this course yet.</p>
+              )}
             </div>
-
-            {selectedCourseId && (
-              <div className="space-y-3">
-                <Label>Select Years (Optional - division will be even)</Label>
-                <div className="flex flex-wrap gap-2">
-                  {sheets.map(sheet => {
-                    const isSelected = selectedSheetIds.includes(sheet.id);
-                    return (
-                      <Badge 
-                        key={sheet.id}
-                        variant={isSelected ? "default" : "outline"}
-                        className="cursor-pointer px-3 py-1.5"
-                        onClick={() => {
-                          if (isSelected) setSelectedSheetIds(prev => prev.filter(id => id !== sheet.id));
-                          else setSelectedSheetIds(prev => [...prev, sheet.id]);
-                        }}
-                      >
-                        {sheet.year}
-                        {isSelected && <X className="ml-2 h-3 w-3" />}
-                      </Badge>
-                    );
-                  })}
-                  {sheets.length === 0 && <p className="text-xs text-muted-foreground italic">No years available for this course</p>}
-                </div>
-              </div>
-            )}
 
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
@@ -289,7 +258,7 @@ export default function CBTPractice() {
             </div>
           </CardContent>
           <CardFooter>
-            <Button className="w-full h-12 text-lg" onClick={handleStartTest} disabled={!selectedCourseId || (selectedSheetIds.length === 0 && sheets.length === 0)}>
+            <Button className="w-full h-12 text-lg" onClick={handleStartTest} disabled={!selectedCourseId || sheets.length === 0}>
               <Play className="mr-2 h-5 w-5" /> Start Simulation
             </Button>
           </CardFooter>
@@ -327,9 +296,9 @@ export default function CBTPractice() {
                 <Card key={q.id} className={userAnswers[q.id] === q.correctAnswer ? "border-green-500/20 shadow-sm" : "border-red-500/20 shadow-sm"}>
                   <CardHeader className="pb-3">
                     <div className="flex items-start justify-between gap-4">
-                      <div className="prose dark:prose-invert font-medium">
+                      <div className="prose dark:prose-invert font-medium max-w-none">
                         <ReactMarkdown remarkPlugins={[remarkMath, remarkGfm]} rehypePlugins={[rehypeKatex]}>
-                          {`${i + 1}. ${q.text}`}
+                          {prepareMarkdownMath(`${i + 1}. ${q.text}`)}
                         </ReactMarkdown>
                       </div>
                       {userAnswers[q.id] === q.correctAnswer ? (
@@ -342,19 +311,32 @@ export default function CBTPractice() {
                   <CardContent className="space-y-3 pb-4">
                     <div className="grid gap-2 text-sm">
                       <div className={`p-3 rounded-lg flex items-center gap-3 ${userAnswers[q.id] === q.correctAnswer ? "bg-green-50 text-green-700 dark:bg-green-900/20 dark:text-green-400" : "bg-red-50 text-red-700 dark:bg-red-900/20 dark:text-red-400"}`}>
-                        <div className="font-bold">Your Choice:</div>
-                        <div>{userAnswers[q.id] || 'Not answered'}</div>
+                        <div className="font-bold shrink-0">Your Choice:</div>
+                        <div className="prose dark:prose-invert max-w-none text-current">
+                          <ReactMarkdown remarkPlugins={[remarkMath, remarkGfm]} rehypePlugins={[rehypeKatex]}>
+                            {prepareMarkdownMath(userAnswers[q.id] || 'Not answered')}
+                          </ReactMarkdown>
+                        </div>
                       </div>
                       {userAnswers[q.id] !== q.correctAnswer && (
                         <div className="p-3 rounded-lg bg-green-50 text-green-700 dark:bg-green-900/20 dark:text-green-400 flex items-center gap-3">
-                          <div className="font-bold">Correct:</div>
-                          <div>{q.correctAnswer}</div>
+                          <div className="font-bold shrink-0">Correct:</div>
+                          <div className="prose dark:prose-invert max-w-none text-current">
+                            <ReactMarkdown remarkPlugins={[remarkMath, remarkGfm]} rehypePlugins={[rehypeKatex]}>
+                              {prepareMarkdownMath(q.correctAnswer)}
+                            </ReactMarkdown>
+                          </div>
                         </div>
                       )}
                     </div>
                     {q.explanation && (
                       <div className="mt-2 p-4 bg-muted/30 rounded-lg text-sm italic border-l-2 border-primary/30">
-                        <p><span className="font-bold not-italic">Explanation:</span> {q.explanation}</p>
+                        <div className="prose dark:prose-invert max-w-none text-muted-foreground">
+                          <strong className="not-italic text-foreground block mb-1">Explanation:</strong>
+                          <ReactMarkdown remarkPlugins={[remarkMath, remarkGfm]} rehypePlugins={[rehypeKatex]}>
+                            {prepareMarkdownMath(q.explanation)}
+                          </ReactMarkdown>
+                        </div>
                       </div>
                     )}
                   </CardContent>
@@ -413,7 +395,7 @@ export default function CBTPractice() {
               <div className="prose dark:prose-invert max-w-none text-2xl leading-relaxed">
                 <div className="py-4">
                   <ReactMarkdown remarkPlugins={[remarkMath, remarkGfm]} rehypePlugins={[rehypeKatex]}>
-                    {currentQuestion.text}
+                    {prepareMarkdownMath(currentQuestion.text)}
                   </ReactMarkdown>
                 </div>
               </div>
@@ -436,7 +418,11 @@ export default function CBTPractice() {
                   }`}>
                     {optionLabels[idx]}
                   </span>
-                  <span className="font-semibold text-lg">{option}</span>
+                  <span className="font-semibold text-lg flex-1">
+                    <ReactMarkdown remarkPlugins={[remarkMath, remarkGfm]} rehypePlugins={[rehypeKatex]}>
+                      {prepareMarkdownMath(option)}
+                    </ReactMarkdown>
+                  </span>
                 </button>
               ))}
             </CardContent>

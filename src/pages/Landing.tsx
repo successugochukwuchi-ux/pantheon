@@ -9,7 +9,7 @@ import { SystemStatus } from '../components/SystemStatus';
 
 export default function Landing() {
   useTitle('Welcome');
-  const { user, isAuthReady } = useAuth();
+  const { user, isAuthReady, systemConfig } = useAuth();
 
   const openWhatsApp = () => {
     const message = encodeURIComponent("Hello, I'm interested in the Pantheon Study App for FUTO.");
@@ -146,13 +146,13 @@ export default function Landing() {
                   <div className="h-6 w-6 rounded-full bg-white/20 flex items-center justify-center">
                     <ChevronRight className="h-4 w-4" />
                   </div>
-                  <span>Semester Plan: ₦3,000</span>
+                  <span>Semester Plan: ₦{(systemConfig?.standardPrice ?? 3000).toLocaleString()}</span>
                 </li>
                 <li className="flex items-center gap-3">
                   <div className="h-6 w-6 rounded-full bg-white/20 flex items-center justify-center">
                     <ChevronRight className="h-4 w-4" />
                   </div>
-                  <span>Yearly Plan: ₦5,000 (Save ₦1,000)</span>
+                  <span>Two Semesters (PLUS) Plan: ₦{(systemConfig?.plusPrice ?? 5000).toLocaleString()}</span>
                 </li>
                 <li className="flex items-center gap-3">
                   <div className="h-6 w-6 rounded-full bg-white/20 flex items-center justify-center">
@@ -166,9 +166,9 @@ export default function Landing() {
               </Button>
             </div>
             <div className="bg-white/10 p-12 md:w-1/3 flex flex-col items-center justify-center text-center border-l border-white/10">
-              <div className="text-6xl font-bold mb-2">₦3k</div>
+              <div className="text-6xl font-bold mb-2">₦{Math.round((systemConfig?.standardPrice ?? 3000) / 1000)}k</div>
               <div className="text-primary-foreground/60 uppercase tracking-widest text-sm font-bold">Per Semester</div>
-              <div className="mt-4 text-2xl font-bold">₦5k Yearly</div>
+              <div className="mt-4 text-2xl font-bold">₦{Math.round((systemConfig?.plusPrice ?? 5000) / 1000)}k PLUS</div>
             </div>
           </div>
         </div>

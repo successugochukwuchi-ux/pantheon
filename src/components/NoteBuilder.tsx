@@ -78,6 +78,7 @@ import remarkGfm from 'remark-gfm';
 import 'katex/dist/katex.min.css';
 import { Rnd } from 'react-rnd';
 import { cn } from '../lib/utils';
+import { SafeMathRenderer, prepareMarkdownMath } from './SafeMathRenderer';
 import { magicNoteCreator } from '../services/aiService';
 import { toast } from 'sonner';
 import { doc, onSnapshot } from 'firebase/firestore';
@@ -382,32 +383,27 @@ const SortableBlock = ({ block, onUpdate, onDelete, onFocus, isPreview }: Sortab
         {block.type === 'h1' && (
           <h1 className="text-3xl font-bold mb-4">
             <ReactMarkdown remarkPlugins={[remarkMath, remarkGfm]} rehypePlugins={[rehypeKatex]}>
-              {block.content}
+              {prepareMarkdownMath(block.content)}
             </ReactMarkdown>
           </h1>
         )}
         {block.type === 'h2' && (
           <h2 className="text-2xl font-bold mb-3">
             <ReactMarkdown remarkPlugins={[remarkMath, remarkGfm]} rehypePlugins={[rehypeKatex]}>
-              {block.content}
+              {prepareMarkdownMath(block.content)}
             </ReactMarkdown>
           </h2>
         )}
         {block.type === 'text' && (
           <div className="prose dark:prose-invert max-w-none">
             <ReactMarkdown remarkPlugins={[remarkMath, remarkGfm]} rehypePlugins={[rehypeKatex]}>
-              {block.content}
+              {prepareMarkdownMath(block.content)}
             </ReactMarkdown>
           </div>
         )}
         {block.type === 'math' && block.content && (
           <div className="py-4 flex justify-center bg-muted/30 rounded-lg overflow-x-auto">
-            <ReactMarkdown remarkPlugins={[remarkMath, remarkGfm]} rehypePlugins={[rehypeKatex]}>
-              {(() => {
-                const content = block.content.trim().replace(/^\$\$?/, '').replace(/\$\$?$/, '');
-                return `$$${content}$$`;
-              })()}
-            </ReactMarkdown>
+            <SafeMathRenderer math={block.content} block={true} />
           </div>
         )}
         {block.type === 'table' && block.content && (
@@ -422,7 +418,7 @@ const SortableBlock = ({ block, onUpdate, onDelete, onFocus, isPreview }: Sortab
                         {row.map((cell, colIndex) => (
                           <td key={colIndex} className="border p-2 text-sm">
                             <ReactMarkdown remarkPlugins={[remarkMath, remarkGfm]} rehypePlugins={[rehypeKatex]}>
-                              {cell}
+                              {prepareMarkdownMath(cell)}
                             </ReactMarkdown>
                           </td>
                         ))}
@@ -466,7 +462,7 @@ const SortableBlock = ({ block, onUpdate, onDelete, onFocus, isPreview }: Sortab
         {(block.type === 'bullet-list' || block.type === 'numbered-list') && (
           <div className="prose dark:prose-invert max-w-none my-6">
             <ReactMarkdown remarkPlugins={[remarkMath, remarkGfm]} rehypePlugins={[rehypeKatex]}>
-              {block.content}
+              {prepareMarkdownMath(block.content)}
             </ReactMarkdown>
           </div>
         )}
@@ -487,7 +483,7 @@ const SortableBlock = ({ block, onUpdate, onDelete, onFocus, isPreview }: Sortab
                     <>
                       <div className="text-lg font-medium">
                         <ReactMarkdown remarkPlugins={[remarkMath, remarkGfm]} rehypePlugins={[rehypeKatex]}>
-                          {data.question}
+                          {prepareMarkdownMath(data.question)}
                         </ReactMarkdown>
                       </div>
                       <div className="grid gap-2">
@@ -498,7 +494,7 @@ const SortableBlock = ({ block, onUpdate, onDelete, onFocus, isPreview }: Sortab
                             </div>
                             <span className="text-sm">
                                <ReactMarkdown remarkPlugins={[remarkMath, remarkGfm]} rehypePlugins={[rehypeKatex]}>
-                                {data.correct}
+                                {prepareMarkdownMath(data.correct)}
                               </ReactMarkdown>
                             </span>
                           </div>
@@ -510,7 +506,7 @@ const SortableBlock = ({ block, onUpdate, onDelete, onFocus, isPreview }: Sortab
                             </div>
                             <span className="text-sm">
                               <ReactMarkdown remarkPlugins={[remarkMath, remarkGfm]} rehypePlugins={[rehypeKatex]}>
-                                {inc}
+                                {prepareMarkdownMath(inc)}
                               </ReactMarkdown>
                             </span>
                           </div>
@@ -523,7 +519,7 @@ const SortableBlock = ({ block, onUpdate, onDelete, onFocus, isPreview }: Sortab
                           </div>
                           <div className="text-sm text-muted-foreground italic">
                             <ReactMarkdown remarkPlugins={[remarkMath, remarkGfm]} rehypePlugins={[rehypeKatex]}>
-                              {data.explanation}
+                              {prepareMarkdownMath(data.explanation)}
                             </ReactMarkdown>
                           </div>
                         </div>
@@ -596,12 +592,7 @@ const SortableBlock = ({ block, onUpdate, onDelete, onFocus, isPreview }: Sortab
             />
             {block.content && (
               <div className="p-4 bg-muted/30 rounded-lg flex justify-center overflow-x-auto">
-                <ReactMarkdown remarkPlugins={[remarkMath]} rehypePlugins={[rehypeKatex]}>
-                  {(() => {
-                    const content = block.content.trim().replace(/^\$\$?/, '').replace(/\$\$?$/, '');
-                    return `$$${content}$$`;
-                  })()}
-                </ReactMarkdown>
+                <SafeMathRenderer math={block.content} block={true} />
               </div>
             )}
           </div>

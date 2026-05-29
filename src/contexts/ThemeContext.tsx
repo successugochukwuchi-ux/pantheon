@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
 
-type Theme = 'light' | 'dark' | 'sepia' | 'ocean' | 'forest' | 'midnight' | 'sunset' | 'lavender' | 'custom';
+type Theme = 'light' | 'dark' | 'sepia' | 'ocean' | 'forest' | 'midnight' | 'sunset' | 'lavender' | 'velvet' | 'obsidian' | 'custom';
 
 interface ThemeContextType {
   theme: Theme;
@@ -32,11 +32,11 @@ export const ThemeProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     localStorage.setItem('pantheon-custom-colors', JSON.stringify(customColors));
     
     const root = window.document.documentElement;
-    root.classList.remove('light', 'dark', 'sepia', 'ocean', 'forest', 'midnight', 'sunset', 'lavender', 'custom');
+    root.classList.remove('light', 'dark', 'sepia', 'ocean', 'forest', 'midnight', 'sunset', 'lavender', 'velvet', 'obsidian', 'custom');
     root.classList.add(theme);
     
     // Handle shadcn dark mode class
-    if (theme === 'dark' || theme === 'midnight') {
+    if (theme === 'dark' || theme === 'midnight' || theme === 'obsidian' || theme === 'velvet') {
       root.classList.add('dark');
     } else {
       root.classList.remove('dark');

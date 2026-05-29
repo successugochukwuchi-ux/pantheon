@@ -32,15 +32,18 @@ import { useFlux } from '../contexts/FluxContext';
 import { cn } from '../lib/utils';
 import { UserSearch } from './UserSearch';
 import { SystemStatus } from './SystemStatus';
+import { Button } from './ui/button';
 import { collection, query, where, onSnapshot } from 'firebase/firestore';
 import { db, auth } from '../firebase';
 import { Notification, Announcement } from '../types';
 
 interface SidebarProps {
   onClose?: () => void;
+  isCollapsed?: boolean;
+  onToggleCollapse?: () => void;
 }
 
-export const Sidebar: React.FC<SidebarProps> = ({ onClose }) => {
+export const Sidebar: React.FC<SidebarProps> = ({ onClose, isCollapsed = false, onToggleCollapse }) => {
   const { profile, user } = useAuth();
   const { isFluxMode, setFluxMode } = useFlux();
   const location = useLocation();
@@ -148,6 +151,10 @@ export const Sidebar: React.FC<SidebarProps> = ({ onClose }) => {
     { name: 'Admin Manual', path: '/administrator/manual', icon: BookOpen },
   ];
 
+  const level3AdminNavItems: SidebarNavItem[] = [
+    { name: 'Activation Pins', path: '/administrator/pins', icon: Key },
+  ];
+
   const level4NavItems: SidebarNavItem[] = [
     ...adminNavItems,
     { name: 'System Control', path: '/administrator/system', icon: Settings },
@@ -177,7 +184,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ onClose }) => {
     
     if (isAdminPath) {
       if (profile?.level === '4') return level4NavItems;
-      if (profile?.level === '3') return adminNavItems;
+      if (profile?.level === '3') return level3AdminNavItems;
       return level2AdminNavItems;
     }
     
@@ -188,30 +195,49 @@ export const Sidebar: React.FC<SidebarProps> = ({ onClose }) => {
 
   return (
     <div className={cn(
-      "flex flex-col h-full text-sidebar-foreground border-r shadow-sm transition-colors duration-500",
+      "flex flex-col h-full text-sidebar-foreground border-r shadow-sm transition-all duration-300",
       isFluxMode ? "bg-stone-950 border-pink-500/10" : "bg-sidebar"
     )}>
-      <div className="p-6">
+      <div className={cn(
+        "flex items-center justify-between p-6",
+        isCollapsed ? "flex-col gap-4 px-2 py-6" : ""
+      )}>
         <Link 
           to={isFluxMode ? "/flux" : "/"} 
           className={cn(
-            "flex items-center gap-2 font-bold text-2xl tracking-tighter transition-colors",
+            "flex items-center gap-2 font-bold transition-all",
+            isCollapsed ? "text-xl justify-center text-center self-center" : "text-2xl tracking-tighter",
             isFluxMode ? "text-pink-500" : "text-sidebar-primary"
           )}
         >
-          {isFluxMode ? <Zap className="fill-pink-500" size={24} /> : null}
-          PANTHEON {isFluxMode && <span className="text-white">FLUX</span>}
+          {isFluxMode ? <Zap className="fill-pink-500 h-5 w-5" /> : null}
+          {isCollapsed ? <span className="font-extrabold tracking-tighter text-sidebar-primary">P</span> : <>PANTHEON {isFluxMode && <span className="text-white">FLUX</span>}</>}
         </Link>
-        <p className="text-[10px] text-sidebar-foreground/60 font-medium uppercase tracking-widest mt-1">
-          {isFluxMode ? 'EXTRACURRICULAR' : (isAdminPath ? 'Admin Portal' : 'Student Portal')}
-        </p>
+        {!onClose && onToggleCollapse && (
+          <Button 
+            variant="ghost" 
+            size="icon" 
+            className="h-8 w-8 text-sidebar-foreground/70 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+            onClick={onToggleCollapse}
+          >
+            {isCollapsed ? <ChevronRight className="h-4 w-4" /> : <ChevronRight className="h-4 w-4 rotate-180 transition-transform duration-300" />}
+          </Button>
+        )}
       </div>
 
-      <div className="px-6 mb-4 md:hidden">
-        <UserSearch />
-      </div>
+      {!isCollapsed && (
+        <div className="px-6 mb-4 md:hidden">
+          <UserSearch />
+        </div>
+      )}
 
-      {!isFluxMode && (
+      {isCollapsed && !isFluxMode && (
+        <div className="px-2 mb-4 flex justify-center">
+          <div className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse" title="System Online" />
+        </div>
+      )}
+
+      {!isCollapsed && !isFluxMode && (
         <div className="px-6 mb-4">
           <SystemStatus />
         </div>
@@ -219,9 +245,11 @@ export const Sidebar: React.FC<SidebarProps> = ({ onClose }) => {
 
       <nav className="flex-1 px-4 space-y-1 overflow-y-auto custom-scrollbar">
         <div className="py-2">
-          <p className="px-3 text-xs font-semibold text-sidebar-foreground/50 uppercase tracking-wider mb-2">
-            {isFluxMode ? 'Flux Ecosystem' : 'Main Menu'}
-          </p>
+          {!isCollapsed && (
+            <p className="px-3 text-xs font-semibold text-sidebar-foreground/50 uppercase tracking-wider mb-2">
+              {isFluxMode ? 'Flux Ecosystem' : 'Main Menu'}
+            </p>
+          )}
           {navItems.map((item) => {
             const isActive = location.pathname === item.path;
             return (
@@ -229,8 +257,10 @@ export const Sidebar: React.FC<SidebarProps> = ({ onClose }) => {
                 key={item.path}
                 to={item.path}
                 onClick={onClose}
+                title={isCollapsed ? item.name : undefined}
                 className={cn(
-                  "flex items-center justify-between px-3 py-2.5 rounded-lg text-sm font-medium transition-all duration-200 group mb-0.5",
+                  "flex items-center px-3 py-2.5 rounded-lg text-sm font-medium transition-all duration-200 group mb-0.5",
+                  isCollapsed ? "justify-center px-0 h-10 w-10 mx-auto" : "justify-between",
                   isActive 
                     ? (isFluxMode 
                         ? "bg-pink-500 text-white shadow-lg shadow-pink-500/20" 
@@ -242,31 +272,31 @@ export const Sidebar: React.FC<SidebarProps> = ({ onClose }) => {
               >
                 <div className="flex items-center gap-3">
                   <item.icon className={cn("h-4 w-4", isActive ? "" : (isFluxMode ? "text-stone-500 group-hover:text-pink-400" : "text-sidebar-foreground/70 group-hover:text-sidebar-accent-foreground"))} />
-                  {item.name}
+                  {!isCollapsed && <span>{item.name}</span>}
                 </div>
-                {item.badge && (
+                {item.badge && !isCollapsed && (
                   <span className="flex h-5 w-5 items-center justify-center rounded-full bg-primary text-[10px] font-bold text-primary-foreground shadow-sm">
                     {item.badge}
                   </span>
                 )}
-                {isActive && !item.badge && <ChevronRight className="h-4 w-4 opacity-50" />}
+                {isActive && !item.badge && !isCollapsed && <ChevronRight className="h-4 w-4 opacity-50" />}
               </Link>
             );
           })}
         </div>
 
-        {isAtLeastLevel2 && !isAdminPath && !isFluxMode && (
+        {isAtLeastLevel2 && !isAdminPath && !isFluxMode && !isCollapsed && (
           <div className="py-4 border-t border-sidebar-border mt-4">
             <p className="px-3 text-xs font-bold text-primary uppercase tracking-widest mb-3">
               Privileged Access
             </p>
             <Link
-              to="/administrator"
+              to={profile?.level === '3' ? "/administrator/pins" : "/administrator"}
               onClick={onClose}
               className="flex items-center gap-3 px-3 py-3 rounded-xl text-sm font-bold bg-primary/10 text-primary hover:bg-primary/20 transition-all shadow-sm border border-primary/20"
             >
               <Shield className="h-4 w-4" />
-              Admin Control Panel
+              {profile?.level === '3' ? 'Vendor Dashboard' : 'Admin Control Panel'}
             </Link>
           </div>
         )}
@@ -274,20 +304,23 @@ export const Sidebar: React.FC<SidebarProps> = ({ onClose }) => {
 
       <div className={cn(
         "p-4 border-t space-y-2",
-        "border-sidebar-border bg-sidebar-accent/20"
+        "border-sidebar-border bg-sidebar-accent/20",
+        isCollapsed ? "p-2 space-y-1" : ""
       )}>
         <Link
           to="/settings"
           onClick={onClose}
+          title={isCollapsed ? "Settings" : undefined}
           className={cn(
             "flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all",
+            isCollapsed ? "justify-center px-0 h-10 w-10 mx-auto" : "",
             location.pathname === '/settings' 
               ? "bg-sidebar-primary/10 text-sidebar-primary" 
               : "text-sidebar-foreground/70 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
           )}
         >
           <Settings className="h-4 w-4" />
-          Settings
+          {!isCollapsed && <span>Settings</span>}
         </Link>
         
         <button
@@ -297,10 +330,14 @@ export const Sidebar: React.FC<SidebarProps> = ({ onClose }) => {
             await signOut(auth);
             if (onClose) onClose();
           }}
-          className="flex w-full items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium text-destructive hover:bg-destructive/10 transition-all"
+          title={isCollapsed ? "Logout" : undefined}
+          className={cn(
+            "flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium text-destructive hover:bg-destructive/10 transition-all cursor-pointer",
+            isCollapsed ? "justify-center px-0 h-10 w-10 mx-auto" : "w-full"
+          )}
         >
           <LogOut className="h-4 w-4" />
-          Logout
+          {!isCollapsed && <span>Logout</span>}
         </button>
       </div>
     </div>

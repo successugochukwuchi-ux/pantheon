@@ -29,6 +29,14 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
   const location = useLocation();
   const navigate = useNavigate();
   const [isMobileMenuOpen, setIsMobileMenuOpen] = React.useState(false);
+  const [isSidebarCollapsed, setIsSidebarCollapsed] = React.useState<boolean>(() => {
+    try {
+      const saved = localStorage.getItem('pantheon_sidebar_collapsed');
+      return saved ? JSON.parse(saved) : false;
+    } catch {
+      return false;
+    }
+  });
   const [unreadCount, setUnreadCount] = React.useState(0);
   const [recentNotifications, setRecentNotifications] = React.useState<Notification[]>([]);
   const prevUnreadRef = React.useRef(0);
@@ -109,12 +117,22 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
       isFluxMode ? "bg-stone-950 text-white" : "bg-background"
     )}>
       {/* Desktop Sidebar */}
-      <aside className="hidden md:flex w-72 flex-col fixed inset-y-0 z-50">
-        <Sidebar />
+      <aside className={cn(
+        "hidden md:flex flex-col fixed inset-y-0 z-50 transition-all duration-300",
+        isSidebarCollapsed ? "w-20" : "w-72"
+      )}>
+        <Sidebar isCollapsed={isSidebarCollapsed} onToggleCollapse={() => {
+          const nextState = !isSidebarCollapsed;
+          setIsSidebarCollapsed(nextState);
+          localStorage.setItem('pantheon_sidebar_collapsed', JSON.stringify(nextState));
+        }} />
       </aside>
 
       {/* Main Content Area */}
-      <div className="flex-1 flex flex-col md:pl-72">
+      <div className={cn(
+        "flex-1 flex flex-col transition-all duration-300",
+        isSidebarCollapsed ? "md:pl-20" : "md:pl-72"
+      )}>
         {/* Header */}
         <header className={cn(
           "sticky top-0 z-40 w-full border-b backdrop-blur transition-all duration-500",

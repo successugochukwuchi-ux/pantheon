@@ -17,6 +17,7 @@ import { Alert, AlertDescription, AlertTitle } from '../components/ui/alert';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '../components/ui/dialog';
 import { MathJax } from 'better-react-mathjax';
 import { NoteBlock } from '../components/NoteBuilder';
+import { SafeMathRenderer, prepareMarkdownMath } from '../components/SafeMathRenderer';
 import { NoteProgressTracker } from '../components/NoteProgressTracker';
 import { ScientificCalculator } from '../components/ScientificCalculator';
 import { AIAssistant } from '../components/AIAssistant';
@@ -41,7 +42,9 @@ export default function LectureNotes() {
     );
 
     const unsubscribe = onSnapshot(q, (snapshot) => {
-      setCourses(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Course)));
+      const fetchedCourses = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Course));
+      fetchedCourses.sort((a, b) => a.code.localeCompare(b.code));
+      setCourses(fetchedCourses);
     }, (error) => {
       console.error("Courses fetch error:", error);
     });
@@ -117,29 +120,27 @@ export default function LectureNotes() {
                 {block.type === 'h1' && (
                   <h1 className="text-3xl font-bold mb-4">
                     <ReactMarkdown remarkPlugins={[remarkMath, remarkGfm]} rehypePlugins={[rehypeKatex]}>
-                      {block.content}
+                      {prepareMarkdownMath(block.content)}
                     </ReactMarkdown>
                   </h1>
                 )}
                 {block.type === 'h2' && (
                   <h2 className="text-2xl font-bold mb-3">
                     <ReactMarkdown remarkPlugins={[remarkMath, remarkGfm]} rehypePlugins={[rehypeKatex]}>
-                      {block.content}
+                      {prepareMarkdownMath(block.content)}
                     </ReactMarkdown>
                   </h2>
                 )}
                 {block.type === 'text' && (
                   <div className="prose dark:prose-invert max-w-none">
                     <ReactMarkdown remarkPlugins={[remarkMath, remarkGfm]} rehypePlugins={[rehypeKatex]}>
-                      {block.content}
+                      {prepareMarkdownMath(block.content)}
                     </ReactMarkdown>
                   </div>
                 )}
                 {block.type === 'math' && (
                   <div className="py-4 overflow-x-auto flex justify-center bg-muted/30 rounded-lg">
-                    <ReactMarkdown remarkPlugins={[remarkMath, remarkGfm]} rehypePlugins={[rehypeKatex]}>
-                      {`$$${block.content}$$`}
-                    </ReactMarkdown>
+                    <SafeMathRenderer math={block.content} block={true} />
                   </div>
                 )}
                 {block.type === 'table' && block.content && (
@@ -154,7 +155,7 @@ export default function LectureNotes() {
                                 {row.map((cell, colIndex) => (
                                   <td key={colIndex} className="border p-4 text-sm min-w-[120px]">
                                     <ReactMarkdown remarkPlugins={[remarkMath, remarkGfm]} rehypePlugins={[rehypeKatex]}>
-                                      {cell}
+                                      {prepareMarkdownMath(cell)}
                                     </ReactMarkdown>
                                   </td>
                                 ))}

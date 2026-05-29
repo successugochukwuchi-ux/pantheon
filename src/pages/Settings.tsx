@@ -84,6 +84,8 @@ export default function Settings() {
     { id: 'midnight', name: 'Midnight', icon: Moon, color: 'bg-indigo-950' },
     { id: 'sunset', name: 'Sunset', icon: Sun, color: 'bg-orange-100' },
     { id: 'lavender', name: 'Lavender', icon: Palette, color: 'bg-purple-100' },
+    { id: 'velvet', name: 'Velvet', icon: Palette, color: 'bg-[#2d0b13] border-red-900 border' },
+    { id: 'obsidian', name: 'Obsidian', icon: Moon, color: 'bg-[#08001a] border-purple-900 border' },
     { id: 'custom', name: 'Custom', icon: SettingsIcon, color: 'bg-gradient-to-br from-red-200 via-green-200 to-blue-200' },
   ] as const;
 

@@ -31,10 +31,17 @@ service cloud.firestore {
       return resource.data;
     }
 
-    // High-priority admin check
+    // High-priority admin check (Level 4 only)
     function isAdmin() {
       return isSignedIn() && (
         request.auth.token.email == "successugochukwuchi@gmail.com" || 
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.get('level', '1') == "4"
+      );
+    }
+
+    function isVendorOrAdmin() {
+      return isSignedIn() && (
+        request.auth.token.email == "successugochukwuchi@gmail.com" ||
         get(/databases/$(database)/documents/users/$(request.auth.uid)).data.get('level', '1') in ["3", "4"]
       );
     }
@@ -180,19 +187,24 @@ service cloud.firestore {
 
     match /activationCodes/{code} {
       allow get: if isSignedIn();
-      allow list: if isLevel2();
-      allow write: if isLevel2() || (
+      allow list: if isVendorOrAdmin();
+      allow create: if isAdmin();
+      allow update: if isVendorOrAdmin() || (
         isSignedIn() && 
         existing().isUsed == false && 
         incoming().isUsed == true && 
         incoming().usedBy == request.auth.uid &&
-        incoming().diff(existing()).affectedKeys().hasOnly(['isUsed', 'usedBy', 'usedAt'])
+        incoming().diff(existing()).affectedKeys().hasOnly(['isUsed', 'usedBy', 'usedAt', 'usedByStudentId'])
       );
-      allow delete: if isAdmin();
+      allow delete: if isAdmin() || (
+        isSignedIn() && 
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.get('level', '1') == "3" &&
+        existing().get('assignedTo', '') == request.auth.uid
+      );
     }
 
     match /verificationRequests/{requestId} {
-      allow read, list: if isLevel2();
+      allow read, list: if isAdmin();
       allow create: if isSignedIn();
       allow update, delete: if isAdmin();
     }

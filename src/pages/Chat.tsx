@@ -129,7 +129,7 @@ export default function Chat() {
       setUserNotes(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Note)));
     }, (error) => {
       // Don't show technical error to Level 1 students for this auxiliary data
-      const isLowLevel = profile.level === '1' || profile.level === '1+';
+      const isLowLevel = profile.level === '1';
       if (!isLowLevel) {
         handleFirestoreError(error, OperationType.LIST, 'notes');
       }
@@ -144,7 +144,7 @@ export default function Chat() {
     const unsubscribe = onSnapshot(q, (snapshot) => {
       setCourses(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Course)));
     }, (error) => {
-      const isLowLevel = profile.level === '1' || profile.level === '1+';
+      const isLowLevel = profile.level === '1';
       if (!isLowLevel) {
         handleFirestoreError(error, OperationType.LIST, 'courses');
       }

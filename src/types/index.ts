@@ -1,4 +1,4 @@
-export type UserLevel = '1' | '1+' | '2' | '3' | '4';
+export type UserLevel = '1' | '2' | '3' | '4';
 export type Semester = '1st' | '2nd' | 'none';
 
 export interface UserProfile {
@@ -18,6 +18,7 @@ export interface UserProfile {
   banReason?: string;
   theme?: string;
   photoURL?: string;
+  currentSessionId?: string;
   createdAt: string;
 }
 
@@ -70,6 +71,8 @@ export interface SystemConfig {
   maintenanceMode: boolean;
   updatedBy: string;
   updatedAt: string;
+  standardPrice?: number;
+  plusPrice?: number;
 }
 
 export interface VerificationRequest {
@@ -128,6 +131,8 @@ export interface ActivationCode {
   createdBy: string;
   createdAt: string;
   type?: 'standard' | 'plus';
+  assignedTo?: string;
+  assignedToStudentId?: string;
 }
 
 export interface Notification {

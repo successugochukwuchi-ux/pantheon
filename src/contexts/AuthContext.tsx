@@ -69,6 +69,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       if (!firebaseUser) {
         setProfile(null);
         setLoading(false);
+        sessionStorage.removeItem('pantheon_session_id');
       }
     });
 
@@ -145,6 +146,26 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       const unsubscribeProfile = onSnapshot(doc(db, 'users', user.uid), (snapshot) => {
         if (snapshot.exists()) {
           const data = snapshot.data() as UserProfile;
+          
+          // Single-device system logic
+          let activeSessionId = sessionStorage.getItem('pantheon_session_id');
+          if (!activeSessionId) {
+            activeSessionId = Math.random().toString(36).substring(2, 15);
+            sessionStorage.setItem('pantheon_session_id', activeSessionId);
+            updateDoc(doc(db, 'users', user.uid), {
+              currentSessionId: activeSessionId
+            }).catch(err => console.error("Error setting session ID:", err));
+          } else if (data.currentSessionId && data.currentSessionId !== activeSessionId) {
+            toast.error("Logged out: Your account is open on another device.");
+            import('firebase/auth').then(({ signOut }) => signOut(auth));
+            sessionStorage.removeItem('pantheon_session_id');
+            return;
+          } else if (!data.currentSessionId) {
+            updateDoc(doc(db, 'users', user.uid), {
+              currentSessionId: activeSessionId
+            }).catch(err => console.error("Error restoring session ID:", err));
+          }
+
           setProfile(data);
 
           // Auto-promote bootstrap admin

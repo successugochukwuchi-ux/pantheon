@@ -52,7 +52,7 @@ import {
 } from 'lucide-react';
 import { Course, UserLevel, Semester, Note, Question, ActivationCode, VerificationRequest, QuestionSheet, VideoQuestion, NotificationTarget, Announcement, TelegramConfig, AIConfig } from '../types';
 import { sendTelegramAlert, testTelegramConnection } from '../services/telegramService';
-import { Routes, Route, useNavigate, useLocation } from 'react-router-dom';
+import { Routes, Route, useNavigate, useLocation, Navigate } from 'react-router-dom';
 import { NoteBuilder } from '../components/NoteBuilder';
 import AdminReports from './AdminReports';
 import { useTitle } from '../hooks/useTitle';
@@ -100,6 +100,39 @@ const RECOMMENDED_MODELS = {
     chat: 'google/gemini-2.0-flash-001',
     magicNote: 'google/gemini-2.0-flash-001'
   }
+};
+
+const safeCompareDates = (aStr: any, bStr: any, descending = true): number => {
+  if (!aStr && !bStr) return 0;
+  if (!aStr) return descending ? 1 : -1;
+  if (!bStr) return descending ? -1 : 1;
+
+  const getMs = (val: any): number => {
+    if (typeof val === 'string') {
+      return new Date(val).getTime();
+    }
+    if (val && typeof val === 'object') {
+      if (typeof val.toDate === 'function') {
+        return val.toDate().getTime();
+      }
+      if (typeof val.seconds === 'number') {
+        return val.seconds * 1000 + (val.nanoseconds || 0) / 1000000;
+      }
+    }
+    if (typeof val === 'number') return val;
+    return 0;
+  };
+
+  const msA = getMs(aStr);
+  const msB = getMs(bStr);
+  
+  return descending ? msB - msA : msA - msB;
+};
+
+const safeCompareStrings = (aStr: any, bStr: any, descending = false): number => {
+  const strA = String(aStr || '');
+  const strB = String(bStr || '');
+  return descending ? strB.localeCompare(strA) : strA.localeCompare(strB);
 };
 
 export default function AdminPanel() {
@@ -181,8 +214,25 @@ export default function AdminPanel() {
   const [pinType, setPinType] = useState<'standard' | 'plus'>('standard');
   const [unusedPins, setUnusedPins] = useState<ActivationCode[]>([]);
   const [usedPins, setUsedPins] = useState<ActivationCode[]>([]);
+  const [transferredPins, setTransferredPins] = useState<ActivationCode[]>([]);
   const [pinToDelete, setPinToDelete] = useState<string | null>(null);
   const [showClearConfirm, setShowClearConfirm] = useState(false);
+
+  // New Level 3 Vendor & Level 4 Pin States
+  const [bulkCount, setBulkCount] = useState(10);
+  const [bulkIncludePlus, setBulkIncludePlus] = useState(false);
+  const [bulkPlusCount, setBulkPlusCount] = useState(0);
+  const [selectedPinIds, setSelectedPinIds] = useState<string[]>([]);
+  const [transferStudentId, setTransferStudentId] = useState('');
+  const [standardPriceSetting, setStandardPriceSetting] = useState(3000);
+  const [plusPriceSetting, setPlusPriceSetting] = useState(5000);
+
+  useEffect(() => {
+    if (systemConfig) {
+      setStandardPriceSetting(systemConfig.standardPrice ?? 3000);
+      setPlusPriceSetting(systemConfig.plusPrice ?? 5000);
+    }
+  }, [systemConfig]);
 
   // Verification Requests State
   const [verificationRequests, setVerificationRequests] = useState<VerificationRequest[]>([]);
@@ -242,7 +292,9 @@ export default function AdminPanel() {
     if (!profile) return;
 
     const unsubCourses = onSnapshot(collection(db, 'courses'), (snapshot) => {
-      setCourses(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Course)));
+      const fetchedCourses = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Course));
+      fetchedCourses.sort((a, b) => safeCompareStrings(a.code, b.code));
+      setCourses(fetchedCourses);
     }, (err) => {
       handleFirestoreError(err, OperationType.LIST, 'courses');
     });
@@ -267,8 +319,20 @@ export default function AdminPanel() {
 
     const unsubPins = onSnapshot(collection(db, 'activationCodes'), (snapshot) => {
       const allPins = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as ActivationCode));
-      setUnusedPins(allPins.filter(p => !p.isUsed).sort((a, b) => b.createdAt.localeCompare(a.createdAt)));
-      setUsedPins(allPins.filter(p => p.isUsed).sort((a, b) => b.usedAt?.localeCompare(a.usedAt || '') || 0));
+      if (profile.level === '3') {
+        const sortedUnused = allPins.filter(p => !p.isUsed && p.assignedTo === user?.uid).sort((a, b) => safeCompareDates(a.createdAt, b.createdAt));
+        const sortedUsed = allPins.filter(p => p.isUsed && p.assignedTo === user?.uid).sort((a, b) => safeCompareDates(a.usedAt || a.createdAt, b.usedAt || b.createdAt));
+        setUnusedPins(sortedUnused);
+        setUsedPins(sortedUsed);
+        setTransferredPins([]);
+      } else {
+        const sortedUnused = allPins.filter(p => !p.isUsed && !p.assignedTo).sort((a, b) => safeCompareDates(a.createdAt, b.createdAt));
+        const sortedUsed = allPins.filter(p => p.isUsed && !p.assignedTo).sort((a, b) => safeCompareDates(a.usedAt || a.createdAt, b.usedAt || b.createdAt));
+        const sortedTransferred = allPins.filter(p => p.assignedTo).sort((a, b) => safeCompareDates(a.createdAt, b.createdAt));
+        setUnusedPins(sortedUnused);
+        setUsedPins(sortedUsed);
+        setTransferredPins(sortedTransferred);
+      }
     }, (err) => {
       handleFirestoreError(err, OperationType.LIST, 'activationCodes');
     });
@@ -280,7 +344,7 @@ export default function AdminPanel() {
     });
 
     const unsubAnnouncements = onSnapshot(collection(db, 'announcements'), (snapshot) => {
-      setAnnouncements(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Announcement)).sort((a, b) => b.createdAt.localeCompare(a.createdAt)));
+      setAnnouncements(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Announcement)).sort((a, b) => safeCompareDates(a.createdAt, b.createdAt)));
     }, (err) => {
       handleFirestoreError(err, OperationType.LIST, 'announcements');
     });
@@ -415,13 +479,17 @@ export default function AdminPanel() {
     if (!targetUid) return;
     setLoading(true);
     try {
-      const userRef = doc(db, 'users', targetUid);
-      const userSnap = await getDoc(userRef);
-      if (!userSnap.exists()) {
-        toast.error('User not found');
+      const q = query(collection(db, 'users'), where('studentId', '==', targetUid.toString().trim()));
+      const querySnap = await getDocs(q);
+      if (querySnap.empty) {
+        toast.error('User with this Student ID not found');
         return;
       }
-      const userData = userSnap.data();
+      const userDoc = querySnap.docs[0];
+      const userRef = userDoc.ref;
+      const userData = userDoc.data();
+      const actualUid = userDoc.id;
+
       await updateDoc(userRef, { level });
       toast.success(`User elevated to Level ${level}`);
       
@@ -429,7 +497,8 @@ export default function AdminPanel() {
       sendTelegramAlert(
         `<b>ALERT: ACCOUNT PROMOTION</b>\n\n` +
         `<b>STUDENT:</b> ${userData.username || 'N/A'}\n` +
-        `<b>UID:</b> ${targetUid}\n` +
+        `<b>STUDENT ID:</b> ${targetUid}\n` +
+        `<b>UID:</b> ${actualUid}\n` +
         `<b>OLD LEVEL:</b> ${userData.level}\n` +
         `<b>NEW LEVEL:</b> ${level}\n` +
         `<b>PROMOTED BY:</b> ${profile?.level} (UID: ${user?.uid})\n` +
@@ -448,9 +517,16 @@ export default function AdminPanel() {
     if (!targetUid) return;
     setLoading(true);
     try {
-      const userRef = doc(db, 'users', targetUid);
-      const userSnap = await getDoc(userRef);
-      const userData = userSnap.exists() ? userSnap.data() : null;
+      const q = query(collection(db, 'users'), where('studentId', '==', targetUid.toString().trim()));
+      const querySnap = await getDocs(q);
+      if (querySnap.empty) {
+        toast.error('User with this Student ID not found');
+        return;
+      }
+      const userDoc = querySnap.docs[0];
+      const userRef = userDoc.ref;
+      const userData = userDoc.data();
+      const actualUid = userDoc.id;
       
       await updateDoc(userRef, { 
         isBanned, 
@@ -463,7 +539,8 @@ export default function AdminPanel() {
         sendTelegramAlert(
           `<b>ALERT: ACCOUNT BANNED</b>\n\n` +
           `<b>STUDENT:</b> ${userData?.username || 'N/A'}\n` +
-          `<b>UID:</b> ${targetUid}\n` +
+          `<b>STUDENT ID:</b> ${targetUid}\n` +
+          `<b>UID:</b> ${actualUid}\n` +
           `<b>REASON:</b> ${banReason}\n` +
           `<b>BANNED BY:</b> ${profile?.level} (UID: ${user?.uid})\n` +
           `<b>TIME:</b> ${new Date().toLocaleString()}`
@@ -974,7 +1051,25 @@ export default function AdminPanel() {
     
     setLoading(true);
     try {
-      await deleteDoc(doc(db, 'activationCodes', pinToDelete));
+      const pinRef = doc(db, 'activationCodes', pinToDelete);
+      const pinSnap = await getDoc(pinRef);
+      if (pinSnap.exists()) {
+        const pinData = pinSnap.data();
+        if (profile?.level === '3') {
+          if (pinData.assignedTo !== user?.uid) {
+            toast.error("You are only allowed to delete pins assigned to you.");
+            setLoading(false);
+            return;
+          }
+        } else if (profile?.level === '4') {
+          if (pinData.assignedTo) {
+            toast.error("Cannot delete pin: it has already been transferred to a vendor.");
+            setLoading(false);
+            return;
+          }
+        }
+      }
+      await deleteDoc(pinRef);
       toast.success('Pin removed');
       setPinToDelete(null);
     } catch (error: any) {
@@ -1026,22 +1121,157 @@ export default function AdminPanel() {
   };
 
   const handleClearUsedPins = async () => {
-    if (usedPins.length === 0) return;
+    const pinsToClear = profile?.level === '3' 
+      ? usedPins.filter(pin => pin.assignedTo === user?.uid)
+      : usedPins;
+      
+    if (pinsToClear.length === 0) {
+      toast.info('No pinned history to clear');
+      return;
+    }
     
     setLoading(true);
     try {
       const batch = writeBatch(db);
       // Firebase batch limit is 500. For safety, we only clear the first 450 if more exist.
-      const pinsToProcess = usedPins.slice(0, 450);
+      const pinsToProcess = pinsToClear.slice(0, 450);
       pinsToProcess.forEach(pin => {
         batch.delete(doc(db, 'activationCodes', pin.id));
       });
       await batch.commit();
-      toast.success('History cleared');
+      toast.success('History cleared successfully');
       setShowClearConfirm(false);
     } catch (error: any) {
       console.error("Clear pins error:", error);
       toast.error('Failed to clear: ' + (error.message || 'Unknown error'));
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleBulkGeneratePins = async () => {
+    if (!systemConfig || systemConfig.currentSemester === 'none') {
+      toast.error('Cannot generate pins when no semester is active');
+      return;
+    }
+    
+    if (bulkCount <= 0 || bulkCount > 100) {
+      toast.error('Bulk generation is limited to 1 to 100 pins at a time');
+      return;
+    }
+    
+    if (bulkIncludePlus && (bulkPlusCount < 0 || bulkPlusCount > bulkCount)) {
+      toast.error('Invalid number of PLUS pins specified');
+      return;
+    }
+    
+    setLoading(true);
+    try {
+      const batch = writeBatch(db);
+      const now = new Date().toISOString();
+      
+      for (let i = 0; i < bulkCount; i++) {
+        const pin = Math.floor(100000000000 + Math.random() * 900000000000).toString();
+        // Determine whether this pin is PLUS or Standard based on includePlus and plusCount
+        const type = bulkIncludePlus && i < bulkPlusCount ? 'plus' : 'standard';
+        
+        batch.set(doc(db, 'activationCodes', pin), {
+          code: pin,
+          isUsed: false,
+          createdBy: user?.uid,
+          createdAt: now,
+          type: type
+        });
+      }
+      
+      await batch.commit();
+      toast.success(`Successfully generated ${bulkCount} activation pins!`);
+      setGeneratedCode(`Generated ${bulkCount} pins successfully!`);
+    } catch (error: any) {
+      console.error("Bulk generate error:", error);
+      toast.error('Failed to generate pins: ' + error.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleTransferPins = async () => {
+    if (selectedPinIds.length === 0) {
+      toast.error('Please select at least one pin to transfer');
+      return;
+    }
+    
+    if (!transferStudentId.trim()) {
+      toast.error('Please enter the vendor\'s Student ID');
+      return;
+    }
+    
+    setLoading(true);
+    try {
+      // Find the target user by Student ID and check if level is '3'
+      const usersRef = collection(db, 'users');
+      const q = query(usersRef, where('studentId', '==', transferStudentId.trim()));
+      const querySnap = await getDocs(q);
+      
+      if (querySnap.empty) {
+        toast.error('No student profile found with this Student ID. Please ensure they registered.');
+        setLoading(false);
+        return;
+      }
+      
+      const vendorDoc = querySnap.docs[0];
+      const vendorData = vendorDoc.data();
+      
+      if (vendorData.level !== '3') {
+        toast.error('The school ID matches a non-vendor account. Only Level 3 role can receive transfers.');
+        setLoading(false);
+        return;
+      }
+      
+      const vendorUid = vendorDoc.id;
+      const vendorName = vendorData.username || 'Vendor';
+      
+      // Perform batch update to assign selected pins to this Level 3 Vendor
+      const batch = writeBatch(db);
+      selectedPinIds.forEach(id => {
+        batch.update(doc(db, 'activationCodes', id), {
+          assignedTo: vendorUid,
+          assignedToStudentId: transferStudentId.trim()
+        });
+      });
+      
+      await batch.commit();
+      toast.success(`Successfully transferred ${selectedPinIds.length} pins to ${vendorName}!`);
+      setSelectedPinIds([]);
+      setTransferStudentId('');
+    } catch (error: any) {
+      console.error("Pin transfer error:", error);
+      toast.error('Failed to transfer pins: ' + error.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleSavePinPrices = async () => {
+    if (Number(standardPriceSetting) <= 0 || Number(plusPriceSetting) <= 0) {
+      toast.error('Price values must be greater than zero');
+      return;
+    }
+    
+    setLoading(true);
+    try {
+      const configRef = doc(db, 'system', 'config');
+      await setDoc(configRef, {
+        ...systemConfig,
+        standardPrice: Number(standardPriceSetting),
+        plusPrice: Number(plusPriceSetting),
+        updatedBy: user?.uid,
+        updatedAt: new Date().toISOString()
+      });
+      toast.success('Pin prices updated successfully!');
+    } catch (error: any) {
+      console.error("Save prices error:", error);
+      toast.error('Failed to update pin prices: ' + error.message);
     } finally {
       setLoading(false);
     }
@@ -1094,7 +1324,7 @@ export default function AdminPanel() {
       await setDoc(configRef, updateData, { merge: true });
       console.log("System config updated successfully");
 
-      // If ending a semester, demote 1+ and deactivate 1
+      // If ending a semester, demote 2 to 1 and deactivate 1
       if (semester === 'none') {
         const batch = writeBatch(db);
         let countDeactivated = 0;
@@ -1109,10 +1339,10 @@ export default function AdminPanel() {
             countDeactivated++;
           });
 
-          // 2. Demote Level 1+ users while keeping them activated
-          const level1PlusQuery = query(collection(db, 'users'), where('level', '==', '1+'));
-          const level1PlusSnap = await getDocs(level1PlusQuery);
-          level1PlusSnap.docs.forEach((userDoc) => {
+          // 2. Demote Level 2 users to Level 1 while keeping them activated
+          const level2Query = query(collection(db, 'users'), where('level', '==', '2'));
+          const level2Snap = await getDocs(level2Query);
+          level2Snap.docs.forEach((userDoc) => {
             batch.update(userDoc.ref, { level: '1' });
             countDemoted++;
           });
@@ -1284,6 +1514,10 @@ export default function AdminPanel() {
   const isAtLeastLevel3 = profile?.level === '3' || profile?.level === '4';
   const isLevel2 = profile?.level === '2';
 
+  if (profile?.level === '3' && !location.pathname.endsWith('/pins') && !location.pathname.includes('/pins')) {
+    return <Navigate to="/administrator/pins" replace />;
+  }
+
   return (
     <div className="space-y-8">
       <div className="flex flex-col gap-2">
@@ -1292,8 +1526,10 @@ export default function AdminPanel() {
       </div>
 
       <div className="flex flex-wrap gap-2 border-b pb-4">
-        <Button variant={location.pathname === '/administrator' ? 'default' : 'ghost'} size="sm" onClick={() => navigate('/administrator')}>Overview</Button>
-        {isAtLeastLevel3 && (
+        {isLevel4 && (
+          <Button variant={location.pathname === '/administrator' ? 'default' : 'ghost'} size="sm" onClick={() => navigate('/administrator')}>Overview</Button>
+        )}
+        {isLevel4 && (
           <>
             <Button variant={location.pathname.includes('users') ? 'default' : 'ghost'} size="sm" onClick={() => navigate('/administrator/users')}>Users</Button>
             <Button variant={location.pathname.includes('courses') ? 'default' : 'ghost'} size="sm" onClick={() => navigate('/administrator/courses')}>Courses</Button>
@@ -1302,20 +1538,26 @@ export default function AdminPanel() {
             <Button variant={location.pathname.includes('news') ? 'default' : 'ghost'} size="sm" onClick={() => navigate('/administrator/news')}>News</Button>
           </>
         )}
-        <Button variant={location.pathname.includes('pins') ? 'default' : 'ghost'} size="sm" onClick={() => navigate('/administrator/pins')}>Pins</Button>
-        {isAtLeastLevel3 && (
+        <Button variant={location.pathname.includes('pins') ? 'default' : 'ghost'} size="sm" onClick={() => navigate('/administrator/pins')}>
+          {isLevel4 ? 'Pins' : 'Vendor Dashboard'}
+        </Button>
+        {isLevel4 && (
           <>
             <Button variant={location.pathname.includes('videos') ? 'default' : 'ghost'} size="sm" onClick={() => navigate('/administrator/videos')}>Video Library</Button>
             <Button variant={location.pathname.includes('notifier') ? 'default' : 'ghost'} size="sm" onClick={() => navigate('/administrator/notifier')}>Notifier</Button>
             <Button variant={location.pathname.includes('reports') ? 'default' : 'ghost'} size="sm" onClick={() => navigate('/administrator/reports')}>Reports</Button>
+            <Button variant={location.pathname.includes('manual') ? 'default' : 'ghost'} size="sm" onClick={() => navigate('/administrator/manual')}>Admin Manual</Button>
+            <Button variant={location.pathname.includes('system') ? 'default' : 'ghost'} size="sm" onClick={() => navigate('/administrator/system')}>System</Button>
           </>
         )}
-        <Button variant={location.pathname.includes('manual') ? 'default' : 'ghost'} size="sm" onClick={() => navigate('/administrator/manual')}>Admin Manual</Button>
-        {isLevel4 && <Button variant={location.pathname.includes('system') ? 'default' : 'ghost'} size="sm" onClick={() => navigate('/administrator/system')}>System</Button>}
       </div>
 
       <Routes>
-        <Route index element={<AdminOverview courses={courses} notes={notes} questions={questions} unusedPins={unusedPins} usedPins={usedPins} />} />
+        <Route index element={
+          profile?.level === '3' 
+            ? <Navigate to="/administrator/pins" replace />
+            : <AdminOverview courses={courses} notes={notes} questions={questions} unusedPins={unusedPins} usedPins={usedPins} />
+        } />
         <Route path="/manual" element={<AdminManual />} />
         <Route path="/videos" element={
           <div className="space-y-6">
@@ -1537,15 +1779,16 @@ export default function AdminPanel() {
                   <UserPlus className="h-5 w-5" />
                   Elevate User
                 </CardTitle>
-                <CardDescription>Change a user's permission level using their UID.</CardDescription>
+                <CardDescription>Change a user's permission level using their Student ID.</CardDescription>
               </CardHeader>
               <CardContent className="space-y-4">
                 <div className="space-y-2">
-                  <Label>User UID</Label>
-                  <Input value={targetUid} onChange={(e) => setTargetUid(e.target.value)} placeholder="Enter UID" />
+                  <Label>Student ID</Label>
+                  <Input value={targetUid} onChange={(e) => setTargetUid(e.target.value)} placeholder="Enter 11-digit Student ID" />
                 </div>
               </CardContent>
-              <CardFooter className="flex gap-2">
+              <CardFooter className="flex flex-wrap gap-2">
+                <Button onClick={() => handleElevate('1')} variant="outline" disabled={loading || !targetUid}>Level 1</Button>
                 <Button onClick={() => handleElevate('2')} disabled={loading || !targetUid}>Level 2</Button>
                 {isLevel4 && (
                   <>
@@ -1562,11 +1805,12 @@ export default function AdminPanel() {
                   <Ban className="h-5 w-5" />
                   Ban/Demote User
                 </CardTitle>
+                <CardDescription>Ban/demote user using their Student ID.</CardDescription>
               </CardHeader>
               <CardContent className="space-y-4">
                 <div className="space-y-2">
-                  <Label>User UID</Label>
-                  <Input value={targetUid} onChange={(e) => setTargetUid(e.target.value)} placeholder="Enter UID" />
+                  <Label>Student ID</Label>
+                  <Input value={targetUid} onChange={(e) => setTargetUid(e.target.value)} placeholder="Enter 11-digit Student ID" />
                 </div>
                 <div className="space-y-2">
                   <Label>Reason</Label>
@@ -2037,7 +2281,16 @@ export default function AdminPanel() {
                 </Card>
 
                 <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-                  {questionSheets.map(sheet => {
+                  {[...questionSheets].sort((a, b) => {
+                    const courseA = courses.find(c => c.id === a.courseId);
+                    const courseB = courses.find(c => c.id === b.courseId);
+                    const codeA = courseA?.code || '';
+                    const codeB = courseB?.code || '';
+                    if (codeA !== codeB) {
+                      return safeCompareStrings(codeA, codeB);
+                    }
+                    return safeCompareStrings(b.year, a.year, true);
+                  }).map(sheet => {
                     const course = courses.find(c => c.id === sheet.courseId);
                     return (
                       <Card key={sheet.id} className="hover:shadow-md transition-shadow">
@@ -2350,165 +2603,514 @@ export default function AdminPanel() {
 
         <Route path="/pins" element={
           <div className="space-y-6">
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <Key className="h-5 w-5" />
-                  Generate Activation Pin
-                </CardTitle>
-                <CardDescription>Generate a unique 12-digit pin for account activation.</CardDescription>
-              </CardHeader>
-              <CardContent className="flex flex-col items-center justify-center py-8 gap-4">
-                {generatedCode && (
-                  <div className="flex items-center gap-4 bg-muted p-6 rounded-lg border">
-                    <div className="flex flex-col">
-                      <div className="text-4xl font-mono font-bold tracking-widest">
-                        {generatedCode}
+            {!isLevel4 ? (
+              /* ========================================== */
+              /* LEVEL 3 VENDOR DASHBOARD ELEMENT         */
+              /* ========================================== */
+              <div className="space-y-6">
+                <div className="grid gap-4 md:grid-cols-2">
+                  <Card>
+                    <CardHeader className="flex flex-row items-center justify-between pb-2">
+                      <CardTitle className="text-sm font-medium text-muted-foreground">My Available Pins</CardTitle>
+                      <Key className="h-4 w-4 text-primary" />
+                    </CardHeader>
+                    <CardContent>
+                      <div className="text-3xl font-bold">
+                        {unusedPins.filter(p => p.assignedTo === user?.uid).length}
                       </div>
-                      <Badge variant={pinType === 'plus' ? 'default' : 'secondary'} className="w-fit mt-1">
-                        {pinType === 'plus' ? 'PLUS PIN (Level 1+)' : 'STANDARD PIN (Level 1)'}
-                      </Badge>
-                    </div>
-                    <Button 
-                      variant="outline" 
-                      size="icon" 
-                      className="h-12 w-12" 
-                      onClick={() => copyToClipboard(generatedCode)}
-                    >
-                      <Copy className="h-6 w-6" />
-                    </Button>
-                  </div>
-                )}
-                
-                <div className="flex flex-col items-center gap-4 w-full max-w-xs">
-                  <div className="flex items-center gap-4 w-full">
-                    <Button 
-                      variant={pinType === 'standard' ? 'default' : 'outline'} 
-                      className="flex-1"
-                      onClick={() => setPinType('standard')}
-                    >
-                      Standard
-                    </Button>
-                    <Button 
-                      variant={pinType === 'plus' ? 'default' : 'outline'} 
-                      className="flex-1"
-                      onClick={() => setPinType('plus')}
-                    >
-                      PLUS
-                    </Button>
-                  </div>
+                      <p className="text-xs text-muted-foreground mt-1">
+                        Unused activation pins in your inventory
+                      </p>
+                    </CardContent>
+                  </Card>
                   
-                  <Button onClick={generatePin} disabled={loading} size="lg" className="w-full">
-                    {loading ? 'Generating...' : `Generate ${pinType.toUpperCase()} Pin`}
-                  </Button>
+                  <Card>
+                    <CardHeader className="flex flex-row items-center justify-between pb-2">
+                      <CardTitle className="text-sm font-medium text-muted-foreground">Monthly Sales Earnings</CardTitle>
+                      <span className="text-primary font-bold text-sm">₦</span>
+                    </CardHeader>
+                    <CardContent>
+                      <div className="text-3xl font-bold">
+                        ₦{(() => {
+                          const mySoldPins = usedPins.filter(p => p.assignedTo === user?.uid);
+                          const currentYearMonth = new Date().toISOString().slice(0, 7);
+                          const thisMonthSold = mySoldPins.filter(p => p.usedAt && p.usedAt.startsWith(currentYearMonth));
+                          
+                          const total = thisMonthSold.reduce((sum, p) => {
+                            const price = p.type === 'plus' 
+                              ? (systemConfig?.plusPrice ?? 5000) 
+                              : (systemConfig?.standardPrice ?? 3000);
+                            return sum + price;
+                          }, 0);
+                          return total.toLocaleString();
+                        })()}
+                      </div>
+                      <p className="text-xs text-muted-foreground mt-1">
+                        Est. profit based on market price standard (₦{(systemConfig?.standardPrice ?? 3000).toLocaleString()}) / PLUS (₦{(systemConfig?.plusPrice ?? 5000).toLocaleString()})
+                      </p>
+                    </CardContent>
+                  </Card>
                 </div>
-                {(!systemConfig || systemConfig.currentSemester === 'none') && (
-                  <p className="text-sm text-destructive font-medium">Semester must be active to generate pins.</p>
-                )}
-              </CardContent>
-            </Card>
 
-            <div className="grid gap-6 md:grid-cols-2">
-              <Card>
-                <CardHeader>
-                  <CardTitle>Unused Pins ({unusedPins.length})</CardTitle>
-                  <CardDescription>Available pins for distribution.</CardDescription>
-                </CardHeader>
-                <CardContent>
-                  <div className="max-h-[400px] overflow-y-auto space-y-2">
-                    {unusedPins.length > 0 ? (
-                      unusedPins.map(pin => (
-                        <div key={pin.id} className="flex items-center justify-between p-3 bg-muted rounded-lg border">
-                          <div className="flex flex-col gap-1">
-                            <div className="flex items-center gap-2">
-                              <code className="font-mono font-bold tracking-wider">{pin.code}</code>
-                              {pin.type === 'plus' && (
-                                <Badge variant="default" className="text-[8px] h-4 px-1 leading-none bg-primary">PLUS</Badge>
-                              )}
+                <div className="grid gap-6 md:grid-cols-2">
+                  <Card>
+                    <CardHeader>
+                      <CardTitle>My Available Pins</CardTitle>
+                      <CardDescription>Pins purchased from admin ready for students.</CardDescription>
+                    </CardHeader>
+                    <CardContent>
+                      <div className="max-h-[400px] overflow-y-auto space-y-2">
+                        {unusedPins.filter(p => p.assignedTo === user?.uid).length > 0 ? (
+                          unusedPins.filter(p => p.assignedTo === user?.uid).map(pin => (
+                            <div key={pin.id} className="flex items-center justify-between p-3 bg-muted rounded-lg border">
+                              <div className="flex flex-col gap-1">
+                                <div className="flex items-center gap-2">
+                                  <code className="font-mono font-bold tracking-wider">{pin.code}</code>
+                                  {pin.type === 'plus' ? (
+                                    <Badge variant="default" className="text-[8px] h-4 px-1 leading-none bg-primary">PLUS</Badge>
+                                  ) : (
+                                    <Badge variant="secondary" className="text-[8px] h-4 px-1 leading-none">STANDARD</Badge>
+                                  )}
+                                </div>
+                                <span className="text-[10px] text-muted-foreground">Received on {new Date(pin.createdAt).toLocaleDateString()}</span>
+                              </div>
+                              <Button 
+                                variant="outline" 
+                                size="icon" 
+                                className="h-8 w-8" 
+                                onClick={() => copyToClipboard(pin.code)}
+                              >
+                                <Copy className="h-4 w-4" />
+                              </Button>
                             </div>
-                            <span className="text-[10px] text-muted-foreground">{new Date(pin.createdAt).toLocaleDateString()}</span>
+                          ))
+                        ) : (
+                          <p className="text-sm text-muted-foreground text-center py-4">You have no unused pins. Buy from admins to restock.</p>
+                        )}
+                      </div>
+                    </CardContent>
+                  </Card>
+
+                  <Card>
+                    <CardHeader className="flex flex-row items-center justify-between space-y-0">
+                      <div className="space-y-1">
+                        <CardTitle>Sold Pins History</CardTitle>
+                        <CardDescription>Pins activated by students purchased through you.</CardDescription>
+                      </div>
+                      {usedPins.filter(p => p.assignedTo === user?.uid).length > 0 && (
+                        <Button 
+                          variant="ghost" 
+                          size="sm" 
+                          className="text-destructive text-xs hover:bg-destructive/10"
+                          onClick={() => setShowClearConfirm(true)}
+                        >
+                          <RefreshCw className="h-3 w-3 mr-1" />
+                          Clear History
+                        </Button>
+                      )}
+                    </CardHeader>
+                    <CardContent>
+                      <div className="max-h-[400px] overflow-y-auto space-y-2">
+                        {usedPins.filter(p => p.assignedTo === user?.uid).length > 0 ? (
+                          usedPins.filter(p => p.assignedTo === user?.uid).map(pin => (
+                            <div key={pin.id} className="p-3 bg-muted/50 rounded-lg border space-y-1">
+                              <div className="flex items-center justify-between">
+                                <div className="flex items-center gap-2">
+                                  <code className="font-mono font-bold text-primary">{pin.code}</code>
+                                  {pin.type === 'plus' ? (
+                                    <Badge variant="default" className="text-[8px] h-4 px-1 leading-none bg-primary">PLUS</Badge>
+                                  ) : (
+                                    <Badge variant="secondary" className="text-[8px] h-4 px-1 leading-none">STANDARD</Badge>
+                                  )}
+                                </div>
+                                <span className="text-[10px] text-muted-foreground">{pin.usedAt ? new Date(pin.usedAt).toLocaleString() : 'N/A'}</span>
+                              </div>
+                              <p className="text-[10px] text-muted-foreground">
+                                <span className="font-semibold">Used by student ID:</span> <span className="font-mono">{pin.usedByStudentId || 'N/A'}</span>
+                              </p>
+                            </div>
+                          ))
+                        ) : (
+                          <p className="text-sm text-muted-foreground text-center py-4">No pins used yet.</p>
+                        )}
+                      </div>
+                    </CardContent>
+                  </Card>
+                </div>
+              </div>
+            ) : (
+              /* ========================================== */
+              /* LEVEL 4 FULL ADMIN ELEMENT               */
+              /* ========================================== */
+              <div className="space-y-6">
+                <div className="grid gap-6 md:grid-cols-2">
+                  <Card>
+                    <CardHeader>
+                      <CardTitle className="flex items-center gap-2">
+                        <Key className="h-5 w-5" />
+                        Generate Activation Pin
+                      </CardTitle>
+                      <CardDescription>Generate a single unique 12-digit pin for immediate use.</CardDescription>
+                    </CardHeader>
+                    <CardContent className="flex flex-col items-center justify-center py-4 gap-4">
+                      {generatedCode && (
+                        <div className="flex items-center gap-4 bg-muted p-4 rounded-lg border w-full justify-between">
+                          <div className="flex flex-col">
+                            <div className="text-2xl font-mono font-bold tracking-widest">
+                              {generatedCode}
+                            </div>
+                            <Badge variant={pinType === 'plus' ? 'default' : 'secondary'} className="w-fit mt-1">
+                              {pinType === 'plus' ? 'PLUS PIN' : 'STANDARD PIN'}
+                            </Badge>
                           </div>
-                          <div className="flex items-center gap-1">
-                            <Button 
-                              variant="ghost" 
-                              size="icon" 
-                              className="h-8 w-8" 
-                              onClick={() => copyToClipboard(pin.code)}
-                            >
-                              <Copy className="h-4 w-4" />
-                            </Button>
-                            <Button 
-                              variant="ghost" 
-                              size="icon" 
-                              className="h-8 w-8 text-destructive hover:bg-destructive/10" 
-                              onClick={() => setPinToDelete(pin.id)}
-                            >
-                              <Trash2 className="h-4 w-4" />
-                            </Button>
-                          </div>
+                          <Button 
+                            variant="outline" 
+                            size="icon" 
+                            className="h-10 w-10" 
+                            onClick={() => copyToClipboard(generatedCode)}
+                          >
+                            <Copy className="h-4 w-4" />
+                          </Button>
                         </div>
-                      ))
-                    ) : (
-                      <p className="text-sm text-muted-foreground text-center py-4">No unused pins available.</p>
-                    )}
-                  </div>
-                </CardContent>
-              </Card>
+                      )}
+                      
+                      <div className="flex flex-col items-center gap-3 w-full">
+                        <div className="flex items-center gap-3 w-full">
+                          <Button 
+                            variant={pinType === 'standard' ? 'default' : 'outline'} 
+                            className="flex-1"
+                            onClick={() => setPinType('standard')}
+                          >
+                            Standard
+                          </Button>
+                          <Button 
+                            variant={pinType === 'plus' ? 'default' : 'outline'} 
+                            className="flex-1"
+                            onClick={() => setPinType('plus')}
+                          >
+                            PLUS
+                          </Button>
+                        </div>
+                        
+                        <Button onClick={generatePin} disabled={loading} className="w-full">
+                          {loading ? 'Generating...' : `Generate ${pinType.toUpperCase()} Pin`}
+                        </Button>
+                      </div>
+                    </CardContent>
+                  </Card>
 
-              <Card>
-                <CardHeader className="flex flex-row items-center justify-between space-y-0">
-                  <div className="space-y-1">
-                    <CardTitle>Used Pins History ({usedPins.length})</CardTitle>
-                    <CardDescription>Pins used by students this semester.</CardDescription>
-                  </div>
-                  {usedPins.length > 0 && (
-                    <Button 
-                      variant="ghost" 
-                      size="sm" 
-                      className="text-destructive text-xs hover:bg-destructive/10"
-                      onClick={() => setShowClearConfirm(true)}
-                    >
-                      <RefreshCw className="h-3 w-3 mr-1" />
-                      Clear All
-                    </Button>
-                  )}
-                </CardHeader>
-                <CardContent>
-                  <div className="max-h-[400px] overflow-y-auto space-y-2">
-                    {usedPins.length > 0 ? (
-                      usedPins.map(pin => (
-                        <div key={pin.id} className="p-3 bg-muted/50 rounded-lg border space-y-2 relative group">
-                          <div className="flex items-center justify-between">
-                            <div className="flex items-center gap-2">
-                              <code className="font-mono font-bold text-primary">{pin.code}</code>
-                              {pin.type === 'plus' && (
-                                <Badge variant="default" className="text-[8px] h-4 px-1 leading-none bg-primary">PLUS</Badge>
-                              )}
-                            </div>
-                            <span className="text-[10px] text-muted-foreground">{pin.usedAt ? new Date(pin.usedAt).toLocaleString() : 'Unknown'}</span>
-                          </div>
-                          <div className="flex items-center justify-between">
-                            <p className="text-[10px] text-muted-foreground truncate flex-1">
-                              <span className="font-semibold">Used by:</span> {pin.usedByStudentId || pin.usedBy}
+                  <Card>
+                    <CardHeader>
+                      <CardTitle className="flex items-center gap-2">
+                        <Plus className="h-5 w-5" />
+                        Bulk Pin Generation
+                      </CardTitle>
+                      <CardDescription>Generate multiple activation codes at once.</CardDescription>
+                    </CardHeader>
+                    <CardContent className="space-y-4">
+                      <div className="space-y-2">
+                        <Label>Total Pins to Generate</Label>
+                        <Input 
+                          type="number" 
+                          min={1} 
+                          max={100} 
+                          value={bulkCount} 
+                          onChange={(e) => setBulkCount(Number(e.target.value))} 
+                        />
+                      </div>
+                      
+                      <div className="space-y-3 p-3 bg-muted rounded-lg border">
+                        <div className="flex items-center gap-2">
+                          <input 
+                            type="checkbox" 
+                            id="bulkIncludePlus" 
+                            className="h-4 w-4 rounded border-gray-300 text-primary" 
+                            checked={bulkIncludePlus} 
+                            onChange={(e) => setBulkIncludePlus(e.target.checked)} 
+                          />
+                          <Label htmlFor="bulkIncludePlus" className="cursor-pointer">Include PLUS pins in batch</Label>
+                        </div>
+                        
+                        {bulkIncludePlus && (
+                          <div className="space-y-1.5 animate-in fade-in slide-in-from-top-2 duration-200">
+                            <Label>How many of the {bulkCount} should be PLUS pins?</Label>
+                            <Input 
+                              type="number" 
+                              min={0} 
+                              max={bulkCount} 
+                              value={bulkPlusCount} 
+                              onChange={(e) => setBulkPlusCount(Number(e.target.value))} 
+                            />
+                            <p className="text-[10px] text-muted-foreground mt-1">
+                              Remaining {bulkCount - bulkPlusCount} will be Standard pins.
                             </p>
-                            <Button 
-                              variant="ghost" 
-                              size="icon" 
-                              className="h-6 w-6 text-destructive opacity-0 group-hover:opacity-100 transition-opacity" 
-                              onClick={() => setPinToDelete(pin.id)}
-                            >
-                              <Trash2 className="h-3.5 w-3.5" />
-                            </Button>
                           </div>
+                        )}
+                      </div>
+
+                      <Button onClick={handleBulkGeneratePins} disabled={loading} className="w-full">
+                        {loading ? 'Processing...' : `Bulk Generate ${bulkCount} Pins`}
+                      </Button>
+                    </CardContent>
+                  </Card>
+                </div>
+
+                <div className="grid gap-6 md:grid-cols-2">
+                  <Card className="flex flex-col">
+                    <CardHeader className="flex flex-col">
+                      <CardTitle>Transfer Pins to Vendor</CardTitle>
+                      <CardDescription>Select unused pins below and assign them to a Level 3 Vendor.</CardDescription>
+                    </CardHeader>
+                    <CardContent className="space-y-4 flex-1 col">
+                      <div className="space-y-2">
+                        <Label>Receiving Vendor Student ID</Label>
+                        <Input 
+                          placeholder="Enter vendor's registered student ID..." 
+                          value={transferStudentId}
+                          onChange={(e) => setTransferStudentId(e.target.value)}
+                        />
+                      </div>
+                      <div className="p-3 bg-primary/5 rounded-lg border border-primary/20 text-xs flex flex-col gap-1 text-muted-foreground mb-4">
+                        <span className="font-semibold text-primary">Selected Pins: {selectedPinIds.length}</span>
+                        <span>Ensure you have confirmed payment from this Level 3 Vendor before clicking Transfer.</span>
+                      </div>
+                      <Button 
+                        onClick={handleTransferPins} 
+                        disabled={loading || selectedPinIds.length === 0} 
+                        className="w-full mt-auto"
+                      >
+                        {loading ? 'Transferring...' : `Transfer ${selectedPinIds.length} Selected Pins`}
+                      </Button>
+                    </CardContent>
+                  </Card>
+
+                  <Card>
+                    <CardHeader>
+                      <CardTitle>Configure Pin Prices</CardTitle>
+                      <CardDescription>Set the pricing for Standard and PLUS plans displayed to students.</CardDescription>
+                    </CardHeader>
+                    <CardContent className="space-y-4">
+                      <div className="grid grid-cols-2 gap-4">
+                        <div className="space-y-2">
+                          <Label>Standard Plan Price (₦)</Label>
+                          <Input 
+                            type="number" 
+                            value={standardPriceSetting} 
+                            onChange={(e) => setStandardPriceSetting(Number(e.target.value))} 
+                          />
                         </div>
-                      ))
-                    ) : (
-                      <p className="text-sm text-muted-foreground text-center py-4">No pins have been used yet.</p>
-                    )}
-                  </div>
-                </CardContent>
-              </Card>
-            </div>
+                        <div className="space-y-2">
+                          <Label>PLUS Plan Price (₦)</Label>
+                          <Input 
+                            type="number" 
+                            value={plusPriceSetting} 
+                            onChange={(e) => setPlusPriceSetting(Number(e.target.value))} 
+                          />
+                        </div>
+                      </div>
+                      <Button onClick={handleSavePinPrices} disabled={loading} className="w-full">
+                        {loading ? 'Saving...' : 'Update Prices'}
+                      </Button>
+                    </CardContent>
+                  </Card>
+                </div>
+
+                <div className="grid gap-6 md:grid-cols-2">
+                  <Card>
+                    <CardHeader className="flex flex-row items-center justify-between pb-2">
+                      <div className="space-y-1">
+                        <CardTitle>Unused Pins ({unusedPins.length})</CardTitle>
+                        <CardDescription>Manage master distribution inventory.</CardDescription>
+                      </div>
+                      {unusedPins.length > 0 && (
+                        <div className="flex items-center gap-2">
+                          <Button 
+                            variant="outline" 
+                            size="sm" 
+                            className="text-xs"
+                            onClick={() => {
+                              if (selectedPinIds.length === unusedPins.length) {
+                                setSelectedPinIds([]);
+                              } else {
+                                setSelectedPinIds(unusedPins.map(p => p.id));
+                              }
+                            }}
+                          >
+                            {selectedPinIds.length === unusedPins.length ? 'Deselect All' : 'Select All'}
+                          </Button>
+                        </div>
+                      )}
+                    </CardHeader>
+                    <CardContent>
+                      <div className="max-h-[400px] overflow-y-auto space-y-2">
+                        {unusedPins.length > 0 ? (
+                          unusedPins.map(pin => (
+                            <div key={pin.id} className="flex items-center justify-between p-3 bg-muted rounded-lg border">
+                              <div className="flex items-center gap-3">
+                                <input 
+                                  type="checkbox" 
+                                  className="h-4 w-4 rounded border-gray-300 text-primary"
+                                  checked={selectedPinIds.includes(pin.id)}
+                                  onChange={(e) => {
+                                    if (e.target.checked) {
+                                      setSelectedPinIds([...selectedPinIds, pin.id]);
+                                    } else {
+                                      setSelectedPinIds(selectedPinIds.filter(id => id !== pin.id));
+                                    }
+                                  }}
+                                />
+                                <div className="flex flex-col gap-0.5">
+                                  <div className="flex items-center gap-2">
+                                    <code className="font-mono font-bold tracking-wider">{pin.code}</code>
+                                    {pin.type === 'plus' ? (
+                                      <Badge variant="default" className="text-[8px] h-4 px-1 leading-none bg-primary">PLUS</Badge>
+                                    ) : (
+                                      <Badge variant="secondary" className="text-[8px] h-4 px-1 leading-none">STANDARD</Badge>
+                                    )}
+                                  </div>
+                                  <span className="text-[10px] text-muted-foreground">
+                                    {pin.assignedToStudentId ? `Assigned to: ${pin.assignedToStudentId}` : 'Master Pool'} • {new Date(pin.createdAt).toLocaleDateString()}
+                                  </span>
+                                </div>
+                              </div>
+                              <div className="flex items-center gap-1">
+                                <Button 
+                                  variant="ghost" 
+                                  size="icon" 
+                                  className="h-8 w-8" 
+                                  onClick={() => copyToClipboard(pin.code)}
+                                >
+                                  <Copy className="h-4 w-4" />
+                                </Button>
+                                <Button 
+                                  variant="ghost" 
+                                  size="icon" 
+                                  className="h-8 w-8 text-destructive hover:bg-destructive/10" 
+                                  onClick={() => setPinToDelete(pin.id)}
+                                >
+                                  <Trash2 className="h-4 w-4" />
+                                </Button>
+                              </div>
+                            </div>
+                          ))
+                        ) : (
+                          <p className="text-sm text-muted-foreground text-center py-4">No unused pins available.</p>
+                        )}
+                      </div>
+                    </CardContent>
+                  </Card>
+
+                  <Card>
+                    <CardHeader className="flex flex-row items-center justify-between space-y-0">
+                      <div className="space-y-1">
+                        <CardTitle>Used Pins History ({usedPins.length})</CardTitle>
+                        <CardDescription>Pins activated by students this semester.</CardDescription>
+                      </div>
+                      {usedPins.length > 0 && (
+                        <Button 
+                          variant="ghost" 
+                          size="sm" 
+                          className="text-destructive text-xs hover:bg-destructive/10"
+                          onClick={() => setShowClearConfirm(true)}
+                        >
+                          <RefreshCw className="h-3 w-3 mr-1" />
+                          Clear All
+                        </Button>
+                      )}
+                    </CardHeader>
+                    <CardContent>
+                      <div className="max-h-[400px] overflow-y-auto space-y-2">
+                        {usedPins.length > 0 ? (
+                          usedPins.map(pin => (
+                            <div key={pin.id} className="p-3 bg-muted/50 rounded-lg border space-y-2 relative group">
+                              <div className="flex items-center justify-between">
+                                <div className="flex items-center gap-2">
+                                  <code className="font-mono font-bold text-primary">{pin.code}</code>
+                                  {pin.type === 'plus' ? (
+                                    <Badge variant="default" className="text-[8px] h-4 px-1 leading-none bg-primary">PLUS</Badge>
+                                  ) : (
+                                    <Badge variant="secondary" className="text-[8px] h-4 px-1 leading-none">STANDARD</Badge>
+                                  )}
+                                </div>
+                                <span className="text-[10px] text-muted-foreground">{pin.usedAt ? new Date(pin.usedAt).toLocaleString() : 'Unknown'}</span>
+                              </div>
+                              <div className="flex items-center justify-between">
+                                <div className="flex flex-col gap-0.5">
+                                  <p className="text-[10px] text-muted-foreground truncate flex-1">
+                                    <span className="font-semibold">Used by:</span> {pin.usedByStudentId || pin.usedBy}
+                                  </p>
+                                  {pin.assignedToStudentId && (
+                                    <p className="text-[9px] text-muted-foreground italic">
+                                      Vendor assignment: {pin.assignedToStudentId}
+                                    </p>
+                                  )}
+                                </div>
+                                <Button 
+                                  variant="ghost" 
+                                  size="icon" 
+                                  className="h-6 w-6 text-destructive opacity-0 group-hover:opacity-100 transition-opacity" 
+                                  onClick={() => setPinToDelete(pin.id)}
+                                >
+                                  <Trash2 className="h-3.5 w-3.5" />
+                                </Button>
+                              </div>
+                            </div>
+                          ))
+                        ) : (
+                          <p className="text-sm text-muted-foreground text-center py-4">No pins have been used yet.</p>
+                        )}
+                      </div>
+                    </CardContent>
+                  </Card>
+                </div>
+
+                {/* Transferred Pins History for Level 4 */}
+                {profile?.level === '4' && (
+                  <Card className="mt-6">
+                    <CardHeader>
+                      <CardTitle>Transferred Pins History ({transferredPins.length})</CardTitle>
+                      <CardDescription>Pins that have been transferred out to vendors (Level 3 students) for discount reselling. These are managed and can be deleted only by those vendors.</CardDescription>
+                    </CardHeader>
+                    <CardContent>
+                      <div className="max-h-[300px] overflow-y-auto space-y-2">
+                        {transferredPins.length > 0 ? (
+                          <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+                            {transferredPins.map(pin => (
+                              <div key={pin.id} className="p-3 bg-muted/45 rounded-lg border flex flex-col justify-between gap-2 text-xs">
+                                <div className="flex items-center justify-between">
+                                  <code className="font-mono font-bold text-sm tracking-wider text-primary">{pin.code}</code>
+                                  <div className="flex gap-1 items-center">
+                                    {pin.isUsed ? (
+                                      <Badge variant="default" className="text-[8px] bg-emerald-500 hover:bg-emerald-600 text-white leading-none px-1 h-4">USED</Badge>
+                                    ) : (
+                                      <Badge variant="secondary" className="text-[8px] leading-none px-1 h-4">UNUSED</Badge>
+                                    )}
+                                    {pin.type === 'plus' ? (
+                                      <Badge variant="default" className="text-[8px] h-4 px-1 leading-none bg-indigo-600">PLUS</Badge>
+                                    ) : (
+                                      <Badge variant="secondary" className="text-[8px] h-4 px-1 leading-none">STD</Badge>
+                                    )}
+                                  </div>
+                                </div>
+                                <div className="text-[10px] text-muted-foreground space-y-0.5">
+                                  <p><span className="font-semibold">Transferred to Student:</span> {pin.assignedToStudentId || 'Unknown Vendor'}</p>
+                                  {pin.isUsed && pin.usedByStudentId && (
+                                    <p><span className="font-semibold">Activated by:</span> {pin.usedByStudentId}</p>
+                                  )}
+                                  <p className="italic text-[9px]">Transferred on {pin.usedAt ? new Date(pin.usedAt).toLocaleDateString() : new Date(pin.createdAt).toLocaleDateString()}</p>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        ) : (
+                          <p className="text-sm text-muted-foreground text-center py-4">No pins transferred out yet.</p>
+                        )}
+                      </div>
+                    </CardContent>
+                  </Card>
+                )}
+              </div>
+            )}
 
             {/* Pin Management Dialogs */}
             <Dialog open={!!pinToDelete} onOpenChange={(open) => !open && setPinToDelete(null)}>
@@ -2533,7 +3135,7 @@ export default function AdminPanel() {
                 <DialogHeader>
                   <DialogTitle>Clear Used Pins History</DialogTitle>
                   <DialogDescription>
-                    This will permanently delete up to 450 used pin records. 
+                    This will permanently delete up to 450 of your sold / used pin records. 
                     Are you sure you want to proceed?
                   </DialogDescription>
                 </DialogHeader>
@@ -2988,8 +3590,8 @@ export default function AdminPanel() {
               </CardHeader>
               <CardContent>
                 <div className="space-y-2">
-                  {verificationRequests.filter(r => r.status !== 'pending').length > 0 ? (
-                    verificationRequests.filter(r => r.status !== 'pending').sort((a, b) => b.timestamp.localeCompare(a.timestamp)).slice(0, 10).map(request => (
+                   {verificationRequests.filter(r => r.status !== 'pending').length > 0 ? (
+                    verificationRequests.filter(r => r.status !== 'pending').sort((a, b) => safeCompareDates(a.timestamp, b.timestamp)).slice(0, 10).map(request => (
                       <div key={request.id} className="flex items-center justify-between p-3 text-sm border rounded-lg bg-muted/50">
                         <div className="flex flex-col">
                           <span className="font-medium">{request.username || request.studentId}</span>
@@ -3049,7 +3651,6 @@ export default function AdminPanel() {
                           <SelectTrigger><SelectValue placeholder="Select Level" /></SelectTrigger>
                           <SelectContent>
                             <SelectItem value="1">Level 1</SelectItem>
-                            <SelectItem value="1+">Level 1+</SelectItem>
                             <SelectItem value="2">Level 2</SelectItem>
                             <SelectItem value="3">Level 3</SelectItem>
                             <SelectItem value="4">Level 4</SelectItem>
@@ -3190,7 +3791,7 @@ function AdminManual() {
     {
       title: "User Management",
       icon: <Users className="h-5 w-5" />,
-      content: "Admins can elevate users to different levels (1, 1+, 2, 3, 4) using their specific UID. You can also ban users and provide a reason.",
+      content: "Admins can elevate users to different levels (1, 2, 3, 4) using their specific UID. You can also ban users and provide a reason.",
       tutorial: (
         <div className="space-y-4">
           <p>The User Management system is designed for account moderation and role assignment.</p>
@@ -3295,7 +3896,7 @@ function AdminManual() {
             <h4 className="font-bold text-sm">Pin Types:</h4>
             <ul className="list-disc pl-5 text-sm space-y-1">
               <li><strong>Standard:</strong> Activates Level 1 accounts for one semester.</li>
-              <li><strong>Plus:</strong> Grants Level 1+ (VIP) status with extra benefits.</li>
+              <li><strong>Plus:</strong> Grants Level 2 status (two semesters of access).</li>
             </ul>
           </div>
           <div className="space-y-2">
@@ -3360,9 +3961,9 @@ function AdminManual() {
       tutorial: (
         <div className="space-y-4">
           <p>Understanding the anti-fraud measures in the referral system.</p>
-          <p className="text-sm">The software automatically blocks Levels {">"}= 1+ from participation. This is hardcoded into the business logic to prevent Admins or VIP users from farming points using their influence.</p>
+          <p className="text-sm">The software automatically blocks Levels {">"}= 2 from participation. This is hardcoded into the business logic to prevent Admins, Vendors, or Multi-Semester users from farming points using their influence.</p>
           <div className="p-3 bg-destructive/5 rounded border border-destructive/20 text-destructive text-xs font-bold uppercase tracking-tight">
-            Level 1+ / 2 / 3 / 4 Restricted
+            Level 2 / 3 / 4 Restricted
           </div>
         </div>
       )

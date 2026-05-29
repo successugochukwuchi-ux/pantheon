@@ -107,7 +107,9 @@
         "currentSemester": { "type": "string", "enum": ["1st", "2nd", "none"] },
         "maintenanceMode": { "type": "boolean" },
         "updatedBy": { "type": "string" },
-        "updatedAt": { "type": "string", "format": "date-time" }
+        "updatedAt": { "type": "string", "format": "date-time" },
+        "standardPrice": { "type": "number" },
+        "plusPrice": { "type": "number" }
       },
       "required": ["currentSemester", "maintenanceMode", "updatedBy", "updatedAt"]
     },

@@ -29,7 +29,9 @@ export default function Dashboard() {
       where('semester', '==', systemConfig.currentSemester)
     );
     const unsub = onSnapshot(q, (snapshot) => {
-      setCourses(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Course)));
+      const fetchedCourses = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Course));
+      fetchedCourses.sort((a, b) => a.code.localeCompare(b.code));
+      setCourses(fetchedCourses);
     }, (err) => {
       handleFirestoreError(err, OperationType.LIST, 'courses');
     });

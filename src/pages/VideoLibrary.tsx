@@ -30,7 +30,9 @@ export default function VideoLibrary() {
   useEffect(() => {
     if (!profile) return;
     const unsub = onSnapshot(collection(db, 'courses'), (snapshot) => {
-      setCourses(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Course)));
+      const allCourses = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Course));
+      allCourses.sort((a, b) => a.code.localeCompare(b.code));
+      setCourses(allCourses);
     }, (err) => {
       handleFirestoreError(err, OperationType.LIST, 'courses');
     });

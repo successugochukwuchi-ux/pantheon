@@ -25,7 +25,7 @@ export const ProtectedRoute: React.FC<{ children: React.ReactNode; requireActiva
   if (requireActivation && !profile?.isActivated) {
     // Admins of level 2 and above do not need an activation pin
     // Bootstrap admin also bypasses this
-    const levels = ['1', '1+', '2', '3', '4'];
+    const levels = ['1', '2', '3', '4'];
     const userIdx = levels.indexOf(profile?.level || '1');
     const isBootstrapAdmin = user?.email === 'successugochukwuchi@gmail.com';
     
@@ -36,7 +36,7 @@ export const ProtectedRoute: React.FC<{ children: React.ReactNode; requireActiva
 
   // Simple level check (can be improved)
   if (minLevel !== '1') {
-    const levels = ['1', '1+', '2', '3', '4'];
+    const levels = ['1', '2', '3', '4'];
     const userIdx = levels.indexOf(profile?.level || '1');
     const minIdx = levels.indexOf(minLevel);
     const isBootstrapAdmin = user?.email === 'successugochukwuchi@gmail.com';

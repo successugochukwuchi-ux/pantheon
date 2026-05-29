@@ -222,6 +222,44 @@
   /* Variables will be set via inline styles from ThemeContext */
 }
 
+.velvet.dark {
+  --background: oklch(0.14 0.05 10);
+  --foreground: oklch(0.95 0.02 20);
+  --card: oklch(0.17 0.06 10);
+  --card-foreground: oklch(0.95 0.02 20);
+  --primary: oklch(0.65 0.16 15);
+  --primary-foreground: oklch(0.98 0.01 20);
+  --border: oklch(0.24 0.06 10);
+  --accent: oklch(0.22 0.06 10);
+  --muted: oklch(0.2 0.05 10);
+  --muted-foreground: oklch(0.7 0.04 20);
+  --sidebar: oklch(0.12 0.04 10);
+  --sidebar-foreground: oklch(0.95 0.02 20);
+  --sidebar-primary: oklch(0.65 0.16 15);
+  --sidebar-secondary: oklch(0.18 0.05 10);
+  --sidebar-accent: oklch(0.2 0.05 10);
+  --sidebar-accent-foreground: oklch(0.95 0.02 20);
+}
+
+.obsidian.dark {
+  --background: oklch(0.08 0 0);
+  --foreground: oklch(0.98 0.01 280);
+  --card: oklch(0.12 0.01 280);
+  --card-foreground: oklch(0.98 0.01 280);
+  --primary: oklch(0.6 0.22 280);
+  --primary-foreground: oklch(0.99 0.01 280);
+  --border: oklch(0.18 0.02 280);
+  --accent: oklch(0.16 0.04 280);
+  --muted: oklch(0.14 0.02 280);
+  --muted-foreground: oklch(0.7 0.03 280);
+  --sidebar: oklch(0.08 0 0);
+  --sidebar-foreground: oklch(0.98 0.01 280);
+  --sidebar-primary: oklch(0.6 0.22 280);
+  --sidebar-secondary: oklch(0.1 0.01 280);
+  --sidebar-accent: oklch(0.14 0.04 280);
+  --sidebar-accent-foreground: oklch(0.98 0.01 280);
+}
+
 @layer base {
   * {
     @apply border-border outline-ring/50;
