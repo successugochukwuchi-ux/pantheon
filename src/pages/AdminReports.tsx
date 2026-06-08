@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { collection, query, orderBy, onSnapshot, updateDoc, doc, getDoc } from 'firebase/firestore';
+import { collection, query, orderBy, getDocs, updateDoc, doc, getDoc } from 'firebase/firestore';
 import { db } from '../firebase';
 import { useAuth } from '../contexts/AuthContext';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '../components/ui/card';
@@ -11,32 +11,33 @@ import { useNavigate } from 'react-router-dom';
 import { Report, UserProfile } from '../types';
 
 export default function AdminReports() {
-  const { user, profile } = useAuth();
+  const { user, profile, loading: authLoading } = useAuth();
   const navigate = useNavigate();
   const [reports, setReports] = useState<Report[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    if (authLoading) return;
+
     if (!user || (profile?.level !== '3' && profile?.level !== '4')) {
       navigate('/dashboard');
       return;
     }
 
     const q = query(collection(db, 'reports'), orderBy('createdAt', 'desc'));
-    const unsubscribe = onSnapshot(q, (snapshot) => {
+    getDocs(q).then((snapshot) => {
       setReports(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Report)));
       setLoading(false);
-    }, (err) => {
+    }).catch((err) => {
       setLoading(false);
-      console.error("Reports listener failed:", err);
+      console.error("Reports fetch failed:", err);
     });
-
-    return () => unsubscribe();
-  }, [user, profile, navigate]);
+  }, [user, profile, navigate, authLoading]);
 
   const handleUpdateStatus = async (reportId: string, status: 'resolved' | 'dismissed') => {
     try {
       await updateDoc(doc(db, 'reports', reportId), { status });
+      setReports(prev => prev.map(r => r.id === reportId ? { ...r, status } : r));
       toast.success(`Report ${status}`);
     } catch (err) {
       toast.error('Failed to update report');

@@ -121,8 +121,9 @@ service cloud.firestore {
              (data.get('academicLevel', null) == null || data.academicLevel is string) &&
              (data.get('referralCount', null) == null || data.referralCount is number) &&
              (data.get('referredBy', null) == null || data.referredBy == null || data.referredBy is string) &&
-             (data.get('theme', null) == null || data.theme in ['light', 'dark', 'forest', 'midnight', 'sepia', 'lavender', 'ocean']) &&
+             (data.get('theme', null) == null || data.theme is string) &&
              (data.get('photoURL', null) == null || data.photoURL is string) &&
+             (data.get('currentSessionId', null) == null || data.currentSessionId is string) &&
              (data.get('createdAt', null) == null || data.createdAt is string);
     }
 
@@ -133,11 +134,12 @@ service cloud.firestore {
                       incoming().isActivated == (incoming().email == "successugochukwuchi@gmail.com");
       allow update: if isAdmin() || (
                       isOwner(userId) && (
-                        (incoming().diff(existing()).affectedKeys().hasOnly(['username', 'theme', 'referredBy', 'mobileNumber', 'photoURL']) && isValidUser(incoming())) ||
+                        (incoming().diff(existing()).affectedKeys().hasOnly(['username', 'theme', 'referredBy', 'mobileNumber', 'photoURL', 'currentSessionId']) && isValidUser(incoming())) ||
                         (
-                          incoming().diff(existing()).affectedKeys().hasOnly(['isActivated', 'activatedViaPromo']) &&
+                          incoming().diff(existing()).affectedKeys().hasOnly(['isActivated', 'activatedViaPromo', 'level', 'currentSessionId']) &&
                           existing().isActivated == false &&
-                          incoming().isActivated == true
+                          incoming().isActivated == true &&
+                          incoming().level in ['1', '2']
                         )
                       )
                     );

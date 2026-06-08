@@ -56,7 +56,7 @@ export default function TermsScreen() {
           <Section 
             number="1" 
             title="Acceptance of Terms" 
-            text="By accessing or using PANTHEON, you agree to be bound by these Terms of Service. If you do not agree to all of these terms, do not use our platform."
+            text="By accessing or using COLEARN, you agree to be bound by these Terms of Service. If you do not agree to all of these terms, do not use our platform."
           />
 
           <Section 
@@ -76,13 +76,13 @@ export default function TermsScreen() {
           <Section 
             number="4" 
             title="Academic Integrity" 
-            text="PANTHEON is a study aid. We do not encourage or facilitate academic dishonesty. Users should use the platform responsibly and in accordance with their institution's academic integrity policies."
+            text="COLEARN is a study aid. We do not encourage or facilitate academic dishonesty. Users should use the platform responsibly and in accordance with their institution's academic integrity policies."
           />
 
           <Section 
             number="5" 
             title="Account Activation" 
-            text="Some features of PANTHEON require account activation via a valid activation code. These codes are provided by administrators and should not be shared or resold without authorization."
+            text="Some features of COLEARN require account activation via a valid activation code. These codes are provided by administrators and should not be shared or resold without authorization."
           />
 
           <Section 

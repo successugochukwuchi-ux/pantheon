@@ -72,13 +72,13 @@ export const PWAInstall: React.FC = () => {
           <div className="h-12 w-12 rounded-xl bg-primary/10 flex items-center justify-center shrink-0">
             <img 
               src="https://i.imgur.com/PYAnixG.png" 
-              alt="Pantheon" 
+              alt="CoLearn" 
               className="w-8 h-8 object-contain"
               referrerPolicy="no-referrer"
             />
           </div>
           <div className="flex-1 min-w-0">
-            <h4 className="font-bold text-sm truncate">Install Pantheon</h4>
+            <h4 className="font-bold text-sm truncate">Install CoLearn</h4>
             <p className="text-xs text-muted-foreground truncate">Get the best experience on your home screen</p>
           </div>
           <div className="flex items-center gap-1">

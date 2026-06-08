@@ -1,12 +1,12 @@
 import React, { useState, useEffect } from 'react';
-import { collection, onSnapshot, query, where, orderBy, doc, getDoc } from 'firebase/firestore';
+import { collection, getDocs, query, where, orderBy, doc, getDoc } from 'firebase/firestore';
 import { db } from '../firebase';
 import { useAuth } from '../contexts/AuthContext';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
 import { Badge } from '../components/ui/badge';
-import { Search, BookOpen, ChevronRight, ArrowLeft, AlertCircle, History, HelpCircle, MessageSquare, Maximize2, CheckCircle2, XCircle, Wand2 } from 'lucide-react';
+import { Search, BookOpen, ChevronRight, ArrowLeft, AlertCircle, History, HelpCircle, MessageSquare, Maximize2, CheckCircle2, XCircle, Wand2, Lock } from 'lucide-react';
 import { Course, Note } from '../types';
 import ReactMarkdown from 'react-markdown';
 import remarkMath from 'remark-math';
@@ -23,6 +23,7 @@ import { ScientificCalculator } from '../components/ScientificCalculator';
 import { AIAssistant } from '../components/AIAssistant';
 import { useSearchParams, useNavigate } from 'react-router-dom';
 import { useTitle } from '../hooks/useTitle';
+import { toast } from 'sonner';
 
 export default function StudyMaterials() {
   const { user, profile, systemConfig } = useAuth();
@@ -40,6 +41,7 @@ export default function StudyMaterials() {
   const isAdmin = profile?.level === '3' || profile?.level === '4';
   const showAllSemesters = profile?.level === '4';
   const isHoliday = systemConfig && systemConfig.currentSemester === 'none' && !showAllSemesters;
+  const isUnactivatedStudent = (!profile || !profile.isActivated) && profile?.level !== '3' && profile?.level !== '4';
 
   const typeLabels: Record<string, string> = {
     'lecture': 'Lecture Notes',
@@ -110,7 +112,7 @@ export default function StudyMaterials() {
       }
     }
 
-    const unsubscribe = onSnapshot(q, (snapshot) => {
+    getDocs(q).then((snapshot) => {
       let loadedCourses = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Course));
       
       // Secondary filter by level and department ONLY for actual student accounts (level 1 or 2)
@@ -126,11 +128,9 @@ export default function StudyMaterials() {
       
       loadedCourses.sort((a, b) => a.code.localeCompare(b.code));
       setCourses(loadedCourses);
-    }, (error) => {
+    }).catch((error) => {
       console.error("Courses fetch error in StudyMaterials:", error);
     });
-
-    return () => unsubscribe();
   }, [systemConfig, isHoliday, showAllSemesters]);
 
   useEffect(() => {
@@ -145,18 +145,16 @@ export default function StudyMaterials() {
       where('courseId', '==', selectedCourse.id)
     );
 
-    const unsubscribe = onSnapshot(q, (snapshot) => {
+    getDocs(q).then((snapshot) => {
       const allNotes = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Note));
       // Filter by type in memory
       const filtered = allNotes
         .filter(n => n.type === type)
         .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
       setNotes(filtered);
-    }, (error) => {
+    }).catch((error) => {
       console.error("Notes fetch error in StudyMaterials:", error);
     });
-
-    return () => unsubscribe();
   }, [selectedCourse, type, profile]);
 
   const filteredCourses = courses.filter(course => 
@@ -165,6 +163,23 @@ export default function StudyMaterials() {
   );
 
   if (selectedNote) {
+    const noteIndex = notes.findIndex(n => n.id === selectedNote.id);
+    if (isUnactivatedStudent && noteIndex > 0) {
+      return (
+        <div className="flex flex-col items-center justify-center min-h-[60vh] text-center p-6 space-y-4 max-w-2xl mx-auto">
+          <Lock className="h-16 w-16 text-amber-500 animate-bounce" />
+          <h1 className="text-3xl font-bold tracking-tight">Academic Trial Limit</h1>
+          <p className="text-muted-foreground">
+            Standard accounts only have access to the oldest study guide/lecture note of each course. Activate your account using an activation pin to unlock all notes, past questions, and full study materials.
+          </p>
+          <div className="pt-4 flex gap-4">
+            <Button variant="outline" onClick={() => setSelectedNote(null)}>Back to Materials</Button>
+            <Button onClick={() => navigate('/activate')}>Activate Account</Button>
+          </div>
+        </div>
+      );
+    }
+
     let blocks: NoteBlock[] = [];
     try {
       blocks = JSON.parse(selectedNote.content);
@@ -380,30 +395,47 @@ export default function StudyMaterials() {
 
         <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
           {notes.length > 0 ? (
-            notes.map(note => (
-              <Card 
-                key={note.id} 
-                className="hover:bg-accent transition-colors cursor-pointer"
-                onClick={() => setSelectedNote(note)}
-              >
-                <CardHeader>
-                  <CardTitle className="text-lg">{note.title}</CardTitle>
-                  <CardDescription>Added on {new Date(note.createdAt).toLocaleDateString()}</CardDescription>
-                </CardHeader>
-                <CardContent>
-                  <p className="text-sm text-muted-foreground line-clamp-3">
-                    {(() => {
-                      try {
-                        const blocks = JSON.parse(note.content);
-                        return blocks.find((b: any) => b.type === 'text')?.content.substring(0, 150) || 'Academic material';
-                      } catch (e) {
-                        return note.content.substring(0, 150);
-                      }
-                    })()}...
-                  </p>
-                </CardContent>
-              </Card>
-            ))
+            notes.map((note, idx) => {
+              const isLocked = isUnactivatedStudent && idx > 0;
+              return (
+                <Card 
+                  key={note.id} 
+                  className={`transition-all relative overflow-hidden ${isLocked ? 'opacity-70 border-amber-500/10 hover:border-amber-500/30' : 'hover:bg-accent cursor-pointer'}`}
+                  onClick={() => {
+                    if (isLocked) {
+                      toast.error("This study guide is locked. Please activate your account to gain full access.");
+                      navigate('/activate');
+                      return;
+                    }
+                    setSelectedNote(note);
+                  }}
+                >
+                  {isLocked && (
+                    <div className="absolute top-2 right-2 bg-amber-500/10 text-amber-500 border border-amber-500/20 rounded-full p-1.5 z-10 animate-pulse">
+                      <Lock className="h-4 w-4" />
+                    </div>
+                  )}
+                  <CardHeader>
+                    <CardTitle className={`text-lg ${isLocked ? 'text-muted-foreground pr-8' : ''}`}>{note.title}</CardTitle>
+                    <CardDescription>Added on {new Date(note.createdAt).toLocaleDateString()}</CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    <p className="text-sm text-muted-foreground line-clamp-3 font-sans">
+                      {isLocked ? (
+                        <span className="italic">Unlock this study guide and get everything else by buying an activation pin.</span>
+                      ) : (() => {
+                        try {
+                          const blocks = JSON.parse(note.content);
+                          return blocks.find((b: any) => b.type === 'text')?.content.substring(0, 150) || 'Academic material';
+                        } catch (e) {
+                          return note.content.substring(0, 150);
+                        }
+                      })()}
+                    </p>
+                  </CardContent>
+                </Card>
+              );
+            })
           ) : (
             <div className="col-span-full py-12 text-center border rounded-lg bg-muted/50">
               <Icon className="h-12 w-12 mx-auto mb-4 text-muted-foreground" />

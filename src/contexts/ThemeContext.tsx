@@ -13,12 +13,12 @@ const ThemeContext = createContext<ThemeContextType | undefined>(undefined);
 
 export const ThemeProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [theme, setTheme] = useState<Theme>(() => {
-    const saved = localStorage.getItem('pantheon-theme');
+    const saved = localStorage.getItem('colearn-theme');
     return (saved as Theme) || 'light';
   });
 
   const [customColors, setCustomColors] = useState<Record<string, string>>(() => {
-    const saved = localStorage.getItem('pantheon-custom-colors');
+    const saved = localStorage.getItem('colearn-custom-colors');
     return saved ? JSON.parse(saved) : {
       primary: '#000000',
       background: '#ffffff',
@@ -28,8 +28,8 @@ export const ThemeProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   });
 
   useEffect(() => {
-    localStorage.setItem('pantheon-theme', theme);
-    localStorage.setItem('pantheon-custom-colors', JSON.stringify(customColors));
+    localStorage.setItem('colearn-theme', theme);
+    localStorage.setItem('colearn-custom-colors', JSON.stringify(customColors));
     
     const root = window.document.documentElement;
     root.classList.remove('light', 'dark', 'sepia', 'ocean', 'forest', 'midnight', 'sunset', 'lavender', 'velvet', 'obsidian', 'custom');

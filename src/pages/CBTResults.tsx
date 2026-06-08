@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { collection, query, where, orderBy, onSnapshot } from 'firebase/firestore';
+import { collection, query, where, orderBy, getDocs } from 'firebase/firestore';
 import { db } from '../firebase';
 import { useAuth } from '../contexts/AuthContext';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card';
@@ -25,11 +25,14 @@ export default function CBTResults() {
       where('userId', '==', user.uid)
     );
 
-    const unsubscribe = onSnapshot(q, (snapshot) => {
+    getDocs(q).then((snapshot) => {
       const sessionData = snapshot.docs
         .map(doc => ({ id: doc.id, ...doc.data() } as CBTSession))
         .sort((a, b) => new Date(b.completedAt).getTime() - new Date(a.completedAt).getTime());
       setSessions(sessionData);
+      setLoading(false);
+    }).catch((err) => {
+      console.error("Error fetching CBT sessions:", err);
       setLoading(false);
     });
 
@@ -46,20 +49,15 @@ export default function CBTResults() {
       }
     }
 
-    const unsubCourses = onSnapshot(coursesQ, (snapshot) => {
+    getDocs(coursesQ).then((snapshot) => {
       const courseMap: Record<string, Course> = {};
       snapshot.docs.forEach(doc => {
         courseMap[doc.id] = { id: doc.id, ...doc.data() } as Course;
       });
       setCourses(courseMap);
-    }, (err) => {
+    }).catch((err) => {
       console.error("Courses fetch error in CBTResults:", err);
     });
-
-    return () => {
-      unsubscribe();
-      unsubCourses();
-    };
   }, [user, profile, systemConfig]);
 
   const getScoreColor = (score: number, total: number) => {

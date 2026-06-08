@@ -32,7 +32,7 @@ export default function TermsOfService() {
           <section>
             <h2 className="text-2xl font-bold text-primary mb-4">1. Acceptance of Terms</h2>
             <p>
-              By accessing or using PANTHEON, you agree to be bound by these Terms of Service. If you do not agree to all of these terms, do not use our platform.
+              By accessing or using COLEARN, you agree to be bound by these Terms of Service. If you do not agree to all of these terms, do not use our platform.
             </p>
           </section>
 
@@ -57,14 +57,14 @@ export default function TermsOfService() {
           <section>
             <h2 className="text-2xl font-bold text-primary mb-4">4. Academic Integrity</h2>
             <p>
-              PANTHEON is a study aid. We do not encourage or facilitate academic dishonesty. Users should use the platform responsibly and in accordance with their institution's academic integrity policies.
+              COLEARN is a study aid. We do not encourage or facilitate academic dishonesty. Users should use the platform responsibly and in accordance with their institution's academic integrity policies.
             </p>
           </section>
 
           <section>
             <h2 className="text-2xl font-bold text-primary mb-4">5. Account Activation</h2>
             <p>
-              Some features of PANTHEON require account activation via a valid activation code. These codes are provided by administrators and should not be shared or resold without authorization.
+              Some features of COLEARN require account activation via a valid activation code. These codes are provided by administrators and should not be shared or resold without authorization.
             </p>
           </section>
 

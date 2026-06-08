@@ -57,7 +57,7 @@ export function ActivationModal() {
         isActivated: true,
       });
 
-      Alert.alert('Success', 'Your account has been activated! Enjoy PANTHEON.');
+      Alert.alert('Success', 'Your account has been activated! Enjoy COLEARN.');
     } catch (error) {
       console.error('Activation error:', error);
       Alert.alert('Error', 'Failed to activate account. Please try again.');
@@ -75,7 +75,7 @@ export function ActivationModal() {
           </View>
           <Text style={s.title}>Account Activation</Text>
           <Text style={s.sub}>
-            Welcome to PANTHEON! To access all features, please enter your activation code below.
+            Welcome to COLEARN! To access all features, please enter your activation code below.
           </Text>
 
           <TextInput

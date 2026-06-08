@@ -43,7 +43,7 @@ import Diagnostic from './pages/Diagnostic';
 // import FluxPortfolio from './pages/flux/FluxPortfolio';
 
 export default function App() {
-  console.log("[PANTHEON] App Rendering. URL:", window.location.pathname);
+  console.log("[COLEARN] App Rendering. URL:", window.location.pathname);
   
   useEffect(() => {
     const handleContextMenu = (e: MouseEvent) => {
@@ -180,7 +180,7 @@ export default function App() {
                     } />
 
                     <Route path="/dashboard" element={
-                      <ProtectedRoute>
+                      <ProtectedRoute requireActivation={false}>
                         <Layout>
                           <Dashboard />
                         </Layout>
@@ -188,7 +188,7 @@ export default function App() {
                     } />
 
                     <Route path="/notes" element={
-                      <ProtectedRoute>
+                      <ProtectedRoute requireActivation={false}>
                         <Layout>
                           <StudyMaterials />
                         </Layout>
@@ -196,7 +196,7 @@ export default function App() {
                     } />
 
                     <Route path="/past-questions" element={
-                      <ProtectedRoute>
+                      <ProtectedRoute requireActivation={false}>
                         <Layout>
                           <PastQuestions />
                         </Layout>
@@ -204,7 +204,7 @@ export default function App() {
                     } />
 
                     <Route path="/cbt" element={
-                      <ProtectedRoute>
+                      <ProtectedRoute requireActivation={false}>
                         <Layout>
                           <CBTPractice />
                         </Layout>
@@ -212,7 +212,7 @@ export default function App() {
                     } />
 
                     <Route path="/cbt/results" element={
-                      <ProtectedRoute>
+                      <ProtectedRoute requireActivation={false}>
                         <Layout>
                           <CBTResults />
                         </Layout>
@@ -244,7 +244,7 @@ export default function App() {
                     } />
 
                     <Route path="/video-library" element={
-                      <ProtectedRoute>
+                      <ProtectedRoute requireActivation={false}>
                         <Layout>
                           <VideoLibrary />
                         </Layout>
@@ -268,7 +268,7 @@ export default function App() {
                     } />
 
                     <Route path="/discussions/:courseId" element={
-                      <ProtectedRoute>
+                      <ProtectedRoute requireActivation={false}>
                         <Layout>
                           <CourseDiscussion />
                         </Layout>

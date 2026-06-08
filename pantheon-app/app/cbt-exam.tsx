@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import {
   View,
   Text,
@@ -8,13 +8,20 @@ import {
   Alert,
   BackHandler,
   Animated,
+  ActivityIndicator,
+  Platform,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { BottomNav } from '../components/BottomNav';
-import { C, F } from '../components/Theme';
+import { F } from '../components/Theme';
 import { useTheme } from '../context/ThemeContext';
-import { NoteRenderer } from '../components/NoteRenderer';
+import { QuestionRenderer } from '../components/QuestionRenderer';
+import { isCourseDownloadedLocal, getLocalQuestions, parseFirestoreQuestion, getLocalCourse } from '../lib/db';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { collection, query, where, getDocs, doc, getDoc } from 'firebase/firestore';
+import { db } from '../lib/firebase';
+import { useAuth } from '../context/AuthContext';
 
 // ── Question bank ─────────────────────────────────────────────────────────────
 const QUESTION_BANK: Record<string, { q: string; opts: string[]; answer: number }[]> = {
@@ -81,16 +88,108 @@ const OPTION_LABELS = ['A', 'B', 'C', 'D', 'E'];
 export default function CbtExamScreen() {
   const router = useRouter();
   const { colors: C } = useTheme();
+  const s = useMemo(() => createStyles(C), [C]);
+  const { isOffline } = useAuth();
+
   const params = useLocalSearchParams<{
-    courseId: string; duration: string; numQuestions: string; year: string;
+    courseId: string; duration: string; limit: string; year: string;
   }>();
 
   const courseId = params.courseId ?? 'mth101';
   const totalSeconds = (parseInt(params.duration) || 0) * 60;
-  const numQ = parseInt(params.numQuestions) || 40;
+  const numQ = parseInt(params.limit) || 40;
   const timerEnabled = totalSeconds > 0;
 
-  const [questions] = useState(() => getQuestions(courseId, numQ));
+  const [questions, setQuestions] = useState<any[]>([]);
+  const [loadingQuestions, setLoadingQuestions] = useState(true);
+  const [courseCode, setCourseCode] = useState('');
+
+  useEffect(() => {
+    const localC = getLocalCourse(courseId);
+    if (localC && localC.code) {
+      setCourseCode(localC.code);
+    } else if (!isOffline) {
+      const docRef = doc(db, 'courses', courseId);
+      getDoc(docRef).then(snap => {
+        if (snap.exists()) {
+          setCourseCode(snap.data().code || '');
+        }
+      }).catch(err => console.log('Error fetching course details in cbt-exam:', err));
+    }
+  }, [courseId, isOffline]);
+
+  useEffect(() => {
+    const loadQuestions = async () => {
+      setLoadingQuestions(true);
+      let qList: any[] = [];
+      
+      // 1. Try local SQLite DB
+      try {
+        if (isCourseDownloadedLocal(courseId)) {
+          const dbQs = getLocalQuestions(courseId);
+          if (dbQs && dbQs.length > 0) {
+            const shuffled = [...dbQs].sort(() => Math.random() - 0.5);
+            qList = shuffled.slice(0, numQ).map((q, i) => ({ ...q, num: i + 1 }));
+            console.log("[CbtExam] Questions loaded from local SQLite database:", qList.length);
+          }
+        }
+      } catch (err) {
+        console.error("[CbtExam] Error loading local questions:", err);
+      }
+
+      // 2. If online and not loaded locally, fetch from Firestore
+      if (qList.length === 0 && !isOffline) {
+        try {
+          console.log("[CbtExam] Offline DB empty/not downloaded. Fetching from Firestore for course:", courseId);
+          const sheetsQuery = query(
+            collection(db, 'questionSheets'),
+            where('courseId', '==', courseId),
+            where('isAvailable', '==', true)
+          );
+          const sheetsSnap = await getDocs(sheetsQuery);
+          const sheetIds = sheetsSnap.docs.map(doc => doc.id);
+          
+          if (sheetIds.length > 0) {
+            const allFetchedQuestions = await Promise.all(
+              sheetIds.map(async (sheetId) => {
+                const questionsQuery = query(
+                  collection(db, 'questions'),
+                  where('sheetId', '==', sheetId)
+                );
+                const qSnap = await getDocs(questionsQuery);
+                return qSnap.docs.map(doc => {
+                  const data = doc.data();
+                  return parseFirestoreQuestion(doc.id, { ...data, courseId });
+                });
+              })
+            );
+            
+            const flattened = allFetchedQuestions.flat();
+            if (flattened.length > 0) {
+              const shuffled = flattened.sort(() => Math.random() - 0.5);
+              qList = shuffled.slice(0, numQ).map((q, i) => ({ ...q, num: i + 1 }));
+              console.log("[CbtExam] Questions loaded from Firestore:", qList.length);
+            }
+          }
+        } catch (err) {
+          console.error("[CbtExam] Error loading online questions from Firestore:", err);
+        }
+      }
+
+      // 3. Fallback to static QUESTION_BANK
+      if (qList.length === 0) {
+        qList = getQuestions(courseId, numQ);
+        console.log("[CbtExam] Questions loaded from static QUESTION_BANK:", qList.length);
+      }
+
+      setQuestions(qList);
+      AsyncStorage.setItem('colearn_active_exam_questions', JSON.stringify(qList)).catch(() => {});
+      setLoadingQuestions(false);
+    };
+
+    loadQuestions();
+  }, [courseId, numQ, isOffline]);
+
   const [currentIdx, setCurrentIdx] = useState(0);
   const [answers, setAnswers] = useState<Record<number, number>>({});
   const [flagged, setFlagged] = useState<Set<number>>(new Set());
@@ -152,6 +251,10 @@ export default function CbtExamScreen() {
     const confirm = () => {
       const elapsed = Math.floor((Date.now() - started) / 1000);
       const correct = questions.filter((q, i) => answers[i] === q.answer).length;
+      
+      // Save answers for corrections review page
+      AsyncStorage.setItem('colearn_active_exam_answers', JSON.stringify(answers)).catch(() => {});
+      
       router.push({
         pathname: '/cbt-results',
         params: {
@@ -168,11 +271,21 @@ export default function CbtExamScreen() {
       { text: 'Cancel', style: 'cancel' },
       { text: 'Submit', onPress: confirm },
     ]);
-  }, [answers, questions]);
+  }, [answers, questions, started, courseId]);
 
   const answered = Object.keys(answers).length;
+
+  if (loadingQuestions || !questions || questions.length === 0) {
+    return (
+      <SafeAreaView style={{ flex: 1, backgroundColor: C.bg, justifyContent: 'center', alignItems: 'center' }}>
+        <ActivityIndicator size="large" color={C.activeText} />
+        <Text style={{ marginTop: 12, fontSize: 15, fontFamily: F.bold, color: C.ink }}>Loading Questions...</Text>
+      </SafeAreaView>
+    );
+  }
+
   const q = questions[currentIdx];
-  const courseLabel = courseId.toUpperCase().replace(/([a-z]+)(\d+)/, '$1 $2');
+  const courseLabel = courseCode ? courseCode.toUpperCase() : courseId.toUpperCase().replace(/([a-z]+)(\d+)/, '$1 $2');
 
   // Navigator display: show first 8, ellipsis, last
   const navItems: (number | '...')[] = questions.length <= 10
@@ -180,29 +293,29 @@ export default function CbtExamScreen() {
     : [...Array(8).keys(), '...', questions.length - 1];
 
   return (
-    <SafeAreaView style={s.root} edges={['top']}>
+    <SafeAreaView style={[s.root, { backgroundColor: C.bg }]} edges={['top']}>
       {/* Header */}
-      <View style={s.header}>
+      <View style={[s.header, { backgroundColor: C.surface, borderBottomColor: C.border }]}>
         <TouchableOpacity activeOpacity={0.7} style={s.menuBtn}>
-          {[0,1,2].map(i => <View key={i} style={s.menuLine} />)}
+          {[0,1,2].map(i => <View key={i} style={[s.menuLine, { backgroundColor: C.ink }]} />)}
         </TouchableOpacity>
-        <Text style={s.headerBrand}>PANTHEON</Text>
+        <Text style={[s.headerBrand, { color: C.ink }]}>COLEARN</Text>
         <TouchableOpacity activeOpacity={0.7} style={s.iconBtn}>
-          <View style={s.bellBody} />
-          <View style={s.bellBase} />
-          <View style={s.bellClapper} />
+          <View style={[s.bellBody, { borderColor: C.ink }]} />
+          <View style={[s.bellBase, { backgroundColor: C.ink }]} />
+          <View style={[s.bellClapper, { borderColor: C.ink }]} />
         </TouchableOpacity>
       </View>
 
       {/* Sub-header: course + timer */}
-      <View style={s.subHeader}>
-        <View style={s.coursePill}>
+      <View style={[s.subHeader, { borderBottomColor: C.border }]}>
+        <View style={[s.coursePill, { backgroundColor: C.surfaceDark }]}>
           <Text style={s.coursePillText}>{courseLabel}</Text>
         </View>
         {timerEnabled && (
           <View style={s.timerBox}>
             <Text style={s.timerIcon}>⏱</Text>
-            <Text style={[s.timerText, timeLeft < 60 && s.timerTextUrgent]}>
+            <Text style={[s.timerText, { color: C.ink }, timeLeft < 60 && s.timerTextUrgent]}>
               {formatTime(timeLeft)}
             </Text>
           </View>
@@ -211,84 +324,65 @@ export default function CbtExamScreen() {
 
       <ScrollView style={s.scroll} contentContainerStyle={s.scrollContent} showsVerticalScrollIndicator={false}>
         {/* Question card */}
-        <Animated.View style={[s.questionCard, { transform: [{ translateX: slideAnim }] }]}>
+        <Animated.View style={[s.questionCard, { backgroundColor: C.surface, borderColor: C.border, transform: [{ translateX: slideAnim }] }]}>
           <View style={s.questionMeta}>
-            <Text style={s.questionNum}>QUESTION {currentIdx + 1} OF {questions.length}</Text>
+            <Text style={[s.questionNum, { color: C.inkLight }]}>QUESTION {currentIdx + 1} OF {questions.length}</Text>
             <TouchableOpacity onPress={toggleFlag} activeOpacity={0.7} style={s.flagBtn}>
-              <Text style={[s.flagIcon, flagged.has(currentIdx) && s.flagIconActive]}>⚑</Text>
-              <Text style={[s.flagText, flagged.has(currentIdx) && s.flagTextActive]}>
+              <Text style={[s.flagIcon, { color: C.inkLight }, flagged.has(currentIdx) && [s.flagIconActive, { color: C.ink }]]}>⚑</Text>
+              <Text style={[s.flagText, { color: C.inkLight }, flagged.has(currentIdx) && [s.flagTextActive, { color: C.ink }]]}>
                 {flagged.has(currentIdx) ? 'Flagged' : 'Flag Question'}
               </Text>
             </TouchableOpacity>
           </View>
 
-          <View style={{ marginBottom: 20 }}>
-            <NoteRenderer content={q.q} />
-          </View>
-
-          {/* Options */}
-          <View style={s.options}>
-            {q.opts.map((opt, oi) => {
-              const selected = answers[currentIdx] === oi;
-              return (
-                <TouchableOpacity
-                  key={oi}
-                  style={[s.optionRow, selected && s.optionRowSelected]}
-                  onPress={() => handleSelect(oi)}
-                  activeOpacity={0.85}
-                >
-                  <View style={[s.optionLabel, selected && s.optionLabelSelected]}>
-                    <Text style={[s.optionLabelText, selected && s.optionLabelTextSelected]}>
-                      {OPTION_LABELS[oi]}
-                    </Text>
-                  </View>
-                  <Text style={[s.optionText, selected && s.optionTextSelected]}>{opt}</Text>
-                </TouchableOpacity>
-              );
-            })}
-          </View>
+          <QuestionRenderer
+            question={q.q}
+            options={q.opts}
+            selectedOptionIndex={answers[currentIdx]}
+            onSelectOption={(oi) => handleSelect(oi)}
+          />
         </Animated.View>
 
         {/* Prev / Next */}
         <View style={s.navRow}>
           <TouchableOpacity
-            style={[s.prevBtn, currentIdx === 0 && s.btnDisabled]}
+            style={[s.prevBtn, { borderColor: C.border }, currentIdx === 0 && s.btnDisabled]}
             disabled={currentIdx === 0}
             onPress={() => goTo(currentIdx - 1)}
             activeOpacity={0.85}
           >
-            <Text style={s.prevBtnText}>← Previous</Text>
+            <Text style={[s.prevBtnText, { color: C.inkMid }]}>← Previous</Text>
           </TouchableOpacity>
           <TouchableOpacity
-            style={[s.nextBtn, currentIdx === questions.length - 1 && s.btnDisabled]}
+            style={[s.nextBtn, { backgroundColor: C.ink }, currentIdx === questions.length - 1 && s.btnDisabled]}
             disabled={currentIdx === questions.length - 1}
             onPress={() => goTo(currentIdx + 1)}
             activeOpacity={0.85}
           >
-            <Text style={s.nextBtnText}>Next →</Text>
+            <Text style={[s.nextBtnText, { color: C.bg }]}>Next →</Text>
           </TouchableOpacity>
         </View>
 
         {/* Progress summary */}
-        <View style={s.summaryCard}>
-          <Text style={s.summaryTitle}>Progress Summary</Text>
+        <View style={[s.summaryCard, { backgroundColor: C.surface, borderColor: C.border }]}>
+          <Text style={[s.summaryTitle, { color: C.ink }]}>Progress Summary</Text>
           <View style={s.statsRow}>
-            <View style={s.statBox}>
-              <Text style={s.statLabel}>ANSWERED</Text>
-              <Text style={s.statNum}>{pad(answered)}</Text>
+            <View style={[s.statBox, { backgroundColor: C.bg }]}>
+              <Text style={[s.statLabel, { color: C.inkLight }]}>ANSWERED</Text>
+              <Text style={[s.statNum, { color: C.ink }]}>{pad(answered)}</Text>
             </View>
-            <View style={s.statBox}>
-              <Text style={s.statLabel}>REMAINING</Text>
-              <Text style={s.statNum}>{pad(questions.length - answered)}</Text>
+            <View style={[s.statBox, { backgroundColor: C.bg }]}>
+              <Text style={[s.statLabel, { color: C.inkLight }]}>REMAINING</Text>
+              <Text style={[s.statNum, { color: C.ink }]}>{pad(questions.length - answered)}</Text>
             </View>
           </View>
 
           {/* Question navigator */}
-          <Text style={s.navLabel2}>QUESTION NAVIGATOR</Text>
+          <Text style={[s.navLabel2, { color: C.inkLight }]}>QUESTION NAVIGATOR</Text>
           <View style={s.navGrid}>
             {navItems.map((item, i) => {
               if (item === '...') {
-                return <Text key="ellipsis" style={s.ellipsis}>···</Text>;
+                return <Text key="ellipsis" style={[s.ellipsis, { color: C.inkLight }]}>···</Text>;
               }
               const idx = item as number;
               const isAnswered = idx in answers;
@@ -298,13 +392,14 @@ export default function CbtExamScreen() {
                   key={idx}
                   style={[
                     s.navCell,
-                    isAnswered && s.navCellAnswered,
-                    isCurrent && s.navCellCurrent,
+                    { backgroundColor: C.border },
+                    isAnswered && [s.navCellAnswered, { backgroundColor: C.inkMid }],
+                    isCurrent && [s.navCellCurrent, { backgroundColor: C.ink, borderColor: C.ink }],
                   ]}
                   onPress={() => goTo(idx)}
                   activeOpacity={0.8}
                 >
-                  <Text style={[s.navCellText, (isAnswered || isCurrent) && s.navCellTextActive]}>
+                  <Text style={[s.navCellText, { color: C.inkLight }, (isAnswered || isCurrent) && [s.navCellTextActive, { color: C.bg }]]}>
                     {idx + 1}
                   </Text>
                 </TouchableOpacity>
@@ -314,21 +409,22 @@ export default function CbtExamScreen() {
 
           {/* Submit */}
           <TouchableOpacity
-            style={[s.submitBtn, answered < questions.length && s.submitBtnDisabled]}
+            style={[s.submitBtn, { backgroundColor: C.ink }, answered < questions.length && [s.submitBtnDisabled, { backgroundColor: C.border }]]}
             onPress={() => handleSubmit(false)}
-            activeOpacity={answered < questions.length ? 1 : 0.88}
+            disabled={answered < questions.length}
+            activeOpacity={0.88}
           >
-            <Text style={[s.submitBtnText, answered < questions.length && s.submitBtnTextDisabled]}>
+            <Text style={[s.submitBtnText, { color: C.bg }, answered < questions.length && [s.submitBtnTextDisabled, { color: C.inkLight }]]}>
               SUBMIT ASSESSMENT
             </Text>
           </TouchableOpacity>
           {answered < questions.length && (
-            <Text style={s.submitHint}>ONLY ENABLED WHEN 100% COMPLETE</Text>
+            <Text style={[s.submitHint, { color: C.inkLight }]}>ONLY ENABLED WHEN 100% COMPLETE</Text>
           )}
         </View>
 
         {/* Study mode banner */}
-        <View style={s.studyBanner}>
+        <View style={[s.studyBanner, { backgroundColor: C.surfaceDark }]}>
           <View style={s.studyIcon}>
             <View style={{ width: 12, height: 12, borderRadius: 6, borderWidth: 2, borderColor: '#fff' }} />
           </View>
@@ -346,7 +442,7 @@ export default function CbtExamScreen() {
   );
 }
 
-const s = StyleSheet.create({
+const createStyles = (C: any) => StyleSheet.create({
   root: { flex: 1, backgroundColor: C.bg },
   scroll: { flex: 1 },
   scrollContent: { paddingHorizontal: 12, paddingBottom: 40 },
@@ -355,113 +451,112 @@ const s = StyleSheet.create({
   header: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
     paddingHorizontal: 20, paddingVertical: 14,
-    borderBottomWidth: 1, borderBottomColor: C.border, backgroundColor: C.bg,
+    borderBottomWidth: 1,
   },
-  headerBrand: { fontFamily: F.bold, fontSize: 16, color: C.ink, letterSpacing: 2 },
+  headerBrand: { fontFamily: F.bold, fontSize: 16, letterSpacing: 2 },
   menuBtn: { width: 36, height: 36, justifyContent: 'center', gap: 5 },
-  menuLine: { width: 22, height: 2, backgroundColor: C.ink, borderRadius: 1 },
+  menuLine: { width: 22, height: 2, borderRadius: 1 },
   iconBtn: { width: 36, height: 36, justifyContent: 'center', alignItems: 'center' },
-  bellBody: { width: 14, height: 13, borderTopLeftRadius: 7, borderTopRightRadius: 7, borderWidth: 2, borderColor: C.ink, borderBottomWidth: 0 },
-  bellBase: { width: 20, height: 2, backgroundColor: C.ink, borderRadius: 1 },
-  bellClapper: { width: 6, height: 3, borderBottomLeftRadius: 3, borderBottomRightRadius: 3, borderWidth: 2, borderColor: C.ink, borderTopWidth: 0, marginTop: -1, alignSelf: 'center' },
+  bellBody: { width: 14, height: 13, borderTopLeftRadius: 7, borderTopRightRadius: 7, borderWidth: 2, borderBottomWidth: 0 },
+  bellBase: { width: 20, height: 2, borderRadius: 1 },
+  bellClapper: { width: 6, height: 3, borderBottomLeftRadius: 3, borderBottomRightRadius: 3, borderWidth: 2, borderTopWidth: 0, marginTop: -1, alignSelf: 'center' },
 
   // Sub-header
   subHeader: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
     paddingHorizontal: 16, paddingVertical: 10,
-    borderBottomWidth: 1, borderBottomColor: C.border,
+    borderBottomWidth: 1,
   },
-  coursePill: { backgroundColor: C.surfaceDark, borderRadius: 20, paddingHorizontal: 12, paddingVertical: 5 },
+  coursePill: { borderRadius: 20, paddingHorizontal: 12, paddingVertical: 5 },
   coursePillText: { fontFamily: F.bold, fontSize: 12, color: '#fff', letterSpacing: 0.5 },
   timerBox: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   timerIcon: { fontSize: 14 },
-  timerText: { fontFamily: F.bold, fontSize: 18, color: C.ink, letterSpacing: 1 },
+  timerText: { fontFamily: F.bold, fontSize: 18, letterSpacing: 1 },
   timerTextUrgent: { color: '#C0392B' },
 
   // Question card
   questionCard: {
-    backgroundColor: C.surface, borderRadius: 18, borderWidth: 1,
-    borderColor: C.border, padding: 18, marginTop: 14, marginBottom: 12,
+    borderRadius: 18, borderWidth: 1,
+    padding: 18, marginTop: 14, marginBottom: 12,
   },
   questionMeta: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 },
-  questionNum: { fontFamily: F.medium, fontSize: 11, color: C.inkLight, letterSpacing: 1.2 },
+  questionNum: { fontFamily: F.medium, fontSize: 11, letterSpacing: 1.2 },
   flagBtn: { flexDirection: 'row', alignItems: 'center', gap: 4 },
-  flagIcon: { fontSize: 14, color: C.inkLight },
-  flagIconActive: { color: C.ink },
-  flagText: { fontFamily: F.medium, fontSize: 12, color: C.inkLight },
-  flagTextActive: { color: C.ink, fontFamily: F.bold },
-  questionText: { fontFamily: F.display, fontSize: 18, color: C.ink, lineHeight: 26, marginBottom: 20 },
+  flagIcon: { fontSize: 14 },
+  flagIconActive: { },
+  flagText: { fontFamily: F.medium, fontSize: 12 },
+  flagTextActive: { fontFamily: F.bold },
+  questionText: { fontFamily: F.display, fontSize: 18, lineHeight: 26, marginBottom: 20 },
 
   // Options
   options: { gap: 10 },
   optionRow: {
     flexDirection: 'row', alignItems: 'center', gap: 12,
-    borderWidth: 1.5, borderColor: C.border, borderRadius: 12,
+    borderWidth: 1.5, borderRadius: 12,
     paddingVertical: 13, paddingHorizontal: 14,
   },
-  optionRowSelected: { backgroundColor: '#27AE60', borderColor: '#27AE60' },
+  optionRowSelected: { },
   optionLabel: {
     width: 28, height: 28, borderRadius: 14,
-    borderWidth: 1.5, borderColor: C.border,
+    borderWidth: 1.5,
     justifyContent: 'center', alignItems: 'center',
   },
-  optionLabelSelected: { backgroundColor: '#fff', borderColor: '#fff' },
-  optionLabelText: { fontFamily: F.bold, fontSize: 13, color: C.inkMid },
-  optionLabelTextSelected: { color: '#27AE60' },
-  optionText: { flex: 1, fontFamily: F.body, fontSize: 14, color: C.ink, lineHeight: 20 },
-  optionTextSelected: { color: '#fff' },
+  optionLabelSelected: { },
+  optionLabelText: { fontFamily: F.bold, fontSize: 13 },
+  optionLabelTextSelected: { },
+  optionText: { flex: 1, fontFamily: F.body, fontSize: 14, lineHeight: 20 },
+  optionTextSelected: { },
 
   // Prev/Next
   navRow: { flexDirection: 'row', gap: 10, marginBottom: 12 },
   prevBtn: {
-    flex: 1, borderWidth: 1.5, borderColor: C.border, borderRadius: 12,
+    flex: 1, borderWidth: 1.5, borderRadius: 12,
     paddingVertical: 14, alignItems: 'center',
   },
   nextBtn: {
-    flex: 1, backgroundColor: C.ink, borderRadius: 12,
+    flex: 1, borderRadius: 12,
     paddingVertical: 14, alignItems: 'center',
   },
   btnDisabled: { opacity: 0.3 },
-  prevBtnText: { fontFamily: F.bold, fontSize: 14, color: C.inkMid },
-  nextBtnText: { fontFamily: F.bold, fontSize: 14, color: '#fff' },
+  prevBtnText: { fontFamily: F.bold, fontSize: 14 },
+  nextBtnText: { fontFamily: F.bold, fontSize: 14 },
 
   // Summary card
   summaryCard: {
-    backgroundColor: C.surface, borderRadius: 18, borderWidth: 1,
-    borderColor: C.border, padding: 18, marginBottom: 12,
+    borderRadius: 18, borderWidth: 1,
+    padding: 18, marginBottom: 12,
   },
-  summaryTitle: { fontFamily: F.bold, fontSize: 16, color: C.ink, marginBottom: 14 },
+  summaryTitle: { fontFamily: F.bold, fontSize: 16, marginBottom: 14 },
   statsRow: { flexDirection: 'row', gap: 10, marginBottom: 16 },
   statBox: {
-    flex: 1, backgroundColor: C.bg, borderRadius: 12,
+    flex: 1, borderRadius: 12,
     padding: 14, alignItems: 'flex-start',
   },
-  statLabel: { fontFamily: F.medium, fontSize: 10, color: C.inkLight, letterSpacing: 1.2, marginBottom: 6 },
-  statNum: { fontFamily: F.display, fontSize: 28, color: C.ink },
-  navLabel2: { fontFamily: F.bold, fontSize: 10, color: C.inkLight, letterSpacing: 1.5, marginBottom: 10 },
+  statLabel: { fontFamily: F.medium, fontSize: 10, letterSpacing: 1.2, marginBottom: 6 },
+  statNum: { fontFamily: F.display, fontSize: 28 },
+  navLabel2: { fontFamily: F.bold, fontSize: 10, letterSpacing: 1.5, marginBottom: 10 },
   navGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 18 },
   navCell: {
     width: 36, height: 36, borderRadius: 8,
-    backgroundColor: C.unansweredNav,
     justifyContent: 'center', alignItems: 'center',
   },
-  navCellAnswered: { backgroundColor: C.answeredNav },
-  navCellCurrent: { backgroundColor: C.ink, borderWidth: 2, borderColor: C.ink },
-  navCellText: { fontFamily: F.bold, fontSize: 12, color: C.inkLight },
-  navCellTextActive: { color: '#fff' },
-  ellipsis: { fontFamily: F.bold, fontSize: 16, color: C.inkLight, alignSelf: 'center', paddingHorizontal: 4 },
+  navCellAnswered: { },
+  navCellCurrent: { borderWidth: 2 },
+  navCellText: { fontFamily: F.bold, fontSize: 12 },
+  navCellTextActive: { },
+  ellipsis: { fontFamily: F.bold, fontSize: 16, alignSelf: 'center', paddingHorizontal: 4 },
 
   submitBtn: {
-    backgroundColor: C.ink, borderRadius: 12, paddingVertical: 16, alignItems: 'center', marginBottom: 6,
+    borderRadius: 12, paddingVertical: 16, alignItems: 'center', marginBottom: 6,
   },
-  submitBtnDisabled: { backgroundColor: C.border },
-  submitBtnText: { fontFamily: F.bold, fontSize: 14, color: '#fff', letterSpacing: 1.2 },
-  submitBtnTextDisabled: { color: C.inkLight },
-  submitHint: { fontFamily: F.medium, fontSize: 10, color: C.inkLight, textAlign: 'center', letterSpacing: 1 },
+  submitBtnDisabled: { },
+  submitBtnText: { fontFamily: F.bold, fontSize: 14, letterSpacing: 1.2 },
+  submitBtnTextDisabled: { },
+  submitHint: { fontFamily: F.medium, fontSize: 10, textAlign: 'center', letterSpacing: 1 },
 
   // Study mode
   studyBanner: {
-    backgroundColor: C.surfaceDark, borderRadius: 14,
+    borderRadius: 14,
     padding: 14, flexDirection: 'row', alignItems: 'center', gap: 12,
     marginBottom: 12,
   },
@@ -472,22 +567,4 @@ const s = StyleSheet.create({
   },
   studyTitle: { fontFamily: F.bold, fontSize: 12, color: '#fff', letterSpacing: 1, marginBottom: 3 },
   studySub: { fontFamily: F.body, fontSize: 12, color: 'rgba(255,255,255,0.5)' },
-
-  // Bottom Nav
-  bottomNav: {
-    position: 'absolute', bottom: 24, left: 16, right: 16,
-    flexDirection: 'row', backgroundColor: C.surface,
-    borderRadius: 40, paddingVertical: 10, paddingHorizontal: 8,
-    shadowColor: '#000', shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.12, shadowRadius: 16, elevation: 8,
-    borderWidth: 1, borderColor: C.border,
-    alignItems: 'center', justifyContent: 'space-around',
-  },
-  navTab: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingVertical: 6, gap: 3, borderRadius: 30 },
-  navTabActive: { backgroundColor: C.surfaceDark, paddingHorizontal: 20, flex: 0, paddingVertical: 10, minWidth: 60 },
-  navLabel: { fontFamily: F.medium, fontSize: 11, color: C.navInactive },
-
-  inkMid: C.inkMid,
 });
-
-const inkMid = C.inkMid;

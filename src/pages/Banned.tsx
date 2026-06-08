@@ -21,7 +21,7 @@ export default function Banned() {
           </div>
           <CardTitle className="text-2xl font-bold text-destructive">Account Banned</CardTitle>
           <CardDescription>
-            Your account has been restricted from accessing Pantheon features.
+            Your account has been restricted from accessing CoLearn features.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4 text-center">

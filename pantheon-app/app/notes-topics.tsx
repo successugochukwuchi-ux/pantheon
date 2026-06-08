@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState, useMemo } from 'react';
 import {
   View,
   Text,
@@ -13,7 +13,9 @@ import { useRouter, useLocalSearchParams } from 'expo-router';
 import { collection, query, where, getDocs, doc, getDoc, orderBy } from 'firebase/firestore';
 import { db, auth } from '../lib/firebase';
 import { useAuth } from '../context/AuthContext';
-import { C, F } from '../components/Theme';
+import { F } from '../components/Theme';
+import { useTheme } from '../context/ThemeContext';
+import { isCourseDownloadedLocal, getLocalNotes, getDatabase } from '../lib/db';
 
 enum OperationType {
   CREATE = 'create',
@@ -58,11 +60,11 @@ interface Note {
   order?: number;
 }
 
-function ProgressBarDark({ value }: { value: number }) {
+function ProgressBarDark({ value, s }: { value: number; s: any }) {
   const anim = useRef(new Animated.Value(0)).current;
   useEffect(() => {
     Animated.timing(anim, { toValue: value, duration: 900, useNativeDriver: false }).start();
-  }, []);
+  }, [value]);
   return (
     <View style={s.progressTrack}>
       <Animated.View
@@ -80,6 +82,9 @@ function ProgressBarDark({ value }: { value: number }) {
 export default function NotesTopicsScreen() {
   const router = useRouter();
   const { profile } = useAuth();
+  const { colors: C } = useTheme();
+  const s = useMemo(() => createStyles(C), [C]);
+
   const { courseId } = useLocalSearchParams<{ courseId: string }>();
   const [filter, setFilter] = useState<'ALL' | 'CORE' | 'ADVANCED'>('ALL');
   
@@ -102,30 +107,62 @@ export default function NotesTopicsScreen() {
       setLoading(true);
       
       try {
-        // Fetch Course
-        const courseDoc = await getDoc(doc(db, 'courses', courseId));
+        // Fetch Course and Notes either from local SQLite or Firestore
         let courseData: Course | null = null;
-        if (courseDoc.exists()) {
-          courseData = { id: courseDoc.id, ...courseDoc.data() } as Course;
-          setCourse(courseData);
-          console.log("[NotesTopics] Course loaded:", courseData.code);
-        } else {
-          console.warn("[NotesTopics] Course document not found for ID:", courseId);
-        }
+        let fetchedNotes: Note[] = [];
 
-        // Fetch Notes
-        const q = query(
-          collection(db, 'notes'),
-          where('courseId', '==', courseId)
-        );
-        const snapshot = await getDocs(q);
-        const fetchedNotes = snapshot.docs.map(doc => ({
-          id: doc.id,
-          ...doc.data(),
-          completed: false // Default, will update below
-        })) as Note[];
-        
-        console.log("[NotesTopics] Fetched notes count:", fetchedNotes.length);
+        if (isCourseDownloadedLocal(courseId)) {
+          const localNotesData = getLocalNotes(courseId);
+          fetchedNotes = localNotesData.map(n => ({
+            id: n.id,
+            title: n.title,
+            duration: n.duration || '10 mins',
+            tag: n.tag || 'CORE',
+            order: n.order || 0,
+            completed: false
+          }));
+
+          const ldb = getDatabase();
+          if (ldb && ldb.getFirstSync) {
+            const cRes = ldb.getFirstSync('SELECT * FROM courses WHERE id = ?', [courseId]) as any;
+            if (cRes) {
+              courseData = {
+                id: cRes.id,
+                code: cRes.code,
+                title: cRes.title,
+                semester: cRes.semester,
+                level: cRes.level,
+              } as Course;
+            }
+          }
+          if (courseData) {
+            setCourse(courseData);
+          }
+          console.log("[NotesTopics] Loaded from local SQLite database. Notes count:", fetchedNotes.length);
+        } else {
+          // Fetch Course from Firestore
+          const courseDoc = await getDoc(doc(db, 'courses', courseId));
+          if (courseDoc.exists()) {
+            courseData = { id: courseDoc.id, ...courseDoc.data() } as Course;
+            setCourse(courseData);
+            console.log("[NotesTopics] Course loaded from Firestore:", courseData.code);
+          } else {
+            console.warn("[NotesTopics] Course document not found on Firestore for ID:", courseId);
+          }
+
+          // Fetch Notes from Firestore
+          const q = query(
+            collection(db, 'notes'),
+            where('courseId', '==', courseId)
+          );
+          const snapshot = await getDocs(q);
+          fetchedNotes = snapshot.docs.map(doc => ({
+            id: doc.id,
+            ...doc.data(),
+            completed: false
+          })) as Note[];
+          console.log("[NotesTopics] Fetched notes from Firestore count:", fetchedNotes.length);
+        }
 
         // Fetch User Topic Progress
         const progQ = query(
@@ -177,8 +214,8 @@ export default function NotesTopicsScreen() {
   if (loading) {
     return (
       <SafeAreaView style={[s.root, { justifyContent: 'center', alignItems: 'center' }]}>
-        <ActivityIndicator size="large" color={C.ink} />
-        <Text style={{ marginTop: 12, fontFamily: F.medium, color: C.inkMid }}>Loading topics...</Text>
+        <ActivityIndicator size="large" color={C.activeText} />
+        <Text style={{ marginTop: 12, fontFamily: F.medium, color: C.inkLight }}>Loading topics...</Text>
       </SafeAreaView>
     );
   }
@@ -186,9 +223,9 @@ export default function NotesTopicsScreen() {
   if (!course) {
     return (
       <SafeAreaView style={[s.root, { justifyContent: 'center', alignItems: 'center' }]}>
-        <Text style={{ fontFamily: F.medium, color: C.inkMid }}>Course not found.</Text>
+        <Text style={{ fontFamily: F.medium, color: C.ink }}>Course not found.</Text>
         <TouchableOpacity onPress={() => router.back()} style={{ marginTop: 20 }}>
-          <Text style={{ color: C.gold, fontFamily: F.bold }}>Go Back</Text>
+          <Text style={{ color: C.activeText, fontFamily: F.bold }}>Go Back</Text>
         </TouchableOpacity>
       </SafeAreaView>
     );
@@ -197,16 +234,15 @@ export default function NotesTopicsScreen() {
   return (
     <SafeAreaView style={s.root} edges={['top']}>
       {/* Header */}
-      <View style={s.header}>
+      <View style={[s.header, { backgroundColor: C.surface, borderBottomColor: C.border }]}>
         <TouchableOpacity onPress={() => router.push('/notes')} activeOpacity={0.7} style={s.iconBtn}>
-          <View style={s.backArrow} />
-          <View style={s.backArrowHead} />
+          <View style={[s.backArrow, { backgroundColor: C.ink }]} />
+          <View style={[s.backArrowHead, { borderColor: C.ink }]} />
         </TouchableOpacity>
-        <Text style={s.headerBrand}>PANTHEON</Text>
+        <Text style={[s.headerBrand, { color: C.ink }]}>COLEARN</Text>
         <TouchableOpacity activeOpacity={0.7} style={s.iconBtn}>
-          <View style={[s.dot, { marginBottom: 4 }]} />
-          <View style={[s.dot, { marginBottom: 4 }]} />
-          <View style={s.dot} />
+          <View style={[s.dot, { backgroundColor: C.ink, marginBottom: 4 }]} />
+          <View style={[s.dot, { backgroundColor: C.ink }]} />
         </TouchableOpacity>
       </View>
 
@@ -217,7 +253,7 @@ export default function NotesTopicsScreen() {
       >
         {/* Dark hero card */}
         <Animated.View
-          style={[s.heroCard, { opacity: heroOpacity, transform: [{ translateY: heroY }] }]}
+          style={[s.heroCard, { backgroundColor: C.surfaceDark, opacity: heroOpacity, transform: [{ translateY: heroY }] }]}
         >
           <View style={s.subjectPill}>
             <Text style={s.subjectPillText}>{course.subject || 'COURSE'}</Text>
@@ -237,7 +273,7 @@ export default function NotesTopicsScreen() {
             <Text style={s.progressLabel}>OVERALL PROGRESS</Text>
             <Text style={s.progressPct}>{course.progress || 0}%</Text>
           </View>
-          <ProgressBarDark value={course.progress || 0} />
+          <ProgressBarDark value={course.progress || 0} s={s} />
 
           {/* Stats */}
           <View style={s.statsRow}>
@@ -262,15 +298,15 @@ export default function NotesTopicsScreen() {
             <TouchableOpacity
               key={f}
               onPress={() => setFilter(f)}
-              style={[s.filterTab, filter === f && s.filterTabActive]}
+              style={[s.filterTab, { borderColor: C.border }, filter === f && [s.filterTabActive, { backgroundColor: C.ink, borderColor: C.ink }]]}
               activeOpacity={0.8}
             >
-              <Text style={[s.filterTabText, filter === f && s.filterTabTextActive]}>{f}</Text>
+              <Text style={[s.filterTabText, { color: C.inkLight }, filter === f && s.filterTabTextActive]}>{f}</Text>
             </TouchableOpacity>
           ))}
         </View>
 
-        <Text style={s.sectionLabel}>SELECT A TOPIC</Text>
+        <Text style={[s.sectionLabel, { color: C.inkLight }]}>SELECT A TOPIC</Text>
 
         {/* Topic rows */}
         {filtered.length > 0 ? (
@@ -281,7 +317,7 @@ export default function NotesTopicsScreen() {
                 style={{ opacity: 1, transform: [{ translateY: 0 }] }}
               >
                 <TouchableOpacity
-                  style={s.topicCard}
+                  style={[s.topicCard, { backgroundColor: C.surface, borderColor: C.border }]}
                   activeOpacity={0.85}
                   onPress={() => {
                     if (course?.id && topic?.id) {
@@ -289,17 +325,17 @@ export default function NotesTopicsScreen() {
                     }
                   }}
                 >
-                  <View style={[s.topicCheck, topic.completed && s.topicCheckDone]}>
+                  <View style={[s.topicCheck, { backgroundColor: C.bg, borderColor: C.border }, topic.completed && [s.topicCheckDone, { backgroundColor: C.ink, borderColor: C.ink }]]}>
                     {topic.completed ? (
                       <Text style={s.checkmark}>✓</Text>
                     ) : (
-                      <Text style={s.topicNum}>{String(i + 1).padStart(2, '0')}</Text>
+                      <Text style={[s.topicNum, { color: C.inkLight }]}>{String(i + 1).padStart(2, '0')}</Text>
                     )}
                   </View>
                   <View style={s.topicMeta}>
-                    <Text style={s.topicTitle}>{topic.title}</Text>
+                    <Text style={[s.topicTitle, { color: C.ink }]}>{topic.title}</Text>
                     <View style={s.topicSubRow}>
-                      <Text style={s.topicDuration}>{topic.duration || '5 min read'}</Text>
+                      <Text style={[s.topicDuration, { color: C.inkLight }]}>{topic.duration || '5 min read'}</Text>
                       <View
                         style={[
                           s.tagPill,
@@ -317,14 +353,14 @@ export default function NotesTopicsScreen() {
                       </View>
                     </View>
                   </View>
-                  <Text style={s.chevron}>›</Text>
+                  <Text style={[s.chevron, { color: C.border }]}>›</Text>
                 </TouchableOpacity>
               </Animated.View>
             );
           })
         ) : (
           <View style={{ paddingVertical: 40, alignItems: 'center' }}>
-            <Text style={{ fontFamily: F.medium, color: C.inkMid }}>No topics found for this course.</Text>
+            <Text style={{ fontFamily: F.medium, color: C.inkLight }}>No topics found for this course.</Text>
           </View>
         )}
         <View style={{ height: 24 }} />
@@ -333,7 +369,7 @@ export default function NotesTopicsScreen() {
   );
 }
 
-const s = StyleSheet.create({
+const createStyles = (C: any) => StyleSheet.create({
   root: { flex: 1, backgroundColor: C.bg },
   scroll: { flex: 1 },
   scrollContent: { paddingHorizontal: 16, paddingBottom: 40 },
@@ -345,22 +381,19 @@ const s = StyleSheet.create({
     paddingHorizontal: 20,
     paddingVertical: 14,
     borderBottomWidth: 1,
-    borderBottomColor: C.border,
-    backgroundColor: C.bg,
   },
-  headerBrand: { fontFamily: F.bold, fontSize: 16, color: C.ink, letterSpacing: 2 },
+  headerBrand: { fontFamily: F.bold, fontSize: 16, letterSpacing: 2 },
   iconBtn: { width: 36, height: 36, justifyContent: 'center', alignItems: 'center' },
-  backArrow: { position: 'absolute', width: 16, height: 2, backgroundColor: C.ink, borderRadius: 1 },
+  backArrow: { position: 'absolute', width: 16, height: 2, borderRadius: 1 },
   backArrowHead: {
-    position: 'absolute', left: 0, width: 9, height: 9,
-    borderLeftWidth: 2, borderBottomWidth: 2, borderColor: C.ink,
+    position: 'absolute', left: 8, width: 9, height: 9,
+    borderLeftWidth: 2, borderBottomWidth: 2,
     transform: [{ rotate: '45deg' }],
   },
-  dot: { width: 4, height: 4, borderRadius: 2, backgroundColor: C.ink },
+  dot: { width: 4, height: 4, borderRadius: 2 },
 
   // Hero
   heroCard: {
-    backgroundColor: C.surfaceDark,
     borderRadius: 20,
     padding: 22,
     marginTop: 16,
@@ -392,7 +425,7 @@ const s = StyleSheet.create({
     height: 5, backgroundColor: 'rgba(255,255,255,0.12)',
     borderRadius: 99, overflow: 'hidden', marginBottom: 18,
   },
-  progressFill: { height: '100%', backgroundColor: C.gold, borderRadius: 99 },
+  progressFill: { height: '100%', backgroundColor: C.activeText, borderRadius: 99 },
   statsRow: { flexDirection: 'row', gap: 10 },
   statBox: {
     flex: 1, backgroundColor: 'rgba(255,255,255,0.06)',
@@ -405,23 +438,21 @@ const s = StyleSheet.create({
   filterRow: { flexDirection: 'row', gap: 8, paddingVertical: 18 },
   filterTab: {
     paddingHorizontal: 16, paddingVertical: 7, borderRadius: 20,
-    borderWidth: 1.5, borderColor: C.border,
+    borderWidth: 1.5,
   },
-  filterTabActive: { backgroundColor: C.ink, borderColor: C.ink },
-  filterTabText: { fontFamily: F.bold, fontSize: 11, color: C.inkLight, letterSpacing: 1.2 },
+  filterTabActive: { },
+  filterTabText: { fontFamily: F.bold, fontSize: 11, letterSpacing: 1.2 },
   filterTabTextActive: { color: '#fff' },
 
   sectionLabel: {
-    fontFamily: F.medium, fontSize: 11, color: C.inkLight,
+    fontFamily: F.medium, fontSize: 11,
     letterSpacing: 2, marginBottom: 12,
   },
 
   // Topic cards
   topicCard: {
-    backgroundColor: C.surface,
     borderRadius: 16,
     borderWidth: 1,
-    borderColor: C.border,
     padding: 16,
     marginBottom: 10,
     flexDirection: 'row',
@@ -430,17 +461,17 @@ const s = StyleSheet.create({
   },
   topicCheck: {
     width: 36, height: 36, borderRadius: 10,
-    backgroundColor: C.bg, borderWidth: 1.5, borderColor: C.border,
+    borderWidth: 1.5,
     justifyContent: 'center', alignItems: 'center', flexShrink: 0,
   },
-  topicCheckDone: { backgroundColor: C.ink, borderColor: C.ink },
+  topicCheckDone: { },
   checkmark: { fontFamily: F.bold, fontSize: 14, color: '#fff' },
-  topicNum: { fontFamily: F.bold, fontSize: 13, color: C.inkLight },
+  topicNum: { fontFamily: F.bold, fontSize: 13 },
   topicMeta: { flex: 1 },
-  topicTitle: { fontFamily: F.medium, fontSize: 15, color: C.ink, marginBottom: 5, lineHeight: 20 },
+  topicTitle: { fontFamily: F.medium, fontSize: 15, marginBottom: 5, lineHeight: 20 },
   topicSubRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
-  topicDuration: { fontFamily: F.body, fontSize: 12, color: C.inkLight },
+  topicDuration: { fontFamily: F.body, fontSize: 12 },
   tagPill: { paddingHorizontal: 8, paddingVertical: 2, borderRadius: 6 },
   tagText: { fontFamily: F.bold, fontSize: 9, letterSpacing: 1 },
-  chevron: { fontSize: 22, color: C.border, fontWeight: '300' },
+  chevron: { fontSize: 22, fontWeight: '300' },
 });

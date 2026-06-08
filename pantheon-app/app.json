@@ -1,7 +1,7 @@
 {
   "expo": {
-    "name": "Pantheon",
-    "slug": "pantheon-app",
+    "name": "CoLearn",
+    "slug": "colearn-app",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
@@ -13,14 +13,14 @@
     },
     "ios": {
       "supportsTablet": false,
-      "bundleIdentifier": "com.pantheon.app"
+      "bundleIdentifier": "com.pillara.colearn"
     },
     "android": {
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#0a0a0a"
       },
-      "package": "com.pantheon.app",
+      "package": "com.pillara.colearn",
       "versionCode": 1,
       "compileSdkVersion": 35,
       "targetSdkVersion": 35,
@@ -48,7 +48,7 @@
         }
       ]
     ],
-    "scheme": "pantheon",
+    "scheme": "colearn",
     "extra": {
       "eas": {
         "projectId": "68ce27ad-b2d6-4dcf-913c-c669d9c47ef5"

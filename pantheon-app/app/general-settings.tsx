@@ -48,6 +48,8 @@ const THEME_OPTIONS = [
   { id: 'midnight', name: 'Midnight', color: '#0F172A' },
   { id: 'sunset', name: 'Sunset', color: '#FFF7ED' },
   { id: 'lavender', name: 'Lavender', color: '#F5F3FF' },
+  { id: 'velvet', name: 'Velvet', color: '#2D0B13' },
+  { id: 'obsidian', name: 'Obsidian', color: '#05020D' },
 ];
 
 // ── Main Screen ───────────────────────────────────────────────────────────────

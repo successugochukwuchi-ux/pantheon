@@ -41,71 +41,13 @@ interface SidebarProps {
   onClose?: () => void;
   isCollapsed?: boolean;
   onToggleCollapse?: () => void;
+  unreadCount?: number;
 }
 
-export const Sidebar: React.FC<SidebarProps> = ({ onClose, isCollapsed = false, onToggleCollapse }) => {
+export const Sidebar: React.FC<SidebarProps> = ({ onClose, isCollapsed = false, onToggleCollapse, unreadCount = 0 }) => {
   const { profile, user } = useAuth();
   const { isFluxMode, setFluxMode } = useFlux();
   const location = useLocation();
-  const [unreadCount, setUnreadCount] = React.useState(0);
-
-  React.useEffect(() => {
-    if (!user) return;
-
-    let unsubAnn: (() => void) | null = null;
-    let specificUnread = 0;
-    let announcements: Announcement[] = [];
-
-    const updateUnread = (notifs: number, annList: Announcement[]) => {
-      const savedRead = localStorage.getItem(`read_announcements_${user.uid}`);
-      const readIds = savedRead ? JSON.parse(savedRead) : [];
-      
-      const savedCleared = localStorage.getItem(`cleared_announcements_${user.uid}`);
-      const clearedIds = savedCleared ? JSON.parse(savedCleared) : [];
-      
-      const unreadAnn = annList.filter(ann => {
-        if (readIds.includes(ann.id) || clearedIds.includes(ann.id)) return false;
-        if (ann.targetType === 'all') return true;
-        if (ann.targetType === 'uid' && ann.targetValue === user.uid) return true;
-        if (!profile) return false;
-        if (ann.targetType === 'level' && ann.targetValue === profile.level) return true;
-        if (ann.targetType === 'academicLevel' && ann.targetValue === profile.academicLevel) return true;
-        if (ann.targetType === 'department' && ann.targetValue === profile.department) return true;
-        if (ann.targetType === 'level_dept') {
-          return ann.targetValue === `${profile.academicLevel}_${profile.department}`;
-        }
-        return false;
-      }).length;
-      
-      setUnreadCount(notifs + unreadAnn);
-    };
-
-    // Specific notifications
-    const qNotif = query(collection(db, 'notifications'), where('userId', '==', user.uid), where('isRead', '==', false));
-    const unsubNotif = onSnapshot(qNotif, (snapshot) => {
-      specificUnread = snapshot.size;
-      updateUnread(specificUnread, announcements);
-    }, (error) => {
-      if (auth.currentUser) {
-        console.error("Sidebar notification listener error:", error);
-      }
-    });
-
-    // Announcements listener
-    unsubAnn = onSnapshot(collection(db, 'announcements'), (snapshot) => {
-      announcements = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Announcement));
-      updateUnread(specificUnread, announcements);
-    }, (error) => {
-      if (auth.currentUser) {
-        console.error("Sidebar announcements listener error:", error);
-      }
-    });
-
-    return () => {
-      unsubNotif();
-      if (unsubAnn) unsubAnn();
-    };
-  }, [user, profile]);
 
   const isAtLeastLevel2 = profile?.level === '2' || profile?.level === '3' || profile?.level === '4';
   const isAdmin = profile?.level === '3' || profile?.level === '4';
@@ -211,7 +153,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ onClose, isCollapsed = false, 
           )}
         >
           {isFluxMode ? <Zap className="fill-pink-500 h-5 w-5" /> : null}
-          {isCollapsed ? <span className="font-extrabold tracking-tighter text-sidebar-primary">P</span> : <>PANTHEON {isFluxMode && <span className="text-white">FLUX</span>}</>}
+          {isCollapsed ? <span className="font-extrabold tracking-tighter text-sidebar-primary">C</span> : <>COLEARN {isFluxMode && <span className="text-white">FLUX</span>}</>}
         </Link>
         {!onClose && onToggleCollapse && (
           <Button 

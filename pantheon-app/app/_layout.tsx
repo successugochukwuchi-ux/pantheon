@@ -8,6 +8,7 @@ import { View } from 'react-native';
 
 import { AuthProvider } from '../context/AuthContext';
 import { ThemeProvider } from '../context/ThemeContext';
+import { initDatabase } from '../lib/db';
 
 SplashScreen.preventAutoHideAsync().catch(() => {});
 
@@ -20,6 +21,7 @@ export default function RootLayout() {
   });
 
   useEffect(() => {
+    initDatabase();
     if (fontsLoaded || fontError) {
       SplashScreen.hideAsync().catch(() => {});
     }
@@ -49,6 +51,7 @@ export default function RootLayout() {
         <Stack.Screen name="settings" />
         <Stack.Screen name="general-settings" />
         <Stack.Screen name="profile-settings" />
+        <Stack.Screen name="profile-view" />
         <Stack.Screen name="create-group" />
         <Stack.Screen name="add-members" />
         <Stack.Screen name="chat-room" />
@@ -56,6 +59,7 @@ export default function RootLayout() {
         <Stack.Screen name="notifications" />
         <Stack.Screen name="chat-list" />
         <Stack.Screen name="course-discussion" />
+        <Stack.Screen name="past-questions" />
       </Stack>
       </ThemeProvider>
     </AuthProvider>

@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { collection, onSnapshot, query, where } from 'firebase/firestore';
+import { collection, getDocs, query, where } from 'firebase/firestore';
 import { db, handleFirestoreError, OperationType } from '../firebase';
 import { useAuth } from '../contexts/AuthContext';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card';
@@ -21,6 +21,7 @@ import { SafeMathRenderer, prepareMarkdownMath } from '../components/SafeMathRen
 import { NoteProgressTracker } from '../components/NoteProgressTracker';
 import { ScientificCalculator } from '../components/ScientificCalculator';
 import { AIAssistant } from '../components/AIAssistant';
+import { VideoPlayer } from '../components/VideoPlayer';
 
 export default function LectureNotes() {
   const { systemConfig, profile } = useAuth();
@@ -41,16 +42,14 @@ export default function LectureNotes() {
       where('semester', '==', systemConfig.currentSemester)
     );
 
-    const unsubscribe = onSnapshot(q, (snapshot) => {
+    getDocs(q).then((snapshot) => {
       const fetchedCourses = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Course));
       fetchedCourses.sort((a, b) => a.code.localeCompare(b.code));
       setCourses(fetchedCourses);
-    }, (error) => {
+    }).catch((error) => {
       console.error("Courses fetch error:", error);
     });
-
-    return () => unsubscribe();
-  }, [systemConfig]);
+  }, [systemConfig, isHoliday]);
 
   useEffect(() => {
     if (!selectedCourse || !profile) {
@@ -64,15 +63,13 @@ export default function LectureNotes() {
       where('type', '==', 'lecture')
     );
 
-    const unsubscribe = onSnapshot(q, (snapshot) => {
+    getDocs(q).then((snapshot) => {
       const allNotes = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Note));
       const sorted = allNotes.sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
       setNotes(sorted);
-    }, (error) => {
+    }).catch((error) => {
       console.error("Notes fetch error:", error);
     });
-
-    return () => unsubscribe();
   }, [selectedCourse, profile]);
 
   const filteredCourses = courses.filter(course => 
@@ -190,14 +187,10 @@ export default function LectureNotes() {
                   </div>
                 )}
                 {block.type === 'video' && block.content && (
-                  <div className="aspect-video w-full rounded-xl overflow-hidden shadow-lg border border-white/5 my-4">
-                    <iframe
-                      src={block.content.includes('youtube.com') || block.content.includes('youtu.be') 
-                        ? `https://www.youtube.com/embed/${block.content.split('/').pop()?.split('v=').pop()?.split('&')[0]}`
-                        : block.content}
-                      className="w-full h-full"
-                      allowFullScreen
-                      title="Step Video"
+                  <div className="w-full my-4 rounded-xl overflow-hidden shadow-lg border border-white/5">
+                    <VideoPlayer 
+                      url={block.content} 
+                      title={selectedNote?.title || "Lecture Video"} 
                     />
                   </div>
                 )}

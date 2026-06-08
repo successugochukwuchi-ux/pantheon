@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { collection, query, where, onSnapshot, doc, deleteDoc, addDoc, getDoc } from 'firebase/firestore';
+import { collection, query, where, getDocs, doc, deleteDoc, addDoc, getDoc } from 'firebase/firestore';
 import { db, handleFirestoreError, OperationType } from '../firebase';
 import { useAuth } from '../contexts/AuthContext';
 import { Button, buttonVariants } from '../components/ui/button';
@@ -18,7 +18,8 @@ import {
   User,
   Clock,
   ExternalLink,
-  ChevronRight
+  ChevronRight,
+  Lock
 } from 'lucide-react';
 import { 
   DropdownMenu, 
@@ -52,12 +53,13 @@ interface Friendship {
 
 export default function Friends() {
   useTitle('Network');
-  const { user } = useAuth();
+  const { user, profile } = useAuth();
   const navigate = useNavigate();
   const [friends, setFriends] = useState<Friendship[]>([]);
   const [requests, setRequests] = useState<FriendRequest[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
+  const [refreshTrigger, setRefreshTrigger] = useState(0);
 
   const friendsRef = React.useRef<Friendship[]>([]);
 
@@ -68,17 +70,17 @@ export default function Friends() {
   useEffect(() => {
     if (!user) return;
 
-    // Listen for friend requests
+    // Fetch friend requests
     const qRequests = query(collection(db, 'friend_requests'), where('toUid', '==', user.uid), where('status', '==', 'pending'));
-    const unsubRequests = onSnapshot(qRequests, (snapshot) => {
+    getDocs(qRequests).then((snapshot) => {
       setRequests(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as FriendRequest)));
-    }, (error) => {
+    }).catch((error) => {
       handleFirestoreError(error, OperationType.LIST, 'friend_requests');
     });
 
-    // Listen for friendships
+    // Fetch friendships
     const qFriends = query(collection(db, 'friendships'), where('uids', 'array-contains', user.uid));
-    const unsubFriends = onSnapshot(qFriends, (snapshot) => {
+    getDocs(qFriends).then((snapshot) => {
       const friendshipsData = snapshot.docs.map(d => ({ id: d.id, ...d.data() } as any));
       
       const updateList = async () => {
@@ -124,16 +126,11 @@ export default function Friends() {
       };
 
       updateList();
-    }, (error) => {
+    }).catch((error) => {
       handleFirestoreError(error, OperationType.LIST, 'friendships');
       setLoading(false);
     });
-
-    return () => {
-      unsubRequests();
-      unsubFriends();
-    };
-  }, [user]);
+  }, [user, refreshTrigger]);
 
   const handleAcceptRequest = async (request: FriendRequest) => {
     try {
@@ -143,6 +140,7 @@ export default function Friends() {
       });
       await deleteDoc(doc(db, 'friend_requests', request.id));
       toast.success('Friend request accepted!');
+      setRefreshTrigger(p => p + 1);
     } catch (err) {
       toast.error('Failed to accept request');
     }
@@ -152,6 +150,7 @@ export default function Friends() {
     try {
       await deleteDoc(doc(db, 'friend_requests', requestId));
       toast.info('Friend request rejected');
+      setRefreshTrigger(p => p + 1);
     } catch (err) {
       toast.error('Failed to reject request');
     }
@@ -161,6 +160,7 @@ export default function Friends() {
     try {
       await deleteDoc(doc(db, 'friendships', friendshipId));
       toast.info('Friend removed');
+      setRefreshTrigger(p => p + 1);
     } catch (err) {
       toast.error('Failed to remove friend');
     }
@@ -186,6 +186,27 @@ export default function Friends() {
     hidden: { opacity: 0, y: 10 },
     visible: { opacity: 1, y: 0 }
   };
+
+  const isUnactivatedStudent = (!profile || !profile.isActivated) && profile?.level !== '3' && profile?.level !== '4';
+  if (isUnactivatedStudent) {
+    return (
+      <div className="flex flex-col items-center justify-center min-h-[400px] text-center p-6 space-y-4 max-w-2xl mx-auto py-20">
+        <Lock className="h-16 w-16 text-amber-500 animate-pulse" />
+        <h1 className="text-3xl font-bold tracking-tight">Social Network Locked</h1>
+        <p className="text-muted-foreground">
+          Standard accounts must buy an activation pin to access private messaging, community chats, friend connections, and peer study circles.
+        </p>
+        <p className="text-sm font-medium text-amber-600 dark:text-amber-400">
+          Connect with classmates and join real-time forums by activating your account now!
+        </p>
+        <div className="pt-2">
+          <Button size="lg" onClick={() => window.location.href = '/activate'}>
+            Go to Activation Page
+          </Button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="max-w-7xl mx-auto px-4 py-6 sm:py-10 min-h-screen bg-background text-foreground">

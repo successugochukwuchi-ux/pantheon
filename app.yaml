@@ -1,6 +1,6 @@
 kind: wasmer.io/App.v0
-name: pantheon
-package: successugochukwuchi/pantheon
+name: colearn
+package: successugochukwuchi/colearn
 domains:
-  - pantheon.com.ng
-  - www.pantheon.com.ng
+  - colearn.com.ng
+  - www.colearn.com.ng

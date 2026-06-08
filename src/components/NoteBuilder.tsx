@@ -80,6 +80,7 @@ import { Rnd } from 'react-rnd';
 import { cn } from '../lib/utils';
 import { SafeMathRenderer, prepareMarkdownMath } from './SafeMathRenderer';
 import { magicNoteCreator } from '../services/aiService';
+import { VideoPlayer } from './VideoPlayer';
 import { toast } from 'sonner';
 import { doc, onSnapshot } from 'firebase/firestore';
 import { db } from '../firebase';
@@ -288,11 +289,11 @@ const LANGUAGE_SYMBOLS: Record<string, { icon: any; symbols: (string | { label: 
   }
 };
 
-const DEEPSEEK_PROMPT_GUIDE = `You are an expert Pantheon PLX Note Writer. Convert the user's educational material into a valid Pantheon PLX document in the structured HTML-style tag format.
+const DEEPSEEK_PROMPT_GUIDE = `You are an expert CoLearn PLX Note Writer. Convert the user's educational material into a valid CoLearn PLX document in the structured HTML-style tag format.
 
 [CRITICAL - PLX FORMAT SPECIFICATION]:
 1. Enclose the entire file inside a root <PLX> tag.
-2. Use ONLY the following supported Pantheon tag blocks:
+2. Use ONLY the following supported CoLearn tag blocks:
    - <H1>Title</H1>: Main notes header.
    - <H2>Subheader</H2>: Section sub-header.
    - <TEXT>Normal body paragraph. Use <B>bolding</B> inline inside.</TEXT>
@@ -314,7 +315,7 @@ const DEEPSEEK_PROMPT_GUIDE = `You are an expert Pantheon PLX Note Writer. Conve
 4. Keep strict 2-space indentation inside container tags (like <PLX> and <QUES>).
 
 [CRITICAL - LANGUAGE DIACRITICS & ACCENTS]:
-When converting text containing Yoruba, Igbo, French, Spanish, etc., maintain 100% precision. Because complex diacritics (e.g. dotted high/low tones) can get corrupted across LLM generation layers, you may use either native Unicode characters OR write the following keyboard-friendly typing codes. The Pantheon system compiler will automatically parse and expand them into professional diacritics:
+When converting text containing Yoruba, Igbo, French, Spanish, etc., maintain 100% precision. Because complex diacritics (e.g. dotted high/low tones) can get corrupted across LLM generation layers, you may use either native Unicode characters OR write the following keyboard-friendly typing codes. The CoLearn system compiler will automatically parse and expand them into professional diacritics:
 
 1. Subdots / Underdots (Igbo and Yoruba):
    * o. / O. -> ọ / Ọ
@@ -448,14 +449,10 @@ const SortableBlock = ({ block, onUpdate, onDelete, onFocus, isPreview }: Sortab
           </div>
         )}
         {block.type === 'video' && block.content && (
-          <div className="aspect-video w-full rounded-xl overflow-hidden shadow-lg border border-white/5 my-4">
-            <iframe
-              src={block.content.includes('youtube.com') || block.content.includes('youtu.be') 
-                ? `https://www.youtube.com/embed/${block.content.split('/').pop()?.split('v=').pop()?.split('&')[0]}`
-                : block.content}
-              className="w-full h-full"
-              allowFullScreen
-              title="Step Video"
+          <div className="w-full my-4 rounded-xl overflow-hidden shadow-lg border border-white/5">
+            <VideoPlayer 
+              url={block.content} 
+              title="Step Video" 
             />
           </div>
         )}
@@ -737,13 +734,10 @@ const SortableBlock = ({ block, onUpdate, onDelete, onFocus, isPreview }: Sortab
               />
             </div>
             {block.content && (
-              <div className="aspect-video w-full rounded-xl overflow-hidden bg-muted/10 border border-white/5 flex items-center justify-center">
-                <iframe
-                  src={block.content.includes('youtube.com') || block.content.includes('youtu.be') 
-                    ? `https://www.youtube.com/embed/${block.content.split('/').pop()?.split('v=').pop()?.split('&')[0]}`
-                    : block.content}
-                  className="w-full h-full border-none"
-                  allowFullScreen
+              <div className="w-full rounded-xl overflow-hidden bg-muted/10 border border-white/5 flex items-center justify-center">
+                <VideoPlayer 
+                  url={block.content} 
+                  title="Preview Video" 
                 />
               </div>
             )}
@@ -1396,7 +1390,7 @@ export const NoteBuilder: React.FC<NoteBuilderProps> = ({ initialContent, onChan
   };
 
   const downloadPLXStandard = () => {
-    const standard = `[PANTHEON NOTE STANDARD - PLX v4.0]
+    const standard = `[COLEARN NOTE STANDARD - PLX v4.0]
 
 PLX (Pillara Extensible) uses a structured HTML-style syntax. 
 AI models understand this tags-based format much better than brackets.
@@ -1428,12 +1422,12 @@ Use 2 spaces per indentation level.
 </B>
 
 <QUES ="1">
-  Who founded Pantheon?
+  Who founded CoLearn?
   <COR ="Pillara Education 2026">
   <INC ="Microsoft">
   <INC ="Google">
   <INC ="Apple">
-  <EXP ="Pantheon was founded by Pillara Education 2026 to revolutionize learning.">
+  <EXP ="CoLearn was founded by Pillara Education 2026 to revolutionize learning.">
 </QUES>
 *Note: COR = Correct Answer, INC = Incorrect Answer, EXP = Explanation.
 
@@ -1510,7 +1504,7 @@ When writing language content with diacritics, tonals, or subdots (Igbo, Yoruba,
 
 [AI PROMPT STRATEGY]:
 1. "Analyze the provided technical/lecture content."
-2. "Convert it into a valid Pantheon PLX document wrapped in <PLX> tags using <TAG>... </TAG> syntax internally."
+2. "Convert it into a valid CoLearn PLX document wrapped in <PLX> tags using <TAG>... </TAG> syntax internally."
 3. "Always start with <PLX> and end with </PLX>."
 4. "Keep 100% structural fidelity of language marks, using the correct native Unicode values OR compiling them via the intuitive [LANGUAGE ACCENTS & INTU-SHORTHAND COMPLIANCE] rules (e.g., writing 'pẹ̀lẹ́' or 'pẹ.\`lẹ.\'' so the platform compiles them perfectly)."
 5. "Use <QUES ="#"> for any testable questions found in the material."
@@ -1526,7 +1520,7 @@ Save the final text as a file named "note.plx" (or .txt) then upload it.
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = 'PANTHEON_STANDARD.txt';
+    a.download = 'COLEARN_STANDARD.txt';
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
@@ -2103,7 +2097,7 @@ Save the final text as a file named "note.plx" (or .txt) then upload it.
               </DialogTitle>
               <DialogDescription className="space-y-2">
                 <p>
-                  Upload a <b>.plx</b> file (Pantheon Extensible Standard) to instantly build your note. 
+                  Upload a <b>.plx</b> file (CoLearn Extensible Standard) to instantly build your note. 
                   You can also upload PDFs or images for AI-assisted note generation.
                 </p>
                 <div className="flex flex-wrap items-center gap-x-2 gap-y-1">

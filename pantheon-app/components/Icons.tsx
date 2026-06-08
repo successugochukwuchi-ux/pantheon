@@ -160,3 +160,91 @@ export function ChevronDownIcon({ color = C.ink }: { color?: string }) {
     </View>
   );
 }
+
+export function BirdIcon({ color = C.ink }: { color?: string }) {
+  return (
+    <View style={{ width: 22, height: 20, justifyContent: 'center', alignItems: 'center' }}>
+      {/* Head */}
+      <View style={{ position: 'absolute', top: 2, right: 3, width: 8, height: 8, borderRadius: 4, backgroundColor: color }} />
+      {/* Beak */}
+      <View style={{ 
+        position: 'absolute', 
+        top: 3, 
+        right: 0, 
+        width: 0, 
+        height: 0, 
+        borderLeftWidth: 4, 
+        borderRightWidth: 0, 
+        borderTopWidth: 2, 
+        borderBottomWidth: 2, 
+        borderLeftColor: color, 
+        borderRightColor: 'transparent', 
+        borderTopColor: 'transparent', 
+        borderBottomColor: 'transparent' 
+      }} />
+      {/* Body */}
+      <View style={{ 
+        position: 'absolute', 
+        top: 6, 
+        left: 2, 
+        width: 14, 
+        height: 10, 
+        borderBottomLeftRadius: 8, 
+        borderBottomRightRadius: 5, 
+        borderTopLeftRadius: 2, 
+        borderTopRightRadius: 4,
+        backgroundColor: color 
+      }} />
+      {/* Wing */}
+      <View style={{ 
+        position: 'absolute', 
+        top: 6, 
+        left: 5, 
+        width: 7, 
+        height: 6, 
+        borderRadius: 3, 
+        backgroundColor: 'transparent', 
+        borderWidth: 1.5, 
+        borderColor: 'white',
+        transform: [{ rotate: '-15deg' }]
+      }} />
+      {/* Tail */}
+      <View style={{ 
+        position: 'absolute', 
+        bottom: 4, 
+        left: 0, 
+        width: 5, 
+        height: 2, 
+        backgroundColor: color, 
+        transform: [{ rotate: '30deg' }] 
+      }} />
+    </View>
+  );
+}
+
+export function CalculatorIcon({ color = C.ink }: { color?: string }) {
+  return (
+    <View style={{ width: 18, height: 22, borderWidth: 2, borderColor: color, borderRadius: 3, alignItems: 'center', padding: 2 }}>
+      {/* Screen */}
+      <View style={{ width: 10, height: 3, backgroundColor: color, borderRadius: 1, marginBottom: 3 }} />
+      {/* Keypad */}
+      <View style={{ gap: 2 }}>
+        <View style={{ flexDirection: 'row', gap: 2 }}>
+          <View style={{ width: 2, height: 2, borderRadius: 1, backgroundColor: color }} />
+          <View style={{ width: 2, height: 2, borderRadius: 1, backgroundColor: color }} />
+          <View style={{ width: 2, height: 2, borderRadius: 1, backgroundColor: color }} />
+        </View>
+        <View style={{ flexDirection: 'row', gap: 2 }}>
+          <View style={{ width: 2, height: 2, borderRadius: 1, backgroundColor: color }} />
+          <View style={{ width: 2, height: 2, borderRadius: 1, backgroundColor: color }} />
+          <View style={{ width: 2, height: 2, borderRadius: 1, backgroundColor: color }} />
+        </View>
+        <View style={{ flexDirection: 'row', gap: 2 }}>
+          <View style={{ width: 2, height: 2, borderRadius: 1, backgroundColor: color }} />
+          <View style={{ width: 2, height: 2, borderRadius: 1, backgroundColor: color }} />
+          <View style={{ width: 2, height: 2, borderRadius: 1, backgroundColor: color }} />
+        </View>
+      </View>
+    </View>
+  );
+}

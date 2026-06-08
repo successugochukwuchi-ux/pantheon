@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { collection, query, orderBy, onSnapshot } from 'firebase/firestore';
+import { collection, query, orderBy, getDocs } from 'firebase/firestore';
 import { db } from '../firebase';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '../components/ui/card';
 import { Newspaper, Calendar, Clock, ChevronRight } from 'lucide-react';
@@ -26,14 +26,13 @@ export default function News() {
   useEffect(() => {
     if (!user) return;
     const q = query(collection(db, 'news'), orderBy('createdAt', 'desc'));
-    const unsubscribe = onSnapshot(q, (snapshot) => {
+    getDocs(q).then((snapshot) => {
       setNews(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as NewsItem)));
       setLoading(false);
-    }, (error) => {
+    }).catch((error) => {
       console.error("News fetch error:", error);
       setLoading(false);
     });
-    return () => unsubscribe();
   }, [user]);
 
   return (

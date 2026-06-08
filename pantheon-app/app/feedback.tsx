@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import {
   View,
   Text,
@@ -12,12 +12,13 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
-import { C, F } from '../components/Theme';
+import { F } from '../components/Theme';
+import { useTheme } from '../context/ThemeContext';
 
-function BackIcon() {
+function BackIcon({ color }: { color: string }) {
   return (
     <View style={{ width: 24, height: 24, justifyContent: 'center' }}>
-      <View style={{ width: 12, height: 12, borderLeftWidth: 2, borderBottomWidth: 2, borderColor: C.ink, transform: [{ rotate: '45deg' }, { translateX: 2 }] }} />
+      <View style={{ width: 12, height: 12, borderLeftWidth: 2, borderBottomWidth: 2, borderColor: color, transform: [{ rotate: '45deg' }, { translateX: 2 }] }} />
     </View>
   );
 }
@@ -26,6 +27,9 @@ const FEEDBACK_TYPES = ['Bug Report', 'Feature Request', 'General Feedback', 'Ac
 
 export default function FeedbackScreen() {
   const router = useRouter();
+  const { colors: C } = useTheme();
+  const s = useMemo(() => createStyles(C), [C]);
+
   const [type, setType] = useState(FEEDBACK_TYPES[2]);
   const [message, setMessage] = useState('');
   const [submitting, setSubmitting] = useState(false);
@@ -46,36 +50,36 @@ export default function FeedbackScreen() {
   };
 
   return (
-    <SafeAreaView style={s.root} edges={['top']}>
+    <SafeAreaView style={[s.root, { backgroundColor: C.bg }]} edges={['top']}>
       <KeyboardAvoidingView 
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
         style={{ flex: 1 }}
       >
-        <View style={s.header}>
+        <View style={[s.header, { backgroundColor: C.surface, borderBottomColor: C.border }]}>
           <TouchableOpacity onPress={() => router.back()} style={s.backBtn}>
-            <BackIcon />
+            <BackIcon color={C.ink} />
           </TouchableOpacity>
-          <Text style={s.headerTitle}>Give Feedback</Text>
+          <Text style={[s.headerTitle, { color: C.ink }]}>Give Feedback</Text>
           <View style={{ width: 44 }} />
         </View>
 
         <ScrollView style={s.content} contentContainerStyle={{ padding: 20 }}>
-          <Text style={s.label}>WHAT TYPE OF FEEDBACK?</Text>
+          <Text style={[s.label, { color: C.inkLight }]}>WHAT TYPE OF FEEDBACK?</Text>
           <View style={s.typeGrid}>
             {FEEDBACK_TYPES.map((t) => (
               <TouchableOpacity
                 key={t}
-                style={[s.typeBtn, type === t && s.typeBtnActive]}
+                style={[s.typeBtn, { backgroundColor: C.surface, borderColor: C.border }, type === t && [s.typeBtnActive, { backgroundColor: C.ink, borderColor: C.ink }]]}
                 onPress={() => setType(t)}
               >
-                <Text style={[s.typeBtnText, type === t && s.typeBtnTextActive]}>{t}</Text>
+                <Text style={[s.typeBtnText, { color: C.inkMid }, type === t && s.typeBtnTextActive]}>{t}</Text>
               </TouchableOpacity>
             ))}
           </View>
 
-          <Text style={s.label}>YOUR MESSAGE</Text>
+          <Text style={[s.label, { color: C.inkLight }]}>YOUR MESSAGE</Text>
           <TextInput
-            style={s.textArea}
+            style={[s.textArea, { backgroundColor: C.surface, borderColor: C.border, color: C.ink }]}
             placeholder="Type your feedback here..."
             placeholderTextColor={C.inkLight}
             multiline
@@ -86,16 +90,16 @@ export default function FeedbackScreen() {
           />
 
           <TouchableOpacity 
-            style={[s.submitBtn, submitting && { opacity: 0.7 }]} 
+            style={[s.submitBtn, { backgroundColor: C.ink }, submitting && { opacity: 0.7 }]} 
             onPress={handleSubmit}
             disabled={submitting}
           >
-            <Text style={s.submitBtnText}>{submitting ? 'SENDING...' : 'SUBMIT FEEDBACK'}</Text>
+            <Text style={[s.submitBtnText, { color: C.bg }]}>{submitting ? 'SENDING...' : 'SUBMIT FEEDBACK'}</Text>
           </TouchableOpacity>
 
-          <View style={s.infoBox}>
-            <Text style={s.infoText}>
-              We value your input! Your feedback helps us make Pantheon the ultimate companion for FUTO students.
+          <View style={[s.infoBox, { backgroundColor: C.activeBg || '#E8F6EF' }]}>
+            <Text style={[s.infoText, { color: C.activeText || '#27AE60' }]}>
+              We value your input! Your feedback helps us make CoLearn the ultimate companion for FUTO students.
             </Text>
           </View>
         </ScrollView>
@@ -104,7 +108,7 @@ export default function FeedbackScreen() {
   );
 }
 
-const s = StyleSheet.create({
+const createStyles = (C: any) => StyleSheet.create({
   root: { flex: 1, backgroundColor: C.bg },
   header: {
     flexDirection: 'row',
@@ -113,39 +117,31 @@ const s = StyleSheet.create({
     paddingHorizontal: 12,
     height: 56,
     borderBottomWidth: 1,
-    borderBottomColor: C.border,
-    backgroundColor: C.surface,
   },
-  headerTitle: { fontFamily: F.bold, fontSize: 18, color: C.ink },
+  headerTitle: { fontFamily: F.bold, fontSize: 18 },
   backBtn: { width: 44, height: 44, justifyContent: 'center', alignItems: 'center' },
   content: { flex: 1 },
-  label: { fontFamily: F.bold, fontSize: 12, color: C.inkLight, letterSpacing: 1.2, marginBottom: 12, marginTop: 12 },
+  label: { fontFamily: F.bold, fontSize: 12, letterSpacing: 1.2, marginBottom: 12, marginTop: 12 },
   typeGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10, marginBottom: 24 },
   typeBtn: {
     paddingHorizontal: 16,
     paddingVertical: 10,
     borderRadius: 12,
-    backgroundColor: C.surface,
     borderWidth: 1,
-    borderColor: C.border,
   },
-  typeBtnActive: { backgroundColor: C.ink, borderColor: C.ink },
-  typeBtnText: { fontFamily: F.bold, fontSize: 13, color: C.inkMid },
+  typeBtnActive: { },
+  typeBtnText: { fontFamily: F.bold, fontSize: 13 },
   typeBtnTextActive: { color: '#fff' },
   textArea: {
-    backgroundColor: C.surface,
     borderRadius: 16,
     padding: 16,
     height: 200,
     fontFamily: F.body,
     fontSize: 16,
-    color: C.ink,
     borderWidth: 1,
-    borderColor: C.border,
     marginBottom: 24,
   },
   submitBtn: {
-    backgroundColor: C.ink,
     borderRadius: 16,
     paddingVertical: 18,
     alignItems: 'center',
@@ -155,7 +151,7 @@ const s = StyleSheet.create({
     shadowRadius: 8,
     elevation: 4,
   },
-  submitBtnText: { fontFamily: F.bold, fontSize: 15, color: '#fff', letterSpacing: 1 },
-  infoBox: { marginTop: 32, padding: 20, backgroundColor: '#E8F6EF', borderRadius: 16 },
-  infoText: { fontFamily: F.medium, fontSize: 14, color: '#27AE60', textAlign: 'center', lineHeight: 20 },
+  submitBtnText: { fontFamily: F.bold, fontSize: 15, letterSpacing: 1 },
+  infoBox: { marginTop: 32, padding: 20, borderRadius: 16 },
+  infoText: { fontFamily: F.medium, fontSize: 14, textAlign: 'center', lineHeight: 20 },
 });

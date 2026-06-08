@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { collection, query, where, orderBy, onSnapshot, updateDoc, doc, writeBatch, deleteDoc } from 'firebase/firestore';
+import { collection, query, where, orderBy, getDocs, updateDoc, doc, writeBatch, deleteDoc } from 'firebase/firestore';
 import { db } from '../firebase';
 import { useAuth } from '../contexts/AuthContext';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card';
@@ -38,14 +38,16 @@ export default function Notifications() {
       where('userId', '==', user.uid)
     );
 
-    const unsubNotifs = onSnapshot(q, (snapshot) => {
+    getDocs(q).then((snapshot) => {
       const notifs = snapshot.docs
         .map(doc => ({ id: doc.id, ...doc.data() } as Notification));
       setNotifications(notifs);
+    }).catch((err) => {
+      console.error("Error fetching notifications:", err);
     });
 
     // General announcements
-    const unsubAnn = onSnapshot(collection(db, 'announcements'), (snapshot) => {
+    getDocs(collection(db, 'announcements')).then((snapshot) => {
       const allAnn = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Announcement));
       
       // Filter based on user profile
@@ -63,12 +65,10 @@ export default function Notifications() {
       });
       setAnnouncements(filtered);
       setLoading(false);
+    }).catch((err) => {
+      console.error("Error fetching announcements:", err);
+      setLoading(false);
     });
-
-    return () => {
-      unsubNotifs();
-      unsubAnn();
-    };
   }, [user, profile]);
 
   const allMessages = [

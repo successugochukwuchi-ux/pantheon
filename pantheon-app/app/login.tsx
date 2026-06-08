@@ -43,7 +43,7 @@ function Navbar({ onHelp }: { onHelp: () => void }) {
     <View style={s.navbar}>
       <View style={s.navBrand}>
         <View style={s.navLogo} />
-        <Text style={s.navBrandText}>PANTHEON</Text>
+        <Text style={s.navBrandText}>COLEARN</Text>
       </View>
       <TouchableOpacity onPress={onHelp} activeOpacity={0.7}>
         <Text style={s.navHelp}>Help</Text>
@@ -76,24 +76,41 @@ function InputField({
   error?: string;
 }) {
   const [focused, setFocused] = useState(false);
+  const [isSecured, setIsSecured] = useState(!!secureTextEntry);
+
   return (
     <View style={s.fieldWrap}>
       <View style={s.labelRow}>
         <Text style={s.label}>{label}</Text>
         {rightAction}
       </View>
-      <TextInput
-        style={[s.input, focused && s.inputFocused, !!error && s.inputError]}
-        placeholder={placeholder}
-        placeholderTextColor={C.inkLight}
-        value={value}
-        onChangeText={onChangeText}
-        secureTextEntry={secureTextEntry}
-        keyboardType={keyboardType ?? 'default'}
-        autoCapitalize={autoCapitalize ?? 'none'}
-        onFocus={() => setFocused(true)}
-        onBlur={() => setFocused(false)}
-      />
+      <View style={[
+        s.inputContainer,
+        focused && s.inputContainerFocused,
+        !!error && s.inputContainerError
+      ]}>
+        <TextInput
+          style={s.inputField}
+          placeholder={placeholder}
+          placeholderTextColor={C.inkLight}
+          value={value}
+          onChangeText={onChangeText}
+          secureTextEntry={isSecured}
+          keyboardType={keyboardType ?? 'default'}
+          autoCapitalize={autoCapitalize ?? 'none'}
+          onFocus={() => setFocused(true)}
+          onBlur={() => setFocused(false)}
+        />
+        {secureTextEntry && (
+          <TouchableOpacity
+            style={s.eyeButton}
+            activeOpacity={0.7}
+            onPress={() => setIsSecured(!isSecured)}
+          >
+            <Text style={s.eyeText}>{isSecured ? '👁️' : '🙈'}</Text>
+          </TouchableOpacity>
+        )}
+      </View>
       {hint && !error && (
         <View style={s.hintRow}>
           <Text style={s.hintIcon}>ⓘ</Text>
@@ -203,7 +220,7 @@ export default function LoginScreen() {
 
             <View style={s.dividerRow}>
               <View style={s.dividerLine} />
-              <Text style={s.dividerLabel}>NEW TO PANTHEON?</Text>
+              <Text style={s.dividerLabel}>NEW TO COLEARN?</Text>
               <View style={s.dividerLine} />
             </View>
 
@@ -212,7 +229,7 @@ export default function LoginScreen() {
               onPress={() => router.push('/register')}
               activeOpacity={0.85}
             >
-              <Text style={s.createBtnText}>Create Pantheon Account</Text>
+              <Text style={s.createBtnText}>Create CoLearn Account</Text>
             </TouchableOpacity>
           </View>
 
@@ -286,19 +303,34 @@ const s = StyleSheet.create({
   fieldWrap: { marginBottom: 18 },
   labelRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 },
   label: { fontFamily: F.bold, fontSize: 11, color: C.ink, letterSpacing: 1.5 },
-  input: {
+  inputContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
     borderWidth: 1.5,
     borderColor: C.border,
     borderRadius: 10,
+    backgroundColor: C.inputBg,
+    overflow: 'hidden',
+  },
+  inputContainerFocused: { borderColor: C.ink },
+  inputContainerError: { borderColor: C.error },
+  inputField: {
+    flex: 1,
     paddingHorizontal: 16,
     paddingVertical: 14,
     fontFamily: F.body,
     fontSize: 15,
     color: C.ink,
-    backgroundColor: C.inputBg,
   },
-  inputFocused: { borderColor: C.ink },
-  inputError: { borderColor: C.error },
+  eyeButton: {
+    paddingHorizontal: 16,
+    justifyContent: 'center',
+    alignItems: 'center',
+    alignSelf: 'stretch',
+  },
+  eyeText: {
+    fontSize: 18,
+  },
   hintRow: { flexDirection: 'row', alignItems: 'flex-start', marginTop: 8, gap: 6 },
   hintIcon: { fontSize: 13, color: C.info, marginTop: 1 },
   hintText: { fontFamily: F.medium, fontSize: 12, color: C.info, flex: 1, lineHeight: 18 },

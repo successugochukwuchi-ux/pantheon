@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 import {
   View,
   Text,
@@ -12,17 +12,20 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { BottomNav } from '../components/BottomNav';
-import { C, F } from '../components/Theme';
+import { F } from '../components/Theme';
 import { InfoIcon } from '../components/Icons';
 import { useAuth } from '../context/AuthContext';
 import { useTheme } from '../context/ThemeContext';
 
 import { auth } from '../lib/firebase';
 import { signOut } from 'firebase/auth';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { clearUserProfileLocal } from '../lib/db';
 
 // ── Sub-components ────────────────────────────────────────────────────────────
 
 function BackIcon() {
+  const { colors: C } = useTheme();
   return (
     <View style={{ width: 24, height: 24, justifyContent: 'center', alignItems: 'center' }}>
       <View style={{ width: 16, height: 2, backgroundColor: C.ink, borderRadius: 1 }} />
@@ -32,6 +35,7 @@ function BackIcon() {
 }
 
 function GearIcon() {
+  const { colors: C } = useTheme();
   return (
     <View style={{ width: 20, height: 20, justifyContent: 'center', alignItems: 'center' }}>
       <View style={{ width: 14, height: 14, borderRadius: 7, borderWidth: 1.8, borderColor: C.ink }} />
@@ -53,6 +57,7 @@ function SparkleIcon() {
 }
 
 function HeadsetIcon() {
+  const { colors: C } = useTheme();
   return (
     <View style={{ width: 20, height: 18, borderTopLeftRadius: 10, borderTopRightRadius: 10, borderWidth: 1.8, borderColor: C.ink, borderBottomWidth: 0, justifyContent: 'flex-end', alignItems: 'center' }}>
       <View style={{ flexDirection: 'row', justifyContent: 'space-between', width: '100%', paddingHorizontal: -2 }}>
@@ -64,6 +69,7 @@ function HeadsetIcon() {
 }
 
 function MessageIcon() {
+  const { colors: C } = useTheme();
   return (
     <View style={{ width: 20, height: 16, borderWidth: 1.8, borderColor: C.ink, borderRadius: 3, justifyContent: 'center', alignItems: 'center' }}>
       <View style={{ width: 10, height: 2, backgroundColor: C.ink, borderRadius: 1, marginBottom: 2 }} />
@@ -74,6 +80,7 @@ function MessageIcon() {
 }
 
 function ProfileSmallIcon() {
+  const { colors: C } = useTheme();
   return (
     <View style={{ alignItems: 'center', gap: 2 }}>
       <View style={{ width: 10, height: 10, borderRadius: 5, borderWidth: 1.8, borderColor: C.ink }} />
@@ -89,6 +96,8 @@ function SettingRow({ icon, title, subtitle, isDark, onPress }: {
   isDark?: boolean;
   onPress?: () => void;
 }) {
+  const { colors: C } = useTheme();
+  const s = useMemo(() => createStyles(C), [C]);
   return (
     <TouchableOpacity
       style={[s.row, isDark && s.rowDark]}
@@ -113,13 +122,14 @@ function SettingRow({ icon, title, subtitle, isDark, onPress }: {
 
 export default function SettingsScreen() {
   const router = useRouter();
-  const { profile } = useAuth();
+  const { profile, logout } = useAuth();
   const { colors: C } = useTheme();
+  const s = useMemo(() => createStyles(C), [C]);
 
   const handleLogout = async () => {
     try {
-      await signOut(auth);
-      router.replace('/login' as any);
+      await logout();
+      router.replace('/' as any);
     } catch (error) {
       console.error('Logout error:', error);
     }
@@ -206,14 +216,8 @@ export default function SettingsScreen() {
         <SettingRow
           icon={<MessageIcon />}
           title="Give Feedback"
-          subtitle="Help us improve your PANTHEON experience"
+          subtitle="Help us improve your COLEARN experience"
           onPress={() => router.push('/feedback')}
-        />
-        <SettingRow
-          icon={<InfoIcon color={C.ink} />}
-          title="Help Center"
-          subtitle="Frequently asked questions and guides"
-          onPress={() => Linking.openURL('https://wa.me/2348118429150?text=Help%20Center')}
         />
 
         {/* Logout */}
@@ -221,7 +225,7 @@ export default function SettingsScreen() {
           <Text style={s.logoutBtnText}>Log Out</Text>
         </TouchableOpacity>
 
-        <Text style={s.versionText}>PANTHEON v2.4.0 • FUTO Edition</Text>
+        <Text style={s.versionText}>COLEARN v2.4.0 • FUTO Edition</Text>
 
         <View style={{ height: 100 }} />
       </ScrollView>
@@ -231,7 +235,7 @@ export default function SettingsScreen() {
   );
 }
 
-const s = StyleSheet.create({
+const createStyles = (C: any) => StyleSheet.create({
   root: { flex: 1, backgroundColor: C.bg },
   header: {
     flexDirection: 'row',

@@ -59,14 +59,6 @@ export default function Activate() {
 
       await batch.commit();
 
-      // Telegram Alert for Promo
-      sendTelegramAlert(
-        `<b>ALERT: PROMO ACTIVATION</b>\n\n` +
-        `<b>ACCOUNT ACTIVATED:</b> ${profile?.studentId || 'N/A'}, ${user?.uid}\n` +
-        `<b>METHOD:</b> FREE PROMO MODE\n` +
-        `<b>ACTIVATION TIME:</b> ${new Date().toLocaleString()}`
-      );
-
       setShowPromoSuccess(true);
     } catch (error: any) {
       console.error("Promo Activation Error:", error);
@@ -181,15 +173,17 @@ export default function Activate() {
         console.error("Failed to get creator snap:", error);
       }
 
-      // Telegram Alert
-      sendTelegramAlert(
-        `<b>ALERT: ACTIVATION PIN USED</b>\n\n` +
-        `<b>ACCOUNT ACTIVATED:</b> ${profile?.studentId || 'N/A'}, ${user?.uid}\n` +
-        `<b>PIN USED:</b> ${pin}\n` +
-        `<b>PIN TYPE:</b> ${pinData.type?.toUpperCase() || 'STANDARD'}\n` +
-        `<b>ACTIVATION TIME:</b> ${new Date().toLocaleString()}\n` +
-        `<b>PIN CREATOR:</b> ${creatorSnap?.exists() ? creatorSnap.data()?.level : 'N/A'}, ${creatorSnap?.exists() ? creatorSnap.data()?.studentId : 'N/A'}, ${pinData.createdBy}`
-      );
+      // Telegram Alert only if the pin was still under the master pool (i.e. not assigned to any vendor)
+      if (!pinData.assignedTo) {
+        sendTelegramAlert(
+          `<b>🔔 ALERT: MASTER POOL PIN USED</b>\n\n` +
+          `<b>Source:</b> {source}\n` +
+          `<b>User Student ID:</b> ${profile?.studentId || 'N/A'}\n` +
+          `<b>Time Used:</b> ${new Date().toLocaleString()}\n` +
+          `<b>Pin Created At:</b> ${pinData.createdAt ? new Date(pinData.createdAt).toLocaleString() : 'N/A'}\n` +
+          `<b>Creator Student ID:</b> ${creatorSnap?.exists() ? creatorSnap.data()?.studentId : 'N/A'}`
+        );
+      }
 
       navigate('/dashboard');
     } catch (error: any) {
@@ -200,7 +194,7 @@ export default function Activate() {
   };
 
   const openWhatsApp = () => {
-    const message = encodeURIComponent("Hello, I want to purchase an activation pin for Pantheon App.");
+    const message = encodeURIComponent("Hello, I want to purchase an activation pin for CoLearn App.");
     window.open(`https://wa.me/2348118429150?text=${message}`, '_blank');
   };
 

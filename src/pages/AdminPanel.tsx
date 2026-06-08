@@ -135,12 +135,46 @@ const safeCompareStrings = (aStr: any, bStr: any, descending = false): number =>
   return descending ? strB.localeCompare(strA) : strA.localeCompare(strB);
 };
 
+const safeFormatDate = (val: any, fallback = 'N/A'): string => {
+  if (!val) return fallback;
+  if (typeof val === 'string') {
+    return new Date(val).toLocaleString();
+  }
+  if (val && typeof val === 'object') {
+    if (typeof val.toDate === 'function') {
+      return val.toDate().toLocaleString();
+    }
+    if (typeof val.seconds === 'number') {
+      return new Date(val.seconds * 1000).toLocaleString();
+    }
+  }
+  return String(val);
+};
+
+const safeFormatDateOnly = (val: any, fallback = 'N/A'): string => {
+  if (!val) return fallback;
+  if (typeof val === 'string') {
+    return new Date(val).toLocaleDateString();
+  }
+  if (val && typeof val === 'object') {
+    if (typeof val.toDate === 'function') {
+      return val.toDate().toLocaleDateString();
+    }
+    if (typeof val.seconds === 'number') {
+      return new Date(val.seconds * 1000).toLocaleDateString();
+    }
+  }
+  return String(val);
+};
+
 export default function AdminPanel() {
   useTitle('Admin Panel');
   const { profile, user, systemConfig, promoConfig } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
   const [loading, setLoading] = useState(false);
+  const [refreshTrigger, setRefreshTrigger] = useState(0);
+  const triggerRefresh = () => setRefreshTrigger(prev => prev + 1);
 
   // User Management State
   const [targetUid, setTargetUid] = useState('');
@@ -251,10 +285,16 @@ export default function AdminPanel() {
 
   // Telegram State
   const [telegramConfig, setTelegramConfig] = useState<TelegramConfig | null>(null);
-  const [editTelegram, setEditTelegram] = useState({
+  const [editTelegram, setEditTelegram] = useState<{
+    botToken: string;
+    chatId: string;
+    isActive: boolean;
+    source: string;
+  }>({
     botToken: '',
     chatId: '',
-    isActive: false
+    isActive: false,
+    source: ''
   });
 
   // Video Library State
@@ -291,33 +331,41 @@ export default function AdminPanel() {
   useEffect(() => {
     if (!profile) return;
 
-    const unsubCourses = onSnapshot(collection(db, 'courses'), (snapshot) => {
-      const fetchedCourses = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Course));
-      fetchedCourses.sort((a, b) => safeCompareStrings(a.code, b.code));
-      setCourses(fetchedCourses);
-    }, (err) => {
-      handleFirestoreError(err, OperationType.LIST, 'courses');
-    });
+    if (profile.level === '4') {
+      getDocs(collection(db, 'courses')).then((snapshot) => {
+        const fetchedCourses = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Course));
+        fetchedCourses.sort((a, b) => safeCompareStrings(a.code, b.code));
+        setCourses(fetchedCourses);
+      }).catch((err) => {
+        handleFirestoreError(err, OperationType.LIST, 'courses');
+      });
 
-    const unsubNotes = onSnapshot(collection(db, 'notes'), (snapshot) => {
-      setNotes(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Note)));
-    }, (err) => {
-      handleFirestoreError(err, OperationType.LIST, 'notes');
-    });
+      getDocs(collection(db, 'notes')).then((snapshot) => {
+        setNotes(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Note)));
+      }).catch((err) => {
+        handleFirestoreError(err, OperationType.LIST, 'notes');
+      });
 
-    const unsubQuestions = onSnapshot(collection(db, 'questions'), (snapshot) => {
-      setQuestions(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Question)));
-    }, (err) => {
-      handleFirestoreError(err, OperationType.LIST, 'questions');
-    });
+      getDocs(collection(db, 'questions')).then((snapshot) => {
+        setQuestions(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Question)));
+      }).catch((err) => {
+        handleFirestoreError(err, OperationType.LIST, 'questions');
+      });
 
-    const unsubSheets = onSnapshot(collection(db, 'questionSheets'), (snapshot) => {
-      setQuestionSheets(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as QuestionSheet)));
-    }, (err) => {
-      handleFirestoreError(err, OperationType.LIST, 'questionSheets');
-    });
+      getDocs(collection(db, 'questionSheets')).then((snapshot) => {
+        setQuestionSheets(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as QuestionSheet)));
+      }).catch((err) => {
+        handleFirestoreError(err, OperationType.LIST, 'questionSheets');
+      });
 
-    const unsubPins = onSnapshot(collection(db, 'activationCodes'), (snapshot) => {
+      getDocs(collection(db, 'announcements')).then((snapshot) => {
+        setAnnouncements(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Announcement)).sort((a, b) => safeCompareDates(a.createdAt, b.createdAt)));
+      }).catch((err) => {
+        handleFirestoreError(err, OperationType.LIST, 'announcements');
+      });
+    }
+
+    getDocs(collection(db, 'activationCodes')).then((snapshot) => {
       const allPins = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as ActivationCode));
       if (profile.level === '3') {
         const sortedUnused = allPins.filter(p => !p.isUsed && p.assignedTo === user?.uid).sort((a, b) => safeCompareDates(a.createdAt, b.createdAt));
@@ -333,41 +381,33 @@ export default function AdminPanel() {
         setUsedPins(sortedUsed);
         setTransferredPins(sortedTransferred);
       }
-    }, (err) => {
+    }).catch((err) => {
       handleFirestoreError(err, OperationType.LIST, 'activationCodes');
     });
 
-    const unsubVerifications = onSnapshot(collection(db, 'verificationRequests'), (snapshot) => {
-      setVerificationRequests(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as VerificationRequest)));
-    }, (err) => {
-      handleFirestoreError(err, OperationType.LIST, 'verificationRequests');
-    });
-
-    const unsubAnnouncements = onSnapshot(collection(db, 'announcements'), (snapshot) => {
-      setAnnouncements(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Announcement)).sort((a, b) => safeCompareDates(a.createdAt, b.createdAt)));
-    }, (err) => {
-      handleFirestoreError(err, OperationType.LIST, 'announcements');
-    });
-
-    // Fetch Telegram Config for Level 4
-    let unsubTelegram = () => {};
-    let unsubAI = () => {};
     if (profile.level === '4') {
-      unsubTelegram = onSnapshot(doc(db, 'system', 'telegram'), (snapshot) => {
+      getDocs(collection(db, 'verificationRequests')).then((snapshot) => {
+        setVerificationRequests(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as VerificationRequest)));
+      }).catch((err) => {
+        handleFirestoreError(err, OperationType.LIST, 'verificationRequests');
+      });
+
+      getDoc(doc(db, 'system', 'telegram')).then((snapshot) => {
         if (snapshot.exists()) {
           const data = snapshot.data() as TelegramConfig;
           setTelegramConfig(data);
           setEditTelegram({
             botToken: data.botToken || '',
             chatId: data.chatId || '',
-            isActive: data.isActive || false
+            isActive: data.isActive || false,
+            source: data.source || ''
           });
         }
-      }, (err) => {
+      }).catch((err) => {
         handleFirestoreError(err, OperationType.GET, 'system/telegram');
       });
 
-      unsubAI = onSnapshot(doc(db, 'system', 'hermes'), (snapshot) => {
+      getDoc(doc(db, 'system', 'hermes')).then((snapshot) => {
         if (snapshot.exists()) {
           const data = snapshot.data() as AIConfig;
           setHermesConfig(data);
@@ -378,11 +418,11 @@ export default function AdminPanel() {
             isActive: data.isActive ?? true
           });
         }
-      }, (err) => {
+      }).catch((err) => {
         handleFirestoreError(err, OperationType.GET, 'system/hermes');
       });
 
-      const unsubMagicNote = onSnapshot(doc(db, 'system', 'magicNote'), (snapshot) => {
+      getDoc(doc(db, 'system', 'magicNote')).then((snapshot) => {
         if (snapshot.exists()) {
           const data = snapshot.data() as AIConfig;
           setMagicNoteConfig(data);
@@ -393,29 +433,11 @@ export default function AdminPanel() {
             isActive: data.isActive ?? true
           });
         }
-      }, (err) => {
+      }).catch((err) => {
         handleFirestoreError(err, OperationType.GET, 'system/magicNote');
       });
-
-      const originalUnsubAI = unsubAI;
-      unsubAI = () => {
-        originalUnsubAI();
-        unsubMagicNote();
-      };
     }
-
-    return () => {
-      unsubCourses();
-      unsubNotes();
-      unsubQuestions();
-      unsubSheets();
-      unsubPins();
-      unsubVerifications();
-      unsubAnnouncements();
-      unsubTelegram();
-      unsubAI();
-    };
-  }, [profile]);
+  }, [profile, refreshTrigger]);
 
   useEffect(() => {
     if (!selectedVideoNote) {
@@ -423,11 +445,12 @@ export default function AdminPanel() {
       return;
     }
     const q = query(collection(db, `notes/${selectedVideoNote.id}/videoQuestions`));
-    const unsub = onSnapshot(q, (snapshot) => {
+    getDocs(q).then((snapshot) => {
       setVideoQuestions(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as VideoQuestion)));
+    }).catch((err) => {
+      console.error("Error fetching video questions:", err);
     });
-    return () => unsub();
-  }, [selectedVideoNote]);
+  }, [selectedVideoNote, refreshTrigger]);
 
   const handleLinkVideo = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -492,18 +515,6 @@ export default function AdminPanel() {
 
       await updateDoc(userRef, { level });
       toast.success(`User elevated to Level ${level}`);
-      
-      // Telegram Alert
-      sendTelegramAlert(
-        `<b>ALERT: ACCOUNT PROMOTION</b>\n\n` +
-        `<b>STUDENT:</b> ${userData.username || 'N/A'}\n` +
-        `<b>STUDENT ID:</b> ${targetUid}\n` +
-        `<b>UID:</b> ${actualUid}\n` +
-        `<b>OLD LEVEL:</b> ${userData.level}\n` +
-        `<b>NEW LEVEL:</b> ${level}\n` +
-        `<b>PROMOTED BY:</b> ${profile?.level} (UID: ${user?.uid})\n` +
-        `<b>TIME:</b> ${new Date().toLocaleString()}`
-      );
 
       setTargetUid('');
     } catch (error: any) {
@@ -533,19 +544,6 @@ export default function AdminPanel() {
         banReason: isBanned ? banReason : '' 
       });
       toast.success(isBanned ? 'User banned' : 'User unbanned');
-
-      if (isBanned) {
-        // Telegram Alert
-        sendTelegramAlert(
-          `<b>ALERT: ACCOUNT BANNED</b>\n\n` +
-          `<b>STUDENT:</b> ${userData?.username || 'N/A'}\n` +
-          `<b>STUDENT ID:</b> ${targetUid}\n` +
-          `<b>UID:</b> ${actualUid}\n` +
-          `<b>REASON:</b> ${banReason}\n` +
-          `<b>BANNED BY:</b> ${profile?.level} (UID: ${user?.uid})\n` +
-          `<b>TIME:</b> ${new Date().toLocaleString()}`
-        );
-      }
 
       setTargetUid('');
       setBanReason('');
@@ -708,11 +706,12 @@ export default function AdminPanel() {
       return;
     }
     const q = query(collection(db, 'questions'), where('sheetId', '==', selectedSheet.id));
-    const unsub = onSnapshot(q, (snapshot) => {
+    getDocs(q).then((snapshot) => {
       setSheetQuestions(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Question)).sort((a, b) => a.order - b.order));
+    }).catch((err) => {
+      console.error("Error fetching sheet questions:", err);
     });
-    return () => unsub();
-  }, [selectedSheet]);
+  }, [selectedSheet, refreshTrigger]);
 
   const handleCreateSheet = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -1028,6 +1027,7 @@ export default function AdminPanel() {
     }
     const pin = Math.floor(100000000000 + Math.random() * 900000000000).toString();
     const path = `activationCodes/${pin}`;
+    const creatorId = profile?.studentId || 'N/A';
     setLoading(true);
     try {
       await setDoc(doc(db, 'activationCodes', pin), {
@@ -1035,9 +1035,23 @@ export default function AdminPanel() {
         isUsed: false,
         createdBy: user?.uid,
         createdAt: new Date().toISOString(),
-        type: pinType
+        type: pinType,
+        owner: creatorId
       });
       setGeneratedCode(pin);
+      
+      // Send Telegram Alert for pin generation
+      const pinTypeStr = pinType?.toUpperCase() || 'STANDARD';
+      const pinCreatedAlert = 
+        `<b>🆕 ALERT: ACTIVATION PIN GENERATED</b>\n\n` +
+        `<b>Source:</b> {source}\n` +
+        `<b>Pin Code:</b> ${pin}\n` +
+        `<b>Pin Type:</b> ${pinTypeStr}\n` +
+        `<b>Time Created:</b> ${new Date().toLocaleString()}\n` +
+        `<b>Creator Student ID:</b> ${creatorId}\n` +
+        `<b>Initial Owner:</b> ${creatorId}`;
+      await sendTelegramAlert(pinCreatedAlert);
+
       toast.success('Activation pin generated');
     } catch (error: any) {
       handleFirestoreError(error, OperationType.WRITE, path);
@@ -1070,6 +1084,16 @@ export default function AdminPanel() {
         }
       }
       await deleteDoc(pinRef);
+      
+      // Send Telegram alert for single pin deletion
+      const deleteAlert = 
+        `<b>🗑️ ALERT: ACTIVATION PIN DELETED</b>\n\n` +
+        `<b>Source:</b> {source}\n` +
+        `<b>Time of Deletion:</b> ${new Date().toLocaleString()}\n` +
+        `<b>Pins Deleted:</b> 1 (${pinToDelete})\n` +
+        `<b>Deleted By Student ID:</b> ${profile?.studentId || 'N/A'}`;
+      await sendTelegramAlert(deleteAlert);
+
       toast.success('Pin removed');
       setPinToDelete(null);
     } catch (error: any) {
@@ -1139,6 +1163,16 @@ export default function AdminPanel() {
         batch.delete(doc(db, 'activationCodes', pin.id));
       });
       await batch.commit();
+
+      // Send Telegram alert for cleared history pins
+      const clearAlert = 
+        `<b>🗑️ ALERT: ACTIVATION PINS DELETED (HISTORY CLEAR)</b>\n\n` +
+        `<b>Source:</b> {source}\n` +
+        `<b>Time of Deletion:</b> ${new Date().toLocaleString()}\n` +
+        `<b>Pins Deleted:</b> ${pinsToProcess.length}\n` +
+        `<b>Deleted By Student ID:</b> ${profile?.studentId || 'N/A'}`;
+      await sendTelegramAlert(clearAlert);
+
       toast.success('History cleared successfully');
       setShowClearConfirm(false);
     } catch (error: any) {
@@ -1169,6 +1203,7 @@ export default function AdminPanel() {
     try {
       const batch = writeBatch(db);
       const now = new Date().toISOString();
+      const creatorId = profile?.studentId || 'Admin';
       
       for (let i = 0; i < bulkCount; i++) {
         const pin = Math.floor(100000000000 + Math.random() * 900000000000).toString();
@@ -1180,11 +1215,25 @@ export default function AdminPanel() {
           isUsed: false,
           createdBy: user?.uid,
           createdAt: now,
-          type: type
+          type: type,
+          owner: creatorId
         });
       }
       
       await batch.commit();
+
+      // Send Telegram notification
+      const numPlus = bulkIncludePlus ? bulkPlusCount : 0;
+      const numStandard = bulkCount - numPlus;
+      const bulkAlert = 
+        `<b>🆕 ALERT: BULK ACTIVATION PINS GENERATED</b>\n\n` +
+        `<b>Source:</b> {source}\n` +
+        `<b>Total Generated:</b> ${bulkCount} (Standard: ${numStandard}, PLUS: ${numPlus})\n` +
+        `<b>Time Created:</b> ${new Date(now).toLocaleString()}\n` +
+        `<b>Creator Student ID:</b> ${creatorId}\n` +
+        `<b>Initial Owner:</b> ${creatorId}`;
+      await sendTelegramAlert(bulkAlert);
+
       toast.success(`Successfully generated ${bulkCount} activation pins!`);
       setGeneratedCode(`Generated ${bulkCount} pins successfully!`);
     } catch (error: any) {
@@ -1230,17 +1279,36 @@ export default function AdminPanel() {
       
       const vendorUid = vendorDoc.id;
       const vendorName = vendorData.username || 'Vendor';
+
+      // Gather transfer info for Telegram alert
+      const pinsToTransfer = unusedPins.filter(p => selectedPinIds.includes(p.id));
+      const creationTimes = Array.from(new Set(pinsToTransfer.map(p => p.createdAt ? new Date(p.createdAt).toLocaleString() : 'N/A'))).join(', ');
+      const numPlus = pinsToTransfer.filter(p => p.type === 'plus').length;
+      const numStandard = pinsToTransfer.filter(p => p.type === 'standard').length;
       
       // Perform batch update to assign selected pins to this Level 3 Vendor
       const batch = writeBatch(db);
       selectedPinIds.forEach(id => {
         batch.update(doc(db, 'activationCodes', id), {
           assignedTo: vendorUid,
-          assignedToStudentId: transferStudentId.trim()
+          assignedToStudentId: transferStudentId.trim(),
+          owner: transferStudentId.trim()
         });
       });
       
       await batch.commit();
+
+      // Send Telegram alert for transfer
+      const transferAlert = 
+        `<b>🔔 ALERT: ACTIVATION PINS TRANSFERRED</b>\n\n` +
+        `<b>Source:</b> {source}\n` +
+        `<b>Time of Transfer:</b> ${new Date().toLocaleString()}\n` +
+        `<b>Pin(s) Creation Time:</b> ${creationTimes}\n` +
+        `<b>Pins Transferred:</b> ${pinsToTransfer.length} (PLUS: ${numPlus}, Standard: ${numStandard})\n` +
+        `<b>Sender Student ID:</b> ${profile?.studentId || 'Admin (N/A)'}\n` +
+        `<b>Receiver Student ID:</b> ${transferStudentId.trim()}`;
+      await sendTelegramAlert(transferAlert);
+
       toast.success(`Successfully transferred ${selectedPinIds.length} pins to ${vendorName}!`);
       setSelectedPinIds([]);
       setTransferStudentId('');
@@ -1409,30 +1477,17 @@ export default function AdminPanel() {
 
   const handleSaveTelegram = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!isLevel4) return;
-    setLoading(true);
-    try {
-      await setDoc(doc(db, 'system', 'telegram'), {
-        ...editTelegram,
-        updatedAt: new Date().toISOString(),
-        updatedBy: user?.uid
-      });
-      toast.success('Telegram configuration saved');
-    } catch (error: any) {
-      toast.error('Failed to save Telegram config: ' + error.message);
-    } finally {
-      setLoading(false);
-    }
+    toast.error('Direct saving of Telegram configuration is disabled. Updates must be applied directly in Firebase.');
   };
 
   const handleTestTelegram = async () => {
-    if (!editTelegram.botToken || !editTelegram.chatId) {
-      toast.error('Token and Chat ID are required for testing');
+    if (!telegramConfig?.botToken || !telegramConfig?.chatId) {
+      toast.error('Token and Chat ID must be configured in Firebase to test connection');
       return;
     }
     setLoading(true);
     try {
-      const result = await testTelegramConnection(editTelegram.botToken, editTelegram.chatId);
+      const result = await testTelegramConnection(telegramConfig.botToken, telegramConfig.chatId);
       if (result.success) {
         toast.success('Test message sent successfully! Check your Telegram chat.');
       } else {
@@ -2634,7 +2689,21 @@ export default function AdminPanel() {
                         ₦{(() => {
                           const mySoldPins = usedPins.filter(p => p.assignedTo === user?.uid);
                           const currentYearMonth = new Date().toISOString().slice(0, 7);
-                          const thisMonthSold = mySoldPins.filter(p => p.usedAt && p.usedAt.startsWith(currentYearMonth));
+                          const thisMonthSold = mySoldPins.filter(p => {
+                            const usedAtVal: any = p.usedAt;
+                            if (!usedAtVal) return false;
+                            let dateStr = '';
+                            if (typeof usedAtVal === 'string') {
+                              dateStr = usedAtVal;
+                            } else if (usedAtVal && typeof usedAtVal === 'object') {
+                              if (typeof usedAtVal.toDate === 'function') {
+                                dateStr = usedAtVal.toDate().toISOString();
+                              } else if (typeof usedAtVal.seconds === 'number') {
+                                dateStr = new Date(usedAtVal.seconds * 1000).toISOString();
+                              }
+                            }
+                            return dateStr && dateStr.startsWith(currentYearMonth);
+                          });
                           
                           const total = thisMonthSold.reduce((sum, p) => {
                             const price = p.type === 'plus' 
@@ -2672,7 +2741,7 @@ export default function AdminPanel() {
                                     <Badge variant="secondary" className="text-[8px] h-4 px-1 leading-none">STANDARD</Badge>
                                   )}
                                 </div>
-                                <span className="text-[10px] text-muted-foreground">Received on {new Date(pin.createdAt).toLocaleDateString()}</span>
+                                <span className="text-[10px] text-muted-foreground">Received on {safeFormatDateOnly(pin.createdAt)}</span>
                               </div>
                               <Button 
                                 variant="outline" 
@@ -2723,7 +2792,7 @@ export default function AdminPanel() {
                                     <Badge variant="secondary" className="text-[8px] h-4 px-1 leading-none">STANDARD</Badge>
                                   )}
                                 </div>
-                                <span className="text-[10px] text-muted-foreground">{pin.usedAt ? new Date(pin.usedAt).toLocaleString() : 'N/A'}</span>
+                                <span className="text-[10px] text-muted-foreground">{safeFormatDate(pin.usedAt, 'N/A')}</span>
                               </div>
                               <p className="text-[10px] text-muted-foreground">
                                 <span className="font-semibold">Used by student ID:</span> <span className="font-mono">{pin.usedByStudentId || 'N/A'}</span>
@@ -2969,7 +3038,7 @@ export default function AdminPanel() {
                                     )}
                                   </div>
                                   <span className="text-[10px] text-muted-foreground">
-                                    {pin.assignedToStudentId ? `Assigned to: ${pin.assignedToStudentId}` : 'Master Pool'} • {new Date(pin.createdAt).toLocaleDateString()}
+                                    {pin.assignedToStudentId ? `Assigned to: ${pin.assignedToStudentId}` : 'Master Pool'} • Owner: {pin.owner || 'N/A'} • {safeFormatDateOnly(pin.createdAt)}
                                   </span>
                                 </div>
                               </div>
@@ -3032,7 +3101,7 @@ export default function AdminPanel() {
                                     <Badge variant="secondary" className="text-[8px] h-4 px-1 leading-none">STANDARD</Badge>
                                   )}
                                 </div>
-                                <span className="text-[10px] text-muted-foreground">{pin.usedAt ? new Date(pin.usedAt).toLocaleString() : 'Unknown'}</span>
+                                <span className="text-[10px] text-muted-foreground">{safeFormatDate(pin.usedAt, 'Unknown')}</span>
                               </div>
                               <div className="flex items-center justify-between">
                                 <div className="flex flex-col gap-0.5">
@@ -3094,10 +3163,11 @@ export default function AdminPanel() {
                                 </div>
                                 <div className="text-[10px] text-muted-foreground space-y-0.5">
                                   <p><span className="font-semibold">Transferred to Student:</span> {pin.assignedToStudentId || 'Unknown Vendor'}</p>
+                                  <p><span className="font-semibold">Current Owner:</span> {pin.owner || 'Admin/Master Pool'}</p>
                                   {pin.isUsed && pin.usedByStudentId && (
                                     <p><span className="font-semibold">Activated by:</span> {pin.usedByStudentId}</p>
                                   )}
-                                  <p className="italic text-[9px]">Transferred on {pin.usedAt ? new Date(pin.usedAt).toLocaleDateString() : new Date(pin.createdAt).toLocaleDateString()}</p>
+                                  <p className="italic text-[9px]">Transferred on {pin.usedAt ? safeFormatDateOnly(pin.usedAt) : safeFormatDateOnly(pin.createdAt)}</p>
                                 </div>
                               </div>
                             ))}
@@ -3470,20 +3540,17 @@ export default function AdminPanel() {
                     <MessageCircle className="h-5 w-5" />
                     Telegram Alerts Configuration
                   </CardTitle>
-                  <CardDescription>Set up bot credentials for real-time system alerts.</CardDescription>
+                  <CardDescription>Real-time system alerts configured securely via Firebase.</CardDescription>
                 </CardHeader>
                 <form onSubmit={handleSaveTelegram}>
                   <CardContent className="space-y-4">
                     <div className="flex items-center justify-between p-3 bg-white/50 dark:bg-black/20 rounded-lg border border-sky-200 dark:border-sky-900">
                       <div className="space-y-0.5">
-                        <Label className="text-sm">Alerts Active</Label>
-                        <p className="text-xs text-muted-foreground">Enable or disable all Telegram notifications.</p>
+                        <Label className="text-sm">Alerts Status</Label>
+                        <p className="text-xs text-muted-foreground font-medium text-green-600 dark:text-green-400">Telegram alerts are forced always active.</p>
                       </div>
-                      <div 
-                        className={`w-12 h-6 rounded-full cursor-pointer transition-colors ${editTelegram.isActive ? 'bg-sky-500' : 'bg-muted'}`}
-                        onClick={() => setEditTelegram(prev => ({ ...prev, isActive: !prev.isActive }))}
-                      >
-                        <div className={`w-4 h-4 rounded-full bg-white mt-1 transition-transform ${editTelegram.isActive ? 'translate-x-7' : 'translate-x-1'}`} />
+                      <div className="px-3 py-1 bg-green-500/15 text-green-600 rounded text-xs font-semibold uppercase">
+                        Active / Always On
                       </div>
                     </div>
 
@@ -3491,35 +3558,44 @@ export default function AdminPanel() {
                       <Label>Bot API Token</Label>
                       <Input 
                         type="password" 
-                        value={editTelegram.botToken} 
-                        onChange={(e) => setEditTelegram(prev => ({ ...prev, botToken: e.target.value }))}
-                        placeholder="Enter Telegram Bot Token"
-                        required
+                        value={editTelegram.botToken ? "••••••••••••••••••••••••••••" : ""} 
+                        disabled
+                        placeholder="Bot token configured securely in Firebase"
                       />
+                      <p className="text-[10px] text-muted-foreground">Managed externally in Firebase database for security. Cannot be modified from this panel.</p>
                     </div>
 
                     <div className="space-y-2">
                       <Label>Chat ID</Label>
                       <Input 
-                        value={editTelegram.chatId} 
-                        onChange={(e) => setEditTelegram(prev => ({ ...prev, chatId: e.target.value }))}
-                        placeholder="Enter Chat ID or Channel Name"
-                        required
+                        value={editTelegram.chatId || ""} 
+                        disabled
+                        placeholder="Chat ID configured securely in Firebase"
                       />
+                      <p className="text-[10px] text-muted-foreground">Managed externally in Firebase database for security. Cannot be modified from this panel.</p>
                     </div>
+
+                    {editTelegram.source && (
+                      <div className="space-y-2">
+                        <Label>Alert Source Identifier</Label>
+                        <Input 
+                          value={editTelegram.source} 
+                          disabled
+                          placeholder="Source identifier configured in Firebase"
+                        />
+                        <p className="text-[10px] text-muted-foreground">Indicates where telegram alerts are originating from (e.g., FUTO).</p>
+                      </div>
+                    )}
                   </CardContent>
                   <CardFooter className="flex gap-2">
                     <Button 
                       type="button" 
                       variant="outline"
-                      className="flex-1"
+                      className="w-full"
                       onClick={handleTestTelegram}
                       disabled={loading}
                     >
                       Test Connection
-                    </Button>
-                    <Button type="submit" className="flex-1 bg-sky-600 hover:bg-sky-700" disabled={loading}>
-                      Save Configuration
                     </Button>
                   </CardFooter>
                 </form>
@@ -3978,7 +4054,7 @@ function AdminManual() {
             <HelpCircle className="h-6 w-6 text-primary" />
             Administrator Operations Manual
           </CardTitle>
-          <CardDescription>Comprehensive guide for Pantheon platform administrators. Click any card to view detailed tutorial.</CardDescription>
+          <CardDescription>Comprehensive guide for CoLearn platform administrators. Click any card to view detailed tutorial.</CardDescription>
         </CardHeader>
       </Card>
 
@@ -4040,7 +4116,7 @@ function AdminManual() {
           <div className="flex flex-col gap-2">
             <div className="flex items-center justify-between p-3 bg-muted/50 rounded-lg">
               <span className="text-sm font-medium">Developer Contact</span>
-              <span className="text-sm text-primary font-mono">support@pantheon.futo</span>
+              <span className="text-sm text-primary font-mono">support@colearn.futo</span>
             </div>
             <div className="flex items-center justify-between p-3 bg-muted/50 rounded-lg">
               <span className="text-sm font-medium">Last Audit</span>

@@ -23,7 +23,7 @@ export const MaintenanceGuard: React.FC<{ children: React.ReactNode }> = ({ chil
           <div className="space-y-2">
             <h1 className="text-4xl font-black tracking-tighter">UNDER MAINTENANCE</h1>
             <p className="text-muted-foreground">
-              Pantheon is currently undergoing scheduled maintenance to improve your experience.
+              CoLearn is currently undergoing scheduled maintenance to improve your experience.
             </p>
           </div>
 
@@ -41,7 +41,7 @@ export const MaintenanceGuard: React.FC<{ children: React.ReactNode }> = ({ chil
           </div>
 
           <p className="text-[10px] text-muted-foreground uppercase tracking-widest">
-            © 2026 PANTHEON TEAM
+            © 2026 COLEARN TEAM
           </p>
         </div>
       </div>

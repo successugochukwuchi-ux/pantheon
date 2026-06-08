@@ -54,7 +54,7 @@ export default function PrivacyScreen() {
           <Section 
             number="1" 
             title="Introduction" 
-            text="Welcome to PANTHEON ('we,' 'our,' or 'us'). We are committed to protecting your privacy and ensuring that your personal information is handled in a safe and responsible manner. This Privacy Policy outlines how we collect, use, disclose, and safeguard your information when you use our platform."
+            text="Welcome to COLEARN ('we,' 'our,' or 'us'). We are committed to protecting your privacy and ensuring that your personal information is handled in a safe and responsible manner. This Privacy Policy outlines how we collect, use, disclose, and safeguard your information when you use our platform."
           />
 
           <Section number="2" title="Information We Collect">

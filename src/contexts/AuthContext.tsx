@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
-import { onAuthStateChanged, User } from 'firebase/auth';
-import { doc, onSnapshot, updateDoc, setDoc } from 'firebase/firestore';
+import { onAuthStateChanged, User, signOut as firebaseSignOut } from 'firebase/auth';
+import { doc, onSnapshot, updateDoc, setDoc, getDoc } from 'firebase/firestore';
 import { auth, db, handleFirestoreError, OperationType } from '../firebase';
 import { toast } from 'sonner';
 import { UserProfile, SystemConfig, PromoConfig } from '../types';
@@ -25,7 +25,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   // Try to load cached config from localStorage for instant offline access
   const [systemConfig, setSystemConfig] = useState<SystemConfig | null>(() => {
     try {
-      const cached = localStorage.getItem('pantheon_system_config');
+      const cached = localStorage.getItem('colearn_system_config');
       return cached ? JSON.parse(cached) : null;
     } catch (e) {
       console.error("Failed to parse cached system config:", e);
@@ -35,7 +35,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   
   const [promoConfig, setPromoConfig] = useState<PromoConfig | null>(() => {
     try {
-      const cached = localStorage.getItem('pantheon_promo_config');
+      const cached = localStorage.getItem('colearn_promo_config');
       return cached ? JSON.parse(cached) : null;
     } catch (e) {
       console.error("Failed to parse cached promo config:", e);
@@ -45,7 +45,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const [loading, setLoading] = useState(true);
   const [isAuthReady, setIsAuthReady] = useState(false);
-  const [isSystemConfigReady, setIsSystemConfigReady] = useState(localStorage.getItem('pantheon_system_config') !== null);
+  const [isSystemConfigReady, setIsSystemConfigReady] = useState(localStorage.getItem('colearn_system_config') !== null);
   const [isOnline, setIsOnline] = useState(navigator.onLine);
   const [retryCount, setRetryCount] = useState(0);
 
@@ -69,7 +69,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       if (!firebaseUser) {
         setProfile(null);
         setLoading(false);
-        sessionStorage.removeItem('pantheon_session_id');
+        sessionStorage.removeItem('colearn_session_id');
       }
     });
 
@@ -82,7 +82,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       if (snapshot.exists()) {
         const data = snapshot.data() as SystemConfig;
         setSystemConfig(data);
-        localStorage.setItem('pantheon_system_config', JSON.stringify(data));
+        localStorage.setItem('colearn_system_config', JSON.stringify(data));
       } else {
         const defaultConfig: SystemConfig = {
           currentSemester: 'none',
@@ -91,7 +91,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           updatedAt: new Date().toISOString()
         };
         setSystemConfig(defaultConfig);
-        localStorage.setItem('pantheon_system_config', JSON.stringify(defaultConfig));
+        localStorage.setItem('colearn_system_config', JSON.stringify(defaultConfig));
       }
       setIsSystemConfigReady(true);
     }, (error) => {
@@ -113,7 +113,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       if (snapshot.exists()) {
         const data = snapshot.data() as PromoConfig;
         setPromoConfig(data);
-        localStorage.setItem('pantheon_promo_config', JSON.stringify(data));
+        localStorage.setItem('colearn_promo_config', JSON.stringify(data));
       } else {
         const defaultPromo: PromoConfig = {
           isActive: false, quota: 0, count: 0,
@@ -121,7 +121,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           updatedBy: 'system'
         };
         setPromoConfig(defaultPromo);
-        localStorage.setItem('pantheon_promo_config', JSON.stringify(defaultPromo));
+        localStorage.setItem('colearn_promo_config', JSON.stringify(defaultPromo));
       }
     }, (error) => {
       console.error("Promo config listener details:", error);
@@ -148,17 +148,18 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           const data = snapshot.data() as UserProfile;
           
           // Single-device system logic
-          let activeSessionId = sessionStorage.getItem('pantheon_session_id');
+          let activeSessionId = sessionStorage.getItem('colearn_session_id');
           if (!activeSessionId) {
             activeSessionId = Math.random().toString(36).substring(2, 15);
-            sessionStorage.setItem('pantheon_session_id', activeSessionId);
+            sessionStorage.setItem('colearn_session_id', activeSessionId);
             updateDoc(doc(db, 'users', user.uid), {
               currentSessionId: activeSessionId
             }).catch(err => console.error("Error setting session ID:", err));
           } else if (data.currentSessionId && data.currentSessionId !== activeSessionId) {
+            setProfile(null);
+            sessionStorage.removeItem('colearn_session_id');
+            firebaseSignOut(auth).catch(err => console.error("Signout error:", err));
             toast.error("Logged out: Your account is open on another device.");
-            import('firebase/auth').then(({ signOut }) => signOut(auth));
-            sessionStorage.removeItem('pantheon_session_id');
             return;
           } else if (!data.currentSessionId) {
             updateDoc(doc(db, 'users', user.uid), {
@@ -213,6 +214,38 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       return () => unsubscribeProfile();
     }
   }, [user, retryCount]);
+
+  // Active session lock validation on visibility change (for web app)
+  useEffect(() => {
+    let active = true;
+    const handleVisibilityChange = async () => {
+      if (document.visibilityState === 'visible' && user && active) {
+        try {
+          const activeSessionId = sessionStorage.getItem('colearn_session_id');
+          if (activeSessionId) {
+            const userDoc = await getDoc(doc(db, 'users', user.uid));
+            if (userDoc.exists() && active) {
+              const data = userDoc.data() as UserProfile;
+              if (data.currentSessionId && data.currentSessionId !== activeSessionId) {
+                setProfile(null);
+                sessionStorage.removeItem('colearn_session_id');
+                await firebaseSignOut(auth);
+                toast.error("Logged out: Your account is open on another device.");
+              }
+            }
+          }
+        } catch (err) {
+          console.error("Error verifying active session on visibility change:", err);
+        }
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => {
+      active = false;
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, [user]);
 
   return (
     <AuthContext.Provider value={{ user, profile, systemConfig, promoConfig, loading, isAuthReady, isSystemConfigReady, isOnline }}>

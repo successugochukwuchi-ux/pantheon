@@ -12,7 +12,7 @@ export default function Landing() {
   const { user, isAuthReady, systemConfig } = useAuth();
 
   const openWhatsApp = () => {
-    const message = encodeURIComponent("Hello, I'm interested in the Pantheon Study App for FUTO.");
+    const message = encodeURIComponent("Hello, I'm interested in the CoLearn Study App for FUTO.");
     window.open(`https://wa.me/2348118429150?text=${message}`, '_blank');
   };
 
@@ -22,7 +22,7 @@ export default function Landing() {
       <header className="sticky top-0 z-50 w-full border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
         <div className="container flex h-16 items-center justify-between px-4 mx-auto">
           <Link to="/" className="flex items-center gap-2 font-bold text-2xl tracking-tighter text-primary">
-            PANTHEON
+            COLEARN
           </Link>
           <nav className="flex items-center gap-4">
             {isAuthReady && user ? (
@@ -61,7 +61,7 @@ export default function Landing() {
             </div>
             
             <h1 className="text-5xl md:text-7xl font-extrabold tracking-tighter mb-6 bg-clip-text text-transparent bg-gradient-to-r from-primary to-primary/60">
-              Master Your Courses with PANTHEON
+              Master Your Courses with COLEARN
             </h1>
 
             <div className="w-full max-w-sm mb-8 animate-in fade-in slide-in-from-bottom-4 duration-1000">
@@ -121,7 +121,7 @@ export default function Landing() {
             <FeatureCard 
               icon={<Users className="h-8 w-8 text-pink-500" />}
               title="Community News"
-              description="Stay updated with the latest news from the Pantheon team and FUTO campus."
+              description="Stay updated with the latest news from the CoLearn team and FUTO campus."
             />
             <FeatureCard 
               icon={<GraduationCap className="h-8 w-8 text-indigo-500" />}
@@ -139,7 +139,7 @@ export default function Landing() {
             <div className="p-12 md:w-2/3">
               <h2 className="text-4xl font-bold mb-6">Semester Activation</h2>
               <p className="text-primary-foreground/80 text-lg mb-8">
-                Get full access to all Pantheon features for the current semester. Choose between semester or yearly plans.
+                Get full access to all CoLearn features for the current semester. Choose between semester or yearly plans.
               </p>
               <ul className="space-y-4 mb-8">
                 <li className="flex items-center gap-3">
@@ -178,7 +178,7 @@ export default function Landing() {
       <footer className="py-12 border-t">
         <div className="container px-4 mx-auto flex flex-col md:flex-row justify-between items-center gap-8">
           <div className="flex flex-col gap-2">
-            <span className="text-2xl font-bold tracking-tighter">PANTHEON</span>
+            <span className="text-2xl font-bold tracking-tighter">COLEARN</span>
             <p className="text-muted-foreground text-sm max-w-xs">Empowering FUTO students through technology and accessible education.</p>
             <p className="text-xs text-muted-foreground mt-4">© 2026 Pillara Education 2026</p>
           </div>

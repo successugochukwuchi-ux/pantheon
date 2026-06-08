@@ -1,7 +1,7 @@
 [package]
-name = "successugochukwuchi/pantheon"
+name = "successugochukwuchi/colearn"
 version = "0.1.0"
-description = "Pantheon Student Portal"
+description = "CoLearn Student Portal"
 
 [[module]]
 name = "server"

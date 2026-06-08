@@ -40,7 +40,7 @@ const FluxDashboard = () => {
             transition={{ delay: 0.2 }}
             className="text-stone-400 text-lg mb-8"
           >
-            Welcome to the extracurricular heart of Pantheon, {user?.displayName?.split(' ')[0]}. 
+            Welcome to the extracurricular heart of CoLearn, {user?.displayName?.split(' ')[0]}. 
             Build your legacy beyond the lecture halls.
           </motion.p>
           
@@ -48,7 +48,7 @@ const FluxDashboard = () => {
             <div className="bg-yellow-500/10 border border-yellow-500/20 p-4 rounded-xl flex items-center gap-4">
               <Zap className="text-yellow-500 shrink-0" />
               <p className="text-sm text-yellow-200">
-                Activate your Pantheon account to unlock elite clubs and premium competition tracks.
+                Activate your CoLearn account to unlock elite clubs and premium competition tracks.
               </p>
             </div>
           )}

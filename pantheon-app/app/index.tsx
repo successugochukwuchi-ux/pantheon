@@ -1,4 +1,4 @@
-import React, { useRef, useEffect } from 'react';
+import React, { useRef, useEffect, useState } from 'react';
 import {
   View,
   Text,
@@ -13,6 +13,8 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { useAuth } from '../context/AuthContext';
+import { doc, onSnapshot } from 'firebase/firestore';
+import { db } from '../lib/firebase';
 
 const { width } = Dimensions.get('window');
 
@@ -47,7 +49,7 @@ function Navbar() {
     <View style={s.navbar}>
       <View style={s.navBrand}>
         <View style={s.navLogo} />
-        <Text style={s.navBrandText}>PANTHEON</Text>
+        <Text style={s.navBrandText}>COLEARN</Text>
       </View>
       <TouchableOpacity style={s.navCta} activeOpacity={0.85} onPress={() => router.push('/login')}>
         <Text style={s.navCtaText}>Get Started</Text>
@@ -73,52 +75,76 @@ function HeroSection() {
       <View style={s.heroPill}>
         <Text style={s.heroPillText}>BUILT FOR FUTO STUDENTS</Text>
       </View>
-      <Text style={s.heroTitle}>Do more with Less on Pantheon.</Text>
+      <Text style={s.heroTitle}>Do more with Less on CoLearn.</Text>
       <Text style={s.heroBody}>
         The all-in-one platform for FUTO students to master their courses. Access
         curriculum-aligned notes, past questions, and collaborative study spaces
         designed for engineering precision.
       </Text>
       <TouchableOpacity style={s.heroCta} activeOpacity={0.85} onPress={() => router.push('/register')}>
-        <Text style={s.heroCtaText}>Join Pantheon</Text>
+        <Text style={s.heroCtaText}>Join CoLearn</Text>
       </TouchableOpacity>
     </Animated.View>
   );
 }
 
-function HeroImage() {
-  return (
-    <View style={s.heroImgWrap}>
-      <LinearGradient
-        colors={['#1a1a1a', '#2d2d2d', '#0a0a0a']}
-        style={s.heroImg}
-        start={{ x: 0, y: 0 }}
-        end={{ x: 1, y: 1 }}
-      >
-        {/* Architectural window suggestion */}
-        <View style={s.imgWindowFrame}>
-          <View style={s.imgWindowLight} />
-        </View>
-        <View style={s.imgOverlayText}>
-          <Text style={s.imgOverlayLabel}>Study Space</Text>
-        </View>
-      </LinearGradient>
-    </View>
-  );
-}
+
 
 function CurriculumSection() {
-  const exams = ['FUTO EXAMS', 'SEET', 'SMAT', 'SOES', 'SAAT'];
+  const exams = [
+    'FUTO EXAMS', 'SEET', 'SESET', 'SOPS', 'SOES',
+    'SBMS', 'SAAT', 'SOBS', 'SOHT', 'SICT', 'SLIT'
+  ];
+  const scrollRef = useRef<ScrollView>(null);
+  const scrollX = useRef(0);
+  const halfWidth = useRef(0);
+
+  useEffect(() => {
+    let lastTime = Date.now();
+    let animId: any;
+    
+    const scrollMarquee = () => {
+      const now = Date.now();
+      const delta = now - lastTime;
+      lastTime = now;
+      
+      if (scrollRef.current && halfWidth.current > 0) {
+        // Smooth frame-rate independent increment
+        scrollX.current += 0.05 * delta; 
+        if (scrollX.current >= halfWidth.current) {
+          scrollX.current = scrollX.current - halfWidth.current;
+        }
+        scrollRef.current.scrollTo({ x: scrollX.current, animated: false });
+      }
+      animId = requestAnimationFrame(scrollMarquee);
+    };
+
+    animId = requestAnimationFrame(scrollMarquee);
+    return () => {
+      cancelAnimationFrame(animId);
+    };
+  }, []);
+
   return (
     <View style={s.curriculum}>
       <Text style={s.sectionLabel}>MASTER YOUR CURRICULUM</Text>
-      <View style={s.examGrid}>
-        {exams.map((e, i) => (
-          <TouchableOpacity key={e} style={s.examChip} activeOpacity={0.7}>
-            <Text style={[s.examChipText, i === 0 && s.examChipTextLarge]}>{e}</Text>
+      <ScrollView 
+        ref={scrollRef}
+        horizontal 
+        showsHorizontalScrollIndicator={false}
+        contentContainerStyle={s.marqueeScroll}
+        style={s.marqueeOuter}
+        scrollEnabled={false}
+        onContentSizeChange={(w) => {
+          halfWidth.current = w / 2;
+        }}
+      >
+        {[...exams, ...exams].map((e, i) => (
+          <TouchableOpacity key={`${e}-${i}`} style={s.examChip} activeOpacity={0.7}>
+            <Text style={[s.examChipText, (i % exams.length) === 0 && s.examChipTextLarge]}>{e}</Text>
           </TouchableOpacity>
         ))}
-      </View>
+      </ScrollView>
     </View>
   );
 }
@@ -171,18 +197,18 @@ function DesignedSection() {
   );
 }
 
-function PricingSection() {
+function PricingSection({ prices }: { prices: { standard: number; plus: number } }) {
   return (
     <LinearGradient colors={['#111111', '#0a0a0a']} style={s.pricing}>
       <Text style={s.pricingHeadline}>Ready to{'\n'}top your{'\n'}class?</Text>
       <Text style={s.pricingSubtitle}>
-        Join Pantheon and get the tools you need to conquer your curriculum. Access premium
+        Join CoLearn and get the tools you need to conquer your curriculum. Access premium
         features designed for the FUTO academic experience.
       </Text>
 
       <View style={s.pricingCard}>
         <Text style={s.pricingCardLabel}>SINGLE SEMESTER</Text>
-        <Text style={s.pricingCardAmount}>3,000 NGN</Text>
+        <Text style={s.pricingCardAmount}>{prices.standard.toLocaleString()} NGN</Text>
       </View>
 
       <View style={[s.pricingCard, s.pricingCardFeatured]}>
@@ -190,12 +216,8 @@ function PricingSection() {
           <Text style={s.bestValueText}>BEST VALUE</Text>
         </View>
         <Text style={s.pricingCardLabel}>TWO SEMESTERS</Text>
-        <Text style={[s.pricingCardAmount, s.pricingCardAmountFeatured]}>5,000 NGN</Text>
+        <Text style={[s.pricingCardAmount, s.pricingCardAmountFeatured]}>{prices.plus.toLocaleString()} NGN</Text>
       </View>
-
-      <TouchableOpacity style={s.pricingCta} activeOpacity={0.85}>
-        <Text style={s.pricingCtaText}>Get Started Now</Text>
-      </TouchableOpacity>
     </LinearGradient>
   );
 }
@@ -208,7 +230,7 @@ function Footer() {
   ];
   return (
     <View style={s.footer}>
-      <Text style={s.footerBrand}>PANTHEON</Text>
+      <Text style={s.footerBrand}>COLEARN</Text>
       <View style={s.footerLinks}>
         {links.map((link) => (
           <TouchableOpacity 
@@ -230,12 +252,31 @@ function Footer() {
 export default function LandingScreen() {
   const router = useRouter();
   const { user, loading } = useAuth();
+  const [prices, setPrices] = useState({ standard: 3000, plus: 5000 });
 
   useEffect(() => {
     if (!loading && user) {
       router.replace('/dashboard');
     }
   }, [user, loading]);
+
+  useEffect(() => {
+    try {
+      const unsub = onSnapshot(doc(db, 'system', 'config'), (snap) => {
+        if (snap.exists()) {
+          const data = snap.data();
+          const std = typeof data.standardPrice === 'number' ? data.standardPrice : (parseInt(data.standardPrice) || 3000);
+          const pls = typeof data.plusPrice === 'number' ? data.plusPrice : (parseInt(data.plusPrice) || 5000);
+          setPrices({ standard: std, plus: pls });
+        }
+      }, (err) => {
+        console.warn('Failed to listen to dynamic prices from Firebase:', err);
+      });
+      return () => unsub();
+    } catch (err) {
+      console.warn('Failed setting up price listener:', err);
+    }
+  }, []);
 
   if (loading) return null;
 
@@ -248,7 +289,6 @@ export default function LandingScreen() {
         showsVerticalScrollIndicator={false}
       >
         <HeroSection />
-        <HeroImage />
         <CurriculumSection />
 
         <FeatureCard
@@ -262,17 +302,9 @@ export default function LandingScreen() {
           title="Exam Prep"
           body="Access a massive repository of past FUTO questions and detailed answers curated for your department."
           dark
-          cta="Start Practicing"
         />
 
-        <FeatureCard
-          icon="👥"
-          title="Study Groups"
-          body="Connect with fellow students in your department. Share resources and collaborate in real-time."
-        />
-
-        <DesignedSection />
-        <PricingSection />
+        <PricingSection prices={prices} />
         <Footer />
       </ScrollView>
     </SafeAreaView>
@@ -433,6 +465,15 @@ const s = StyleSheet.create({
     letterSpacing: 2.5,
     textAlign: 'center',
     marginBottom: 20,
+  },
+  marqueeOuter: {
+    marginHorizontal: -24,
+  },
+  marqueeScroll: {
+    flexDirection: 'row',
+    gap: 16,
+    paddingHorizontal: 24,
+    alignItems: 'center',
   },
   examGrid: {
     flexDirection: 'row',

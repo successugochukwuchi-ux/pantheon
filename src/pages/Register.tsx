@@ -116,7 +116,7 @@ export default function Register() {
 
       <div className="w-full max-w-md space-y-8">
         <div className="text-center">
-          <Link to="/" className="text-3xl font-bold tracking-tighter text-primary">PANTHEON</Link>
+          <Link to="/" className="text-3xl font-bold tracking-tighter text-primary">COLEARN</Link>
           <p className="text-muted-foreground mt-2">Join the community of FUTO scholars</p>
         </div>
 

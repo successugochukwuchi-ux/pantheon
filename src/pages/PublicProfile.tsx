@@ -38,12 +38,14 @@ export default function PublicProfile() {
   const [friendshipId, setFriendshipId] = useState<string | null>(null);
   const [requestId, setRequestId] = useState<string | null>(null);
 
+  const [refreshFriendTrigger, setRefreshFriendTrigger] = useState(0);
+
   useEffect(() => {
     if (!userId || !currentUser) return;
 
-    // Check friendship status in real-time
+    // Check friendship status
     const qFriends = query(collection(db, 'friendships'), where('uids', 'array-contains', currentUser.uid));
-    const unsubFriends = onSnapshot(qFriends, (snapshot) => {
+    getDocs(qFriends).then((snapshot) => {
       const friendship = snapshot.docs.find(d => d.data().uids.includes(userId));
       if (friendship) {
         setFriendStatus('friends');
@@ -71,10 +73,10 @@ export default function PublicProfile() {
           }
         });
       }
+    }).catch((err) => {
+      console.error("Friends fetch failed:", err);
     });
-
-    return () => unsubFriends();
-  }, [userId, currentUser]);
+  }, [userId, currentUser, refreshFriendTrigger]);
 
   useEffect(() => {
     if (!userId) return;
@@ -110,26 +112,20 @@ export default function PublicProfile() {
         });
         setCourses(courseMap);
 
-        // Fetch CBT Sessions (Real-time) - simplified to avoid index requirement
+        // Fetch CBT Sessions (One-time) - simplified to avoid index requirement
         const q = query(
           collection(db, 'cbt_sessions'),
           where('userId', '==', userId),
           limit(20) // Increased limit to ensure we have enough to sort
         );
 
-        const unSubSessions = onSnapshot(q, (snapshot) => {
-          const sessionData = snapshot.docs
-            .map(doc => ({ id: doc.id, ...doc.data() } as CBTSession))
-            .sort((a, b) => new Date(b.completedAt).getTime() - new Date(a.completedAt).getTime())
-            .slice(0, 5); // Take top 5 after sorting
-          setRecentCBT(sessionData);
-          setLoading(false);
-        }, (err) => {
-          console.error("CBT Sessions fetch error:", err);
-          setLoading(false);
-        });
-
-        return () => unSubSessions();
+        const snapshot = await getDocs(q);
+        const sessionData = snapshot.docs
+          .map(doc => ({ id: doc.id, ...doc.data() } as CBTSession))
+          .sort((a, b) => new Date(b.completedAt).getTime() - new Date(a.completedAt).getTime())
+          .slice(0, 5); // Take top 5 after sorting
+        setRecentCBT(sessionData);
+        setLoading(false);
       } catch (err) {
         console.error("Profile fetch error:", err);
         setLoading(false);
@@ -173,7 +169,7 @@ export default function PublicProfile() {
           <div className="h-24 bg-primary/10 w-full" />
           <CardContent className="relative pt-0 flex flex-col items-center text-center">
             <Avatar className="h-24 w-24 border-4 border-background -mt-12 mb-4">
-              <AvatarImage src={`https://api.dicebear.com/7.x/avataaars/svg?seed=${profile.username}`} />
+              <AvatarImage src={profile.photoURL || `https://api.dicebear.com/7.x/avataaars/svg?seed=${profile.username}`} />
               <AvatarFallback>{profile.username?.[0].toUpperCase()}</AvatarFallback>
             </Avatar>
     <div className="space-y-1 mb-6">
@@ -194,8 +190,11 @@ export default function PublicProfile() {
             <Button className="w-full gap-2" onClick={() => navigate(`/chat?uid=${userId}`)}>
               <MessageSquare className="h-4 w-4" /> Message
             </Button>
-            <Button variant="outline" className="w-full gap-2 text-destructive hover:text-destructive" onClick={async () => {
-              if (friendshipId) await deleteDoc(doc(db, 'friendships', friendshipId));
+             <Button variant="outline" className="w-full gap-2 text-destructive hover:text-destructive" onClick={async () => {
+              if (friendshipId) {
+                await deleteDoc(doc(db, 'friendships', friendshipId));
+                setRefreshFriendTrigger(p => p + 1);
+              }
               toast.info('Unfriended');
             }}>
               <UserMinus className="h-4 w-4" /> Unfriend
@@ -216,6 +215,7 @@ export default function PublicProfile() {
                 status: 'pending',
                 createdAt: new Date().toISOString()
               });
+              setRefreshFriendTrigger(p => p + 1);
               toast.success('Friend request sent!');
             } catch (err) {
               toast.error('Failed to send request');

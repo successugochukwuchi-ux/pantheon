@@ -64,6 +64,7 @@ export interface TelegramConfig {
   botToken: string;
   chatId: string;
   isActive: boolean;
+  source?: string;
 }
 
 export interface SystemConfig {
@@ -133,6 +134,7 @@ export interface ActivationCode {
   type?: 'standard' | 'plus';
   assignedTo?: string;
   assignedToStudentId?: string;
+  owner?: string;
 }
 
 export interface Notification {

@@ -31,7 +31,7 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
   const [isMobileMenuOpen, setIsMobileMenuOpen] = React.useState(false);
   const [isSidebarCollapsed, setIsSidebarCollapsed] = React.useState<boolean>(() => {
     try {
-      const saved = localStorage.getItem('pantheon_sidebar_collapsed');
+      const saved = localStorage.getItem('colearn_sidebar_collapsed');
       return saved ? JSON.parse(saved) : false;
     } catch {
       return false;
@@ -121,10 +121,10 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
         "hidden md:flex flex-col fixed inset-y-0 z-50 transition-all duration-300",
         isSidebarCollapsed ? "w-20" : "w-72"
       )}>
-        <Sidebar isCollapsed={isSidebarCollapsed} onToggleCollapse={() => {
+        <Sidebar isCollapsed={isSidebarCollapsed} unreadCount={unreadCount} onToggleCollapse={() => {
           const nextState = !isSidebarCollapsed;
           setIsSidebarCollapsed(nextState);
-          localStorage.setItem('pantheon_sidebar_collapsed', JSON.stringify(nextState));
+          localStorage.setItem('colearn_sidebar_collapsed', JSON.stringify(nextState));
         }} />
       </aside>
 
@@ -135,10 +135,10 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
       )}>
         {/* Header */}
         <header className={cn(
-          "sticky top-0 z-40 w-full border-b backdrop-blur transition-all duration-500",
+          "sticky top-0 z-40 w-full border-b transition-all duration-500",
           isFluxMode 
-            ? "bg-stone-950/95 border-pink-500/10" 
-            : "bg-background/95 border-b supports-[backdrop-filter]:bg-background/60"
+            ? "bg-stone-950 border-pink-500/10" 
+            : "bg-background border-b"
         )}>
           <div className="flex h-16 items-center justify-between px-4 md:px-8">
             <div className="flex items-center gap-4">
@@ -153,7 +153,7 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
                   } 
                 />
                 <SheetContent side="left" className="p-0 w-72 h-full">
-                  <Sidebar onClose={() => setIsMobileMenuOpen(false)} />
+                  <Sidebar onClose={() => setIsMobileMenuOpen(false)} unreadCount={unreadCount} />
                 </SheetContent>
               </Sheet>
               

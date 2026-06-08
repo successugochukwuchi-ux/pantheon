@@ -39,7 +39,6 @@ const NAV_ITEMS = [
   { label: 'CBT Hub',      route: '/cbt-setup',     icon: CbtIcon },
   { label: 'Video Library', route: '/video-library', icon: VideoIcon },
   { label: 'Social Hub',    route: '/social',        icon: SocialIcon },
-  { label: 'Global Chat',   route: '/chat-room',     icon: ChatIcon },
   { label: 'Notifications', route: '/notifications', icon: BellIcon },
   { label: 'Give Feedback', route: '/feedback',      icon: InfoIcon },
   { label: 'Settings',      route: '/settings',      icon: SettingsIcon },
@@ -47,7 +46,7 @@ const NAV_ITEMS = [
 
 export function Sidebar({ isOpen, onClose }: SidebarProps) {
   const router = useRouter();
-  const { profile } = useAuth();
+  const { profile, logout } = useAuth();
   const { colors: C, themeName } = useTheme();
   const slideAnim = useRef(new Animated.Value(-width)).current;
   const opacityAnim = useRef(new Animated.Value(0)).current;
@@ -148,9 +147,14 @@ export function Sidebar({ isOpen, onClose }: SidebarProps) {
           <View style={[s.sidebarFooter, { borderTopColor: C.border }]}>
             <TouchableOpacity 
               style={[s.logoutBtn, { backgroundColor: themeName === 'midnight' || themeName === 'dark' ? 'rgba(192, 57, 43, 0.1)' : '#FDECEC' }]} 
-              onPress={() => {
+              onPress={async () => {
                 onClose();
-                router.replace('/login');
+                try {
+                  await logout();
+                  router.replace('/' as any);
+                } catch (e) {
+                  console.error('Logout error:', e);
+                }
               }}
               activeOpacity={0.8}
             >

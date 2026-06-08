@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import {
   View,
   Text,
@@ -7,99 +7,139 @@ import {
   StyleSheet,
   TextInput,
   Image,
+  ActivityIndicator,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { BottomNav } from '../components/BottomNav';
 import { Sidebar } from '../components/Sidebar';
 import { HamburgerIcon, BellIcon, SearchIcon } from '../components/Icons';
-import { C, F } from '../components/Theme';
-
-const CHATS = [
-  {
-    id: '1',
-    name: 'MTH 101 Study Group',
-    lastMsg: 'Emeka: Does anyone have the solution to assigned problem 4?',
-    time: '12:45 PM',
-    unread: 3,
-    image: 'https://images.unsplash.com/photo-1522202176988-66273c2fd55f?q=80&w=200&auto=format&fit=crop',
-    isGroup: true,
-  },
-  {
-    id: '2',
-    name: 'Kelechi Iheanacho',
-    lastMsg: 'I just uploaded the mechanics notes.',
-    time: 'Yesterday',
-    unread: 0,
-    image: 'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?q=80&w=200&auto=format&fit=crop',
-    isGroup: false,
-  },
-  {
-    id: '3',
-    name: 'Amarachi Okafor',
-    lastMsg: 'See you at the library by 4pm.',
-    time: '2 days ago',
-    unread: 0,
-    image: 'https://images.unsplash.com/photo-1438761681033-6461ffad8d80?q=80&w=200&auto=format&fit=crop',
-    isGroup: false,
-  },
-  {
-    id: '4',
-    name: 'FUTO Freshmen 2024',
-    lastMsg: 'Admin: Registration deadline has been extended.',
-    time: '3 days ago',
-    unread: 12,
-    image: 'https://images.unsplash.com/photo-1523240795612-9a054b0db644?q=80&w=200&auto=format&fit=crop',
-    isGroup: true,
-  },
-];
+import { F } from '../components/Theme';
+import { collection, query, where, onSnapshot, getDoc, doc } from 'firebase/firestore';
+import { db } from '../lib/firebase';
+import { useAuth } from '../context/AuthContext';
+import { useTheme } from '../context/ThemeContext';
 
 export default function ChatListScreen() {
   const router = useRouter();
+  const { profile } = useAuth();
+  const { colors: C } = useTheme();
+  const s = useMemo(() => createStyles(C), [C]);
+
   const [activeTab, setActiveTab] = useState<'DMs' | 'Groups'>('DMs');
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
+  const [chatRooms, setChatRooms] = useState<any[]>([]);
 
-  const filteredChats = CHATS.filter(c => {
-    const matchesSearch = c.name.toLowerCase().includes(search.toLowerCase());
-    const matchesTab = activeTab === 'Groups' ? c.isGroup : !c.isGroup;
-    return matchesSearch && matchesTab;
-  });
+  // Observe active chat rooms for current user in real-time
+  useEffect(() => {
+    if (!profile) return;
+
+    setLoading(true);
+
+    const chatsRef = collection(db, 'chats');
+    const q = query(chatsRef, where('uids', 'array-contains', profile.uid));
+
+    const unsubscribe = onSnapshot(q, async (snapshot) => {
+      const roomList = snapshot.docs.map(d => ({ id: d.id, ...d.data() as any }));
+
+      // Resolve names and details of the recipient for DMs
+      const hydratedRooms = await Promise.all(roomList.map(async (room) => {
+        if (room.type === 'dm') {
+          const otherUid = room.uids?.find((id: string) => id !== profile.uid);
+          if (!otherUid) return null;
+
+          try {
+            const userDoc = await getDoc(doc(db, 'users', otherUid));
+            if (userDoc.exists()) {
+              const uData = userDoc.data();
+              return {
+                ...room,
+                name: uData.username || uData.name || 'Student Comrade',
+                image: uData.photoURL || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=200&q=80',
+                isGroup: false,
+              };
+            }
+          } catch (e) {
+            console.error("Failed to hydrate user DM profile in lists:", e);
+          }
+
+          return {
+            ...room,
+            name: 'Classmate',
+            image: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=200&q=80',
+            isGroup: false,
+          };
+        } else {
+          // Study Group
+          return {
+            ...room,
+            name: room.name || 'FUTO Study Alliance',
+            image: 'https://images.unsplash.com/photo-1522202176988-66273c2fd55f?q=80&w=200&auto=format&fit=crop',
+            isGroup: true,
+          };
+        }
+      }));
+
+      // Filter nulls and sort by lastUpdatedAt declining
+      const filteredHydrated = hydratedRooms
+        .filter(Boolean)
+        .sort((a, b) => {
+          const dateA = a.lastUpdatedAt ? new Date(a.lastUpdatedAt).getTime() : 0;
+          const dateB = b.lastUpdatedAt ? new Date(b.lastUpdatedAt).getTime() : 0;
+          return dateB - dateA;
+        });
+
+      setChatRooms(filteredHydrated);
+      setLoading(false);
+    });
+
+    return () => unsubscribe();
+  }, [profile]);
+
+  const filteredChats = useMemo(() => {
+    return chatRooms.filter(c => {
+      const matchesSearch = c.name.toLowerCase().includes(search.toLowerCase());
+      const matchesTab = activeTab === 'Groups' ? c.isGroup : !c.isGroup;
+      return matchesSearch && matchesTab;
+    });
+  }, [chatRooms, search, activeTab]);
 
   return (
-    <SafeAreaView style={s.root} edges={['top']}>
+    <SafeAreaView style={[s.root, { backgroundColor: C.bg }]} edges={['top']}>
       {/* Header */}
-      <View style={s.header}>
+      <View style={[s.header, { backgroundColor: C.surface, borderBottomColor: C.border }]}>
         <TouchableOpacity onPress={() => setSidebarOpen(true)} activeOpacity={0.7} style={s.iconBtn}>
           <HamburgerIcon />
         </TouchableOpacity>
-        <Text style={s.headerBrand}>PANTHEON</Text>
-        <TouchableOpacity activeOpacity={0.7} style={s.iconBtn}>
+        <Text style={[s.headerBrand, { color: C.ink }]}>COLEARN</Text>
+        <TouchableOpacity activeOpacity={0.7} style={s.iconBtn} onPress={() => router.push('/notifications')}>
           <BellIcon />
         </TouchableOpacity>
       </View>
 
-      <View style={s.searchSection}>
-        <View style={s.tabToggle}>
+      <View style={[s.searchSection, { backgroundColor: C.bg }]}>
+        <View style={[s.tabToggle, { backgroundColor: C.tabBg }]}>
           <TouchableOpacity 
-            style={[s.tabItem, activeTab === 'DMs' && s.tabItemActive]} 
+            style={[s.tabItem, activeTab === 'DMs' && [s.tabItemActive, { backgroundColor: C.surface }]]} 
             onPress={() => setActiveTab('DMs')}
           >
-            <Text style={[s.tabLabel, activeTab === 'DMs' && s.tabLabelActive]}>Direct Messages</Text>
+            <Text style={[s.tabLabel, activeTab === 'DMs' && [s.tabLabelActive, { color: C.ink }]]}>Direct Messages</Text>
           </TouchableOpacity>
           <TouchableOpacity 
-            style={[s.tabItem, activeTab === 'Groups' && s.tabItemActive]} 
+            style={[s.tabItem, activeTab === 'Groups' && [s.tabItemActive, { backgroundColor: C.surface }]]} 
             onPress={() => setActiveTab('Groups')}
           >
-            <Text style={[s.tabLabel, activeTab === 'Groups' && s.tabLabelActive]}>Study Groups</Text>
+            <Text style={[s.tabLabel, activeTab === 'Groups' && [s.tabLabelActive, { color: C.ink }]]}>Study Groups</Text>
           </TouchableOpacity>
         </View>
 
-        <View style={s.searchWrap}>
-          <SearchIcon />
+        <View style={[s.searchWrap, { backgroundColor: C.surface, borderColor: C.border }]}>
+          <SearchIcon color={C.inkLight} />
           <TextInput
-            style={s.searchInput}
-            placeholder="Search chats or students..."
+            style={[s.searchInput, { color: C.ink }]}
+            placeholder="Search channels or partners..."
             placeholderTextColor={C.inkLight}
             value={search}
             onChangeText={setSearch}
@@ -108,55 +148,78 @@ export default function ChatListScreen() {
       </View>
 
       <ScrollView style={s.scroll} contentContainerStyle={s.scrollContent} showsVerticalScrollIndicator={false}>
-        <Text style={s.sectionTitle}>RECENT CONVERSATIONS</Text>
+        <Text style={[s.sectionTitle, { color: C.inkLight }]}>ACTIVE STUDY CHATS</Text>
 
-        {filteredChats.map((chat) => (
-          <TouchableOpacity 
-            key={chat.id} 
-            style={s.chatItem} 
-            activeOpacity={0.7}
-            onPress={() => router.push({ pathname: '/chat-room', params: { id: chat.id, name: chat.name, isGroup: chat.isGroup ? 'true' : 'false' } })}
-          >
-            <View style={s.avatarContainer}>
-              <Image source={{ uri: chat.image }} style={s.avatar} />
-              {chat.unread > 0 && <View style={s.unreadIndicator} />}
-            </View>
-            <View style={s.chatInfo}>
-              <View style={s.chatHeader}>
-                <Text style={s.chatName} numberOfLines={1}>{chat.name}</Text>
-                <Text style={s.chatTime}>{chat.time}</Text>
-              </View>
-              <View style={s.chatFooter}>
-                <Text style={s.lastMsg} numberOfLines={1}>{chat.lastMsg}</Text>
-                {chat.unread > 0 && (
-                  <View style={s.unreadBadge}>
-                    <Text style={s.unreadText}>{chat.unread}</Text>
+        {loading ? (
+          <ActivityIndicator color={C.activeText} style={{ marginTop: 40 }} />
+        ) : filteredChats.length === 0 ? (
+          <View style={[s.emptyCard, { borderColor: C.border }]}>
+             <Text style={[s.emptyCardText, { color: C.inkMid }]}>
+               {search ? "No matches fit your query." : `Your list of configured ${activeTab === 'DMs' ? 'Direct Messages' : 'Groups'} is empty.`}
+             </Text>
+             <TouchableOpacity style={[s.primaryActionButton, { backgroundColor: C.ink }]} onPress={() => router.push('/social')}>
+                <Text style={[s.primaryActionButtonText, { color: C.bg }]}>ACCESS SOCIAL HUB</Text>
+             </TouchableOpacity>
+          </View>
+        ) : (
+          filteredChats.map((chat) => (
+            <TouchableOpacity 
+              key={chat.id} 
+              style={[s.chatItem, { backgroundColor: C.surface, borderColor: C.border }]} 
+              activeOpacity={0.7}
+              onPress={() => router.push({ pathname: '/chat-room', params: { id: chat.id, name: chat.name, isGroup: chat.isGroup ? 'true' : 'false' } })}
+            >
+              <View style={s.avatarContainer}>
+                {chat.isGroup ? (
+                  <View style={[s.groupAvatarMock, { backgroundColor: C.tagBg || C.bgAlt, borderColor: C.border }]}>
+                     <Text style={{ fontSize: 20 }}>👥</Text>
                   </View>
+                ) : (
+                  <Image source={{ uri: chat.image }} style={s.avatar} />
                 )}
+                {chat.unreadCount > 0 && <View style={[s.unreadIndicator, { borderColor: C.surface }]} />}
               </View>
-            </View>
-          </TouchableOpacity>
-        ))}
+              <View style={s.chatInfo}>
+                <View style={s.chatHeader}>
+                  <Text style={[s.chatName, { color: C.ink }]} numberOfLines={1}>{chat.name}</Text>
+                  <Text style={[s.chatTime, { color: C.inkLight }]}>
+                    {chat.lastUpdatedAt ? new Date(chat.lastUpdatedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : ''}
+                  </Text>
+                </View>
+                <View style={s.chatFooter}>
+                  <Text style={[s.lastMsg, { color: C.inkMid }]} numberOfLines={1}>
+                    {chat.lastMessage || 'Open thread to discuss blocks.'}
+                  </Text>
+                  {chat.unreadCount > 0 && (
+                    <View style={[s.unreadBadge, { backgroundColor: C.ink }]}>
+                      <Text style={[s.unreadText, { color: C.bg }]}>{chat.unreadCount}</Text>
+                    </View>
+                  )}
+                </View>
+              </View>
+            </TouchableOpacity>
+          ))
+        )}
 
         <View style={{ height: 100 }} />
       </ScrollView>
 
-      {/* FAB */}
-      <TouchableOpacity style={s.fab} activeOpacity={0.8}>
-        <Text style={s.fabText}>+</Text>
+      {/* FAB - Create study alliance / add friend shortcut */}
+      <TouchableOpacity style={[s.fab, { backgroundColor: C.ink }]} activeOpacity={0.8} onPress={() => router.push('/social')}>
+        <Text style={[s.fabText, { color: C.bg }]}>+</Text>
       </TouchableOpacity>
 
-      {/* Sidebar */}
+      {/* Sidebar navigation */}
       <Sidebar isOpen={sidebarOpen} onClose={() => setSidebarOpen(false)} />
 
-      {/* Bottom Nav */}
+      {/* Bottom Navigation */}
       <BottomNav active="social" />
     </SafeAreaView>
   );
 }
 
-const s = StyleSheet.create({
-  root: { flex: 1, backgroundColor: C.bg },
+const createStyles = (C: any) => StyleSheet.create({
+  root: { flex: 1 },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -164,20 +227,16 @@ const s = StyleSheet.create({
     paddingHorizontal: 20,
     paddingVertical: 14,
     borderBottomWidth: 1,
-    borderBottomColor: C.border,
-    backgroundColor: C.bg,
   },
-  headerBrand: { fontFamily: F.bold, fontSize: 20, color: C.ink, letterSpacing: 1 },
+  headerBrand: { fontFamily: F.bold, fontSize: 20, letterSpacing: 1 },
   iconBtn: { width: 36, height: 36, justifyContent: 'center', alignItems: 'center' },
 
   searchSection: {
     paddingHorizontal: 16,
     paddingVertical: 12,
-    backgroundColor: C.bg,
   },
   tabToggle: {
     flexDirection: 'row',
-    backgroundColor: '#EAE9F0',
     borderRadius: 12,
     padding: 2,
     marginBottom: 16,
@@ -189,23 +248,20 @@ const s = StyleSheet.create({
     borderRadius: 10,
   },
   tabItemActive: {
-    backgroundColor: C.surface,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.05,
     shadowRadius: 4,
     elevation: 2,
   },
-  tabLabel: { fontFamily: F.medium, fontSize: 13, color: C.inkLight },
-  tabLabelActive: { fontFamily: F.bold, color: C.ink },
+  tabLabel: { fontFamily: F.medium, fontSize: 13 },
+  tabLabelActive: { fontFamily: F.bold },
 
   searchWrap: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: C.surface,
     borderRadius: 12,
     borderWidth: 1,
-    borderColor: C.border,
     paddingHorizontal: 12,
     height: 48,
   },
@@ -214,26 +270,24 @@ const s = StyleSheet.create({
     marginLeft: 10,
     fontFamily: F.medium,
     fontSize: 14,
-    color: C.ink,
   },
 
   scroll: { flex: 1 },
   scrollContent: { paddingHorizontal: 16, paddingTop: 8 },
 
-  sectionTitle: { fontFamily: F.bold, fontSize: 11, color: C.inkLight, letterSpacing: 1, marginBottom: 16 },
+  sectionTitle: { fontFamily: F.bold, fontSize: 11, letterSpacing: 1, marginBottom: 16 },
 
   chatItem: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: C.surface,
     borderRadius: 16,
     padding: 12,
     marginBottom: 8,
     borderWidth: 1,
-    borderColor: C.border,
   },
   avatarContainer: { position: 'relative' },
   avatar: { width: 54, height: 54, borderRadius: 12 },
+  groupAvatarMock: { width: 54, height: 54, borderRadius: 12, borderWidth: 1, justifyContent: 'center', alignItems: 'center' },
   unreadIndicator: {
     position: 'absolute',
     top: -2,
@@ -243,16 +297,14 @@ const s = StyleSheet.create({
     borderRadius: 6,
     backgroundColor: '#E74C3C',
     borderWidth: 2,
-    borderColor: C.surface,
   },
   chatInfo: { flex: 1, marginLeft: 14 },
   chatHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 },
-  chatName: { fontFamily: F.bold, fontSize: 16, color: C.ink, flex: 1, marginRight: 8 },
-  chatTime: { fontFamily: F.medium, fontSize: 12, color: C.inkLight },
+  chatName: { fontFamily: F.bold, fontSize: 16, flex: 1, marginRight: 8 },
+  chatTime: { fontFamily: F.medium, fontSize: 12 },
   chatFooter: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-  lastMsg: { fontFamily: F.body, fontSize: 14, color: C.inkMid, flex: 1, marginRight: 12 },
+  lastMsg: { fontFamily: F.body, fontSize: 14, flex: 1, marginRight: 12 },
   unreadBadge: {
-    backgroundColor: C.ink,
     minWidth: 18,
     height: 18,
     borderRadius: 9,
@@ -260,7 +312,7 @@ const s = StyleSheet.create({
     alignItems: 'center',
     paddingHorizontal: 4,
   },
-  unreadText: { color: '#fff', fontSize: 10, fontFamily: F.bold },
+  unreadText: { fontSize: 10, fontFamily: F.bold },
 
   fab: {
     position: 'absolute',
@@ -269,14 +321,37 @@ const s = StyleSheet.create({
     width: 56,
     height: 56,
     borderRadius: 28,
-    backgroundColor: C.ink,
     justifyContent: 'center',
     alignItems: 'center',
-    shadowColor: C.ink,
+    shadowColor: '#000',
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.3,
     shadowRadius: 8,
     elevation: 6,
   },
-  fabText: { color: '#fff', fontSize: 32, fontFamily: F.bold, marginTop: -2 },
+  fabText: { fontSize: 32, fontFamily: F.bold, marginTop: -2 },
+
+  emptyCard: {
+     padding: 24,
+     borderWidth: 1,
+     borderRadius: 16,
+     alignItems: 'center',
+     backgroundColor: 'rgba(0,0,0,0.01)',
+  },
+  emptyCardText: {
+     fontFamily: F.medium,
+     fontSize: 13,
+     textAlign: 'center',
+     lineHeight: 18,
+     marginBottom: 16,
+  },
+  primaryActionButton: {
+     paddingVertical: 12,
+     paddingHorizontal: 20,
+     borderRadius: 12,
+  },
+  primaryActionButtonText: {
+     fontFamily: F.bold,
+     fontSize: 13,
+  }
 });

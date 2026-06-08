@@ -1,6 +1,6 @@
-# Pantheon App
+# CoLearn App
 
-React Native (Expo) mobile app for the Pantheon study platform — built for FUTO students.
+React Native (Expo) mobile app for the CoLearn study platform — built for FUTO students.
 
 ---
 
@@ -68,7 +68,7 @@ eas build:list
 ## Project Structure
 
 ```
-pantheon-app/
+colearn-app/
 ├── app/
 │   ├── _layout.tsx        # Root layout (fonts, navigation shell)
 │   └── index.tsx          # Landing screen

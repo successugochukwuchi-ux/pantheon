@@ -12,10 +12,12 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { BottomNav } from '../components/BottomNav';
-import { C, F } from '../components/Theme';
+import { F } from '../components/Theme';
 import { collection, query, where, getDocs, onSnapshot } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 import { useAuth } from '../context/AuthContext';
+import { useTheme } from '../context/ThemeContext';
+import { getDownloadedCoursesLocal } from '../lib/db';
 
 interface Course {
   id: string;
@@ -32,6 +34,8 @@ interface Course {
 
 function ProgressBar({ value }: { value: number }) {
   const anim = useRef(new Animated.Value(0)).current;
+  const { colors: C } = useTheme();
+  const s = useMemo(() => createStyles(C), [C]);
   useEffect(() => {
     Animated.timing(anim, { toValue: value, duration: 800, useNativeDriver: false }).start();
   }, [value]);
@@ -41,6 +45,7 @@ function ProgressBar({ value }: { value: number }) {
         style={[
           s.progressFill,
           {
+            backgroundColor: C.activeText,
             width: anim.interpolate({
               inputRange: [0, 100],
               outputRange: ['0%', '100%'],
@@ -62,6 +67,8 @@ function CourseCard({
   onPress: () => void;
 }) {
   const router = useRouter();
+  const { colors: C } = useTheme();
+  const s = useMemo(() => createStyles(C), [C]);
   const fadeY = useRef(new Animated.Value(20)).current;
   const opacity = useRef(new Animated.Value(0)).current;
 
@@ -130,7 +137,9 @@ function CourseCard({
 // ── Main Screen ───────────────────────────────────────────────────────────────
 export default function NotesScreen() {
   const router = useRouter();
-  const { profile, systemConfig } = useAuth();
+  const { profile, systemConfig, isOffline } = useAuth();
+  const { colors: C } = useTheme();
+  const s = useMemo(() => createStyles(C), [C]);
   const [courses, setCourses] = useState<Course[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [loading, setLoading] = useState(true);
@@ -141,26 +150,71 @@ export default function NotesScreen() {
     setLoading(true);
     const semester = systemConfig.currentSemester || '1st';
 
+    if (isOffline) {
+      try {
+        const localCourses = getDownloadedCoursesLocal();
+        const mappedLocal = localCourses.map(c => ({
+          id: c.id,
+          code: c.code || '',
+          title: c.title || '',
+          semester: c.semester || semester,
+          level: c.level || '',
+          department: c.department || '',
+          progress: c.progress || 0,
+          isRecommended: true
+        }));
+        setCourses(mappedLocal);
+      } catch (err) {
+        console.log('Error loading offline courses:', err);
+      } finally {
+        setLoading(false);
+      }
+      return;
+    }
+
+    // Immediate offline/local sync fallback
+    try {
+      const localCourses = getDownloadedCoursesLocal();
+      if (localCourses && localCourses.length > 0) {
+        const mappedLocal = localCourses.map(c => ({
+          id: c.id,
+          code: c.code || '',
+          title: c.title || '',
+          semester: c.semester || semester,
+          level: c.level || '',
+          department: c.department || '',
+          progress: c.progress || 0,
+          isRecommended: true
+        }));
+        setCourses(mappedLocal);
+        setLoading(false);
+      }
+    } catch (err) {
+      console.log('Offline/SQLite courses loading skipped:', err);
+    }
+
     // 1. Fetch all courses for the semester (Match Web Dashboard/Notes logic)
     const q = query(
       collection(db, 'courses'),
       where('semester', '==', semester)
     );
 
-    const unsubscribeCourses = onSnapshot(q, (snapshot) => {
-      const allFetched = snapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data()
-      })) as Course[];
-      
-      // 2. Fetch or Listen to Progress (Match Web Dashboard logic)
-      const progQ = query(
-        collection(db, 'progress'),
-        where('uid', '==', profile.uid),
-        where('type', '==', 'course')
-      );
+    const fetchCoursesAndProgress = async () => {
+      try {
+        const snapshot = await getDocs(q);
+        const allFetched = snapshot.docs.map(doc => ({
+          id: doc.id,
+          ...doc.data()
+        })) as Course[];
 
-      const unsubscribeProgress = onSnapshot(progQ, (pSnap) => {
+        // 2. Fetch or Listen to Progress (Match Web Dashboard logic)
+        const progQ = query(
+          collection(db, 'progress'),
+          where('uid', '==', profile.uid),
+          where('type', '==', 'course')
+        );
+
+        const pSnap = await getDocs(progQ);
         const progMap: Record<string, number> = {};
         pSnap.docs.forEach(d => {
           const data = d.data();
@@ -208,18 +262,13 @@ export default function NotesScreen() {
 
         setCourses(sorted);
         setLoading(false);
-      }, (e) => {
-        console.error("Progress fetch error:", e);
+      } catch (e) {
+        console.error("Courses/Progress fetch error (using cache fallback if offline):", e);
         setLoading(false);
-      });
+      }
+    };
 
-      return () => unsubscribeProgress();
-    }, (e) => {
-      console.error("Courses fetch error:", e);
-      setLoading(false);
-    });
-
-    return () => unsubscribeCourses();
+    fetchCoursesAndProgress();
   }, [profile, systemConfig]);
 
   const filteredCourses = useMemo(() => {
@@ -252,8 +301,15 @@ export default function NotesScreen() {
       >
         {/* Semester label */}
         <View style={s.semesterWrap}>
-          <View style={s.semesterPill}>
-            <Text style={s.semesterPillText}>ACADEMIC SESSION</Text>
+          <View style={{ flexDirection: 'row', gap: 6, flexWrap: 'wrap' }}>
+            <View style={s.semesterPill}>
+              <Text style={s.semesterPillText}>ACADEMIC SESSION</Text>
+            </View>
+            {isOffline && (
+              <View style={[s.semesterPill, { backgroundColor: '#FADBD8' }]}>
+                <Text style={[s.semesterPillText, { color: '#C0392B' }]}>OFFLINE MODE</Text>
+              </View>
+            )}
           </View>
           <Text style={s.semesterTitle}>{systemConfig?.currentSemester === '2nd' ? '2nd' : '1st'} Semester</Text>
         </View>
@@ -303,7 +359,21 @@ export default function NotesScreen() {
 }
 
 // ── Styles ────────────────────────────────────────────────────────────────────
-const s = StyleSheet.create({
+const createStyles = (C: any) => {
+  const getContrastColor = (hexColor: string) => {
+    if (!hexColor) return '#FFFFFF';
+    const hex = hexColor.replace('#', '');
+    if (hex.length < 6) return '#FFFFFF';
+    const r = parseInt(hex.substring(0, 2), 16);
+    const g = parseInt(hex.substring(2, 4), 16);
+    const b = parseInt(hex.substring(4, 6), 16);
+    const yiq = (r * 299 + g * 587 + b * 114) / 1000;
+    return yiq >= 128 ? '#0A0A0A' : '#FFFFFF';
+  };
+
+  const textContrast = getContrastColor(C.ink);
+
+  return StyleSheet.create({
   root: { flex: 1, backgroundColor: C.bg },
   scroll: { flex: 1 },
   scrollContent: { paddingHorizontal: 16, paddingBottom: 100 },
@@ -436,7 +506,7 @@ const s = StyleSheet.create({
     borderBottomLeftRadius: 10,
   },
   recommendedText: {
-    color: '#fff',
+    color: C.bg,
     fontFamily: F.bold,
     fontSize: 8,
     letterSpacing: 1,
@@ -501,7 +571,7 @@ const s = StyleSheet.create({
   viewBtnText: {
     fontFamily: F.bold,
     fontSize: 13,
-    color: '#fff',
+    color: textContrast,
     letterSpacing: 1.2,
   },
   discussBtn: {
@@ -522,5 +592,6 @@ const s = StyleSheet.create({
     color: C.ink,
     letterSpacing: 0.5,
   },
-});
+  });
+};
 

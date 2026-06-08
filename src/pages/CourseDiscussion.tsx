@@ -1,13 +1,13 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { collection, query, where, orderBy, onSnapshot, addDoc, doc, getDoc, limit } from 'firebase/firestore';
+import { collection, query, where, orderBy, getDocs, addDoc, doc, getDoc, limit, onSnapshot } from 'firebase/firestore';
 import { db } from '../firebase';
 import { useAuth } from '../contexts/AuthContext';
 import { Card, CardContent, CardHeader, CardTitle, CardFooter } from '../components/ui/card';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
 import { Badge } from '../components/ui/badge';
-import { ArrowLeft, Send, Users, MessageSquare, Shield, FileText, Check, Plus, BookOpen, ChevronRight } from 'lucide-react';
+import { ArrowLeft, Send, Users, MessageSquare, Shield, FileText, Check, Plus, BookOpen, ChevronRight, Lock } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { DiscussionMessage, Course, Note } from '../types';
 import { toast } from 'sonner';
@@ -38,30 +38,28 @@ export default function CourseDiscussion() {
   useEffect(() => {
     if (!user || !profile) return;
     const q = query(collection(db, 'notes'));
-    const unsubscribe = onSnapshot(q, (snapshot) => {
+    getDocs(q).then((snapshot) => {
       setUserNotes(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Note)));
-    }, (error) => {
+    }).catch((error) => {
       const isLowLevel = profile.level === '1';
       if (!isLowLevel) {
         console.error('Notes fetch error:', error);
       }
     });
-    return () => unsubscribe();
   }, [user, profile]);
 
   // Fetch all courses for note selector
   useEffect(() => {
     if (!profile) return;
     const q = query(collection(db, 'courses'), orderBy('code', 'asc'));
-    const unsubscribe = onSnapshot(q, (snapshot) => {
+    getDocs(q).then((snapshot) => {
       setCourses(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Course)));
-    }, (error) => {
+    }).catch((error) => {
       const isLowLevel = profile.level === '1';
       if (!isLowLevel) {
         console.error('Courses fetch error:', error);
       }
     });
-    return () => unsubscribe();
   }, [profile]);
 
   useEffect(() => {
@@ -144,6 +142,27 @@ export default function CourseDiscussion() {
   };
 
   if (!course) return null;
+
+  const isUnactivatedStudent = (!profile || !profile.isActivated) && profile?.level !== '3' && profile?.level !== '4';
+  if (isUnactivatedStudent) {
+    return (
+      <div className="flex flex-col items-center justify-center min-h-[400px] text-center p-6 space-y-4 max-w-2xl mx-auto py-20">
+        <Lock className="h-16 w-16 text-amber-500 animate-pulse" />
+        <h1 className="text-3xl font-bold tracking-tight">Discussion Board Locked</h1>
+        <p className="text-muted-foreground animate-pulse">
+          Standard accounts must buy an activation pin to join classmate groups, post questions, and share study solutions.
+        </p>
+        <p className="text-sm font-medium text-amber-600 dark:text-amber-400">
+          Gain full peer dialogue and active community support by activating your account today!
+        </p>
+        <div className="pt-2">
+          <Button size="lg" onClick={() => window.location.href = '/activate'}>
+            Go to Activation Page
+          </Button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="h-[calc(100vh-12rem)] flex flex-col gap-4">

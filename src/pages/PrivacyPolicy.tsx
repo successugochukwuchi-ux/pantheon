@@ -32,7 +32,7 @@ export default function PrivacyPolicy() {
           <section>
             <h2 className="text-2xl font-bold text-primary mb-4">1. Introduction</h2>
             <p>
-              Welcome to PANTHEON ("we," "our," or "us"). We are committed to protecting your privacy and ensuring that your personal information is handled in a safe and responsible manner. This Privacy Policy outlines how we collect, use, disclose, and safeguard your information when you use our platform.
+              Welcome to COLEARN ("we," "our," or "us"). We are committed to protecting your privacy and ensuring that your personal information is handled in a safe and responsible manner. This Privacy Policy outlines how we collect, use, disclose, and safeguard your information when you use our platform.
             </p>
           </section>
 

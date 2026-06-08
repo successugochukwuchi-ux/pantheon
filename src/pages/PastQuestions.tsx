@@ -1,12 +1,12 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { collection, onSnapshot, query, where, getDocs } from 'firebase/firestore';
+import { collection, query, where, getDocs } from 'firebase/firestore';
 import { db } from '../firebase';
 import { useAuth } from '../contexts/AuthContext';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '../components/ui/card';
 import { Button } from '../components/ui/button';
 import { Badge } from '../components/ui/badge';
 import { toast } from 'sonner';
-import { History, Play, CheckCircle2, XCircle, ArrowRight, ArrowLeft, RotateCcw } from 'lucide-react';
+import { History, Play, CheckCircle2, XCircle, ArrowRight, ArrowLeft, RotateCcw, Lock } from 'lucide-react';
 import { Course, Question, QuestionSheet } from '../types';
 import { motion, AnimatePresence } from 'motion/react';
 import { MathJax } from 'better-react-mathjax';
@@ -53,7 +53,7 @@ export default function PastQuestions() {
       q = query(collection(db, 'courses'), where('semester', '==', systemConfig.currentSemester));
     }
 
-    const unsubCourses = onSnapshot(q, (snapshot) => {
+    getDocs(q).then((snapshot) => {
       const allCourses = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Course));
       // Only show courses for student's level and current semester
       const filtered = allCourses.filter(c => 
@@ -63,9 +63,10 @@ export default function PastQuestions() {
       filtered.sort((a, b) => a.code.localeCompare(b.code));
       setCourses(filtered);
       setLoading(false);
+    }).catch((err) => {
+      console.error("Error fetching courses in PastQuestions:", err);
+      setLoading(false);
     });
-
-    return () => unsubCourses();
   }, [profile, systemConfig]);
 
   useEffect(() => {
@@ -78,12 +79,13 @@ export default function PastQuestions() {
       where('courseId', '==', selectedCourseId),
       where('isAvailable', '==', true)
     );
-    const unsub = onSnapshot(q, (snapshot) => {
+    getDocs(q).then((snapshot) => {
       const loadedSheets = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as QuestionSheet));
       loadedSheets.sort((a, b) => b.year.localeCompare(a.year));
       setSheets(loadedSheets);
+    }).catch((err) => {
+      console.error("Error fetching question sheets in PastQuestions:", err);
     });
-    return () => unsub();
   }, [selectedCourseId]);
 
   const handleStartExam = async (sheet: QuestionSheet) => {
@@ -127,6 +129,27 @@ export default function PastQuestions() {
     setUserAnswers(prev => ({ ...prev, [currentQuestion.id]: answer }));
     setShowFeedback(prev => ({ ...prev, [currentQuestion.id]: true }));
   };
+
+  const isUnactivatedStudent = (!profile || !profile.isActivated) && profile?.level !== '3' && profile?.level !== '4';
+  if (isUnactivatedStudent) {
+    return (
+      <div className="flex flex-col items-center justify-center min-h-[400px] text-center p-6 space-y-4 max-w-2xl mx-auto">
+        <Lock className="h-16 w-16 text-amber-500 animate-pulse" />
+        <h1 className="text-3xl font-bold tracking-tight">Past Questions Locked</h1>
+        <p className="text-muted-foreground">
+          Standard accounts must buy an activation pin to access study materials, CBT mode, and past questions.
+        </p>
+        <p className="text-sm font-medium text-amber-600 dark:text-amber-400">
+          Unlock everything instantly by entering your activation pin!
+        </p>
+        <div className="pt-2">
+          <Button size="lg" onClick={() => window.location.href = '/activate'}>
+            Go to Activation Page
+          </Button>
+        </div>
+      </div>
+    );
+  }
 
   if (loading && !examStarted) {
     return <div className="flex items-center justify-center min-h-[400px]">Loading...</div>;

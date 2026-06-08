@@ -1,12 +1,12 @@
 import React, { useState, useEffect } from 'react';
-import { collection, query, where, onSnapshot, getDocs, doc, getDoc } from 'firebase/firestore';
+import { collection, query, where, getDocs, doc, getDoc } from 'firebase/firestore';
 import { db, handleFirestoreError, OperationType } from '../firebase';
 import { useAuth } from '../contexts/AuthContext';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card';
 import { Button } from '../components/ui/button';
 import { Badge } from '../components/ui/badge';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select';
-import { PlayCircle, BookOpen, GraduationCap, ChevronRight, CheckCircle2, Calculator } from 'lucide-react';
+import { PlayCircle, BookOpen, GraduationCap, ChevronRight, CheckCircle2, Calculator, Lock } from 'lucide-react';
 import { Note, Course, VideoQuestion } from '../types';
 import { toast } from 'sonner';
 import ReactMarkdown from 'react-markdown';
@@ -29,14 +29,13 @@ export default function VideoLibrary() {
 
   useEffect(() => {
     if (!profile) return;
-    const unsub = onSnapshot(collection(db, 'courses'), (snapshot) => {
+    getDocs(collection(db, 'courses')).then((snapshot) => {
       const allCourses = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Course));
       allCourses.sort((a, b) => a.code.localeCompare(b.code));
       setCourses(allCourses);
-    }, (err) => {
+    }).catch((err) => {
       handleFirestoreError(err, OperationType.LIST, 'courses');
     });
-    return () => unsub();
   }, [profile]);
 
   useEffect(() => {
@@ -45,14 +44,13 @@ export default function VideoLibrary() {
       return;
     }
     const q = query(collection(db, 'notes'), where('courseId', '==', selectedCourseId));
-    const unsub = onSnapshot(q, (snapshot) => {
+    getDocs(q).then((snapshot) => {
       const allNotes = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Note));
       // Filter notes that have a videoUrl
       setNotes(allNotes.filter(n => n.videoUrl));
-    }, (err) => {
+    }).catch((err) => {
       handleFirestoreError(err, OperationType.LIST, 'notes');
     });
-    return () => unsub();
   }, [selectedCourseId, profile]);
 
   useEffect(() => {
@@ -61,12 +59,11 @@ export default function VideoLibrary() {
       return;
     }
     const q = query(collection(db, `notes/${selectedNote.id}/videoQuestions`));
-    const unsub = onSnapshot(q, (snapshot) => {
+    getDocs(q).then((snapshot) => {
       setQuestions(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as VideoQuestion)));
-    }, (err) => {
+    }).catch((err) => {
       handleFirestoreError(err, OperationType.LIST, `notes/${selectedNote.id}/videoQuestions`);
     });
-    return () => unsub();
   }, [selectedNote, profile]);
 
   const handleNoteSelect = (note: Note) => {
@@ -84,6 +81,27 @@ export default function VideoLibrary() {
     });
     return correct;
   };
+
+  const isUnactivatedStudent = (!profile || !profile.isActivated) && profile?.level !== '3' && profile?.level !== '4';
+  if (isUnactivatedStudent) {
+    return (
+      <div className="flex flex-col items-center justify-center min-h-[400px] text-center p-6 space-y-4 max-w-2xl mx-auto">
+        <Lock className="h-16 w-16 text-amber-500 animate-pulse" />
+        <h1 className="text-3xl font-bold tracking-tight">Video Library Locked</h1>
+        <p className="text-muted-foreground animate-pulse">
+          Standard accounts must buy an activation pin to access our premium video library, interactive video quizzes, and lecture video archives.
+        </p>
+        <p className="text-sm font-medium text-amber-600 dark:text-amber-400">
+          Unlock instant access to all expert-led video lessons by activating your account now!
+        </p>
+        <div className="pt-2">
+          <Button size="lg" onClick={() => window.location.href = '/activate'}>
+            Go to Activation Page
+          </Button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="container mx-auto py-8 px-4 max-w-6xl">

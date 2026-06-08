@@ -10,7 +10,7 @@ import { Avatar, AvatarFallback, AvatarImage } from '../components/ui/avatar';
 import { Badge } from '../components/ui/badge';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from '../components/ui/dialog';
 import { Label } from '../components/ui/label';
-import { Send, MessageSquare, Users, Search, ArrowLeft, MoreVertical, Shield, Plus, Check, FileText, BookOpen, ChevronRight, LogOut, Flag, Reply, X as CloseIcon } from 'lucide-react';
+import { Send, MessageSquare, Users, Search, ArrowLeft, MoreVertical, Shield, Plus, Check, FileText, BookOpen, ChevronRight, LogOut, Flag, Reply, X as CloseIcon, Lock } from 'lucide-react';
 import { toast } from 'sonner';
 import { cn } from '../lib/utils';
 import { UserProfile, Note, Course } from '../types';
@@ -122,34 +122,30 @@ export default function Chat() {
   useEffect(() => {
     if (!user || !profile) return;
     
-    // Only fetch if at least Level 2 (Admins) or if we want to filter in app
-    // For Level 1, we should ideally query with filter, but rules will block broad query
     const q = query(collection(db, 'notes')); 
-    const unsubscribe = onSnapshot(q, (snapshot) => {
+    getDocs(q).then((snapshot) => {
       setUserNotes(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Note)));
-    }, (error) => {
+    }).catch((error) => {
       // Don't show technical error to Level 1 students for this auxiliary data
       const isLowLevel = profile.level === '1';
       if (!isLowLevel) {
         handleFirestoreError(error, OperationType.LIST, 'notes');
       }
     });
-    return () => unsubscribe();
   }, [user, profile]);
 
   // Fetch all courses for note selector
   useEffect(() => {
     if (!profile) return;
     const q = query(collection(db, 'courses'), orderBy('code', 'asc'));
-    const unsubscribe = onSnapshot(q, (snapshot) => {
+    getDocs(q).then((snapshot) => {
       setCourses(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Course)));
-    }, (error) => {
+    }).catch((error) => {
       const isLowLevel = profile.level === '1';
       if (!isLowLevel) {
         handleFirestoreError(error, OperationType.LIST, 'courses');
       }
     });
-    return () => unsubscribe();
   }, [profile]);
 
   // Fetch all chats and discussions for the user
@@ -168,6 +164,18 @@ export default function Chat() {
             
             if (data.type === 'dm') {
               const friendUid = data.uids.find((id: string) => id !== user.uid);
+              if (!friendUid) continue;
+
+              // Verify friendship exists in the friendships collection as chatting is restricted to friends or study group members
+              const fQuery = query(collection(db, 'friendships'), where('uids', 'array-contains', user.uid));
+              const fSnap = await getDocs(fQuery);
+              const isFriend = fSnap.docs.some(doc => (doc.data().uids || []).includes(friendUid));
+
+              if (!isFriend) {
+                // Skip chats with people who are no longer friends
+                continue;
+              }
+
               const friendDoc = await getDoc(doc(db, 'users', friendUid));
               if (friendDoc.exists()) {
                 friendProfile = friendDoc.data() as UserProfile;
@@ -235,7 +243,7 @@ export default function Chat() {
     if (!user) return;
 
     const q = query(collection(db, 'friendships'), where('uids', 'array-contains', user.uid));
-    const unsubscribe = onSnapshot(q, (snapshot) => {
+    getDocs(q).then((snapshot) => {
       const updateFriends = async () => {
         try {
           const friendList: Friend[] = [];
@@ -256,11 +264,9 @@ export default function Chat() {
       };
       
       updateFriends();
-    }, (error) => {
+    }).catch((error) => {
       handleFirestoreError(error, OperationType.LIST, 'friendships');
     });
-
-    return () => unsubscribe();
   }, [user]);
 
   // Handle targetUid from URL (start a new chat or open existing)
@@ -268,6 +274,17 @@ export default function Chat() {
     if (!user || !targetUid || loading) return;
 
     const openChat = async () => {
+      // Verify friendship first before opening or creating a new DM session
+      const fQuery = query(collection(db, 'friendships'), where('uids', 'array-contains', user.uid));
+      const fSnap = await getDocs(fQuery);
+      const isFriend = fSnap.docs.some(d => (d.data().uids || []).includes(targetUid));
+
+      if (!isFriend) {
+        toast.error('Access Restricted: Chatting is only available between friends or study group members.');
+        navigate('/chat');
+        return;
+      }
+
       // Check if DM already exists
       const existingChat = chats.find(c => c.type === 'dm' && c.uids.includes(targetUid));
       if (existingChat) {
@@ -278,6 +295,8 @@ export default function Chat() {
           await addDoc(collection(db, 'chats'), {
             type: 'dm',
             uids: [user.uid, targetUid],
+            lastMessage: 'Chat started',
+            lastSenderId: user.uid,
             createdAt: new Date().toISOString(),
             lastUpdatedAt: new Date().toISOString()
           });
@@ -395,7 +414,8 @@ export default function Chat() {
           // Update last message in chat doc
           await updateDoc(doc(db, 'chats', activeChat.id), {
             lastMessage: text || `Shared a note: ${selectedNote?.title}`,
-            lastUpdatedAt: new Date().toISOString()
+            lastUpdatedAt: new Date().toISOString(),
+            lastSenderId: user.uid
           });
       }
     } catch (err) {
@@ -414,6 +434,8 @@ export default function Chat() {
         type: 'group',
         name: groupName.trim(),
         uids: [user.uid, ...selectedFriends],
+        lastMessage: `Group "${groupName.trim()}" created`,
+        lastSenderId: user.uid,
         createdAt: new Date().toISOString(),
         lastUpdatedAt: new Date().toISOString()
       });
@@ -509,6 +531,27 @@ export default function Chat() {
       [`typing.${user.uid}`]: false
     });
   };
+
+  const isUnactivatedStudent = (!profile || !profile.isActivated) && profile?.level !== '3' && profile?.level !== '4';
+  if (isUnactivatedStudent) {
+    return (
+      <div className="flex flex-col items-center justify-center min-h-[400px] text-center p-6 space-y-4 max-w-2xl mx-auto py-20">
+        <Lock className="h-16 w-16 text-amber-500 animate-pulse" />
+        <h1 className="text-3xl font-bold tracking-tight">Chat Features Locked</h1>
+        <p className="text-muted-foreground animate-pulse">
+          Standard accounts must buy an activation pin to unlock private chat rooms, file sharing, group threads, and lecture-connected chats.
+        </p>
+        <p className="text-sm font-medium text-amber-600 dark:text-amber-400">
+          Chat with classmates and start collaborations in real time by activating your account now!
+        </p>
+        <div className="pt-2">
+          <Button size="lg" onClick={() => window.location.href = '/activate'}>
+            Go to Activation Page
+          </Button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="h-[calc(100vh-10rem)] flex gap-4 overflow-hidden">

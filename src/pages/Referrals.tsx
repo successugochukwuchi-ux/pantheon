@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { collection, query, where, onSnapshot } from 'firebase/firestore';
+import { collection, query, where, getDocs } from 'firebase/firestore';
 import { db } from '../firebase';
 import { useAuth } from '../contexts/AuthContext';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from '../components/ui/card';
@@ -24,13 +24,14 @@ export default function Referrals() {
       where('referredBy', '==', user.uid)
     );
 
-    const unsubscribe = onSnapshot(q, (snapshot) => {
+    getDocs(q).then((snapshot) => {
       const users = snapshot.docs.map(doc => ({ uid: doc.id, ...doc.data() } as UserProfile));
       setReferredUsers(users);
       setLoading(false);
+    }).catch((err) => {
+      console.error("Error fetching referrals:", err);
+      setLoading(false);
     });
-
-    return () => unsubscribe();
   }, [user]);
 
   const referralLink = `${window.location.origin}/register?ref=${user?.uid}`;
@@ -53,8 +54,8 @@ export default function Referrals() {
     if (navigator.share) {
       try {
         await navigator.share({
-          title: 'Join Pantheon Student Portal',
-          text: 'Join me on Pantheon to access lecture notes, past questions, and CBT practice!',
+          title: 'Join CoLearn Student Portal',
+          text: 'Join me on CoLearn to access lecture notes, past questions, and CBT practice!',
           url: referralLink,
         });
       } catch (err) {
@@ -69,7 +70,7 @@ export default function Referrals() {
     <div className="space-y-8">
       <div className="flex flex-col gap-2">
         <h1 className="text-3xl font-bold tracking-tight">Referral Program</h1>
-        <p className="text-muted-foreground">Invite your friends to Pantheon and earn rewards.</p>
+        <p className="text-muted-foreground">Invite your friends to CoLearn and earn rewards.</p>
       </div>
 
       {isRestricted && (

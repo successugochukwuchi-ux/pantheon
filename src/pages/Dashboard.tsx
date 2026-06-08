@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { collection, query, orderBy, limit, onSnapshot, where } from 'firebase/firestore';
+import { collection, query, orderBy, limit, getDocs, where } from 'firebase/firestore';
 import { db, handleFirestoreError, OperationType } from '../firebase';
 import { NewsItem, Course } from '../types';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from '../components/ui/card';
@@ -28,11 +28,11 @@ export default function Dashboard() {
       collection(db, 'courses'),
       where('semester', '==', systemConfig.currentSemester)
     );
-    const unsub = onSnapshot(q, (snapshot) => {
+    getDocs(q).then((snapshot) => {
       const fetchedCourses = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Course));
       fetchedCourses.sort((a, b) => a.code.localeCompare(b.code));
       setCourses(fetchedCourses);
-    }, (err) => {
+    }).catch((err) => {
       handleFirestoreError(err, OperationType.LIST, 'courses');
     });
 
@@ -42,21 +42,16 @@ export default function Dashboard() {
       where('uid', '==', user?.uid),
       where('type', '==', 'course')
     );
-    const unsubProg = onSnapshot(progQ, (snapshot) => {
+    getDocs(progQ).then((snapshot) => {
       const progMap: Record<string, number> = {};
       snapshot.docs.forEach(doc => {
         const data = doc.data();
         progMap[data.targetId] = data.percentage || 0;
       });
       setCourseProgress(progMap);
-    }, (err) => {
+    }).catch((err) => {
       handleFirestoreError(err, OperationType.LIST, 'progress');
     });
-
-    return () => {
-      unsub();
-      unsubProg();
-    };
   }, [profile, systemConfig, user]);
 
   useEffect(() => {
@@ -64,15 +59,14 @@ export default function Dashboard() {
 
     const path = 'news';
     const q = query(collection(db, 'news'), limit(5));
-    const unsubscribe = onSnapshot(q, (snapshot) => {
+    getDocs(q).then((snapshot) => {
       const newsData = snapshot.docs
         .map(doc => ({ id: doc.id, ...doc.data() } as NewsItem))
         .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
       setNews(newsData);
-    }, (error) => {
+    }).catch((error) => {
       handleFirestoreError(error, OperationType.LIST, path);
     });
-    return () => unsubscribe();
   }, [profile]);
 
   const quickLinks = [

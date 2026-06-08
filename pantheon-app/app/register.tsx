@@ -107,7 +107,7 @@ function Navbar() {
     <View style={s.navbar}>
       <View style={s.navBrand}>
         <View style={s.navLogo} />
-        <Text style={s.navBrandText}>PANTHEON</Text>
+        <Text style={s.navBrandText}>COLEARN</Text>
       </View>
       <TouchableOpacity
         style={s.navCta}
@@ -140,21 +140,38 @@ function InputField({
   error?: string;
 }) {
   const [focused, setFocused] = useState(false);
+  const [isSecured, setIsSecured] = useState(!!secureTextEntry);
+
   return (
     <View style={s.fieldWrap}>
       <Text style={s.label}>{label}</Text>
-      <TextInput
-        style={[s.input, focused && s.inputFocused, !!error && s.inputError]}
-        placeholder={placeholder}
-        placeholderTextColor={C.inkLight}
-        value={value}
-        onChangeText={onChangeText}
-        secureTextEntry={secureTextEntry}
-        keyboardType={keyboardType ?? 'default'}
-        autoCapitalize={autoCapitalize ?? 'none'}
-        onFocus={() => setFocused(true)}
-        onBlur={() => setFocused(false)}
-      />
+      <View style={[
+        s.inputContainer,
+        focused && s.inputContainerFocused,
+        !!error && s.inputContainerError
+      ]}>
+        <TextInput
+          style={s.inputField}
+          placeholder={placeholder}
+          placeholderTextColor={C.inkLight}
+          value={value}
+          onChangeText={onChangeText}
+          secureTextEntry={isSecured}
+          keyboardType={keyboardType ?? 'default'}
+          autoCapitalize={autoCapitalize ?? 'none'}
+          onFocus={() => setFocused(true)}
+          onBlur={() => setFocused(false)}
+        />
+        {secureTextEntry && (
+          <TouchableOpacity
+            style={s.eyeButton}
+            activeOpacity={0.7}
+            onPress={() => setIsSecured(!isSecured)}
+          >
+            <Text style={s.eyeText}>{isSecured ? '👁️' : '🙈'}</Text>
+          </TouchableOpacity>
+        )}
+      </View>
       {error && <Text style={s.errorText}>{error}</Text>}
     </View>
   );
@@ -326,7 +343,7 @@ export default function RegisterScreen() {
             {/* Card header */}
             <View style={s.cardHeader}>
               <Text style={s.cardTitle}>Create Account</Text>
-              <Text style={s.cardSubtitle}>Create PANTHEON Account</Text>
+              <Text style={s.cardSubtitle}>Create COLEARN Account</Text>
             </View>
 
             <InputField
@@ -419,7 +436,7 @@ export default function RegisterScreen() {
 
           {/* Footer */}
           <View style={s.footer}>
-            <Text style={s.footerBrand}>PANTHEON</Text>
+            <Text style={s.footerBrand}>COLEARN</Text>
             <View style={s.footerLinks}>
               <TouchableOpacity activeOpacity={0.7} onPress={() => router.push('/privacy' as any)}>
                 <Text style={s.footerLink}>Privacy policy</Text>
@@ -479,19 +496,34 @@ const s = StyleSheet.create({
   // Fields
   fieldWrap: { marginBottom: 16 },
   label: { fontFamily: F.bold, fontSize: 11, color: C.ink, letterSpacing: 1.5, marginBottom: 8 },
-  input: {
+  inputContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
     borderWidth: 1.5,
     borderColor: C.border,
     borderRadius: 10,
+    backgroundColor: C.inputBg,
+    overflow: 'hidden',
+  },
+  inputContainerFocused: { borderColor: C.ink },
+  inputContainerError: { borderColor: C.error },
+  inputField: {
+    flex: 1,
     paddingHorizontal: 16,
     paddingVertical: 14,
     fontFamily: F.body,
     fontSize: 15,
     color: C.ink,
-    backgroundColor: C.inputBg,
   },
-  inputFocused: { borderColor: C.ink },
-  inputError: { borderColor: C.error },
+  eyeButton: {
+    paddingHorizontal: 16,
+    justifyContent: 'center',
+    alignItems: 'center',
+    alignSelf: 'stretch',
+  },
+  eyeText: {
+    fontSize: 18,
+  },
   errorText: { fontFamily: F.body, fontSize: 12, color: C.error, marginTop: 5 },
 
   // Picker

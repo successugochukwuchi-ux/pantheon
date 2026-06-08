@@ -18,9 +18,12 @@ export async function getTelegramConfig(): Promise<TelegramConfig | null> {
 
 export async function sendTelegramAlert(message: string) {
   const config = await getTelegramConfig();
-  if (!config || !config.isActive || !config.botToken || !config.chatId) {
+  if (!config || !config.botToken || !config.chatId) {
     return;
   }
+
+  const source = config.source || 'CoLearn';
+  const formattedMessage = message.replace(/{source}/g, source);
 
   try {
     const url = `https://api.telegram.org/bot${config.botToken}/sendMessage`;
@@ -31,7 +34,7 @@ export async function sendTelegramAlert(message: string) {
       },
       body: JSON.stringify({
         chat_id: config.chatId,
-        text: message,
+        text: formattedMessage,
         parse_mode: 'HTML'
       }),
     });
@@ -55,7 +58,7 @@ export async function testTelegramConnection(botToken: string, chatId: string): 
       },
       body: JSON.stringify({
         chat_id: chatId,
-        text: `<b>PANTHEON SYSTEM TEST</b>\n\n✅ Telegram integration is working correctly!`,
+        text: `<b>COLEARN SYSTEM TEST</b>\n\n✅ Telegram integration is working correctly!`,
         parse_mode: 'HTML'
       }),
     });
