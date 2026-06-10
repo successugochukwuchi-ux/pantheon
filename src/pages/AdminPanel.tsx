@@ -48,7 +48,8 @@ import {
   AlertOctagon,
   Users,
   MessageCircle,
-  History as HistoryIcon
+  History as HistoryIcon,
+  Zap
 } from 'lucide-react';
 import { Course, UserLevel, Semester, Note, Question, ActivationCode, VerificationRequest, QuestionSheet, VideoQuestion, NotificationTarget, Announcement, TelegramConfig, AIConfig } from '../types';
 import { sendTelegramAlert, testTelegramConnection } from '../services/telegramService';
@@ -1468,6 +1469,25 @@ export default function AdminPanel() {
         updatedAt: new Date().toISOString()
       });
       toast.success(`Maintenance mode ${!systemConfig.maintenanceMode ? 'enabled' : 'disabled'}`);
+    } catch (error: any) {
+      toast.error(error.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleToggleFlux = async () => {
+    if (!user) return;
+    setLoading(true);
+    try {
+      const configRef = doc(db, 'system', 'config');
+      const currentFluxEnabled = systemConfig && systemConfig.fluxEnabled !== false;
+      await setDoc(configRef, {
+        fluxEnabled: !currentFluxEnabled,
+        updatedBy: user.uid,
+        updatedAt: new Date().toISOString()
+      }, { merge: true });
+      toast.success(`Flux access ${!currentFluxEnabled ? 'enabled' : 'disabled'} platform wide.`);
     } catch (error: any) {
       toast.error(error.message);
     } finally {
@@ -3355,6 +3375,36 @@ export default function AdminPanel() {
                     disabled={loading}
                   >
                     {systemConfig?.maintenanceMode ? "Disable Maintenance" : "Enable Maintenance"}
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+
+            <Card className={systemConfig?.fluxEnabled === false ? "border-pink-500/50" : ""}>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2 text-pink-500">
+                  <Zap className="h-5 w-5 fill-pink-500" />
+                  Flux Platform-Wide Access
+                </CardTitle>
+                <CardDescription>Control access to the CoLearn Flux Extracurricular ecosystem.</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className={`p-4 rounded-lg border flex items-center justify-between ${systemConfig?.fluxEnabled === false ? "bg-pink-500/10 border-pink-500/20" : "bg-muted"}`}>
+                  <div>
+                    <p className="font-bold">{systemConfig?.fluxEnabled !== false ? "Flux Ecosystem Active" : "Flux Ecosystem Suspended"}</p>
+                    <p className="text-xs text-muted-foreground">
+                      {systemConfig?.fluxEnabled !== false 
+                        ? "All activated students can access search, skill tracks, and active engines." 
+                        : "Suspended. Only Level 4 admins can bypass and access Flux tracks."}
+                    </p>
+                  </div>
+                  <Button 
+                    variant={systemConfig?.fluxEnabled !== false ? "destructive" : "default"}
+                    onClick={handleToggleFlux}
+                    disabled={loading}
+                    className={systemConfig?.fluxEnabled === false ? "bg-pink-500 hover:bg-pink-600 text-white border-none" : ""}
+                  >
+                    {systemConfig?.fluxEnabled !== false ? "Suspend Flux Access" : "Enable Flux Access"}
                   </Button>
                 </div>
               </CardContent>

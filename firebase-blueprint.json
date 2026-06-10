@@ -106,6 +106,7 @@
       "properties": {
         "currentSemester": { "type": "string", "enum": ["1st", "2nd", "none"] },
         "maintenanceMode": { "type": "boolean" },
+        "fluxEnabled": { "type": "boolean" },
         "updatedBy": { "type": "string" },
         "updatedAt": { "type": "string", "format": "date-time" },
         "standardPrice": { "type": "number" },

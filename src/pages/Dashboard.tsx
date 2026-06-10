@@ -4,7 +4,7 @@ import { db, handleFirestoreError, OperationType } from '../firebase';
 import { NewsItem, Course } from '../types';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from '../components/ui/card';
 import { Button } from '../components/ui/button';
-import { BookOpen, History, Newspaper, AlertCircle, Info, HelpCircle, Trophy, Target } from 'lucide-react';
+import { BookOpen, History, Newspaper, AlertCircle, Info, HelpCircle, Trophy, Target, Zap, PlayCircle } from 'lucide-react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { Alert, AlertDescription, AlertTitle } from '../components/ui/alert';
@@ -69,10 +69,15 @@ export default function Dashboard() {
     });
   }, [profile]);
 
+  const isFluxActive = systemConfig?.fluxEnabled !== false;
   const quickLinks = [
     { name: 'Lecture Notes', path: '/notes?type=lecture', icon: BookOpen, color: 'bg-blue-500' },
     { name: 'Past Questions', path: '/past-questions?type=past_question', icon: History, color: 'bg-purple-500' },
     { name: 'CBT Practice', path: '/cbt', icon: HelpCircle, color: 'bg-green-500' },
+    ...(isFluxActive 
+      ? [{ name: 'CoLearn Flux', path: '/flux', icon: Zap, color: 'bg-pink-500' }] 
+      : [{ name: 'Video Library', path: '/video-library', icon: PlayCircle, color: 'bg-rose-500' }]
+    )
   ];
 
   const isHoliday = isSystemConfigReady && (systemConfig?.currentSemester === 'none' || !systemConfig);

@@ -107,15 +107,11 @@ export const Sidebar: React.FC<SidebarProps> = ({ onClose, isCollapsed = false, 
     { name: 'FLUX Dashboard', path: '/flux', icon: Zap },
     { name: 'Track Browser', path: '/flux/browse', icon: LayoutGrid },
     { name: 'Skill Tracks', path: '/flux/tracks', icon: Compass },
-    { name: 'Elite Clubs', path: '/flux/clubs', icon: Users },
-    { name: 'Global Contests', path: '/flux/competitions', icon: Trophy },
     { name: 'Smart Portfolio', path: '/flux/portfolio', icon: Star },
   ];
 
   const fluxAdminNavItems: SidebarNavItem[] = [
     { name: 'FLUX Admin', path: '/administrator/flux', icon: Shield },
-    { name: 'Club Approval', path: '/administrator/flux/clubs', icon: Users },
-    { name: 'Contest Manager', path: '/administrator/flux/contests', icon: Trophy },
   ];
 
   const getNavItems = () => {

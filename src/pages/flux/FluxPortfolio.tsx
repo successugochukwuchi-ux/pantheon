@@ -76,8 +76,12 @@ const FluxPortfolio: React.FC = () => {
     }
   };
 
-  const totalHours = completedTracks.reduce((acc, t) => acc + (t.trackData.estimatedHours || 0), 0);
-  const impactScore = completedTracks.length * 25 + (totalHours * 10);
+  const totalMilestones = completedTracks.reduce((acc, t) => {
+    const modules = (t.trackData as any).modules || [];
+    const count = modules.reduce((sum: number, m: any) => sum + (m.milestones?.length || 0), 0);
+    return acc + count;
+  }, 0);
+  const impactScore = completedTracks.length * 100 + totalMilestones * 15;
 
   return (
     <div className="space-y-12 pb-20">
@@ -173,12 +177,14 @@ const FluxPortfolio: React.FC = () => {
 
                       <div className="flex items-center gap-4 pt-4 border-t border-white/5">
                         <div className="flex flex-col gap-1">
-                           <span className="text-[8px] font-black uppercase text-stone-700 tracking-widest">Difficulty</span>
-                           <span className="text-[10px] font-black text-white">{track.trackData.difficulty}</span>
+                           <span className="text-[8px] font-black uppercase text-stone-700 tracking-widest">Modules</span>
+                           <span className="text-[10px] font-black text-white">{(track.trackData as any).modules?.length || 0}</span>
                         </div>
                         <div className="flex flex-col gap-1">
-                           <span className="text-[8px] font-black uppercase text-stone-700 tracking-widest">Investment</span>
-                           <span className="text-[10px] font-black text-white">{track.trackData.estimatedHours} Hours</span>
+                           <span className="text-[8px] font-black uppercase text-stone-700 tracking-widest">Milestones</span>
+                           <span className="text-[10px] font-black text-white">
+                             {((track.trackData as any).modules || []).reduce((sum: number, m: any) => sum + (m.milestones?.length || 0), 0)}
+                           </span>
                         </div>
                         <div className="ml-auto w-8 h-8 rounded-full bg-pink-500/20 flex items-center justify-center">
                            <TrendingUp size={14} className="text-pink-500" />

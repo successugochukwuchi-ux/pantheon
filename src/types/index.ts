@@ -70,6 +70,7 @@ export interface TelegramConfig {
 export interface SystemConfig {
   currentSemester: Semester;
   maintenanceMode: boolean;
+  fluxEnabled?: boolean;
   updatedBy: string;
   updatedAt: string;
   standardPrice?: number;

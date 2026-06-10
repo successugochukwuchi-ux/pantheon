@@ -36,11 +36,12 @@ import TermsOfService from './pages/TermsOfService';
 
 import { MaintenanceGuard } from './components/MaintenanceGuard';
 import Diagnostic from './pages/Diagnostic';
-// import FluxDashboard from './pages/flux/FluxDashboard';
-// import FluxAdmin from './pages/flux/FluxAdmin';
-// import FluxBrowse from './pages/flux/FluxBrowse';
-// import FluxTracks from './pages/flux/FluxTracks';
-// import FluxPortfolio from './pages/flux/FluxPortfolio';
+import FluxDashboard from './pages/flux/FluxDashboard';
+import FluxAdmin from './pages/flux/FluxAdmin';
+import FluxBrowse from './pages/flux/FluxBrowse';
+import FluxTracks from './pages/flux/FluxTracks';
+import FluxPortfolio from './pages/flux/FluxPortfolio';
+import { FluxGuard } from './components/FluxGuard';
 
 export default function App() {
   console.log("[COLEARN] App Rendering. URL:", window.location.pathname);
@@ -111,12 +112,13 @@ export default function App() {
                     <Route path="/banned" element={<Banned />} />
                     <Route path="/diag" element={<Diagnostic />} />
 
-                    {/* FLUX Routes (Hidden for Launch) */}
-                    {/* 
+                    {/* FLUX Routes */}
                     <Route path="/flux" element={
                       <ProtectedRoute requireActivation={false}>
                         <Layout>
-                          <FluxDashboard />
+                          <FluxGuard>
+                            <FluxDashboard />
+                          </FluxGuard>
                         </Layout>
                       </ProtectedRoute>
                     } />
@@ -124,7 +126,9 @@ export default function App() {
                     <Route path="/flux/browse" element={
                       <ProtectedRoute requireActivation={false}>
                         <Layout>
-                          <FluxBrowse />
+                          <FluxGuard>
+                            <FluxBrowse />
+                          </FluxGuard>
                         </Layout>
                       </ProtectedRoute>
                     } />
@@ -132,7 +136,9 @@ export default function App() {
                     <Route path="/flux/clubs" element={
                       <ProtectedRoute requireActivation={false}>
                         <Layout>
-                          <div className="flex items-center justify-center min-h-[60vh] text-stone-500 font-bold uppercase tracking-widest italic">Clubs coming soon to FLUX</div>
+                          <FluxGuard>
+                            <div className="flex items-center justify-center min-h-[60vh] text-stone-500 font-bold uppercase tracking-widest italic">Clubs coming soon to FLUX</div>
+                          </FluxGuard>
                         </Layout>
                       </ProtectedRoute>
                     } />
@@ -140,7 +146,9 @@ export default function App() {
                     <Route path="/flux/tracks" element={
                       <ProtectedRoute requireActivation={false}>
                         <Layout>
-                          <FluxTracks />
+                          <FluxGuard>
+                            <FluxTracks />
+                          </FluxGuard>
                         </Layout>
                       </ProtectedRoute>
                     } />
@@ -148,7 +156,9 @@ export default function App() {
                     <Route path="/flux/competitions" element={
                       <ProtectedRoute requireActivation={false}>
                         <Layout>
-                          <div className="flex items-center justify-center min-h-[60vh] text-stone-500 font-bold uppercase tracking-widest italic">Competitions coming soon to FLUX</div>
+                          <FluxGuard>
+                            <div className="flex items-center justify-center min-h-[60vh] text-stone-500 font-bold uppercase tracking-widest italic">Competitions coming soon to FLUX</div>
+                          </FluxGuard>
                         </Layout>
                       </ProtectedRoute>
                     } />
@@ -156,7 +166,9 @@ export default function App() {
                     <Route path="/flux/portfolio" element={
                       <ProtectedRoute requireActivation={false}>
                         <Layout>
-                          <FluxPortfolio />
+                          <FluxGuard>
+                            <FluxPortfolio />
+                          </FluxGuard>
                         </Layout>
                       </ProtectedRoute>
                     } />
@@ -164,11 +176,12 @@ export default function App() {
                     <Route path="/administrator/flux" element={
                       <ProtectedRoute minLevel="3">
                         <Layout>
-                          <FluxAdmin />
+                          <FluxGuard>
+                            <FluxAdmin />
+                          </FluxGuard>
                         </Layout>
                       </ProtectedRoute>
                     } />
-                    */}
 
                     {/* Protected Routes */}
                     <Route path="/activate" element={

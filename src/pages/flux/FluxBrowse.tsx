@@ -24,9 +24,16 @@ interface FluxTrack {
   title: string;
   description: string;
   category: string;
-  difficulty: 'Beginner' | 'Intermediate' | 'Advanced' | 'Elite';
-  estimatedHours: number;
   enrolledCount: number;
+  modules?: {
+    id: string;
+    title: string;
+    milestones: {
+      id: string;
+      title: string;
+      type: 'video' | 'note';
+    }[];
+  }[];
 }
 
 const FluxBrowse: React.FC = () => {
@@ -198,13 +205,8 @@ const FluxBrowse: React.FC = () => {
                     <div className="h-40 bg-gradient-to-br from-stone-800 to-stone-950 relative overflow-hidden">
                       <div className="absolute inset-0 bg-pink-500/5 opacity-0 group-hover:opacity-100 transition-opacity" />
                       <div className="absolute top-4 left-4">
-                        <Badge className={`${
-                          track.difficulty === 'Beginner' ? 'bg-green-500' :
-                          track.difficulty === 'Intermediate' ? 'bg-blue-500' :
-                          track.difficulty === 'Advanced' ? 'bg-yellow-500' :
-                          'bg-red-500'
-                        } text-white border-0 font-black tracking-tighter`}>
-                          {track.difficulty.toUpperCase()}
+                        <Badge className="bg-pink-500 text-white border-0 font-black tracking-tighter">
+                          Skill Track
                         </Badge>
                       </div>
                       <div className="absolute inset-0 flex items-center justify-center">
@@ -227,17 +229,17 @@ const FluxBrowse: React.FC = () => {
                     <CardContent className="mt-auto pt-4 border-t border-white/5 space-y-6">
                       <div className="grid grid-cols-2 gap-4">
                         <div className="flex flex-col gap-1">
-                          <span className="text-[10px] font-black text-stone-600 uppercase tracking-widest">Mastery Level</span>
-                          <div className="flex items-center gap-2 text-stone-300 font-bold text-xs uppercase">
+                          <span className="text-[10px] font-black text-stone-600 uppercase tracking-widest">Modules</span>
+                          <div className="flex items-center gap-2 text-stone-300 font-bold text-xs">
                             <Sparkles size={14} className="text-pink-500" />
-                            Elite Track
+                            {track.modules?.length || 0} Modules
                           </div>
                         </div>
                         <div className="flex flex-col gap-1">
-                          <span className="text-[10px] font-black text-stone-600 uppercase tracking-widest">Duration</span>
+                          <span className="text-[10px] font-black text-stone-600 uppercase tracking-widest">Milestones</span>
                           <div className="flex items-center gap-2 text-stone-300 font-bold text-xs">
                             <Clock size={14} className="text-pink-500" />
-                            {track.estimatedHours} HOURS
+                            {(track.modules || []).reduce((sum, m) => sum + (m.milestones?.length || 0), 0)} Milestones
                           </div>
                         </div>
                       </div>
