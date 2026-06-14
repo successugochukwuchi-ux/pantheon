@@ -31,25 +31,32 @@ service cloud.firestore {
       return resource.data;
     }
 
-    // High-priority admin check (Level 4 only)
+    // High-priority admin check (Level 3 or 4)
     function isAdmin() {
       return isSignedIn() && (
         request.auth.token.email == "successugochukwuchi@gmail.com" || 
-        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.get('level', '1') == "4"
+        (exists(/databases/$(database)/documents/users/$(request.auth.uid)) && (
+          get(/databases/$(database)/documents/users/$(request.auth.uid)).data.get('level', '1') in ["3", "4"] ||
+          get(/databases/$(database)/documents/users/$(request.auth.uid)).data.get('email', '') == "successugochukwuchi@gmail.com"
+        ))
       );
     }
 
     function isVendorOrAdmin() {
       return isSignedIn() && (
         request.auth.token.email == "successugochukwuchi@gmail.com" ||
-        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.get('level', '1') in ["3", "4"]
+        (exists(/databases/$(database)/documents/users/$(request.auth.uid)) && (
+          get(/databases/$(database)/documents/users/$(request.auth.uid)).data.get('level', '1') in ["3", "4"] ||
+          get(/databases/$(database)/documents/users/$(request.auth.uid)).data.get('email', '') == "successugochukwuchi@gmail.com"
+        ))
       );
     }
 
     function isLevel2() {
       return isSignedIn() && (
         request.auth.token.email == "successugochukwuchi@gmail.com" ||
-        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.get('level', '1') in ["2", "3", "4"]
+        (exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+         get(/databases/$(database)/documents/users/$(request.auth.uid)).data.get('level', '1') in ["2", "3", "4"])
       );
     }
 
@@ -295,6 +302,29 @@ service cloud.firestore {
         incoming().diff(existing()).affectedKeys().hasOnly(['status', 'completedAt', 'progress'])
       );
       allow delete: if isAdmin();
+    }
+
+    match /timetables/{userId} {
+      allow read, write: if isSignedIn() && request.auth.uid == userId;
+    }
+
+    match /recommended_timetables/{id} {
+      allow read, list: if isSignedIn();
+      allow write: if isAdmin();
+    }
+
+    match /compete_matches/{matchId} {
+      allow read, list, write: if isSignedIn();
+    }
+
+    match /seasons/{seasonId} {
+      allow read, list: if isSignedIn();
+      allow write: if isAdmin();
+
+      match /leaderboard/{userId} {
+        allow read, list: if isSignedIn();
+        allow write: if isSignedIn();
+      }
     }
   }
 }

@@ -75,6 +75,8 @@ export interface SystemConfig {
   updatedAt: string;
   standardPrice?: number;
   plusPrice?: number;
+  activeSeasonId?: string | null;
+  activeSeasonName?: string | null;
 }
 
 export interface VerificationRequest {
@@ -109,6 +111,7 @@ export interface Question {
   order: number;
   authorId: string;
   createdAt: string;
+  options?: string[];
 }
 
 export interface CBTSession {

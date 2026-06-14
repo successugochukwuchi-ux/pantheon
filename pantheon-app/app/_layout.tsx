@@ -60,6 +60,7 @@ export default function RootLayout() {
         <Stack.Screen name="chat-list" />
         <Stack.Screen name="course-discussion" />
         <Stack.Screen name="past-questions" />
+        <Stack.Screen name="compete" />
       </Stack>
       </ThemeProvider>
     </AuthProvider>

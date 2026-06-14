@@ -25,7 +25,8 @@ import {
   Sparkles,
   Trophy,
   Compass,
-  Star
+  Star,
+  Calendar
 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { useFlux } from '../contexts/FluxContext';
@@ -62,6 +63,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ onClose, isCollapsed = false, 
 
   const studentNavItems: SidebarNavItem[] = [
     { name: 'Dashboard', path: '/dashboard', icon: LayoutDashboard },
+    { name: 'Study Timetable', path: '/timetable', icon: Calendar },
     { name: 'Notifications', path: '/notifications', icon: Bell, badge: unreadCount > 0 ? unreadCount : undefined },
     { name: 'Video Library', path: '/video-library', icon: PlayCircle },
     { name: 'Lecture Notes', path: '/notes?type=lecture', icon: BookOpen },
@@ -71,6 +73,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ onClose, isCollapsed = false, 
     { name: 'News Board', path: '/news', icon: Newspaper },
     { name: 'Chat', path: '/chat', icon: MessageSquare },
     { name: 'Friends', path: '/friends', icon: UserPlus },
+    { name: 'Compete', path: '/compete', icon: Trophy },
     { name: 'Referrals', path: '/referrals', icon: Users },
   ];
 

@@ -284,6 +284,9 @@ export default function AdminPanel() {
   // Promo Mode State
   const [promoQuota, setPromoQuota] = useState(0);
 
+  // CoLearn Compete Season State
+  const [newSeasonName, setNewSeasonName] = useState('');
+
   // Telegram State
   const [telegramConfig, setTelegramConfig] = useState<TelegramConfig | null>(null);
   const [editTelegram, setEditTelegram] = useState<{
@@ -1453,6 +1456,63 @@ export default function AdminPanel() {
       toast.success(`Promo mode ${active ? 'started' : 'stopped'}`);
     } catch (error) {
       toast.error('Failed to update promo config');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleStartSeason = async () => {
+    if (!user) return;
+    if (!newSeasonName.trim()) {
+      toast.error("Please enter a valid season name");
+      return;
+    }
+    setLoading(true);
+    try {
+      const configRef = doc(db, 'system', 'config');
+      const seasonRef = doc(collection(db, 'seasons'));
+      const activeSeasonId = seasonRef.id;
+
+      await setDoc(seasonRef, {
+        id: activeSeasonId,
+        name: newSeasonName.trim(),
+        createdAt: new Date().toISOString(),
+        createdBy: user.uid,
+        status: 'active'
+      });
+
+      await setDoc(configRef, {
+        activeSeasonId,
+        activeSeasonName: newSeasonName.trim(),
+        updatedBy: user.uid,
+        updatedAt: new Date().toISOString()
+      }, { merge: true });
+
+      toast.success(`Season "${newSeasonName}" started successfully!`);
+      setNewSeasonName('');
+    } catch (err: any) {
+      toast.error(`Failed to start season: ${err.message}`);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleEndSeason = async () => {
+    if (!user) return;
+    if (!window.confirm("Are you sure you want to end the current season? Quick Match mode will be locked and the leaderboard will be reset!")) return;
+    setLoading(true);
+    try {
+      const configRef = doc(db, 'system', 'config');
+      await setDoc(configRef, {
+        activeSeasonId: null,
+        activeSeasonName: null,
+        updatedBy: user.uid,
+        updatedAt: new Date().toISOString()
+      }, { merge: true });
+
+      toast.success("Competition season has been ended and the leaderboard has reset.");
+    } catch (err: any) {
+      toast.error(`Failed to end season: ${err.message}`);
     } finally {
       setLoading(false);
     }
@@ -3345,6 +3405,54 @@ export default function AdminPanel() {
                       disabled={loading || promoQuota <= 0}
                     >
                       Start Promo Mode
+                    </Button>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+
+            <Card className="border-sidebar-primary/20">
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <Zap className="h-5 w-5 text-primary" />
+                  CoLearn Compete Season Control
+                </CardTitle>
+                <CardDescription>Manage CoLearn competition seasons and leaderboard status. When no season is active, the leaderboard resets and Quick Matches are locked.</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                {systemConfig?.activeSeasonId ? (
+                  <div className="p-4 rounded-xl border border-primary/20 bg-primary/5 space-y-3">
+                    <div className="flex items-center justify-between">
+                      <div className="flex flex-col gap-0.5 col-span-1">
+                        <span className="text-xs text-muted-foreground font-mono">ACTIVE SEASON</span>
+                        <span className="text-lg font-black text-primary tracking-tight">{systemConfig.activeSeasonName}</span>
+                      </div>
+                      <Button 
+                        size="sm" 
+                        variant="destructive" 
+                        onClick={handleEndSeason}
+                        disabled={loading}
+                      >
+                        End Season (Reset Leaderboard)
+                      </Button>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="grid gap-4 items-end sm:grid-cols-[1fr,auto]">
+                    <div className="space-y-2">
+                      <Label>New Competition Season Name</Label>
+                      <Input 
+                        placeholder="e.g. 2026 Monsoon Semester Championship" 
+                        value={newSeasonName} 
+                        onChange={(e) => setNewSeasonName(e.target.value)}
+                        onKeyDown={(e) => e.key === 'Enter' && e.preventDefault()}
+                      />
+                    </div>
+                    <Button 
+                      onClick={handleStartSeason}
+                      disabled={loading || !newSeasonName.trim()}
+                    >
+                      Start New Season
                     </Button>
                   </div>
                 )}

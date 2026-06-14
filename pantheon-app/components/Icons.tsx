@@ -248,3 +248,16 @@ export function CalculatorIcon({ color = C.ink }: { color?: string }) {
     </View>
   );
 }
+
+export function CompeteIcon({ color = C.ink }: { color?: string }) {
+  return (
+    <View style={{ width: 22, height: 22, justifyContent: 'center', alignItems: 'center' }}>
+      {/* Trophy cup */}
+      <View style={{ width: 12, height: 10, borderWidth: 2, borderColor: color, borderBottomLeftRadius: 6, borderBottomRightRadius: 6 }} />
+      {/* Stem */}
+      <View style={{ width: 2, height: 4, backgroundColor: color }} />
+      {/* Base */}
+      <View style={{ width: 8, height: 2, backgroundColor: color, borderRadius: 1 }} />
+    </View>
+  );
+}

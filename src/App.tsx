@@ -28,11 +28,13 @@ import AdminPanel from './pages/AdminPanel';
 import Banned from './pages/Banned';
 import News from './pages/News';
 import Friends from './pages/Friends';
+import Compete from './pages/Compete';
 import PastQuestions from './pages/PastQuestions';
 import VideoLibrary from './pages/VideoLibrary';
 import Chat from './pages/Chat';
 import PrivacyPolicy from './pages/PrivacyPolicy';
 import TermsOfService from './pages/TermsOfService';
+import StudyTimetable from './pages/StudyTimetable';
 
 import { MaintenanceGuard } from './components/MaintenanceGuard';
 import Diagnostic from './pages/Diagnostic';
@@ -200,6 +202,14 @@ export default function App() {
                       </ProtectedRoute>
                     } />
 
+                    <Route path="/timetable" element={
+                      <ProtectedRoute requireActivation={false}>
+                        <Layout>
+                          <StudyTimetable />
+                        </Layout>
+                      </ProtectedRoute>
+                    } />
+
                     <Route path="/notes" element={
                       <ProtectedRoute requireActivation={false}>
                         <Layout>
@@ -252,6 +262,14 @@ export default function App() {
                       <ProtectedRoute requireActivation={false}>
                         <Layout>
                           <Friends />
+                        </Layout>
+                      </ProtectedRoute>
+                    } />
+
+                    <Route path="/compete" element={
+                      <ProtectedRoute requireActivation={false}>
+                        <Layout>
+                          <Compete />
                         </Layout>
                       </ProtectedRoute>
                     } />

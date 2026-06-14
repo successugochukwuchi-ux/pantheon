@@ -110,9 +110,49 @@
         "updatedBy": { "type": "string" },
         "updatedAt": { "type": "string", "format": "date-time" },
         "standardPrice": { "type": "number" },
-        "plusPrice": { "type": "number" }
+        "plusPrice": { "type": "number" },
+        "activeSeasonId": { "type": "string" },
+        "activeSeasonName": { "type": "string" }
       },
       "required": ["currentSemester", "maintenanceMode", "updatedBy", "updatedAt"]
+    },
+    "SeasonLeaderboardEntry": {
+      "title": "SeasonLeaderboardEntry",
+      "description": "User ranking statistics within a season",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "username": { "type": "string" },
+        "photoURL": { "type": "string" },
+        "favoriteCourse": { "type": "string" },
+        "stars": { "type": "number" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["userId", "username", "favoriteCourse", "stars", "updatedAt"]
+    },
+    "CompeteMatch": {
+      "title": "CompeteMatch",
+      "description": "Active or static matchup for CoLearn Compete",
+      "type": "object",
+      "properties": {
+        "courseId": { "type": "string" },
+        "courseCode": { "type": "string" },
+        "type": { "type": "string", "enum": ["quick_match", "custom_room"] },
+        "status": { "type": "string", "enum": ["waiting", "active", "completed"] },
+        "creatorId": { "type": "string" },
+        "creatorUsername": { "type": "string" },
+        "creatorPhotoURL": { "type": "string" },
+        "opponentId": { "type": "string" },
+        "opponentUsername": { "type": "string" },
+        "opponentPhotoURL": { "type": "string" },
+        "roomCode": { "type": "string" },
+        "duration": { "type": "number" },
+        "creatorPoints": { "type": "number" },
+        "opponentPoints": { "type": "number" },
+        "winnerId": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["courseId", "courseCode", "type", "status", "creatorId", "creatorUsername", "createdAt"]
     },
     "PromoConfig": {
       "title": "PromoConfig",
@@ -342,6 +382,30 @@
         "progress": { "type": "number" }
       },
       "required": ["userId", "trackId", "status", "enrolledAt"]
+    },
+    "Timetable": {
+      "title": "Timetable",
+      "description": "User customized study timetable",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "grid": { "type": "object" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["userId", "grid", "updatedAt"]
+    },
+    "RecommendedTimetable": {
+      "title": "RecommendedTimetable",
+      "description": "Recommended template timetable created by administrators",
+      "type": "object",
+      "properties": {
+        "level": { "type": "string" },
+        "department": { "type": "string" },
+        "grid": { "type": "object" },
+        "updatedBy": { "type": "string" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["level", "department", "grid", "updatedBy", "updatedAt"]
     }
   },
   "firestore": {
@@ -432,6 +496,26 @@
     "/flux_enrollments/{enrollmentId}": {
       "schema": "FluxEnrollment",
       "description": "User enrollments in FLUX tracks"
+    },
+    "/timetables/{userId}": {
+      "schema": "Timetable",
+      "description": "Custom study timetables"
+    },
+    "/recommended_timetables/{id}": {
+      "schema": "RecommendedTimetable",
+      "description": "Recommended department timetables"
+    },
+    "/compete_matches/{matchId}": {
+      "schema": "CompeteMatch",
+      "description": "CoLearn match lobby and game tracking"
+    },
+    "/seasons/{seasonId}": {
+      "schema": "object",
+      "description": "Season container document"
+    },
+    "/seasons/{seasonId}/leaderboard/{userId}": {
+      "schema": "SeasonLeaderboardEntry",
+      "description": "User leaderboard ratings within target season"
     }
   }
 }
