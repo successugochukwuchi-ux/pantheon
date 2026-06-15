@@ -9,6 +9,7 @@ import { chatWithHermes, ChatMessage } from '../services/aiService';
 import { doc, onSnapshot } from 'firebase/firestore';
 import { db } from '../firebase';
 import { AIConfig } from '../types';
+import { useAuth } from '../contexts/AuthContext';
 import ReactMarkdown from 'react-markdown';
 import remarkMath from 'remark-math';
 import rehypeMathjax from 'rehype-mathjax';
@@ -20,6 +21,9 @@ interface AIAssistantProps {
 }
 
 export function AIAssistant({ noteContent, noteTitle }: AIAssistantProps) {
+  const { profile } = useAuth();
+  const isUnactivatedStudent = (!profile || !profile.isActivated) && profile?.level !== '3' && profile?.level !== '4';
+
   const [isOpen, setIsOpen] = useState(false);
   const [isMinimized, setIsMinimized] = useState(false);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -60,6 +64,8 @@ export function AIAssistant({ noteContent, noteTitle }: AIAssistantProps) {
       setIsLoading(false);
     }
   };
+
+  if (isUnactivatedStudent) return null;
 
   if (aiConfig && aiConfig.isActive === false) return null;
 

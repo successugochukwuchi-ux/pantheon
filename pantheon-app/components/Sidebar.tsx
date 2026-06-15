@@ -26,7 +26,8 @@ import {
   BellIcon,
   ChatIcon,
   ProfileIcon,
-  CompeteIcon
+  CompeteIcon,
+  CalendarIcon
 } from './Icons';
 
 interface SidebarProps {
@@ -37,6 +38,7 @@ interface SidebarProps {
 const NAV_ITEMS = [
   { label: 'Dashboard',    route: '/dashboard',     icon: HomeIcon },
   { label: 'Compete Arena', route: '/compete',       icon: CompeteIcon },
+  { label: 'Study Timetable', route: '/timetable',   icon: CalendarIcon },
   { label: 'Lecture Notes', route: '/notes',         icon: NotesIcon },
   { label: 'CBT Hub',      route: '/cbt-setup',     icon: CbtIcon },
   { label: 'Video Library', route: '/video-library', icon: VideoIcon },

@@ -48,6 +48,27 @@ import { motion, AnimatePresence } from 'framer-motion';
 export default function Compete() {
   const { user, profile, systemConfig } = useAuth();
   
+  const isUnactivatedStudent = (!profile || !profile.isActivated) && profile?.level !== '3' && profile?.level !== '4';
+  if (isUnactivatedStudent) {
+    return (
+      <div className="flex flex-col items-center justify-center min-h-[400px] text-center p-6 space-y-4 max-w-2xl mx-auto">
+        <Lock className="h-16 w-16 text-amber-500 animate-pulse" />
+        <h1 className="text-3xl font-bold tracking-tight">CoLearn Compete Locked</h1>
+        <p className="text-muted-foreground animate-pulse">
+          Standard accounts must buy an activation pin to participate in CoLearn Compete, join live matches, compete with other users, and access season leaderboards.
+        </p>
+        <p className="text-sm font-medium text-amber-600 dark:text-amber-400">
+          Unlock instant access to real-time competitive testing by activating your account now!
+        </p>
+        <div className="pt-2">
+          <Button size="lg" onClick={() => window.location.href = '/activate'}>
+            Go to Activation Page
+          </Button>
+        </div>
+      </div>
+    );
+  }
+
   // Game states: 'lobby' | 'selecting_course' | 'selecting_lobby_type' | 'waiting' | 'playing' | 'results'
   const [gameState, setGameState] = useState<'lobby' | 'selecting_course' | 'selecting_lobby_type' | 'waiting' | 'playing' | 'results'>('lobby');
   
@@ -243,7 +264,7 @@ export default function Compete() {
     return () => clearInterval(interval);
   }, [gameState, currentMatch]);
 
-  // Search countdown for Quick Match simulated bot fallback
+  // Search countdown for Quick Match simulated bot fallback AND periodic 2-second scan
   useEffect(() => {
     if (gameState !== 'waiting' || lobbyType !== 'quick') return;
 
@@ -253,14 +274,66 @@ export default function Compete() {
           // Search timeout: trigger fallback simulated bot
           triggerBotMatch();
           clearInterval(countdownInterval);
-         return 0;
+          return 0;
         }
         return prev - 1;
       });
     }, 1000);
 
-    return () => clearInterval(countdownInterval);
-  }, [gameState, lobbyType]);
+    // Resilient 2-second scan interval
+    const scanInterval = setInterval(async () => {
+      if (!currentMatch?.id || !user?.uid || !selectedCourse?.id) return;
+      try {
+        const lobbiesQuery = query(
+          collection(db, 'compete_matches'),
+          where('status', '==', 'waiting'),
+          where('type', '==', 'quick_match'),
+          where('courseId', '==', selectedCourse.id),
+          where('numQuestions', '==', selectedNumQuestions)
+        );
+        const lobbiesSnap = await getDocs(lobbiesQuery);
+        
+        let foundLobby: any = null;
+        for (const val of lobbiesSnap.docs) {
+          const lobbyData = val.data();
+          if (lobbyData.creatorId !== user.uid && val.id !== currentMatch.id) {
+            foundLobby = { id: val.id, ...lobbyData };
+            break;
+          }
+        }
+
+        if (foundLobby) {
+          clearInterval(scanInterval);
+          clearInterval(countdownInterval);
+
+          // Join this other existing matching room instead!
+          const otherDocRef = doc(db, 'compete_matches', foundLobby.id);
+          await updateDoc(otherDocRef, {
+            opponentId: user.uid,
+            opponentUsername: profile?.username || user.email || 'Student User',
+            opponentPhotoURL: profile?.photoURL || '',
+            status: 'active',
+            startTime: Date.now()
+          });
+
+          // Decommission our previous created match (set status: 'aborted' so someone else doesn't join our orphaned lobby)
+          const ourDocRef = doc(db, 'compete_matches', currentMatch.id);
+          await updateDoc(ourDocRef, {
+            status: 'aborted'
+          });
+
+          setCurrentMatch({ id: foundLobby.id, ...foundLobby, status: 'active' });
+        }
+      } catch (err) {
+        console.error("Rescan failed:", err);
+      }
+    }, 2000);
+
+    return () => {
+      clearInterval(countdownInterval);
+      clearInterval(scanInterval);
+    };
+  }, [gameState, lobbyType, currentMatch?.id, selectedCourse?.id, selectedNumQuestions, user?.uid, profile]);
 
   // Trigger fallback simulated Bot match
   const triggerBotMatch = async () => {

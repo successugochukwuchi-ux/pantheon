@@ -39,23 +39,80 @@ import { Course } from '../types';
 // Predefined Days of the week
 const DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
 
-// Predefined Time Slots
-const TIME_SLOTS = [
-  { id: 'slot1', name: '08:00 AM - 10:00 AM' },
-  { id: 'slot2', name: '10:00 AM - 12:00 PM' },
-  { id: 'slot3', name: '12:00 PM - 02:00 PM' },
-  { id: 'slot4', name: '02:00 PM - 04:00 PM' },
-  { id: 'slot5', name: '04:00 PM - 06:00 PM' },
-  { id: 'slot6', name: '06:00 PM - 08:00 PM' },
-  { id: 'slot7', name: '08:00 PM - 10:00 PM' }
-];
+export function formatTime(hour: number, minute: number): string {
+  const ampm = hour >= 12 ? 'PM' : 'AM';
+  const displayHour = hour % 12 === 0 ? 12 : hour % 12;
+  const displayMinute = minute < 10 ? `0${minute}` : minute;
+  return `${displayHour}:${displayMinute} ${ampm}`;
+}
+
+export function generateSlots(blockSize: '20min' | '30min' | '1hr') {
+  const slots: { id: string; name: string; hour: number; minute: number }[] = [];
+  const startHour = 8; // 08:00 AM
+  const endHour = 22;  // 10:00 PM (up to 22:00)
+  
+  if (blockSize === '1hr') {
+    for (let h = startHour; h < endHour; h++) {
+      const startStr = formatTime(h, 0);
+      const endStr = formatTime(h + 1, 0);
+      slots.push({
+        id: `slot_1h_${h}`,
+        name: `${startStr} - ${endStr}`,
+        hour: h,
+        minute: 0
+      });
+    }
+  } else if (blockSize === '30min') {
+    for (let h = startHour; h < endHour; h++) {
+      const startStr1 = formatTime(h, 0);
+      const endStr1 = formatTime(h, 30);
+      slots.push({
+        id: `slot_30m_${h}_0`,
+        name: `${startStr1} - ${endStr1}`,
+        hour: h,
+        minute: 0
+      });
+      const startStr2 = formatTime(h, 30);
+      const endStr2 = formatTime(h + 1, 0);
+      slots.push({
+        id: `slot_30m_${h}_30`,
+        name: `${startStr2} - ${endStr2}`,
+        hour: h,
+        minute: 30
+      });
+    }
+  } else if (blockSize === '20min') {
+    for (let h = startHour; h < endHour; h++) {
+      slots.push({
+        id: `slot_20m_${h}_0`,
+        name: `${formatTime(h, 0)} - ${formatTime(h, 20)}`,
+        hour: h,
+        minute: 0
+      });
+      slots.push({
+        id: `slot_20m_${h}_20`,
+        name: `${formatTime(h, 20)} - ${formatTime(h, 40)}`,
+        hour: h,
+        minute: 20
+      });
+      slots.push({
+        id: `slot_20m_${h}_40`,
+        name: `${formatTime(h, 40)} - ${formatTime(h + 1, 0)}`,
+        hour: h,
+        minute: 40
+      });
+    }
+  }
+  return slots;
+}
 
 // Helper to represent empty timetable shape
-const createEmptyTimetable = () => {
+const createEmptyTimetable = (blockSize: '20min' | '30min' | '1hr' = '1hr') => {
   const table: Record<string, Record<string, { code: string; title: string; isCustom?: boolean }>> = {};
+  const slots = generateSlots(blockSize);
   DAYS.forEach(day => {
     table[day] = {};
-    TIME_SLOTS.forEach(slot => {
+    slots.forEach(slot => {
       table[day][slot.id] = { code: '', title: '' };
     });
   });
@@ -69,8 +126,12 @@ export default function StudyTimetable() {
   // Roles check
   const isAdmin = profile?.level === '3' || profile?.level === '4';
 
+  // Spacing configurations
+  const [blockSize, setBlockSize] = useState<'20min' | '30min' | '1hr'>('1hr');
+  const [adminBlockSize, setAdminBlockSize] = useState<'20min' | '30min' | '1hr'>('1hr');
+
   // State
-  const [timetable, setTimetable] = useState<Record<string, Record<string, { code: string; title: string; isCustom?: boolean }>>>(createEmptyTimetable());
+  const [timetable, setTimetable] = useState<Record<string, Record<string, { code: string; title: string; isCustom?: boolean }>>>(createEmptyTimetable('1hr'));
   const [courses, setCourses] = useState<Course[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [activeTab, setActiveTab ] = useState('student'); // 'student' | 'admin'
@@ -86,7 +147,7 @@ export default function StudyTimetable() {
   // Admin configuration state for Recommended Timetable
   const [adminLevel, setAdminLevel] = useState('100');
   const [adminDept, setAdminDept] = useState('Computer Science');
-  const [adminTimetable, setAdminTimetable] = useState<Record<string, Record<string, { code: string; title: string; isCustom?: boolean }>>>(createEmptyTimetable());
+  const [adminTimetable, setAdminTimetable] = useState<Record<string, Record<string, { code: string; title: string; isCustom?: boolean }>>>(createEmptyTimetable('1hr'));
   const [selectedAdminCourse, setSelectedAdminCourse] = useState<{ code: string; title: string; isCustom?: boolean } | null>(null);
   
   // Fetching status
@@ -139,6 +200,9 @@ export default function StudyTimetable() {
     getDoc(userTimetableRef).then((snapshot) => {
       if (snapshot.exists()) {
         const data = snapshot.data();
+        if (data.blockSize) {
+          setBlockSize(data.blockSize);
+        }
         if (data.grid) {
           setTimetable(data.grid);
         }
@@ -176,17 +240,24 @@ export default function StudyTimetable() {
     getDoc(doc(db, 'recommended_timetables', recId)).then((snapshot) => {
       if (snapshot.exists()) {
         const data = snapshot.data();
+        if (data.blockSize) {
+          setAdminBlockSize(data.blockSize);
+        } else {
+          setAdminBlockSize('1hr');
+        }
         if (data.grid) {
           setAdminTimetable(data.grid);
         } else {
-          setAdminTimetable(createEmptyTimetable());
+          setAdminTimetable(createEmptyTimetable(data.blockSize || '1hr'));
         }
       } else {
-        setAdminTimetable(createEmptyTimetable());
+        setAdminBlockSize('1hr');
+        setAdminTimetable(createEmptyTimetable('1hr'));
       }
     }).catch(err => {
       console.error("Error loading admin recommended:", err);
-      setAdminTimetable(createEmptyTimetable());
+      setAdminBlockSize('1hr');
+      setAdminTimetable(createEmptyTimetable('1hr'));
     });
 
   }, [adminLevel, adminDept, isAdmin]);
@@ -320,9 +391,9 @@ export default function StudyTimetable() {
   const handleClearAll = (isAdminGrid = false) => {
     if (window.confirm("Are you sure you want to clear the entire timetable?")) {
       if (isAdminGrid) {
-        setAdminTimetable(createEmptyTimetable());
+        setAdminTimetable(createEmptyTimetable(adminBlockSize));
       } else {
-        setTimetable(createEmptyTimetable());
+        setTimetable(createEmptyTimetable(blockSize));
       }
       toast.success("Timetable cleared");
     }
@@ -336,7 +407,8 @@ export default function StudyTimetable() {
       await setDoc(doc(db, 'timetables', user.uid), {
         userId: user.uid,
         updatedAt: new Date().toISOString(),
-        grid: timetable
+        grid: timetable,
+        blockSize: blockSize
       });
       toast.success("Study timetable saved successfully to your cloud profile!");
     } catch (err) {
@@ -359,6 +431,9 @@ export default function StudyTimetable() {
         const data = recSnap.data();
         if (data.grid) {
           if (window.confirm("Applying the recommended timetable will overwrite your current draft. Do you wish to continue?")) {
+            if (data.blockSize) {
+              setBlockSize(data.blockSize);
+            }
             setTimetable(data.grid);
             toast.success(`Successfully loaded Recommended Timetable for ${studentDept} (${studentLevel} Level)`);
           }
@@ -385,7 +460,8 @@ export default function StudyTimetable() {
         department: adminDept,
         updatedBy: user?.email,
         updatedAt: new Date().toISOString(),
-        grid: adminTimetable
+        grid: adminTimetable,
+        blockSize: adminBlockSize
       });
       toast.success(`Recommended template published for ${adminDept} Level ${adminLevel}!`);
     } catch (err) {
@@ -428,6 +504,9 @@ export default function StudyTimetable() {
       </div>
     );
   }
+
+  const currentUserSlots = generateSlots(blockSize);
+  const adminSlots = generateSlots(adminBlockSize);
 
   return (
     <div className="space-y-6 max-w-7xl mx-auto px-1 sm:px-4">
@@ -543,6 +622,39 @@ export default function StudyTimetable() {
                   <span className="text-muted-foreground">Semester:</span>
                   <span className="font-bold">{systemConfig?.currentSemester || '1st'}</span>
                 </div>
+              </CardContent>
+            </Card>
+
+            {/* 1.5 preferred block size select */}
+            <Card className="border-secondary shadow-sm">
+              <CardHeader className="py-3 px-4 pb-2">
+                <CardTitle className="text-xs font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
+                  <Clock className="h-3.5 w-3.5 text-primary" />
+                  Study Block Size
+                </CardTitle>
+                <CardDescription className="text-[11px] text-muted-foreground">
+                  Choose your preferred study block size. Options are 20min, 30min, 1hr.
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="px-3 pb-3 pt-0">
+                <Select 
+                  value={blockSize} 
+                  onValueChange={(val: '20min' | '30min' | '1hr') => {
+                    if (window.confirm("Changing the study block size will automatically clear your current timetable grid to adapt to the new spacing. Do you want to proceed?")) {
+                      setBlockSize(val);
+                      setTimetable(createEmptyTimetable(val));
+                    }
+                  }}
+                >
+                  <SelectTrigger className="w-full text-xs h-8">
+                    <SelectValue placeholder="Select Block Spacing" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="20min">20 Minutes</SelectItem>
+                    <SelectItem value="30min">30 Minutes</SelectItem>
+                    <SelectItem value="1hr">1 Hour</SelectItem>
+                  </SelectContent>
+                </Select>
               </CardContent>
             </Card>
 
@@ -692,7 +804,7 @@ export default function StudyTimetable() {
                   <thead className="bg-muted/70 text-muted-foreground font-semibold text-xs border-b">
                     <tr>
                       <th className="p-3 w-36 border-r font-mono text-center sticky left-0 bg-background uppercase tracking-widest text-[10px] z-20 shadow-sm">Day of Week</th>
-                      {TIME_SLOTS.map(slot => (
+                      {currentUserSlots.map(slot => (
                         <th key={slot.id} className="p-3 border-r text-center font-bold text-foreground">
                           {slot.name}
                         </th>
@@ -706,7 +818,7 @@ export default function StudyTimetable() {
                           {day}
                         </td>
                         
-                        {TIME_SLOTS.map((slot) => {
+                        {currentUserSlots.map((slot) => {
                           const assigned = timetable[day]?.[slot.id];
                           const hasValue = assigned && assigned.code !== '';
                           const isCustomActivity = assigned?.isCustom;
@@ -767,7 +879,7 @@ export default function StudyTimetable() {
                 </table>
               </div>
             </Card>
-
+ 
             {/* Mobile Responsive Vertical Day-by-Day View switcher */}
             <div className="md:hidden space-y-4">
               <div className="bg-primary/5 p-3 rounded-lg flex items-center justify-between border">
@@ -781,7 +893,7 @@ export default function StudyTimetable() {
                   </Badge>
                 )}
               </div>
-
+ 
               {/* Day selection horizontal bar */}
               <div className="flex items-center overflow-x-auto gap-1 pb-1 scrollbar-none">
                 {DAYS.map((day) => (
@@ -796,7 +908,7 @@ export default function StudyTimetable() {
                   </Button>
                 ))}
               </div>
-
+ 
               {/* Display items for the actively selected mobile day */}
               <div className="bg-card border rounded-lg p-3 grid gap-3">
                 <h3 className="text-sm font-bold border-b pb-2 flex items-center justify-between">
@@ -804,11 +916,11 @@ export default function StudyTimetable() {
                   <Badge variant="outline" className="text-[10px]">{DAYS.indexOf(activeMobileDay) + 1} of 7</Badge>
                 </h3>
                 
-                {TIME_SLOTS.map((slot) => {
+                {currentUserSlots.map((slot) => {
                   const assigned = timetable[activeMobileDay]?.[slot.id];
                   const hasValue = assigned && assigned.code !== '';
                   const isCustomActivity = assigned?.isCustom;
-
+ 
                   return (
                     <div 
                       key={slot.id}
@@ -844,7 +956,7 @@ export default function StudyTimetable() {
                           </div>
                         )}
                       </div>
-
+ 
                       {hasValue && (
                         <Button
                           variant="ghost"
@@ -917,7 +1029,7 @@ export default function StudyTimetable() {
               </Select>
             </div>
 
-            <div className="space-y-2 col-span-2">
+            <div className="space-y-2">
               <Label className="text-xs font-bold text-amber-950">Target Department Major</Label>
               <Select value={adminDept} onValueChange={setAdminDept}>
                 <SelectTrigger className="bg-white border-amber-500/20 text-xs text-amber-950">
@@ -936,8 +1048,31 @@ export default function StudyTimetable() {
               </Select>
             </div>
 
-            <div className="p-3 bg-white/40 border border-amber-200 rounded-xl text-xs text-amber-950/80 leading-snug">
-              Currently editing standard timetable mapping for: <strong>Level {adminLevel} {adminDept}</strong>
+            <div className="space-y-2">
+              <Label className="text-xs font-bold text-amber-950">Recommended Block Size</Label>
+              <Select 
+                value={adminBlockSize} 
+                onValueChange={(val: '20min' | '30min' | '1hr') => {
+                  if (window.confirm("Changing the block spacing will instantly reset the design grid to adapt to the new layout slots. Proceed?")) {
+                    setAdminBlockSize(val);
+                    setAdminTimetable(createEmptyTimetable(val));
+                  }
+                }}
+              >
+                <SelectTrigger className="bg-white border-amber-500/20 text-xs text-amber-950">
+                  <SelectValue placeholder="Select Spacing" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="20min">20 Minutes</SelectItem>
+                  <SelectItem value="30min">30 Minutes</SelectItem>
+                  <SelectItem value="1hr">1 Hour</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="p-3 bg-white/40 border border-amber-200 rounded-xl text-xs text-amber-950/80 leading-snug flex flex-col justify-center">
+              <span>Editing: <strong>Level {adminLevel} {adminDept}</strong></span>
+              <span>Spacing: <strong>{adminBlockSize} study blocks</strong></span>
             </div>
           </div>
 
@@ -1006,7 +1141,7 @@ export default function StudyTimetable() {
                     <thead className="bg-amber-500/10 text-amber-900 border-b border-amber-500/20">
                       <tr>
                         <th className="p-3 w-36 border-r text-center font-mono uppercase tracking-wider text-[10px] bg-background sticky left-0 z-20 shadow-sm">Day of Week</th>
-                        {TIME_SLOTS.map(slot => (
+                        {adminSlots.map(slot => (
                           <th key={slot.id} className="p-3 border-r text-center font-bold text-amber-950">
                             {slot.name}
                           </th>
@@ -1020,7 +1155,7 @@ export default function StudyTimetable() {
                             {day}
                           </td>
                           
-                          {TIME_SLOTS.map((slot) => {
+                          {adminSlots.map((slot) => {
                             const assigned = adminTimetable[day]?.[slot.id];
                             const hasValue = assigned && assigned.code !== '';
                             const isCustomActivity = assigned?.isCustom;
@@ -1037,7 +1172,7 @@ export default function StudyTimetable() {
                                       ? 'bg-amber-500/20 border-amber-500' 
                                       : 'bg-purple-100 border-purple-500'
                                     : 'bg-background hover:bg-amber-500/10'
-                                }`}
+                                  }`}
                               >
                                 {hasValue ? (
                                   <div className="h-full flex flex-col justify-between p-1">

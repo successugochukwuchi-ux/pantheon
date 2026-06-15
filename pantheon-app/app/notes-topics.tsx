@@ -7,6 +7,7 @@ import {
   StyleSheet,
   Animated,
   ActivityIndicator,
+  Alert,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useLocalSearchParams } from 'expo-router';
@@ -58,6 +59,7 @@ interface Note {
   completed?: boolean;
   tag?: 'CORE' | 'ADVANCED';
   order?: number;
+  createdAt?: any;
 }
 
 function ProgressBarDark({ value, s }: { value: number; s: any }) {
@@ -82,6 +84,7 @@ function ProgressBarDark({ value, s }: { value: number; s: any }) {
 export default function NotesTopicsScreen() {
   const router = useRouter();
   const { profile } = useAuth();
+  const isUnactivatedStudent = (!profile || !profile.isActivated) && profile?.level !== '3' && profile?.level !== '4';
   const { colors: C } = useTheme();
   const s = useMemo(() => createStyles(C), [C]);
 
@@ -178,7 +181,17 @@ export default function NotesTopicsScreen() {
         const notesWithProgress = fetchedNotes.map(n => ({
           ...n,
           completed: completedIds.includes(n.id)
-        })).sort((a, b) => (a.order || 0) - (b.order || 0));
+        })).sort((a, b) => {
+          const timeA = a.createdAt ? (a.createdAt.seconds ? a.createdAt.seconds * 1000 : new Date(a.createdAt).getTime()) : 0;
+          const timeB = b.createdAt ? (b.createdAt.seconds ? b.createdAt.seconds * 1000 : new Date(b.createdAt).getTime()) : 0;
+          if (timeA && timeB) {
+            return timeA - timeB;
+          }
+          if (a.order !== undefined && b.order !== undefined) {
+            return (a.order || 0) - (b.order || 0);
+          }
+          return (a.title || '').localeCompare(b.title || '');
+        });
 
         setTopics(notesWithProgress);
 
@@ -311,6 +324,8 @@ export default function NotesTopicsScreen() {
         {/* Topic rows */}
         {filtered.length > 0 ? (
           filtered.map((topic, i) => {
+            const originalIndex = topics.findIndex(t => t.id === topic.id);
+            const isTopicLocked = isUnactivatedStudent && originalIndex > 0;
             return (
               <Animated.View
                 key={topic.id}
@@ -320,6 +335,17 @@ export default function NotesTopicsScreen() {
                   style={[s.topicCard, { backgroundColor: C.surface, borderColor: C.border }]}
                   activeOpacity={0.85}
                   onPress={() => {
+                    if (isTopicLocked) {
+                      Alert.alert(
+                        'Academic Trial Limit',
+                        'Standard accounts only have access to the oldest study guide/lecture note of each course. Activate your account using an activation pin to unlock all notes, past questions, and full study materials.',
+                        [
+                          { text: 'Activate Account', onPress: () => router.push('/dashboard') },
+                          { text: 'Cancel', style: 'cancel' }
+                        ]
+                      );
+                      return;
+                    }
                     if (course?.id && topic?.id) {
                       router.push(`/note-viewer?courseId=${course.id}&noteId=${topic.id}`);
                     }
@@ -353,7 +379,11 @@ export default function NotesTopicsScreen() {
                       </View>
                     </View>
                   </View>
-                  <Text style={[s.chevron, { color: C.border }]}>›</Text>
+                  {isTopicLocked ? (
+                    <Text style={{ fontSize: 16, color: C.inkLight, marginRight: 4 }}>🔒</Text>
+                  ) : (
+                    <Text style={[s.chevron, { color: C.border }]}>›</Text>
+                  )}
                 </TouchableOpacity>
               </Animated.View>
             );

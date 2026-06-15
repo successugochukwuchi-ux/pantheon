@@ -234,6 +234,7 @@ export default function NoteViewerScreen() {
   const [error, setError] = useState<string | null>(null);
   const [prevNote, setPrevNote] = useState<Note | null>(null);
   const [nextNote, setNextNote] = useState<Note | null>(null);
+  const [noteIndex, setNoteIndex] = useState<number>(-1);
 
   // Animations
   const opacity = useRef(new Animated.Value(0)).current;
@@ -362,12 +363,23 @@ export default function NoteViewerScreen() {
               allNotesInCourse = notesSnap.docs
                 .map(d => ({ id: d.id, ...d.data() } as Note));
             }
-            allNotesInCourse.sort((a, b) => (a.order || 0) - (b.order || 0));
+            allNotesInCourse.sort((a, b) => {
+              const timeA = a.createdAt ? (a.createdAt.seconds ? a.createdAt.seconds * 1000 : new Date(a.createdAt).getTime()) : 0;
+              const timeB = b.createdAt ? (b.createdAt.seconds ? b.createdAt.seconds * 1000 : new Date(b.createdAt).getTime()) : 0;
+              if (timeA && timeB) {
+                return timeA - timeB; // oldest first
+              }
+              if (a.order !== undefined && b.order !== undefined) {
+                return (a.order || 0) - (b.order || 0);
+              }
+              return (a.title || '').localeCompare(b.title || '');
+            });
               
             const idx = allNotesInCourse.findIndex(n => n.id === noteId);
+            setNoteIndex(idx);
             setPrevNote(idx > 0 ? allNotesInCourse[idx - 1] : null);
             setNextNote(idx < allNotesInCourse.length - 1 ? allNotesInCourse[idx + 1] : null);
-            console.log('NoteViewer: Nav notes set', { hasPrev: !!(idx > 0), hasNext: !!(idx < allNotesInCourse.length - 1) });
+            console.log('NoteViewer: Nav notes set', { idx, hasPrev: !!(idx > 0), hasNext: !!(idx < allNotesInCourse.length - 1) });
           } catch (navErr) {
             console.error("NoteViewer: Nav fetch error", navErr);
             handleFirestoreError(navErr, OperationType.LIST, 'notes');
@@ -559,6 +571,53 @@ export default function NoteViewerScreen() {
         <TouchableOpacity onPress={() => router.back()} style={{ marginTop: 20 }}>
           <Text style={{ color: C.activeText, fontFamily: F.bold }}>Go Back</Text>
         </TouchableOpacity>
+      </SafeAreaView>
+    );
+  }
+
+  const isUnactivatedStudent = (!profile || !profile.isActivated) && profile?.level !== '3' && profile?.level !== '4';
+
+  if (isUnactivatedStudent && noteIndex > 0) {
+    return (
+      <SafeAreaView style={[s.root, { backgroundColor: C.bg }]} edges={['top']}>
+        {/* Simple Header */}
+        <View style={[s.header, { backgroundColor: C.surface, borderBottomColor: C.border }]}>
+          <TouchableOpacity onPress={() => router.back()} activeOpacity={0.7} style={s.iconBtn}>
+            <View style={[s.backArrow, { backgroundColor: C.ink }]} />
+            <View style={[s.backArrowHead, { borderColor: C.ink }]} />
+          </TouchableOpacity>
+          <Text style={[s.headerBrand, { color: C.ink, flex: 1, textAlign: 'center', marginRight: 36 }]} numberOfLines={1}>
+            Academic Trial Limit
+          </Text>
+        </View>
+
+        <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', padding: 24, paddingBottom: 60 }}>
+          <View style={{ width: 80, height: 80, borderRadius: 40, backgroundColor: '#FEF3C7', justifyContent: 'center', alignItems: 'center', marginBottom: 24 }}>
+            <Text style={{ fontSize: 40 }}>🔒</Text>
+          </View>
+          <Text style={{ fontFamily: F.bold, fontSize: 24, color: C.ink, textAlign: 'center', marginBottom: 12 }}>
+            Academic Trial Limit
+          </Text>
+          <Text style={{ fontFamily: F.medium, fontSize: 15, color: C.inkMid, textAlign: 'center', lineHeight: 22, marginBottom: 32, maxWidth: 325 }}>
+            Standard accounts only have access to the oldest study guide/lecture note of each course. Activate your account using an activation pin to unlock all notes, past questions, and full study materials.
+          </Text>
+
+          <TouchableOpacity
+            style={{ width: '100%', height: 56, backgroundColor: C.ink, borderRadius: 14, justifyContent: 'center', alignItems: 'center', marginBottom: 16 }}
+            onPress={() => router.replace('/dashboard')}
+            activeOpacity={0.8}
+          >
+            <Text style={{ fontFamily: F.bold, fontSize: 16, color: C.bg }}>ACTIVATE ACCOUNT</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={{ width: '100%', height: 56, borderWidth: 1, borderColor: C.border, borderRadius: 14, justifyContent: 'center', alignItems: 'center' }}
+            onPress={() => router.back()}
+            activeOpacity={0.8}
+          >
+            <Text style={{ fontFamily: F.bold, fontSize: 16, color: C.inkMid }}>BACK TO TOPICS</Text>
+          </TouchableOpacity>
+        </View>
       </SafeAreaView>
     );
   }
@@ -867,13 +926,15 @@ export default function NoteViewerScreen() {
 
       {/* Floating Buttons */}
       <View style={{ position: 'absolute', bottom: 32, right: 20, alignItems: 'center' }}>
-        <TouchableOpacity 
-          style={[s.fab, { position: 'relative', bottom: 0, right: 0, backgroundColor: C.ink, marginBottom: 16 }]} 
-          onPress={() => setHermesOpen(true)}
-          activeOpacity={0.8}
-        >
-          <BirdIcon color={C.bg} />
-        </TouchableOpacity>
+        {!isUnactivatedStudent && (
+          <TouchableOpacity 
+            style={[s.fab, { position: 'relative', bottom: 0, right: 0, backgroundColor: C.ink, marginBottom: 16 }]} 
+            onPress={() => setHermesOpen(true)}
+            activeOpacity={0.8}
+          >
+            <BirdIcon color={C.bg} />
+          </TouchableOpacity>
+        )}
         <TouchableOpacity 
           style={[s.fab, { position: 'relative', bottom: 0, right: 0, backgroundColor: C.ink }]} 
           onPress={() => setCalcOpen(true)}

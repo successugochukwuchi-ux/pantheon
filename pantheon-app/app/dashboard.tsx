@@ -150,6 +150,7 @@ function AcademicHub({ s, C }: { s: any; C: any }) {
     if (id === 'cbt') { router.push('/cbt-setup'); return; }
     if (id === 'video') { router.push('/video-library'); return; }
     if (id === 'past_questions') { router.push('/past-questions'); return; }
+    if (id === 'timetable') { router.push('/timetable'); return; }
     Alert.alert('Coming soon', `${id} screen is under construction.`);
   };
 

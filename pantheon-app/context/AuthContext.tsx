@@ -38,10 +38,17 @@ interface SystemConfig {
   maintenanceMode: boolean;
 }
 
+export interface PromoConfig {
+  isActive: boolean;
+  quota: number;
+  count: number;
+}
+
 interface AuthContextType {
   user: User | null;
   profile: UserProfile | null;
   systemConfig: SystemConfig | null;
+  promoConfig: PromoConfig | null;
   loading: boolean;
   isOffline: boolean;
   logout: () => Promise<void>;
@@ -51,6 +58,7 @@ const AuthContext = createContext<AuthContextType>({
   user: null,
   profile: null,
   systemConfig: null,
+  promoConfig: null,
   loading: true,
   isOffline: false,
   logout: async () => {},
@@ -62,6 +70,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [systemConfig, setSystemConfig] = useState<SystemConfig | null>(null);
+  const [promoConfig, setPromoConfig] = useState<PromoConfig | null>(null);
   const [loading, setLoading] = useState(true);
   const [isOffline, setIsOffline] = useState(false);
 
@@ -76,6 +85,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         if (cachedConfig) {
           setSystemConfig(JSON.parse(cachedConfig));
         }
+        const cachedPromo = await AsyncStorage.getItem('colearn_promo_config');
+        if (cachedPromo) {
+          setPromoConfig(JSON.parse(cachedPromo));
+        }
       } catch (err) {
         console.log('Failed to load cached auth details:', err);
       }
@@ -89,6 +102,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         }
       }, (err) => {
         console.log('Offline: Using local copy for system config:', err);
+      });
+
+      // Fetch promo config and save locally
+      const unsubscribePromo = onSnapshot(doc(db, 'system', 'promo'), (snapshot) => {
+        if (snapshot.exists()) {
+          const pConfig = snapshot.data() as PromoConfig;
+          setPromoConfig(pConfig);
+          AsyncStorage.setItem('colearn_promo_config', JSON.stringify(pConfig)).catch(() => {});
+        }
+      }, (err) => {
+        console.log('Offline: Using local copy for promo config:', err);
       });
 
       const unsubscribeAuth = onAuthStateChanged(auth, async (u) => {
@@ -118,6 +142,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       return () => {
         unsubscribeAuth();
         unsubscribeConfig();
+        unsubscribePromo();
       };
     }
 
@@ -598,6 +623,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setProfile(null);
       await AsyncStorage.removeItem('colearn_profile').catch(() => {});
       await AsyncStorage.removeItem('colearn_system_config').catch(() => {});
+      await AsyncStorage.removeItem('colearn_promo_config').catch(() => {});
       await AsyncStorage.removeItem('colearn_session_id').catch(() => {});
       try {
         clearUserProfileLocal();
@@ -612,7 +638,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   };
 
   return (
-    <AuthContext.Provider value={{ user, profile, systemConfig, loading, isOffline, logout }}>
+    <AuthContext.Provider value={{ user, profile, systemConfig, promoConfig, loading, isOffline, logout }}>
       {children}
     </AuthContext.Provider>
   );

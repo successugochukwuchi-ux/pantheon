@@ -45,11 +45,12 @@ export default function Activate() {
 
       // 2. Atomic update via batch
       const batch = writeBatch(db);
+      const isPromoEnded = (currentPromo.count || 0) + 1 >= currentPromo.quota;
       
       batch.update(promoRef, {
         count: (currentPromo.count || 0) + 1,
         // Auto-disable if quota reached
-        isActive: (currentPromo.count || 0) + 1 < currentPromo.quota
+        isActive: !isPromoEnded
       });
 
       batch.update(doc(db, 'users', user.uid), {
@@ -58,6 +59,17 @@ export default function Activate() {
       });
 
       await batch.commit();
+
+      if (isPromoEnded) {
+        sendTelegramAlert(
+          `<b>🎉 ALERT: PROMO MODE COMPLETED</b>\n\n` +
+          `<b>Source:</b> {source}\n` +
+          `<b>Completed Because:</b> Quota fully completed!\n` +
+          `<b>Original Quota:</b> ${currentPromo.quota}\n` +
+          `<b>Total Activations:</b> ${currentPromo.quota}\n` +
+          `<b>Time Completed:</b> ${new Date().toLocaleString()}`
+        );
+      }
 
       setShowPromoSuccess(true);
     } catch (error: any) {
@@ -164,24 +176,52 @@ export default function Activate() {
       toast.success('Account activated successfully!');
 
       // Get pin creator profile for telegram alert metadata
-      const creatorPath = `users/${pinData.createdBy}`;
-      let creatorSnap;
-      try {
-        const creatorRef = doc(db, 'users', pinData.createdBy);
-        creatorSnap = await getDoc(creatorRef);
-      } catch (error) {
-        console.error("Failed to get creator snap:", error);
+      let isCreatorLevel4 = false;
+      let creatorStudentId = 'N/A';
+      
+      if (pinData.createdBy) {
+        try {
+          const creatorRef = doc(db, 'users', pinData.createdBy);
+          const creatorSnap = await getDoc(creatorRef);
+          if (creatorSnap.exists()) {
+            const creatorData = creatorSnap.data();
+            creatorStudentId = creatorData?.studentId || 'N/A';
+            if (creatorData?.level === '4') {
+              isCreatorLevel4 = true;
+            }
+          }
+        } catch (error) {
+          console.error("Failed to get creator snap:", error);
+        }
       }
 
-      // Telegram Alert only if the pin was still under the master pool (i.e. not assigned to any vendor)
-      if (!pinData.assignedTo) {
+      // If we couldn't resolve via createdBy, let's query users by studentId matching the pin's owner field to check if they are level 4
+      if (!isCreatorLevel4 && pinData.owner) {
+        try {
+          const usersQ = query(collection(db, 'users'), where('studentId', '==', pinData.owner), where('level', '==', '4'));
+          const usersSnap = await getDocs(usersQ);
+          if (!usersSnap.empty) {
+            isCreatorLevel4 = true;
+            creatorStudentId = pinData.owner;
+          }
+        } catch (err) {
+          console.error("Failed to query user by pin owner studentId:", err);
+        }
+      }
+
+      // Telegram Alert if the pin was not assigned to any vendor and owned/created by a Level 4 Admin
+      if (!pinData.assignedTo && isCreatorLevel4) {
+        const headerTitle = '🔔 ALERT: LEVEL 4 ADMIN AP-PIN USED';
         sendTelegramAlert(
-          `<b>🔔 ALERT: MASTER POOL PIN USED</b>\n\n` +
+          `<b>${headerTitle}</b>\n\n` +
           `<b>Source:</b> {source}\n` +
+          `<b>Pin Code:</b> ${pin}\n` +
+          `<b>Pin Type:</b> ${pinData.type?.toUpperCase() || 'STANDARD'}\n` +
           `<b>User Student ID:</b> ${profile?.studentId || 'N/A'}\n` +
           `<b>Time Used:</b> ${new Date().toLocaleString()}\n` +
           `<b>Pin Created At:</b> ${pinData.createdAt ? new Date(pinData.createdAt).toLocaleString() : 'N/A'}\n` +
-          `<b>Creator Student ID:</b> ${creatorSnap?.exists() ? creatorSnap.data()?.studentId : 'N/A'}`
+          `<b>Creator/Owner Student ID:</b> ${creatorStudentId}\n` +
+          `<b>Pool Status:</b> Master Pool`
         );
       }
 

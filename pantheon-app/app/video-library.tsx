@@ -47,6 +47,52 @@ export default function VideoLibraryScreen() {
   const { colors: C } = useTheme();
   const s = useMemo(() => createStyles(C), [C]);
 
+  const isUnactivatedStudent = (!profile || !profile.isActivated) && profile?.level !== '3' && profile?.level !== '4';
+
+  if (isUnactivatedStudent) {
+    return (
+      <SafeAreaView style={[s.root, { backgroundColor: C.bg }]} edges={['top']}>
+        {/* Simple Header */}
+        <View style={[s.header, { backgroundColor: C.surface, borderBottomColor: C.border }]}>
+          <TouchableOpacity onPress={() => router.push('/dashboard')} activeOpacity={0.7} style={s.headerBtn}>
+            <Text style={{ fontSize: 28, color: C.ink, marginLeft: 8 }}>‹</Text>
+          </TouchableOpacity>
+          <Text style={[s.headerBrand, { color: C.ink, flex: 1, textAlign: 'center', marginRight: 36 }]}>
+            VIDEO LIBRARY
+          </Text>
+        </View>
+
+        <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', padding: 24, paddingBottom: 60 }}>
+          <View style={{ width: 80, height: 80, borderRadius: 40, backgroundColor: '#FEF3C7', justifyContent: 'center', alignItems: 'center', marginBottom: 24 }}>
+            <Text style={{ fontSize: 40 }}>🎥</Text>
+          </View>
+          <Text style={{ fontFamily: F.bold, fontSize: 24, color: C.ink, textAlign: 'center', marginBottom: 12 }}>
+            Video Library Locked
+          </Text>
+          <Text style={{ fontFamily: F.medium, fontSize: 15, color: C.inkMid, textAlign: 'center', lineHeight: 22, marginBottom: 32, maxWidth: 320 }}>
+            Video Library is a premium feature reserved for activated accounts. Activate your student profile using an activation pin to unlock expert-led video lessons, video quizzes, and lecture video archives!
+          </Text>
+
+          <TouchableOpacity
+            style={{ width: '100%', height: 56, backgroundColor: C.ink, borderRadius: 14, justifyContent: 'center', alignItems: 'center', marginBottom: 16 }}
+            onPress={() => router.push('/dashboard')}
+            activeOpacity={0.8}
+          >
+            <Text style={{ fontFamily: F.bold, fontSize: 16, color: C.bg }}>ACTIVATE ACCOUNT</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={{ width: '100%', height: 56, borderWidth: 1, borderColor: C.border, borderRadius: 14, justifyContent: 'center', alignItems: 'center' }}
+            onPress={() => router.push('/dashboard')}
+            activeOpacity={0.8}
+          >
+            <Text style={{ fontFamily: F.bold, fontSize: 16, color: C.inkMid }}>BACK TO DASHBOARD</Text>
+          </TouchableOpacity>
+        </View>
+      </SafeAreaView>
+    );
+  }
+
   const [courses, setCourses] = useState<Course[]>([]);
   const [selectedCourse, setSelectedCourse] = useState<Course | null>(null);
   const [notes, setNotes] = useState<Note[]>([]);

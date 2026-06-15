@@ -305,7 +305,7 @@ service cloud.firestore {
     }
 
     match /timetables/{userId} {
-      allow read, write: if isSignedIn() && request.auth.uid == userId;
+      allow read, write: if isOwner(userId) || isAdmin();
     }
 
     match /recommended_timetables/{id} {

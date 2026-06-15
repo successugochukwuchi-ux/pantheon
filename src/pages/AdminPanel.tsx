@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { 
   collection, 
   addDoc, 
@@ -37,6 +37,7 @@ import {
   Pencil,
   Wand2,
   ChevronRight,
+  ChevronDown,
   HelpCircle,
   Copy,
   CheckCircle,
@@ -211,6 +212,12 @@ export default function AdminPanel() {
   }>({ courseId: '', title: '', content: '', type: 'lecture' });
   const [createNoteKey, setCreateNoteKey] = useState(0);
   const [noteToDelete, setNoteToDelete] = useState<string | null>(null);
+  const [expandedSemesters, setExpandedSemesters] = useState<Record<string, boolean>>({
+    '1st': true,
+    '2nd': false,
+    'uncategorized': false,
+  });
+  const [expandedCourses, setExpandedCourses] = useState<Record<string, boolean>>({});
   const [noteToEdit, setNoteToEdit] = useState<Note | null>(null);
   const [editNote, setEditNote] = useState<{
     courseId: string;
@@ -261,6 +268,7 @@ export default function AdminPanel() {
   const [transferStudentId, setTransferStudentId] = useState('');
   const [standardPriceSetting, setStandardPriceSetting] = useState(3000);
   const [plusPriceSetting, setPlusPriceSetting] = useState(5000);
+  const [shifting, setShifting] = useState(false);
 
   useEffect(() => {
     if (systemConfig) {
@@ -379,7 +387,7 @@ export default function AdminPanel() {
         setTransferredPins([]);
       } else {
         const sortedUnused = allPins.filter(p => !p.isUsed && !p.assignedTo).sort((a, b) => safeCompareDates(a.createdAt, b.createdAt));
-        const sortedUsed = allPins.filter(p => p.isUsed && !p.assignedTo).sort((a, b) => safeCompareDates(a.usedAt || a.createdAt, b.usedAt || b.createdAt));
+        const sortedUsed = allPins.filter(p => p.isUsed).sort((a, b) => safeCompareDates(a.usedAt || a.createdAt, b.usedAt || b.createdAt));
         const sortedTransferred = allPins.filter(p => p.assignedTo).sort((a, b) => safeCompareDates(a.createdAt, b.createdAt));
         setUnusedPins(sortedUnused);
         setUsedPins(sortedUsed);
@@ -1453,6 +1461,31 @@ export default function AdminPanel() {
         updatedBy: user?.uid,
         updatedAt: new Date().toISOString()
       }, { merge: true });
+
+      // Send telegram alerts
+      if (active) {
+        sendTelegramAlert(
+          `<b>🎁 ALERT: PROMO MODE ACTIVATED</b>\n\n` +
+          `<b>Source:</b> {source}\n` +
+          `<b>Activated By:</b> ${profile?.studentId || user?.email || 'Admin'}\n` +
+          `<b>Original Quota Allowance:</b> ${promoQuota}\n` +
+          `<b>Time Started:</b> ${new Date().toLocaleString()}`
+        );
+      } else {
+        const originalQuota = promoConfig?.quota || 0;
+        const totalUsed = promoConfig?.count || 0;
+        const remainingQuota = Math.max(0, originalQuota - totalUsed);
+        sendTelegramAlert(
+          `<b>🔕 ALERT: PROMO MODE MANUALLY STOPPED</b>\n\n` +
+          `<b>Source:</b> {source}\n` +
+          `<b>Stopped By:</b> ${profile?.studentId || user?.email || 'Admin'}\n` +
+          `<b>Original Quota:</b> ${originalQuota}\n` +
+          `<b>Remaining Quota when Stopped:</b> ${remainingQuota}\n` +
+          `<b>Total Activations Recorded:</b> ${totalUsed}\n` +
+          `<b>Time Stopped:</b> ${new Date().toLocaleString()}`
+        );
+      }
+
       toast.success(`Promo mode ${active ? 'started' : 'stopped'}`);
     } catch (error) {
       toast.error('Failed to update promo config');
@@ -1552,6 +1585,49 @@ export default function AdminPanel() {
       toast.error(error.message);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleShiftLevels = async () => {
+    if (!user || !isLevel4) return;
+    
+    const confirmAction = window.confirm("Are you sure you want to switch all users with an academicLevel of 100 to 200?");
+    if (!confirmAction) return;
+
+    setShifting(true);
+    try {
+      // Find all users with academicLevel == "100"
+      const usersQuery = query(collection(db, 'users'), where('academicLevel', '==', '100'));
+      const snap = await getDocs(usersQuery);
+      
+      if (snap.empty) {
+        toast.info("No users found with academicLevel of 100");
+        setShifting(false);
+        return;
+      }
+
+      const docs = snap.docs;
+      const chunks: any[][] = [];
+      for (let i = 0; i < docs.length; i += 400) {
+        chunks.push(docs.slice(i, i + 400));
+      }
+
+      let count = 0;
+      for (const chunk of chunks) {
+        const batch = writeBatch(db);
+        chunk.forEach((userDoc) => {
+          batch.update(userDoc.ref, { academicLevel: '200' });
+          count++;
+        });
+        await batch.commit();
+      }
+
+      toast.success(`Successfully switched ${count} users from academic level 100 to 200.`);
+    } catch (err: any) {
+      console.error("Error shifting academic levels:", err);
+      toast.error(`Failed to switch academic levels: ${err.message || err}`);
+    } finally {
+      setShifting(false);
     }
   };
 
@@ -2151,45 +2227,247 @@ export default function AdminPanel() {
             </Card>
 
             <div className="grid gap-4">
-              <h3 className="text-lg font-semibold">Existing Notes</h3>
-              {notes.map(note => {
-                const course = courses.find(c => c.id === note.courseId);
-                let previewText = '';
-                try {
-                  const blocks = JSON.parse(note.content);
-                  previewText = blocks.find((b: any) => b.type === 'text')?.content || 'No text content';
-                } catch (e) {
-                  previewText = note.content;
-                }
-                
+              <div className="flex items-center justify-between">
+                <h3 className="text-lg font-semibold">Existing Notes</h3>
+                <Badge variant="outline" className="font-mono">
+                  {notes.length} {notes.length === 1 ? 'Note' : 'Notes'} Total
+                </Badge>
+              </div>
+
+              {notes.length === 0 ? (
+                <Card className="border-dashed">
+                  <CardContent className="py-8 text-center text-muted-foreground">
+                    <FileText className="h-8 w-8 mx-auto mb-2 opacity-50 text-indigo-500" />
+                    <p className="text-sm">No notes created yet. Use the Note Builder form above to publish your first note.</p>
+                  </CardContent>
+                </Card>
+              ) : (() => {
+                // Inline grouping calculation
+                const grouped: {
+                  '1st': Record<string, Note[]>;
+                  '2nd': Record<string, Note[]>;
+                  'uncategorized': Note[];
+                } = {
+                  '1st': {},
+                  '2nd': {},
+                  'uncategorized': [],
+                };
+
+                notes.forEach(note => {
+                  const course = courses.find(c => c.id === note.courseId);
+                  if (!course) {
+                    grouped.uncategorized.push(note);
+                  } else {
+                    const sem = course.semester === '2nd' ? '2nd' : '1st';
+                    if (!grouped[sem][course.id]) {
+                      grouped[sem][course.id] = [];
+                    }
+                    grouped[sem][course.id].push(note);
+                  }
+                });
+
                 return (
-                  <Card key={note.id}>
-                    <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                      <div className="space-y-1">
-                        <CardTitle className="text-sm font-medium">{note.title}</CardTitle>
-                        <CardDescription>{course?.code} • {note.type.toUpperCase()}</CardDescription>
+                  <div className="space-y-4">
+                    {/* Semester Sections */}
+                    {(['1st', '2nd'] as const).map(semKey => {
+                      const courseGroups = grouped[semKey];
+                      const courseIds = Object.keys(courseGroups);
+                      const semesterTotalNotes = courseIds.reduce((sum, cid) => sum + courseGroups[cid].length, 0);
+
+                      if (semesterTotalNotes === 0) return null;
+
+                      const isSemExpanded = !!expandedSemesters[semKey];
+
+                      return (
+                        <div key={semKey} className="border rounded-xl overflow-hidden bg-muted/10 p-1">
+                          <button
+                            type="button"
+                            onClick={() => setExpandedSemesters(prev => ({ ...prev, [semKey]: !prev[semKey] }))}
+                            className="w-full flex items-center justify-between p-3 rounded-lg hover:bg-muted/40 transition-all font-semibold text-left select-none text-stone-800 dark:text-stone-200 cursor-pointer"
+                          >
+                            <div className="flex items-center gap-2">
+                              <span className="text-lg">
+                                {semKey === '1st' ? '🥇' : '🥈'}
+                              </span>
+                              <span className="font-medium text-base">
+                                {semKey} Semester Notes
+                              </span>
+                              <Badge variant="secondary" className="font-normal font-mono text-[11px] bg-indigo-500/10 text-indigo-500 border-none">
+                                {courseIds.length} {courseIds.length === 1 ? 'Course' : 'Courses'} • {semesterTotalNotes} {semesterTotalNotes === 1 ? 'Note' : 'Notes'}
+                              </Badge>
+                            </div>
+                            {isSemExpanded ? (
+                              <ChevronDown className="h-5 w-5 text-muted-foreground mr-1" />
+                            ) : (
+                              <ChevronRight className="h-5 w-5 text-muted-foreground mr-1" />
+                            )}
+                          </button>
+
+                          {isSemExpanded && (
+                            <div className="p-3 space-y-3 pl-4 md:pl-6 border-t bg-card/30">
+                              {courseIds.map(courseId => {
+                                const course = courses.find(c => c.id === courseId);
+                                const courseNotes = courseGroups[courseId];
+                                const isCourseExpanded = !!expandedCourses[courseId];
+
+                                if (!course) return null;
+
+                                return (
+                                  <div key={courseId} className="border rounded-lg bg-card overflow-hidden">
+                                    <button
+                                      type="button"
+                                      onClick={() => setExpandedCourses(prev => ({ ...prev, [courseId]: !prev[courseId] }))}
+                                      className="w-full flex items-center justify-between px-4 py-3 hover:bg-muted/20 transition-all text-left select-none cursor-pointer"
+                                    >
+                                      <div className="flex items-center gap-2">
+                                        <span className="inline-flex items-center justify-center bg-muted px-2 py-0.5 rounded text-xs font-bold text-stone-700 dark:text-stone-300">
+                                          {course.code}
+                                        </span>
+                                        <span className="text-sm font-semibold text-stone-800 dark:text-stone-200 line-clamp-1">
+                                          {course.title}
+                                        </span>
+                                        <Badge variant="outline" className="font-normal font-mono text-[10px] text-muted-foreground border-stone-200">
+                                          {courseNotes.length} {courseNotes.length === 1 ? 'Note' : 'Notes'}
+                                        </Badge>
+                                      </div>
+                                      {isCourseExpanded ? (
+                                        <ChevronDown className="h-4 w-4 text-muted-foreground mr-1" />
+                                      ) : (
+                                        <ChevronRight className="h-4 w-4 text-muted-foreground mr-1" />
+                                      )}
+                                    </button>
+
+                                    {isCourseExpanded && (
+                                      <div className="p-3 pl-4 md:pl-6 border-t bg-muted/5 grid gap-3">
+                                        {courseNotes.map(note => {
+                                          let previewText = '';
+                                          try {
+                                            const blocks = JSON.parse(note.content);
+                                            previewText = blocks.find((b: any) => b.type === 'text')?.content || 'No text content';
+                                          } catch (e) {
+                                            previewText = note.content;
+                                          }
+
+                                          return (
+                                            <Card key={note.id} className="shadow-none hover:shadow-sm transition-all border-stone-200/60 dark:border-stone-800/60">
+                                              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                                                <div className="space-y-1">
+                                                  <CardTitle className="text-sm font-medium">{note.title}</CardTitle>
+                                                  <CardDescription className="flex items-center gap-2">
+                                                    <Badge variant="outline" className="text-[10px] font-semibold tracking-wider font-sans bg-muted uppercase px-1.5 border-none">
+                                                      {note.type}
+                                                    </Badge>
+                                                    {note.updatedAt ? (
+                                                      <span className="text-[10px] text-muted-foreground">
+                                                        Updated: {new Date(note.updatedAt).toLocaleDateString()}
+                                                      </span>
+                                                    ) : (
+                                                      <span className="text-[10px] text-muted-foreground">
+                                                        Created: {new Date(note.createdAt).toLocaleDateString()}
+                                                      </span>
+                                                    )}
+                                                  </CardDescription>
+                                                </div>
+                                                <div className="flex items-center gap-1">
+                                                  <Button variant="ghost" size="icon" title="Copy as Voice-over Script" onClick={() => copyNoteAsScript(note)} disabled={loading}>
+                                                    <FileText className="h-4 w-4 text-orange-500" />
+                                                  </Button>
+                                                  <Button variant="ghost" size="icon" onClick={() => {
+                                                    setNoteToEdit(note);
+                                                    setEditNote({ courseId: note.courseId, title: note.title, content: note.content, type: note.type });
+                                                  }} disabled={loading}>
+                                                    <Pencil className="h-4 w-4 text-primary" />
+                                                  </Button>
+                                                  <Button variant="ghost" size="icon" onClick={() => setNoteToDelete(note.id)} disabled={loading}>
+                                                    <Trash2 className="h-4 w-4 text-destructive" />
+                                                  </Button>
+                                                </div>
+                                              </CardHeader>
+                                              <CardContent>
+                                                <p className="text-xs text-muted-foreground line-clamp-1">{previewText}</p>
+                                              </CardContent>
+                                            </Card>
+                                          );
+                                        })}
+                                      </div>
+                                    )}
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+
+                    {/* Uncategorized Notes Group */}
+                    {grouped.uncategorized.length > 0 && (
+                      <div className="border rounded-xl overflow-hidden bg-destructive/5 p-1 border-destructive/20">
+                        <button
+                          type="button"
+                          onClick={() => setExpandedSemesters(prev => ({ ...prev, 'uncategorized': !prev['uncategorized'] }))}
+                          className="w-full flex items-center justify-between p-3 rounded-lg hover:bg-destructive/10 transition-all font-semibold text-left select-none text-destructive cursor-pointer"
+                        >
+                          <div className="flex items-center gap-2">
+                            <span className="text-lg">❓</span>
+                            <span className="font-medium text-base">Uncategorized Notes</span>
+                            <Badge variant="destructive" className="font-normal font-mono text-[11px] px-2 text-white border-none">
+                              {grouped.uncategorized.length} {grouped.uncategorized.length === 1 ? 'Note' : 'Notes'}
+                            </Badge>
+                          </div>
+                          {expandedSemesters['uncategorized'] ? (
+                            <ChevronDown className="h-5 w-5 text-destructive mr-1" />
+                          ) : (
+                            <ChevronRight className="h-5 w-5 text-destructive mr-1" />
+                          )}
+                        </button>
+
+                        {expandedSemesters['uncategorized'] && (
+                          <div className="p-3 pl-4 md:pl-6 border-t bg-card/50 grid gap-3">
+                            {grouped.uncategorized.map(note => {
+                              let previewText = '';
+                              try {
+                                const blocks = JSON.parse(note.content);
+                                previewText = blocks.find((b: any) => b.type === 'text')?.content || 'No text content';
+                              } catch (e) {
+                                previewText = note.content;
+                              }
+
+                              return (
+                                <Card key={note.id} className="shadow-none hover:shadow-sm transition-all border-destructive/10">
+                                  <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                                    <div className="space-y-1">
+                                      <CardTitle className="text-sm font-medium text-destructive">{note.title}</CardTitle>
+                                      <CardDescription>{note.type.toUpperCase()}</CardDescription>
+                                    </div>
+                                    <div className="flex items-center gap-1">
+                                      <Button variant="ghost" size="icon" title="Copy as Voice-over Script" onClick={() => copyNoteAsScript(note)} disabled={loading}>
+                                        <FileText className="h-4 w-4 text-orange-500" />
+                                      </Button>
+                                      <Button variant="ghost" size="icon" onClick={() => {
+                                        setNoteToEdit(note);
+                                        setEditNote({ courseId: note.courseId, title: note.title, content: note.content, type: note.type });
+                                      }} disabled={loading}>
+                                        <Pencil className="h-4 w-4 text-primary" />
+                                      </Button>
+                                      <Button variant="ghost" size="icon" onClick={() => setNoteToDelete(note.id)} disabled={loading}>
+                                        <Trash2 className="h-4 w-4 text-destructive" />
+                                      </Button>
+                                    </div>
+                                  </CardHeader>
+                                  <CardContent>
+                                    <p className="text-xs text-muted-foreground line-clamp-1">{previewText}</p>
+                                  </CardContent>
+                                </Card>
+                              );
+                            })}
+                          </div>
+                        )}
                       </div>
-                      <div className="flex items-center gap-1">
-                        <Button variant="ghost" size="icon" title="Copy as Voice-over Script" onClick={() => copyNoteAsScript(note)} disabled={loading}>
-                          <FileText className="h-4 w-4 text-orange-500" />
-                        </Button>
-                        <Button variant="ghost" size="icon" onClick={() => {
-                          setNoteToEdit(note);
-                          setEditNote({ courseId: note.courseId, title: note.title, content: note.content, type: note.type });
-                        }} disabled={loading}>
-                          <Pencil className="h-4 w-4 text-primary" />
-                        </Button>
-                        <Button variant="ghost" size="icon" onClick={() => setNoteToDelete(note.id)} disabled={loading}>
-                          <Trash2 className="h-4 w-4 text-destructive" />
-                        </Button>
-                      </div>
-                    </CardHeader>
-                    <CardContent>
-                      <p className="text-xs text-muted-foreground line-clamp-1">{previewText}</p>
-                    </CardContent>
-                  </Card>
+                    )}
+                  </div>
                 );
-              })}
+              })()}
             </div>
 
             <Dialog open={!!noteToEdit} onOpenChange={(open) => !open && setNoteToEdit(null)}>
@@ -3757,6 +4035,34 @@ export default function AdminPanel() {
                     </Button>
                   </CardFooter>
                 </form>
+              </Card>
+            )}
+
+            {isLevel4 && (
+              <Card className="border-rose-500/20 bg-rose-500/5">
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2 text-rose-500">
+                    <Users className="h-5 w-5 text-rose-500" />
+                    Level Shifter (100L → 200L)
+                  </CardTitle>
+                  <CardDescription>Switches all users with an academicLevel of 100 to 200.</CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div className="p-3 bg-white/50 dark:bg-black/20 rounded-lg border border-rose-200 dark:border-rose-900">
+                    <p className="text-xs text-muted-foreground leading-relaxed">
+                      This action will query all student users whose <strong>academicLevel</strong> is exactly <strong>"100"</strong> and batch update them to <strong>"200"</strong>. This is typically done at the end of an academic session. This operation is irreversible.
+                    </p>
+                  </div>
+                </CardContent>
+                <CardFooter>
+                  <Button 
+                    className="w-full bg-rose-600 hover:bg-rose-700 text-white" 
+                    onClick={handleShiftLevels}
+                    disabled={shifting}
+                  >
+                    {shifting ? 'Updating Academic Levels...' : 'Switch 100L to 200L'}
+                  </Button>
+                </CardFooter>
               </Card>
             )}
           </div>

@@ -149,6 +149,52 @@ export default function NoteGrabberScreen() {
   const { profile, systemConfig, isOffline } = useAuth();
   const { colors: C } = useTheme();
   const s = useMemo(() => createStyles(C), [C]);
+  const isUnactivatedStudent = (!profile || !profile.isActivated) && profile?.level !== '3' && profile?.level !== '4';
+
+  if (isUnactivatedStudent) {
+    return (
+      <SafeAreaView style={[s.root, { backgroundColor: C.bg }]} edges={['top']}>
+        {/* Simple Header */}
+        <View style={[s.header, { backgroundColor: C.surface, borderBottomColor: C.border }]}>
+          <TouchableOpacity onPress={() => router.push('/settings')} activeOpacity={0.7} style={s.headerIcon}>
+            <BackIcon color={C.ink} />
+          </TouchableOpacity>
+          <Text style={[s.logoText, { color: C.ink, flex: 1, textAlign: 'center', marginRight: 36 }]}>
+            Note Grabber
+          </Text>
+        </View>
+
+        <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', padding: 24, paddingBottom: 60 }}>
+          <View style={{ width: 80, height: 80, borderRadius: 40, backgroundColor: '#FEE2E2', justifyContent: 'center', alignItems: 'center', marginBottom: 24 }}>
+            <Text style={{ fontSize: 40 }}>💾</Text>
+          </View>
+          <Text style={{ fontFamily: F.bold, fontSize: 24, color: C.ink, textAlign: 'center', marginBottom: 12 }}>
+            Note Grabber Locked
+          </Text>
+          <Text style={{ fontFamily: F.medium, fontSize: 15, color: C.inkMid, textAlign: 'center', lineHeight: 22, marginBottom: 32, maxWidth: 320 }}>
+            Offline download is a premium feature reserved for activated accounts. Activate your student profile using an activation pin to download lecture notes, diagrams, and study guides for offline reading!
+          </Text>
+
+          <TouchableOpacity
+            style={{ width: '100%', height: 56, backgroundColor: C.ink, borderRadius: 14, justifyContent: 'center', alignItems: 'center', marginBottom: 16 }}
+            onPress={() => router.push('/dashboard')}
+            activeOpacity={0.8}
+          >
+            <Text style={{ fontFamily: F.bold, fontSize: 16, color: C.bg }}>ACTIVATE ACCOUNT</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={{ width: '100%', height: 56, borderWidth: 1, borderColor: C.border, borderRadius: 14, justifyContent: 'center', alignItems: 'center' }}
+            onPress={() => router.push('/settings')}
+            activeOpacity={0.8}
+          >
+            <Text style={{ fontFamily: F.bold, fontSize: 16, color: C.inkMid }}>BACK TO SETTINGS</Text>
+          </TouchableOpacity>
+        </View>
+      </SafeAreaView>
+    );
+  }
+
   const [loading, setLoading] = useState(true);
   const [downloadingCourseId, setDownloadingCourseId] = useState<string | null>(null);
   const [downloadPercent, setDownloadPercent] = useState<number>(0);

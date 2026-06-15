@@ -327,7 +327,7 @@ export default function CompeteScreen() {
     setTimeout(postBotAnswer, Math.floor(Math.random() * 5000) + 4000);
   };
 
-  // Searching match timeout hook ( triggers bot after 10 seconds if no human lobby )
+  // Searching match timeout hook ( triggers bot after 10 seconds if no human lobby ) AND periodic 2-second scan
   useEffect(() => {
     if (gameState !== 'waiting' || lobbyType !== 'quick' || !currentMatch?.id) return;
 
@@ -343,8 +343,60 @@ export default function CompeteScreen() {
       });
     }, 1000);
 
-    return () => clearInterval(interval);
-  }, [gameState, lobbyType, currentMatch?.id]);
+    // Resilient 2-second scan interval
+    const scanInterval = setInterval(async () => {
+      if (!currentMatch?.id || !user?.uid || !selectedCourse?.id) return;
+      try {
+        const lobbiesQuery = query(
+          collection(db, 'compete_matches'),
+          where('status', '==', 'waiting'),
+          where('type', '==', 'quick_match'),
+          where('courseId', '==', selectedCourse.id),
+          where('numQuestions', '==', selectedNumQuestions)
+        );
+        const lobbiesSnap = await getDocs(lobbiesQuery);
+        
+        let foundLobby: any = null;
+        for (const val of lobbiesSnap.docs) {
+          const lobbyData = val.data();
+          if (lobbyData.creatorId !== user.uid && val.id !== currentMatch.id) {
+            foundLobby = { id: val.id, ...lobbyData };
+            break;
+          }
+        }
+
+        if (foundLobby) {
+          clearInterval(scanInterval);
+          clearInterval(interval);
+
+          // Join this other existing matching room instead!
+          const otherDocRef = doc(db, 'compete_matches', foundLobby.id);
+          await updateDoc(otherDocRef, {
+            opponentId: user.uid,
+            opponentUsername: profile?.username || user.email || 'Classmate',
+            opponentPhotoURL: profile?.photoURL || '',
+            status: 'active',
+            startTime: Date.now()
+          });
+
+          // Decommission our previous created match (set status: 'aborted' so someone else doesn't join our orphaned lobby)
+          const ourDocRef = doc(db, 'compete_matches', currentMatch.id);
+          await updateDoc(ourDocRef, {
+            status: 'aborted'
+          });
+
+          setCurrentMatch({ id: foundLobby.id, ...foundLobby, status: 'active' });
+        }
+      } catch (err) {
+        console.error("Rescan failed:", err);
+      }
+    }, 2000);
+
+    return () => {
+      clearInterval(interval);
+      clearInterval(scanInterval);
+    };
+  }, [gameState, lobbyType, currentMatch?.id, selectedCourse?.id, selectedNumQuestions, user?.uid, profile]);
 
   const triggerBotOpponent = async () => {
     if (!currentMatch?.id) return;
@@ -869,6 +921,53 @@ export default function CompeteScreen() {
     return `${mins}:${remaining < 10 ? '0' : ''}${remaining}`;
   };
 
+  const isUnactivatedStudent = (!profile || !profile.isActivated) && profile?.level !== '3' && profile?.level !== '4';
+
+  if (isUnactivatedStudent) {
+    return (
+      <SafeAreaView style={[s.root, { backgroundColor: C.bg }]} edges={['top']}>
+        {/* Simple Header */}
+        <View style={[s.header, { backgroundColor: C.surface, borderBottomColor: C.border }]}>
+          <TouchableOpacity onPress={() => router.push('/dashboard')} activeOpacity={0.7} style={s.iconBtn}>
+            <View style={[s.backArrow, { backgroundColor: C.ink }]} />
+            <View style={[s.backArrowHead, { borderColor: C.ink }]} />
+          </TouchableOpacity>
+          <Text style={[s.headerBrand, { color: C.ink, flex: 1, textAlign: 'center', marginRight: 36 }]}>
+            COLEARN COMPETE
+          </Text>
+        </View>
+
+        <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', padding: 24, paddingBottom: 60 }}>
+          <View style={{ width: 80, height: 80, borderRadius: 40, backgroundColor: '#FEE2E2', justifyContent: 'center', alignItems: 'center', marginBottom: 24 }}>
+            <Text style={{ fontSize: 40 }}>🏆</Text>
+          </View>
+          <Text style={{ fontFamily: F.bold, fontSize: 24, color: C.ink, textAlign: 'center', marginBottom: 12 }}>
+            CoLearn Compete Locked
+          </Text>
+          <Text style={{ fontFamily: F.medium, fontSize: 15, color: C.inkMid, textAlign: 'center', lineHeight: 22, marginBottom: 32, maxWidth: 320 }}>
+            CoLearn Compete is a premium feature reserved for activated accounts. Activate your student profile using an activation pin to join live matches, compete with peers, and top the season leaderboards!
+          </Text>
+
+          <TouchableOpacity
+            style={{ width: '100%', height: 56, backgroundColor: C.ink, borderRadius: 14, justifyContent: 'center', alignItems: 'center', marginBottom: 16 }}
+            onPress={() => router.push('/dashboard')}
+            activeOpacity={0.8}
+          >
+            <Text style={{ fontFamily: F.bold, fontSize: 16, color: C.bg }}>ACTIVATE ACCOUNT</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={{ width: '100%', height: 56, borderWidth: 1, borderColor: C.border, borderRadius: 14, justifyContent: 'center', alignItems: 'center' }}
+            onPress={() => router.push('/dashboard')}
+            activeOpacity={0.8}
+          >
+            <Text style={{ fontFamily: F.bold, fontSize: 16, color: C.inkMid }}>BACK TO DASHBOARD</Text>
+          </TouchableOpacity>
+        </View>
+      </SafeAreaView>
+    );
+  }
+
   return (
     <SafeAreaView style={[s.root, { backgroundColor: C.bg }]} edges={['top']}>
       {/* Dynamic Header */}
@@ -1317,68 +1416,145 @@ export default function CompeteScreen() {
           )}
 
           {/* RESULTS STATE */}
-          {gameState === 'results' && currentMatch && (
-            <View style={s.resultsSectionContainer}>
-              <View style={[s.resultsCard, { backgroundColor: C.surface, borderColor: C.border }]}>
-                <Text style={{ fontFamily: F.bold, color: C.inkLight, fontSize: 11, letterSpacing: 1.5, textAlign: 'center' }}>
-                  MATCH CONCLUDED
-                </Text>
+          {gameState === 'results' && currentMatch && (() => {
+            const totalQuestionsCount = matchQuestions.length || userStats.answersLog.length;
+            const correctCount = userStats.answersLog.filter(l => l.isCorrect).length;
+            const accuracyPercent = totalQuestionsCount > 0 ? Math.round((correctCount / totalQuestionsCount) * 100) : 0;
+            const speedBonusCount = userStats.answersLog.filter(l => l.speedBonus).length;
+            const avgResponseTime = userStats.answersLog.length > 0 ? (userStats.timeTaken / userStats.answersLog.length).toFixed(1) : '0';
 
-                {/* Winner status */}
-                <Text style={[s.resultsTitle, { color: C.ink }]}>
-                  {currentMatch.winnerId === 'draw'
-                    ? '🤝 Match Tied!'
-                    : currentMatch.winnerId === user?.uid
-                    ? '🏆 You Triumphed!'
-                    : '💔 Opponent Triumphed!'}
-                </Text>
+            return (
+              <View style={s.resultsSectionContainer}>
+                <View style={[s.resultsCard, { backgroundColor: C.surface, borderColor: C.border }]}>
+                  <Text style={{ fontFamily: F.bold, color: C.inkLight, fontSize: 11, letterSpacing: 1.5, textAlign: 'center' }}>
+                    MATCH CONCLUDED
+                  </Text>
 
-                {/* Score summary cells */}
-                <View style={s.resultsBlockBox}>
-                  <View style={[s.resultsScoreCell, { backgroundColor: C.bgAlt }]}>
-                    <Text style={{ fontFamily: F.body, color: C.inkLight, fontSize: 11 }}>YOURS</Text>
-                    <Text style={{ fontFamily: F.bold, color: C.ink, fontSize: 24, marginTop: 4 }}>
-                      {user?.uid === currentMatch.creatorId
-                        ? currentMatch.creatorPoints
-                        : currentMatch.opponentPoints}{' '}
-                      pts
-                    </Text>
+                  {/* Winner status */}
+                  <Text style={[s.resultsTitle, { color: C.ink }]}>
+                    {currentMatch.winnerId === 'draw'
+                      ? '🤝 Match Tied!'
+                      : currentMatch.winnerId === user?.uid
+                      ? '🏆 You Triumphed!'
+                      : '💔 Opponent Triumphed!'}
+                  </Text>
+
+                  {/* Score summary cells */}
+                  <View style={s.resultsBlockBox}>
+                    <View style={[s.resultsScoreCell, { backgroundColor: C.bgAlt }]}>
+                      <Text style={{ fontFamily: F.body, color: C.inkLight, fontSize: 11 }}>YOURS</Text>
+                      <Text style={{ fontFamily: F.bold, color: C.ink, fontSize: 24, marginTop: 4 }}>
+                        {user?.uid === currentMatch.creatorId
+                          ? currentMatch.creatorPoints
+                          : currentMatch.opponentPoints}{' '}
+                        pts
+                      </Text>
+                    </View>
+                    <View style={[s.resultsScoreCell, { backgroundColor: C.bgAlt }]}>
+                      <Text style={{ fontFamily: F.body, color: C.inkLight, fontSize: 11 }}>
+                        OPPONENT'S
+                      </Text>
+                      <Text style={{ fontFamily: F.bold, color: C.ink, fontSize: 24, marginTop: 4 }}>
+                        {user?.uid === currentMatch.creatorId
+                          ? currentMatch.opponentPoints
+                          : currentMatch.creatorPoints}{' '}
+                        pts
+                      </Text>
+                    </View>
                   </View>
-                  <View style={[s.resultsScoreCell, { backgroundColor: C.bgAlt }]}>
-                    <Text style={{ fontFamily: F.body, color: C.inkLight, fontSize: 11 }}>
-                      OPPONENT'S
+
+                  {/* Detailed Match Stats */}
+                  <View style={{ gap: 8, marginTop: 12, borderTopWidth: 1, borderTopColor: C.border, paddingTop: 16 }}>
+                    <Text style={{ fontFamily: F.bold, color: C.ink, fontSize: 13, letterSpacing: 0.5, marginBottom: 4 }}>
+                      📊 YOUR MATCH PERFORMANCE
                     </Text>
-                    <Text style={{ fontFamily: F.bold, color: C.ink, fontSize: 24, marginTop: 4 }}>
-                      {user?.uid === currentMatch.creatorId
-                        ? currentMatch.opponentPoints
-                        : currentMatch.creatorPoints}{' '}
-                      pts
-                    </Text>
+
+                    <View style={{ flexDirection: 'row', gap: 6 }}>
+                      <View style={{ flex: 1, padding: 10, borderRadius: 10, backgroundColor: C.bgAlt, alignItems: 'center' }}>
+                        <Text style={{ fontFamily: F.mono, fontSize: 10, color: C.inkLight }}>ACCURACY</Text>
+                        <Text style={{ fontFamily: F.bold, fontSize: 15, color: C.ink, marginTop: 2 }}>
+                          {correctCount}/{totalQuestionsCount} ({accuracyPercent}%)
+                        </Text>
+                      </View>
+
+                      <View style={{ flex: 1, padding: 10, borderRadius: 10, backgroundColor: C.bgAlt, alignItems: 'center' }}>
+                        <Text style={{ fontFamily: F.mono, fontSize: 10, color: C.inkLight }}>AVG TIME</Text>
+                        <Text style={{ fontFamily: F.bold, fontSize: 15, color: C.ink, marginTop: 2 }}>
+                          {avgResponseTime}s
+                        </Text>
+                      </View>
+                    </View>
+
+                    <View style={{ flexDirection: 'row', gap: 6 }}>
+                      <View style={{ flex: 1, padding: 10, borderRadius: 10, backgroundColor: C.bgAlt, alignItems: 'center' }}>
+                        <Text style={{ fontFamily: F.mono, fontSize: 10, color: C.inkLight }}>TOTAL TIME</Text>
+                        <Text style={{ fontFamily: F.bold, fontSize: 15, color: C.ink, marginTop: 2 }}>
+                          {formatSecsToMins(userStats.timeTaken)}
+                        </Text>
+                      </View>
+
+                      <View style={{ flex: 1, padding: 10, borderRadius: 10, backgroundColor: C.bgAlt, alignItems: 'center' }}>
+                        <Text style={{ fontFamily: F.mono, fontSize: 10, color: C.inkLight }}>SPEED BONUSES</Text>
+                        <Text style={{ fontFamily: F.bold, fontSize: 15, color: C.ink, marginTop: 2 }}>
+                          ⚡ {speedBonusCount}
+                        </Text>
+                      </View>
+                    </View>
+
+                    {userStats.answersLog.length > 0 && (
+                      <View style={{ marginTop: 8 }}>
+                        <Text style={{ fontFamily: F.bold, color: C.inkLight, fontSize: 10, marginBottom: 8, letterSpacing: 0.5 }}>
+                          QUESTION-BY-QUESTION HISTOGRAM
+                        </Text>
+                        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
+                          {userStats.answersLog.map((log, i) => (
+                            <View
+                              key={i}
+                              style={{
+                                flexDirection: 'row',
+                                alignItems: 'center',
+                                paddingHorizontal: 8,
+                                paddingVertical: 4,
+                                borderRadius: 8,
+                                backgroundColor: log.isCorrect ? '#E8F6EF' : '#FADBD8',
+                                borderWidth: 1,
+                                borderColor: log.isCorrect ? '#27AE60' : '#C0392B',
+                              }}
+                            >
+                              <Text style={{ fontFamily: F.bold, color: log.isCorrect ? '#27AE60' : '#C0392B', fontSize: 10 }}>
+                                Q{i + 1}: {log.isCorrect ? '✓' : '✗'} ({log.time}s){log.speedBonus ? ' ⚡' : ''}
+                              </Text>
+                            </View>
+                          ))}
+                        </View>
+                      </View>
+                    )}
                   </View>
+
+                  {currentMatch.type === 'quick_match' && activeSeasonId && (
+                    <View style={[s.starNotice, { backgroundColor: C.bgAlt, marginTop: 4 }]}>
+                      <Text style={{ fontFamily: F.medium, color: C.inkMid, fontSize: 12, textAlign: 'center' }}>
+                        {currentMatch.winnerId === 'draw'
+                          ? 'Draw: No star adjustments calculated.'
+                          : currentMatch.winnerId === user?.uid
+                          ? 'Victory! ★ +1 star added to Leaderboard.'
+                          : 'Defeat. ★ -1 star decremented.'}
+                      </Text>
+                    </View>
+                  )}
+
+                  <TouchableOpacity
+                    style={[s.primaryBtn, { backgroundColor: C.surfaceDark, marginTop: 24 }]}
+                    onPress={handleExitMatch}
+                    activeOpacity={0.8}
+                  >
+                    <Text style={[s.primaryBtnText, { color: C.bg }]}>Back to Lounge</Text>
+                  </TouchableOpacity>
                 </View>
-
-                {currentMatch.type === 'quick_match' && activeSeasonId && (
-                  <View style={[s.starNotice, { backgroundColor: C.bgAlt }]}>
-                    <Text style={{ fontFamily: F.medium, color: C.inkMid, fontSize: 12, textAlign: 'center' }}>
-                      {currentMatch.winnerId === 'draw'
-                        ? 'Draw: No star adjustments calculated.'
-                        : currentMatch.winnerId === user?.uid
-                        ? 'Victory! ★ +1 star added to Leaderboard.'
-                        : 'Defeat. ★ -1 star decremented.'}
-                    </Text>
-                  </View>
-                )}
-
-                <TouchableOpacity
-                  style={[s.primaryBtn, { backgroundColor: C.surfaceDark, marginTop: 24 }]}
-                  onPress={handleExitMatch}
-                  activeOpacity={0.8}
-                >
-                  <Text style={[s.primaryBtnText, { color: C.bg }]}>Back to Lounge</Text>
-                </TouchableOpacity>
               </View>
-            </View>
-          )}
+            );
+          })()}
+          {/* END OF RESULTS STATE */}
         </Animated.View>
       </ScrollView>
 

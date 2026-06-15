@@ -101,6 +101,53 @@ export default function CbtSetupScreen() {
   const fadeY = useRef(new Animated.Value(24)).current;
   const opacity = useRef(new Animated.Value(0)).current;
 
+  const isUnactivatedStudent = (!profile || !profile.isActivated) && profile?.level !== '3' && profile?.level !== '4';
+
+  if (isUnactivatedStudent) {
+    return (
+      <SafeAreaView style={[s.root, { backgroundColor: C.bg }]} edges={['top']}>
+        {/* Simple Header */}
+        <View style={[s.header, { backgroundColor: C.surface, borderBottomColor: C.border }]}>
+          <TouchableOpacity onPress={() => router.push('/dashboard')} activeOpacity={0.7} style={s.iconBtn}>
+            <View style={[s.backArrow, { backgroundColor: C.ink }]} />
+            <View style={[s.backArrowHead, { borderColor: C.ink }]} />
+          </TouchableOpacity>
+          <Text style={[s.headerBrand, { color: C.ink, flex: 1, textAlign: 'center', marginRight: 36 }]}>
+            CBT PRACTICE
+          </Text>
+        </View>
+
+        <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', padding: 24, paddingBottom: 60 }}>
+          <View style={{ width: 80, height: 80, borderRadius: 40, backgroundColor: '#FEE2E2', justifyContent: 'center', alignItems: 'center', marginBottom: 24 }}>
+            <Text style={{ fontSize: 40 }}>📝</Text>
+          </View>
+          <Text style={{ fontFamily: F.bold, fontSize: 24, color: C.ink, textAlign: 'center', marginBottom: 12 }}>
+            CBT Practice Locked
+          </Text>
+          <Text style={{ fontFamily: F.medium, fontSize: 15, color: C.inkMid, textAlign: 'center', lineHeight: 22, marginBottom: 32, maxWidth: 320 }}>
+            CBT Practice exam simulation is a premium feature reserved for activated accounts. Activate your student profile using an activation pin to simulate exams, practice with past questions, and track score analytics!
+          </Text>
+
+          <TouchableOpacity
+            style={{ width: '100%', height: 56, backgroundColor: C.ink, borderRadius: 14, justifyContent: 'center', alignItems: 'center', marginBottom: 16 }}
+            onPress={() => router.push('/dashboard')}
+            activeOpacity={0.8}
+          >
+            <Text style={{ fontFamily: F.bold, fontSize: 16, color: C.bg }}>ACTIVATE ACCOUNT</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={{ width: '100%', height: 56, borderWidth: 1, borderColor: C.border, borderRadius: 14, justifyContent: 'center', alignItems: 'center' }}
+            onPress={() => router.push('/dashboard')}
+            activeOpacity={0.8}
+          >
+            <Text style={{ fontFamily: F.bold, fontSize: 16, color: C.inkMid }}>BACK TO DASHBOARD</Text>
+          </TouchableOpacity>
+        </View>
+      </SafeAreaView>
+    );
+  }
+
   useEffect(() => {
     Animated.parallel([
       Animated.timing(fadeY, { toValue: 0, duration: 500, useNativeDriver: true }),

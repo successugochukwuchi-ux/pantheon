@@ -261,3 +261,17 @@ export function CompeteIcon({ color = C.ink }: { color?: string }) {
     </View>
   );
 }
+
+export function CalendarIcon({ color }: { color: string }) {
+  return (
+    <View style={{ width: 20, height: 20, borderWidth: 2, borderColor: color, borderRadius: 4, justifyContent: 'flex-start', alignItems: 'center' }}>
+      <View style={{ width: '100%', height: 4, backgroundColor: color }} />
+      <View style={{ flexDirection: 'row', gap: 3, marginTop: 4 }}>
+        <View style={{ width: 3, height: 3, borderRadius: 1.5, backgroundColor: color }} />
+        <View style={{ width: 3, height: 3, borderRadius: 1.5, backgroundColor: color }} />
+        <View style={{ width: 3, height: 3, borderRadius: 1.5, backgroundColor: color }} />
+      </View>
+    </View>
+  );
+}
+
