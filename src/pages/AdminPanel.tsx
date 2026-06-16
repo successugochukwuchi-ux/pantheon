@@ -322,6 +322,7 @@ export default function AdminPanel() {
     incorrectAnswers: ['', '', '']
   });
   const [selectedVideoNote, setSelectedVideoNote] = useState<Note | null>(null);
+  const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
 
   // AI Configuration State
   const [hermesConfig, setHermesConfig] = useState<AIConfig | null>(null);
@@ -471,7 +472,9 @@ export default function AdminPanel() {
     try {
       await updateDoc(doc(db, 'notes', videoLinkNoteId), { videoUrl });
       toast.success('Video linked to note');
+      setNotes(prev => prev.map(n => n.id === videoLinkNoteId ? { ...n, videoUrl } : n));
       setVideoUrl('');
+      triggerRefresh();
     } catch (error: any) {
       toast.error(error.message);
     } finally {
@@ -493,6 +496,7 @@ export default function AdminPanel() {
       });
       setNewVideoQuestion({ text: '', correctAnswer: '', incorrectAnswers: ['', '', ''] });
       toast.success('Question added to video');
+      triggerRefresh();
     } catch (error: any) {
       toast.error(error.message);
     } finally {
@@ -505,8 +509,27 @@ export default function AdminPanel() {
     try {
       await deleteDoc(doc(db, `notes/${noteId}/videoQuestions`, qId));
       toast.success('Video question deleted');
+      triggerRefresh();
     } catch (error: any) {
       toast.error(error.message);
+    }
+  };
+
+  const handleDeleteVideo = async (noteId: string, bypassConfirm = false) => {
+    if (!bypassConfirm && !confirm('Are you sure you want to delete the video from this note? This will remove it from the video library.')) return;
+    setLoading(true);
+    try {
+      await updateDoc(doc(db, 'notes', noteId), { videoUrl: '' });
+      toast.success('Video deleted successfully');
+      setNotes(prev => prev.map(n => n.id === noteId ? { ...n, videoUrl: '' } : n));
+      if (selectedVideoNote?.id === noteId) {
+        setSelectedVideoNote(null);
+      }
+      triggerRefresh();
+    } catch (error: any) {
+      toast.error(`Failed to delete video: ${error.message}`);
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -1745,7 +1768,6 @@ export default function AdminPanel() {
             <Button variant={location.pathname.includes('users') ? 'default' : 'ghost'} size="sm" onClick={() => navigate('/administrator/users')}>Users</Button>
             <Button variant={location.pathname.includes('courses') ? 'default' : 'ghost'} size="sm" onClick={() => navigate('/administrator/courses')}>Courses</Button>
             <Button variant={location.pathname.includes('notes') ? 'default' : 'ghost'} size="sm" onClick={() => navigate('/administrator/notes')}>Notes</Button>
-            <Button variant={location.pathname.includes('cbt') ? 'default' : 'ghost'} size="sm" onClick={() => navigate('/administrator/cbt')}>CBT</Button>
             <Button variant={location.pathname.includes('news') ? 'default' : 'ghost'} size="sm" onClick={() => navigate('/administrator/news')}>News</Button>
           </>
         )}
@@ -1853,28 +1875,195 @@ export default function AdminPanel() {
             </Card>
 
             <div className="grid gap-6 md:grid-cols-2">
-              <Card>
+              <Card className="col-span-1">
                 <CardHeader>
                   <CardTitle>Video Lessons Library</CardTitle>
-                  <CardDescription>Manage quizzes for notes with linked videos.</CardDescription>
+                  <CardDescription>Manage quizzes for notes with linked videos, arranged by semesters and courses.</CardDescription>
                 </CardHeader>
                 <CardContent>
-                  <div className="space-y-2">
-                    {notes.filter(n => n.videoUrl).length > 0 ? (
-                      notes.filter(n => n.videoUrl).map(note => (
-                        <div key={note.id} className="flex items-center justify-between p-3 border rounded-lg bg-muted/50">
-                          <div>
-                            <p className="font-medium">{note.title}</p>
-                            <p className="text-[10px] text-muted-foreground">{courses.find(c => c.id === note.courseId)?.code}</p>
-                          </div>
-                          <Button size="sm" variant={selectedVideoNote?.id === note.id ? "default" : "outline"} onClick={() => setSelectedVideoNote(note)}>
-                            Manage Quiz
-                          </Button>
+                  <div className="space-y-6">
+                    {(() => {
+                      const notesWithVideo = notes.filter(n => n.videoUrl && n.videoUrl.trim() !== '');
+                      
+                      if (notesWithVideo.length === 0) {
+                        return <p className="text-sm text-muted-foreground text-center py-4">No videos linked yet.</p>;
+                      }
+
+                      // Let's group courses that have at least one note with a video, by semester
+                      const groupedBySemester: { [key: string]: { course: Course; notes: Note[] }[] } = {
+                        '1st': [],
+                        '2nd': []
+                      };
+
+                      courses.forEach(course => {
+                        const courseVideoNotes = notesWithVideo.filter(n => n.courseId === course.id);
+                        if (courseVideoNotes.length > 0) {
+                          const sem = course.semester === '2nd' ? '2nd' : '1st';
+                          groupedBySemester[sem].push({ course, notes: courseVideoNotes });
+                        }
+                      });
+
+                      // We should also find any orphan notes whose course was deleted or not found
+                      const orphanNotes = notesWithVideo.filter(n => !courses.find(c => c.id === n.courseId));
+                      
+                      return (
+                        <div className="space-y-6">
+                          {['1st', '2nd'].map(sem => {
+                            const groups = groupedBySemester[sem];
+                            if (groups.length === 0) return null;
+                            
+                            return (
+                              <div key={sem} className="space-y-3">
+                                <h3 className="text-xs font-bold uppercase tracking-wider text-primary bg-primary/10 px-2 py-1.5 rounded flex items-center justify-between">
+                                  <span>{sem} Semester</span>
+                                  <Badge className="text-[10px] py-0 px-1.5 h-4 bg-primary text-primary-foreground border-none">
+                                    {groups.reduce((acc, g) => acc + g.notes.length, 0)} videos
+                                  </Badge>
+                                </h3>
+                                <div className="space-y-4 pl-1">
+                                  {groups.map(({ course, notes: courseNotes }) => (
+                                    <div key={course.id} className="space-y-2">
+                                      <div className="flex items-center justify-between text-xs font-semibold text-muted-foreground border-b pb-1">
+                                        <span>{course.code} - {course.title}</span>
+                                        <span className="text-[10px] text-muted-foreground">{courseNotes.length} linked</span>
+                                      </div>
+                                      <div className="space-y-2">
+                                        {courseNotes.map(note => {
+                                          const isActive = selectedVideoNote?.id === note.id;
+                                          return (
+                                            <div key={note.id} className={`flex items-center justify-between p-3 border rounded-lg transition-all ${isActive ? 'bg-primary/5 border-primary/30 ring-1 ring-primary/20' : 'bg-muted/30 hover:bg-muted/50'}`}>
+                                              <div className="space-y-1 pr-2 max-w-[65%]">
+                                                <p className="font-semibold text-sm leading-tight text-foreground">{note.title}</p>
+                                                <p className="text-[10px] text-muted-foreground truncate font-mono" title={note.videoUrl}>
+                                                  {note.videoUrl}
+                                                </p>
+                                              </div>
+                                              <div className="flex items-center gap-1.5 shrink-0">
+                                                <Button 
+                                                  size="sm" 
+                                                  variant={isActive ? "default" : "outline"} 
+                                                  className="h-8 text-xs font-medium"
+                                                  onClick={() => setSelectedVideoNote(note)}
+                                                >
+                                                  Manage Quiz
+                                                </Button>
+                                                {deleteConfirmId === note.id ? (
+                                                  <div className="flex items-center gap-1 animate-in fade-in zoom-in-95 duration-150">
+                                                    <Button 
+                                                      size="icon" 
+                                                      variant="destructive" 
+                                                      className="h-8 w-8 text-white"
+                                                      onClick={() => {
+                                                        handleDeleteVideo(note.id, true);
+                                                        setDeleteConfirmId(null);
+                                                      }}
+                                                      title="Confirm Delete"
+                                                    >
+                                                      <CheckCircle className="h-4 w-4" />
+                                                    </Button>
+                                                    <Button 
+                                                      size="icon" 
+                                                      variant="outline" 
+                                                      className="h-8 w-8 hover:bg-muted text-muted-foreground"
+                                                      onClick={() => setDeleteConfirmId(null)}
+                                                      title="Cancel"
+                                                    >
+                                                      <XCircle className="h-4 w-4" />
+                                                    </Button>
+                                                  </div>
+                                                ) : (
+                                                  <Button 
+                                                    size="icon" 
+                                                    variant="ghost" 
+                                                    className="h-8 w-8 text-destructive hover:bg-destructive/10"
+                                                    onClick={() => setDeleteConfirmId(note.id)}
+                                                    title="Delete Video Link"
+                                                  >
+                                                    <Trash2 className="h-4 w-4" />
+                                                  </Button>
+                                                )}
+                                              </div>
+                                            </div>
+                                          );
+                                        })}
+                                      </div>
+                                    </div>
+                                  ))}
+                                </div>
+                              </div>
+                            );
+                          })}
+
+                          {orphanNotes.length > 0 && (
+                            <div className="space-y-3">
+                              <h3 className="text-xs font-bold uppercase tracking-wider text-amber-500 bg-amber-500/10 px-2 py-1 rounded">
+                                Uncategorized Notes
+                              </h3>
+                              <div className="space-y-2 pl-1">
+                                {orphanNotes.map(note => {
+                                  const isActive = selectedVideoNote?.id === note.id;
+                                  return (
+                                    <div key={note.id} className="flex items-center justify-between p-3 border rounded-lg bg-muted/30">
+                                      <div className="space-y-1 pr-2 max-w-[60%]">
+                                        <p className="font-medium text-sm leading-tight">{note.title}</p>
+                                        <p className="text-[10px] text-muted-foreground truncate font-mono" title={note.videoUrl}>
+                                          {note.videoUrl}
+                                        </p>
+                                      </div>
+                                      <div className="flex items-center gap-1.5 shrink-0">
+                                        <Button 
+                                          size="sm" 
+                                          variant={isActive ? "default" : "outline"} 
+                                          className="h-8 text-xs font-medium"
+                                          onClick={() => setSelectedVideoNote(note)}
+                                        >
+                                          Manage Quiz
+                                        </Button>
+                                        {deleteConfirmId === note.id ? (
+                                          <div className="flex items-center gap-1 animate-in fade-in zoom-in-95 duration-150">
+                                            <Button 
+                                              size="icon" 
+                                              variant="destructive" 
+                                              className="h-8 w-8 text-white"
+                                              onClick={() => {
+                                                handleDeleteVideo(note.id, true);
+                                                setDeleteConfirmId(null);
+                                              }}
+                                              title="Confirm Delete"
+                                            >
+                                              <CheckCircle className="h-4 w-4" />
+                                            </Button>
+                                            <Button 
+                                              size="icon" 
+                                              variant="outline" 
+                                              className="h-8 w-8 hover:bg-muted text-muted-foreground"
+                                              onClick={() => setDeleteConfirmId(null)}
+                                              title="Cancel"
+                                            >
+                                              <XCircle className="h-4 w-4" />
+                                            </Button>
+                                          </div>
+                                        ) : (
+                                          <Button 
+                                            size="icon" 
+                                            variant="ghost" 
+                                            className="h-8 w-8 text-destructive hover:bg-destructive/10"
+                                            onClick={() => setDeleteConfirmId(note.id)}
+                                            title="Delete Video Link"
+                                          >
+                                            <Trash2 className="h-4 w-4" />
+                                          </Button>
+                                        )}
+                                      </div>
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            </div>
+                          )}
                         </div>
-                      ))
-                    ) : (
-                      <p className="text-sm text-muted-foreground text-center py-4">No videos linked yet.</p>
-                    )}
+                      );
+                    })()}
                   </div>
                 </CardContent>
               </Card>
@@ -3579,575 +3768,520 @@ export default function AdminPanel() {
         } />
 
         <Route path="/system" element={
-          <div className="grid gap-6 md:grid-cols-2">
-            <Card className="border-primary/20">
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <Settings className="h-5 w-5" />
-                  Semester Control
-                </CardTitle>
-                <CardDescription>Manage the active academic semester.</CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-6">
-                <div className="flex items-center justify-between p-4 bg-muted rounded-lg">
-                  <div>
-                    <p className="text-sm font-medium text-muted-foreground">Current Status</p>
-                    <p className="text-2xl font-bold uppercase text-primary">
-                      {systemConfig?.currentSemester === 'none' ? 'Holiday / Ended' : `${systemConfig?.currentSemester} Semester`}
-                    </p>
-                  </div>
-                </div>
+          <div className="space-y-8">
+            {/* Header Description */}
+            <div className="flex flex-col gap-1 pb-2 border-b">
+              <h2 className="text-xl font-bold tracking-tight">System Control Panel</h2>
+              <p className="text-xs text-muted-foreground">Manage academic sessions, platform access modes, competition seasons, AI assistants, and backend infrastructure.</p>
+            </div>
 
-                <div className="grid grid-cols-1 gap-4">
-                  <Button 
-                    size="lg" 
-                    variant={systemConfig?.currentSemester === '1st' ? 'default' : 'outline'}
-                    onClick={() => handleUpdateSemester('1st')}
-                    disabled={loading || systemConfig?.currentSemester === '1st'}
-                  >
-                    Start 1st Semester
-                  </Button>
-                  <Button 
-                    size="lg" 
-                    variant={systemConfig?.currentSemester === '2nd' ? 'default' : 'outline'}
-                    onClick={() => handleUpdateSemester('2nd')}
-                    disabled={loading || systemConfig?.currentSemester === '2nd'}
-                  >
-                    Start 2nd Semester
-                  </Button>
-                  <Button 
-                    size="lg" 
-                    variant="destructive"
-                    onClick={() => handleUpdateSemester('none')}
-                    disabled={loading || systemConfig?.currentSemester === 'none'}
-                  >
-                    End Current Semester
-                  </Button>
-                </div>
-              </CardContent>
-              <CardFooter>
-                <p className="text-xs text-muted-foreground italic">
-                  * Ending a semester will deactivate all Level 1 student accounts.
-                </p>
-              </CardFooter>
-            </Card>
-
-            <Card className="border-amber-500/20 bg-amber-500/5">
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <PlayCircle className="h-5 w-5 text-amber-500" />
-                  Promo Mode Setup
-                </CardTitle>
-                <CardDescription>Enable free activations for a limited batch of students (Level 4 Only).</CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                {promoConfig?.isActive ? (
-                  <div className="p-4 rounded-xl border border-amber-500/20 bg-amber-500/10 space-y-3">
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-2">
-                        <Badge className="bg-amber-600 animate-pulse border-none">PROMO ACTIVE</Badge>
-                        <span className="text-sm font-bold">{promoConfig.count} / {promoConfig.quota} Activations</span>
-                      </div>
-                      <Button 
-                        size="sm" 
-                        variant="destructive" 
-                        onClick={() => handleTogglePromo(false)}
-                        disabled={loading}
-                      >
-                        Stop Promo
-                      </Button>
-                    </div>
-                    <div className="w-full bg-muted rounded-full h-2 overflow-hidden">
-                      <div 
-                        className="bg-amber-500 h-full transition-all duration-500" 
-                        style={{ width: `${Math.min(100, (promoConfig.count / promoConfig.quota) * 100)}%` }}
-                      />
-                    </div>
-                  </div>
-                ) : (
-                  <div className="grid gap-4 items-end sm:grid-cols-[1fr,auto]">
-                    <div className="space-y-2">
-                      <Label>Free Activation Quota (x)</Label>
-                      <Input 
-                        type="number" 
-                        placeholder="e.g. 50" 
-                        value={promoQuota === 0 ? '' : promoQuota} 
-                        onChange={(e) => setPromoQuota(parseInt(e.target.value) || 0)}
-                        min="1"
-                        onKeyDown={(e) => e.key === 'Enter' && e.preventDefault()}
-                      />
-                    </div>
-                    <Button 
-                      className="bg-amber-600 hover:bg-amber-700" 
-                      onClick={() => handleTogglePromo(true)}
-                      disabled={loading || promoQuota <= 0}
-                    >
-                      Start Promo Mode
-                    </Button>
-                  </div>
-                )}
-              </CardContent>
-            </Card>
-
-            <Card className="border-sidebar-primary/20">
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <Zap className="h-5 w-5 text-primary" />
-                  CoLearn Compete Season Control
-                </CardTitle>
-                <CardDescription>Manage CoLearn competition seasons and leaderboard status. When no season is active, the leaderboard resets and Quick Matches are locked.</CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                {systemConfig?.activeSeasonId ? (
-                  <div className="p-4 rounded-xl border border-primary/20 bg-primary/5 space-y-3">
-                    <div className="flex items-center justify-between">
-                      <div className="flex flex-col gap-0.5 col-span-1">
-                        <span className="text-xs text-muted-foreground font-mono">ACTIVE SEASON</span>
-                        <span className="text-lg font-black text-primary tracking-tight">{systemConfig.activeSeasonName}</span>
-                      </div>
-                      <Button 
-                        size="sm" 
-                        variant="destructive" 
-                        onClick={handleEndSeason}
-                        disabled={loading}
-                      >
-                        End Season (Reset Leaderboard)
-                      </Button>
-                    </div>
-                  </div>
-                ) : (
-                  <div className="grid gap-4 items-end sm:grid-cols-[1fr,auto]">
-                    <div className="space-y-2">
-                      <Label>New Competition Season Name</Label>
-                      <Input 
-                        placeholder="e.g. 2026 Monsoon Semester Championship" 
-                        value={newSeasonName} 
-                        onChange={(e) => setNewSeasonName(e.target.value)}
-                        onKeyDown={(e) => e.key === 'Enter' && e.preventDefault()}
-                      />
-                    </div>
-                    <Button 
-                      onClick={handleStartSeason}
-                      disabled={loading || !newSeasonName.trim()}
-                    >
-                      Start New Season
-                    </Button>
-                  </div>
-                )}
-              </CardContent>
-            </Card>
-
-            <Card className={systemConfig?.maintenanceMode ? "border-destructive" : ""}>
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <AlertTriangle className={systemConfig?.maintenanceMode ? "text-destructive" : "text-muted-foreground"} />
-                  Maintenance Mode
-                </CardTitle>
-                <CardDescription>Lock the system for maintenance.</CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <div className={`p-4 rounded-lg border flex items-center justify-between ${systemConfig?.maintenanceMode ? "bg-destructive/10 border-destructive/20" : "bg-muted"}`}>
-                  <div>
-                    <p className="font-bold">{systemConfig?.maintenanceMode ? "System Locked" : "System Active"}</p>
-                    <p className="text-xs text-muted-foreground">
-                      {systemConfig?.maintenanceMode 
-                        ? "Only Level 4 admins can access the portal." 
-                        : "All users can access the portal normally."}
-                    </p>
-                  </div>
-                  <Button 
-                    variant={systemConfig?.maintenanceMode ? "default" : "destructive"}
-                    onClick={handleToggleMaintenance}
-                    disabled={loading}
-                  >
-                    {systemConfig?.maintenanceMode ? "Disable Maintenance" : "Enable Maintenance"}
-                  </Button>
-                </div>
-              </CardContent>
-            </Card>
-
-            <Card className={systemConfig?.fluxEnabled === false ? "border-pink-500/50" : ""}>
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2 text-pink-500">
-                  <Zap className="h-5 w-5 fill-pink-500" />
-                  Flux Platform-Wide Access
-                </CardTitle>
-                <CardDescription>Control access to the CoLearn Flux Extracurricular ecosystem.</CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <div className={`p-4 rounded-lg border flex items-center justify-between ${systemConfig?.fluxEnabled === false ? "bg-pink-500/10 border-pink-500/20" : "bg-muted"}`}>
-                  <div>
-                    <p className="font-bold">{systemConfig?.fluxEnabled !== false ? "Flux Ecosystem Active" : "Flux Ecosystem Suspended"}</p>
-                    <p className="text-xs text-muted-foreground">
-                      {systemConfig?.fluxEnabled !== false 
-                        ? "All activated students can access search, skill tracks, and active engines." 
-                        : "Suspended. Only Level 4 admins can bypass and access Flux tracks."}
-                    </p>
-                  </div>
-                  <Button 
-                    variant={systemConfig?.fluxEnabled !== false ? "destructive" : "default"}
-                    onClick={handleToggleFlux}
-                    disabled={loading}
-                    className={systemConfig?.fluxEnabled === false ? "bg-pink-500 hover:bg-pink-600 text-white border-none" : ""}
-                  >
-                    {systemConfig?.fluxEnabled !== false ? "Suspend Flux Access" : "Enable Flux Access"}
-                  </Button>
-                </div>
-              </CardContent>
-            </Card>
-
-            {isLevel4 && (
+            {/* SECTION 1: ACADEMIC & TOURNAMENT CYCLES */}
+            <div>
+              <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-3">Academic & Tournament Cycles</h3>
               <div className="grid gap-6 md:grid-cols-2">
-                <Card className="border-purple-500/20 bg-purple-500/5">
+                {/* Semester Control */}
+                <Card className="shadow-sm border">
                   <CardHeader>
-                    <CardTitle className="flex items-center gap-2 text-purple-600">
-                      <MessageCircle className="h-5 w-5" />
-                      Hermes Chat Configuration
+                    <CardTitle className="flex items-center gap-2 text-sm font-bold">
+                      <Settings className="h-4.5 w-4.5 text-primary" />
+                      Semester Control
                     </CardTitle>
-                    <CardDescription>AI settings for the chatbot assistant.</CardDescription>
+                    <CardDescription>Manage the active academic semester configuration.</CardDescription>
                   </CardHeader>
-                  <form onSubmit={handleUpdateAI}>
-                    <CardContent className="space-y-4">
-                      <div className="flex items-center justify-between p-3 bg-white/50 dark:bg-black/20 rounded-lg border border-purple-200 dark:border-purple-900">
-                        <div className="space-y-0.5">
-                          <Label className="text-sm">Chat Active</Label>
-                          <p className="text-xs text-muted-foreground">Enable or disable the chat assistant.</p>
-                        </div>
-                        <div 
-                          className={`w-12 h-6 rounded-full cursor-pointer transition-colors ${editAI.isActive ? 'bg-purple-500' : 'bg-muted'}`}
-                          onClick={() => setEditAI(prev => ({ ...prev, isActive: !prev.isActive }))}
-                        >
-                          <div className={`w-4 h-4 rounded-full bg-white mt-1 transition-transform ${editAI.isActive ? 'translate-x-7' : 'translate-x-1'}`} />
-                        </div>
-                      </div>
-
-                      <div className="space-y-2">
-                        <Label>API Provider</Label>
-                        <Select 
-                          value={editAI.provider} 
-                          onValueChange={(v: 'groq' | 'openrouter' | 'gemini') => {
-                            setEditAI(prev => ({ 
-                              ...prev, 
-                              provider: v,
-                              model: RECOMMENDED_MODELS[v].chat
-                            }));
-                          }}
-                        >
-                          <SelectTrigger>
-                            <SelectValue placeholder="Select Provider" />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="groq">Groq — Free ✓ (Recommended)</SelectItem>
-                            <SelectItem value="gemini">Google Gemini — Free ✓</SelectItem>
-                            <SelectItem value="openrouter">OpenRouter (More Models)</SelectItem>
-                          </SelectContent>
-                        </Select>
-                      </div>
-
-                      <div className="space-y-2">
-                        <Label>Model ID</Label>
-                        <Input 
-                          value={editAI.model} 
-                          onChange={(e) => setEditAI(prev => ({ ...prev, model: e.target.value }))}
-                          placeholder={
-                            editAI.provider === 'gemini' 
-                              ? "e.g. gemini-2.0-flash-lite" 
-                              : editAI.provider === 'groq' 
-                                ? "e.g. llama-3.3-70b-versatile" 
-                                : "e.g. google/gemini-2.0-flash-001"
-                          }
-                          required
-                        />
-                      </div>
-
-                      <div className="space-y-2">
-                        <Label>API Key (Optional)</Label>
-                        <Input 
-                          type="password" 
-                          value={editAI.apiKey} 
-                          onChange={(e) => setEditAI(prev => ({ ...prev, apiKey: e.target.value }))}
-                          placeholder="Leave blank to use default system keys"
-                        />
-                      </div>
-                    </CardContent>
-                    <CardFooter>
-                      <Button type="submit" className="w-full bg-purple-600 hover:bg-purple-700" disabled={loading}>
-                        Save Chat Config
-                      </Button>
-                    </CardFooter>
-                  </form>
-                </Card>
-
-                <Card className="border-amber-500/20 bg-amber-500/5">
-                  <CardHeader>
-                    <CardTitle className="flex items-center gap-2 text-amber-600">
-                      <FileText className="h-5 w-5" />
-                      Magic Note Creator AI
-                    </CardTitle>
-                    <CardDescription>AI settings for image-to-note extraction.</CardDescription>
-                  </CardHeader>
-                  <form onSubmit={handleUpdateMagicNoteAI}>
-                    <CardContent className="space-y-4">
-                      <div className="flex items-center justify-between p-3 bg-white/50 dark:bg-black/20 rounded-lg border border-amber-200 dark:border-amber-900">
-                        <div className="space-y-0.5">
-                          <Label className="text-sm">Creator Active</Label>
-                          <p className="text-xs text-muted-foreground">Enable or disable the note creator AI.</p>
-                        </div>
-                        <div 
-                          className={`w-12 h-6 rounded-full cursor-pointer transition-colors ${editMagicNote.isActive ? 'bg-amber-500' : 'bg-muted'}`}
-                          onClick={() => setEditMagicNote(prev => ({ ...prev, isActive: !prev.isActive }))}
-                        >
-                          <div className={`w-4 h-4 rounded-full bg-white mt-1 transition-transform ${editMagicNote.isActive ? 'translate-x-7' : 'translate-x-1'}`} />
-                        </div>
-                      </div>
-
-                      <div className="space-y-2">
-                        <Label>API Provider</Label>
-                        <Select 
-                          value={editMagicNote.provider} 
-                          onValueChange={(v: 'groq' | 'openrouter' | 'gemini') => {
-                            setEditMagicNote(prev => ({ 
-                              ...prev, 
-                              provider: v,
-                              model: RECOMMENDED_MODELS[v].magicNote
-                            }));
-                          }}
-                        >
-                          <SelectTrigger>
-                            <SelectValue placeholder="Select Provider" />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="groq">Groq — Free ✓ (Recommended)</SelectItem>
-                            <SelectItem value="gemini">Google Gemini — Free ✓</SelectItem>
-                            <SelectItem value="openrouter">OpenRouter (More Models)</SelectItem>
-                          </SelectContent>
-                        </Select>
-                      </div>
-
-                      <div className="space-y-2">
-                        <Label>Model ID</Label>
-                        <Input 
-                          value={editMagicNote.model} 
-                          onChange={(e) => setEditMagicNote(prev => ({ ...prev, model: e.target.value }))}
-                          placeholder={
-                            editMagicNote.provider === 'gemini' 
-                              ? "e.g. gemini-2.0-flash-lite" 
-                              : editMagicNote.provider === 'groq' 
-                                ? "e.g. llama-3.2-11b-vision-instruct" 
-                                : "e.g. google/gemini-2.0-flash-001"
-                          }
-                          required
-                        />
-                        <p className="text-[10px] text-muted-foreground">
-                          {editMagicNote.provider === 'groq' ? (
-                            <>🆓 <b>Groq is free</b> — sign up at <a href="https://console.groq.com" target="_blank" rel="noopener noreferrer" className="underline text-amber-600">console.groq.com</a>, create an API key, and paste it here. Recommended vision model: <b>llama-3.2-11b-vision-instruct</b>.</>
-                          ) : editMagicNote.provider === 'gemini' ? (
-                            <>🆓 <b>Google Gemini is free</b> — get your key at <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noopener noreferrer" className="underline text-amber-600">aistudio.google.com/app/apikey</a>. Recommended model: <b>gemini-2.0-flash-lite</b>.</>
-                          ) : (
-                            <>Tip: On OpenRouter, use <b>google/gemini-2.0-flash-001</b> for best results. For free options, check the OpenRouter model list.</>
-                          )}
+                  <CardContent className="space-y-4">
+                    <div className="flex items-center justify-between p-3.5 bg-muted/65 rounded-xl border border-muted-foreground/10">
+                      <div>
+                        <p className="text-[10px] text-muted-foreground uppercase font-mono">Current Status</p>
+                        <p className="text-xl font-black text-primary tracking-tight">
+                          {systemConfig?.currentSemester === 'none' ? 'Holiday / Session Ended' : `${systemConfig?.currentSemester} Semester`}
                         </p>
                       </div>
+                    </div>
 
-                      <div className="space-y-2">
-                        <Label>API Key (Optional)</Label>
-                        <Input 
-                          type="password" 
-                          value={editMagicNote.apiKey} 
-                          onChange={(e) => setEditMagicNote(prev => ({ ...prev, apiKey: e.target.value }))}
-                          placeholder="Leave blank to use default system keys"
-                        />
-                      </div>
-                    </CardContent>
-                    <CardFooter>
-                      <Button type="submit" className="w-full bg-amber-600 hover:bg-amber-700" disabled={loading}>
-                        Save Creator Config
+                    <div className="grid grid-cols-1 gap-2.5">
+                      <Button 
+                        size="sm" 
+                        variant={systemConfig?.currentSemester === '1st' ? 'default' : 'outline'}
+                        onClick={() => handleUpdateSemester('1st')}
+                        disabled={loading || systemConfig?.currentSemester === '1st'}
+                        className="w-full justify-center text-xs h-9 font-medium"
+                      >
+                        Start 1st Semester
                       </Button>
-                    </CardFooter>
-                  </form>
+                      <Button 
+                        size="sm" 
+                        variant={systemConfig?.currentSemester === '2nd' ? 'default' : 'outline'}
+                        onClick={() => handleUpdateSemester('2nd')}
+                        disabled={loading || systemConfig?.currentSemester === '2nd'}
+                        className="w-full justify-center text-xs h-9 font-medium"
+                      >
+                        Start 2nd Semester
+                      </Button>
+                      <Button 
+                        size="sm" 
+                        variant="destructive"
+                        onClick={() => handleUpdateSemester('none')}
+                        disabled={loading || systemConfig?.currentSemester === 'none'}
+                        className="w-full justify-center text-xs h-9 font-semibold"
+                      >
+                        End Current Semester
+                      </Button>
+                    </div>
+                  </CardContent>
+                  <CardFooter className="pt-0 justify-center">
+                    <p className="text-[10px] text-muted-foreground/80 italic text-center">
+                      * Ending a semester deactivates all Level 1 (student) activation codes.
+                    </p>
+                  </CardFooter>
                 </Card>
-              </div>
-            )}
 
-            {isLevel4 && (
-              <Card className="border-sky-500/20 bg-sky-500/5">
-                <CardHeader>
-                  <CardTitle className="flex items-center gap-2 text-sky-600">
-                    <MessageCircle className="h-5 w-5" />
-                    Telegram Alerts Configuration
-                  </CardTitle>
-                  <CardDescription>Real-time system alerts configured securely via Firebase.</CardDescription>
-                </CardHeader>
-                <form onSubmit={handleSaveTelegram}>
+                {/* CoLearn Compete Season Control */}
+                <Card className="shadow-sm border">
+                  <CardHeader>
+                    <CardTitle className="flex items-center gap-2 text-sm font-bold">
+                      <Zap className="h-4.5 w-4.5 text-primary" />
+                      CoLearn Compete Season
+                    </CardTitle>
+                    <CardDescription>Configure tournament season and match scheduling.</CardDescription>
+                  </CardHeader>
                   <CardContent className="space-y-4">
-                    <div className="flex items-center justify-between p-3 bg-white/50 dark:bg-black/20 rounded-lg border border-sky-200 dark:border-sky-900">
-                      <div className="space-y-0.5">
-                        <Label className="text-sm">Alerts Status</Label>
-                        <p className="text-xs text-muted-foreground font-medium text-green-600 dark:text-green-400">Telegram alerts are forced always active.</p>
+                    {systemConfig?.activeSeasonId ? (
+                      <div className="p-3.5 rounded-xl border border-primary/20 bg-primary/5 space-y-3">
+                        <div className="flex flex-col gap-1">
+                          <span className="text-[9px] font-bold text-primary tracking-wider uppercase">Active Tournament Season</span>
+                          <span className="text-base font-black text-foreground tracking-tight">{systemConfig.activeSeasonName}</span>
+                        </div>
+                        <Button 
+                          size="sm" 
+                          variant="destructive" 
+                          onClick={handleEndSeason}
+                          disabled={loading}
+                          className="w-full text-xs font-semibold h-9"
+                        >
+                          End Season & Reset Leaderboard
+                        </Button>
                       </div>
-                      <div className="px-3 py-1 bg-green-500/15 text-green-600 rounded text-xs font-semibold uppercase">
-                        Active / Always On
-                      </div>
-                    </div>
-
-                    <div className="space-y-2">
-                      <Label>Bot API Token</Label>
-                      <Input 
-                        type="password" 
-                        value={editTelegram.botToken ? "••••••••••••••••••••••••••••" : ""} 
-                        disabled
-                        placeholder="Bot token configured securely in Firebase"
-                      />
-                      <p className="text-[10px] text-muted-foreground">Managed externally in Firebase database for security. Cannot be modified from this panel.</p>
-                    </div>
-
-                    <div className="space-y-2">
-                      <Label>Chat ID</Label>
-                      <Input 
-                        value={editTelegram.chatId || ""} 
-                        disabled
-                        placeholder="Chat ID configured securely in Firebase"
-                      />
-                      <p className="text-[10px] text-muted-foreground">Managed externally in Firebase database for security. Cannot be modified from this panel.</p>
-                    </div>
-
-                    {editTelegram.source && (
-                      <div className="space-y-2">
-                        <Label>Alert Source Identifier</Label>
-                        <Input 
-                          value={editTelegram.source} 
-                          disabled
-                          placeholder="Source identifier configured in Firebase"
-                        />
-                        <p className="text-[10px] text-muted-foreground">Indicates where telegram alerts are originating from (e.g., FUTO).</p>
+                    ) : (
+                      <div className="space-y-3">
+                        <div className="space-y-1">
+                          <Label className="text-xs">New Competition Season Name</Label>
+                          <Input 
+                            placeholder="e.g. 2026 Monsoon Semester Cup" 
+                            value={newSeasonName} 
+                            onChange={(e) => setNewSeasonName(e.target.value)}
+                            onKeyDown={(e) => e.key === 'Enter' && e.preventDefault()}
+                            className="h-9 text-xs"
+                          />
+                        </div>
+                        <Button 
+                          size="sm"
+                          onClick={handleStartSeason}
+                          disabled={loading || !newSeasonName.trim()}
+                          className="w-full text-xs font-semibold h-9"
+                        >
+                          Start New Season
+                        </Button>
                       </div>
                     )}
                   </CardContent>
-                  <CardFooter className="flex gap-2">
-                    <Button 
-                      type="button" 
-                      variant="outline"
-                      className="w-full"
-                      onClick={handleTestTelegram}
-                      disabled={loading}
-                    >
-                      Test Connection
-                    </Button>
-                  </CardFooter>
-                </form>
-              </Card>
-            )}
+                </Card>
+              </div>
+            </div>
 
-            {isLevel4 && (
-              <Card className="border-rose-500/20 bg-rose-500/5">
-                <CardHeader>
-                  <CardTitle className="flex items-center gap-2 text-rose-500">
-                    <Users className="h-5 w-5 text-rose-500" />
-                    Level Shifter (100L → 200L)
-                  </CardTitle>
-                  <CardDescription>Switches all users with an academicLevel of 100 to 200.</CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  <div className="p-3 bg-white/50 dark:bg-black/20 rounded-lg border border-rose-200 dark:border-rose-900">
-                    <p className="text-xs text-muted-foreground leading-relaxed">
-                      This action will query all student users whose <strong>academicLevel</strong> is exactly <strong>"100"</strong> and batch update them to <strong>"200"</strong>. This is typically done at the end of an academic session. This operation is irreversible.
-                    </p>
-                  </div>
-                </CardContent>
-                <CardFooter>
-                  <Button 
-                    className="w-full bg-rose-600 hover:bg-rose-700 text-white" 
-                    onClick={handleShiftLevels}
-                    disabled={shifting}
-                  >
-                    {shifting ? 'Updating Academic Levels...' : 'Switch 100L to 200L'}
-                  </Button>
-                </CardFooter>
-              </Card>
-            )}
-          </div>
-        } />
-
-        <Route path="/verifications" element={
-          <div className="space-y-6">
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <CheckCircle className="h-5 w-5" />
-                  Verification Queue
-                </CardTitle>
-                <CardDescription>Approve or reject account activations from Level 2 admins.</CardDescription>
-              </CardHeader>
-              <CardContent>
-                <div className="space-y-4">
-                  {verificationRequests.filter(r => r.status === 'pending').length > 0 ? (
-                    verificationRequests.filter(r => r.status === 'pending').map(request => (
-                      <div key={request.id} className="flex flex-col md:flex-row md:items-center justify-between p-4 bg-muted rounded-xl border gap-4">
-                        <div className="flex items-center gap-4">
-                          <div className="h-12 w-12 rounded-full bg-primary/10 flex items-center justify-center text-primary">
-                            <RefreshCw className="h-6 w-6 animate-spin-slow" />
-                          </div>
-                          <div>
-                            <p className="font-bold">{request.username || 'Unknown Student'}</p>
-                            <p className="text-xs text-muted-foreground font-mono">ID: {request.studentId || request.uid}</p>
-                            <p className="text-[10px] text-muted-foreground mt-1">Pin Used: <code className="font-bold">{request.code}</code></p>
-                          </div>
-                        </div>
-                        <div className="flex items-center gap-2">
-                          <Button 
-                            variant="outline" 
-                            className="flex-1 md:flex-none text-destructive hover:bg-destructive/10"
-                            onClick={() => handleVerification(request, 'rejected')}
-                            disabled={loading}
-                          >
-                            <XCircle className="mr-2 h-4 w-4" />
-                            Reject
-                          </Button>
-                          <Button 
-                            className="flex-1 md:flex-none bg-green-600 hover:bg-green-700"
-                            onClick={() => handleVerification(request, 'approved')}
-                            disabled={loading}
-                          >
-                            <CheckCircle className="mr-2 h-4 w-4" />
-                            Approve
-                          </Button>
-                        </div>
+            {/* SECTION 2: PLATFORM GATEWAYS & PROMO */}
+            <div>
+              <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-3">Platform Access Gates</h3>
+              <div className="grid gap-6 md:grid-cols-3">
+                {/* Maintenance Mode */}
+                <Card className="shadow-sm border col-span-1">
+                  <CardHeader>
+                    <CardTitle className="flex items-center gap-2 text-sm font-bold">
+                      <AlertTriangle className={systemConfig?.maintenanceMode ? "h-4.5 w-4.5 text-destructive" : "h-4.5 w-4.5 text-muted-foreground"} />
+                      Maintenance Mode
+                    </CardTitle>
+                    <CardDescription>Gatekeep student platform requests.</CardDescription>
+                  </CardHeader>
+                  <CardContent className="space-y-4">
+                    <div className={`p-3 rounded-xl border flex flex-col gap-2 ${systemConfig?.maintenanceMode ? "bg-destructive/10 border-destructive/25 text-destructive" : "bg-muted/50"}`}>
+                      <div>
+                        <p className="font-bold text-xs">{systemConfig?.maintenanceMode ? "Lock Enabled" : "Platform Active"}</p>
+                        <p className="text-[10px] text-muted-foreground leading-normal mt-0.5">
+                          {systemConfig?.maintenanceMode 
+                            ? "Only Level 4 (Super-Admin) roles bypass login gates." 
+                            : "Standard public connections permitted."}
+                        </p>
                       </div>
-                    ))
-                  ) : (
-                    <div className="text-center py-12 bg-muted/30 rounded-xl border-2 border-dashed">
-                      <CheckCircle className="h-12 w-12 text-muted-foreground mx-auto mb-4 opacity-20" />
-                      <p className="text-muted-foreground">No pending verification requests.</p>
+                      <Button 
+                        size="sm"
+                        variant={systemConfig?.maintenanceMode ? "default" : "destructive"}
+                        onClick={handleToggleMaintenance}
+                        disabled={loading}
+                        className="w-full text-xs font-semibold h-8 mt-1"
+                      >
+                        {systemConfig?.maintenanceMode ? "Disable Maintenance" : "Go Under Maintenance"}
+                      </Button>
                     </div>
-                  )}
-                </div>
-              </CardContent>
-            </Card>
+                  </CardContent>
+                </Card>
 
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-sm font-medium">Verification History</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="space-y-2">
-                   {verificationRequests.filter(r => r.status !== 'pending').length > 0 ? (
-                    verificationRequests.filter(r => r.status !== 'pending').sort((a, b) => safeCompareDates(a.timestamp, b.timestamp)).slice(0, 10).map(request => (
-                      <div key={request.id} className="flex items-center justify-between p-3 text-sm border rounded-lg bg-muted/50">
-                        <div className="flex flex-col">
-                          <span className="font-medium">{request.username || request.studentId}</span>
-                          <span className="text-[10px] text-muted-foreground">{new Date(request.timestamp).toLocaleString()}</span>
+                {/* Flux Platform Access */}
+                <Card className="shadow-sm border col-span-1">
+                  <CardHeader>
+                    <CardTitle className="flex items-center gap-2 text-sm font-bold text-pink-600 dark:text-pink-400">
+                      <Zap className="h-4.5 w-4.5 fill-pink-500 text-pink-500" />
+                      Flux Extracurriculars
+                    </CardTitle>
+                    <CardDescription>Control ecosystem micro-services access.</CardDescription>
+                  </CardHeader>
+                  <CardContent className="space-y-4">
+                    <div className={`p-3 rounded-xl border flex flex-col gap-2 ${systemConfig?.fluxEnabled === false ? "bg-pink-500/10 border-pink-500/25" : "bg-muted/50"}`}>
+                      <div>
+                        <p className="font-bold text-xs">{systemConfig?.fluxEnabled !== false ? "Flux Ecosystem Live" : "Flux Suspended"}</p>
+                        <p className="text-[10px] text-muted-foreground leading-normal mt-0.5">
+                          {systemConfig?.fluxEnabled !== false 
+                            ? "All users can browse tracks, games, and active engines." 
+                            : "Microtracks are restricted to active creators."}
+                        </p>
+                      </div>
+                      <Button 
+                        size="sm"
+                        variant={systemConfig?.fluxEnabled !== false ? "destructive" : "default"}
+                        onClick={handleToggleFlux}
+                        disabled={loading}
+                        className={`w-full text-xs font-semibold h-8 mt-1 ${systemConfig?.fluxEnabled === false ? "bg-pink-600 hover:bg-pink-700 text-white" : ""}`}
+                      >
+                        {systemConfig?.fluxEnabled !== false ? "Suspend Flux Tracks" : "De-suspend Flux Tracks"}
+                      </Button>
+                    </div>
+                  </CardContent>
+                </Card>
+
+                {/* Promo Mode Setup */}
+                <Card className="shadow-sm border col-span-1 border-amber-500/20 bg-amber-500/5">
+                  <CardHeader>
+                    <CardTitle className="flex items-center gap-2 text-sm font-bold text-amber-700 dark:text-amber-400">
+                      <PlayCircle className="h-4.5 w-4.5 text-amber-500" />
+                      Promo Activations
+                    </CardTitle>
+                    <CardDescription>Allow complimentary signups.</CardDescription>
+                  </CardHeader>
+                  <CardContent className="space-y-4">
+                    {promoConfig?.isActive ? (
+                      <div className="p-3 rounded-xl border border-amber-500/25 bg-amber-500/10 space-y-2.5">
+                        <div className="flex items-center justify-between">
+                          <div className="flex flex-col gap-0.5">
+                            <Badge className="bg-amber-600 border-none scale-90 -ml-1 text-[8px] tracking-wider py-0.5 px-1.5 h-3.5">PROMO ENROUTE</Badge>
+                            <span className="text-xs font-bold">{promoConfig.count} / {promoConfig.quota} Used</span>
+                          </div>
+                          <Button 
+                            size="sm" 
+                            variant="destructive" 
+                            className="h-7 text-[10px] font-bold px-2"
+                            onClick={() => handleTogglePromo(false)}
+                            disabled={loading}
+                          >
+                            Disable
+                          </Button>
                         </div>
-                        <div className={`px-2 py-1 rounded-full text-[10px] font-bold uppercase ${request.status === 'approved' ? 'bg-green-500/10 text-green-600' : 'bg-destructive/10 text-destructive'}`}>
-                          {request.status}
+                        <div className="w-full bg-muted rounded-full h-1.5 overflow-hidden">
+                          <div 
+                            className="bg-amber-500 h-full transition-all duration-500" 
+                            style={{ width: `${Math.min(100, (promoConfig.count / promoConfig.quota) * 100)}%` }}
+                          />
                         </div>
                       </div>
-                    ))
-                  ) : (
-                    <p className="text-xs text-muted-foreground text-center py-4">No history available.</p>
-                  )}
+                    ) : (
+                      <div className="space-y-2">
+                        <div className="space-y-1">
+                          <Label className="text-xs">Free Activation Quota (x)</Label>
+                          <Input 
+                            type="number" 
+                            placeholder="e.g. 50" 
+                            value={promoQuota === 0 ? '' : promoQuota} 
+                            onChange={(e) => setPromoQuota(parseInt(e.target.value) || 0)}
+                            min="1"
+                            onKeyDown={(e) => e.key === 'Enter' && e.preventDefault()}
+                            className="h-8 text-xs"
+                          />
+                        </div>
+                        <Button 
+                          size="sm"
+                          className="w-full bg-amber-600 hover:bg-amber-700 text-white text-xs font-semibold h-8" 
+                          onClick={() => handleTogglePromo(true)}
+                          disabled={loading || promoQuota <= 0}
+                        >
+                          Enable Promo Mode
+                        </Button>
+                      </div>
+                    )}
+                  </CardContent>
+                </Card>
+              </div>
+            </div>
+
+            {/* SECTION 3: SYSTEM AI INTERFACES (LEVEL 4) */}
+            {isLevel4 && (
+              <div>
+                <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-3">AI Model Configurations</h3>
+                <div className="grid gap-6 md:grid-cols-2">
+                  {/* Hermes Chat Config */}
+                  <Card className="shadow-sm border border-purple-500/20">
+                    <CardHeader>
+                      <CardTitle className="flex items-center gap-2 text-sm font-bold text-purple-700 dark:text-purple-400">
+                        <MessageCircle className="h-4.5 w-4.5 text-purple-500" />
+                        Hermes Chatbot Assistant
+                      </CardTitle>
+                      <CardDescription>AI configuration context for real-time student conversations.</CardDescription>
+                    </CardHeader>
+                    <form onSubmit={handleUpdateAI}>
+                      <CardContent className="space-y-4 text-xs">
+                        <div className="flex items-center justify-between p-3.5 bg-purple-500/5 rounded-xl border border-purple-500/10">
+                          <div className="space-y-0.5">
+                            <Label className="text-xs font-semibold">Chatbot Active</Label>
+                            <p className="text-[10px] text-muted-foreground">Allows student sidebar chat interactions.</p>
+                          </div>
+                          <div 
+                            className={`w-11 h-5.5 rounded-full cursor-pointer transition-colors ${editAI.isActive ? 'bg-purple-500' : 'bg-muted'}`}
+                            onClick={() => setEditAI(prev => ({ ...prev, isActive: !prev.isActive }))}
+                          >
+                            <div className={`w-3.5 h-3.5 rounded-full bg-white mt-1 transition-transform ${editAI.isActive ? 'translate-x-6' : 'translate-x-1'}`} />
+                          </div>
+                        </div>
+
+                        <div className="space-y-1.5">
+                          <Label className="text-xs">API Provider</Label>
+                          <Select 
+                            value={editAI.provider} 
+                            onValueChange={(v: 'groq' | 'openrouter' | 'gemini') => {
+                              setEditAI(prev => ({ 
+                                ...prev, 
+                                provider: v,
+                                model: RECOMMENDED_MODELS[v].chat
+                              }));
+                            }}
+                          >
+                            <SelectTrigger className="h-9 text-xs">
+                              <SelectValue placeholder="Select Provider" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="groq">Groq (Recommended — Fast & Free ✓)</SelectItem>
+                              <SelectItem value="gemini">Google Gemini (Native — Free ✓)</SelectItem>
+                              <SelectItem value="openrouter">OpenRouter (Pro Models)</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </div>
+
+                        <div className="space-y-1.5">
+                          <Label className="text-xs">Model Identifier</Label>
+                          <Input 
+                            value={editAI.model} 
+                            onChange={(e) => setEditAI(prev => ({ ...prev, model: e.target.value }))}
+                            placeholder="Model slug string"
+                            required
+                            className="h-9 text-xs"
+                          />
+                        </div>
+
+                        <div className="space-y-1.5">
+                          <Label className="text-xs">API Key Override</Label>
+                          <Input 
+                            type="password" 
+                            value={editAI.apiKey} 
+                            onChange={(e) => setEditAI(prev => ({ ...prev, apiKey: e.target.value }))}
+                            placeholder="Leave blank to use global fallbacks"
+                            className="h-9 text-xs text-stone-700 dark:text-stone-300"
+                          />
+                        </div>
+                      </CardContent>
+                      <CardFooter>
+                        <Button type="submit" className="w-full bg-purple-600 hover:bg-purple-700 text-white text-xs font-semibold h-9" disabled={loading}>
+                          Save Chat Config
+                        </Button>
+                      </CardFooter>
+                    </form>
+                  </Card>
+
+                  {/* Magic Note Creator AI */}
+                  <Card className="shadow-sm border border-amber-500/20">
+                    <CardHeader>
+                      <CardTitle className="flex items-center gap-2 text-sm font-bold text-amber-700 dark:text-amber-400">
+                        <FileText className="h-4.5 w-4.5 text-amber-500" />
+                        Magic Note Creator AI
+                      </CardTitle>
+                      <CardDescription>AI settings for image-to-text notes extraction.</CardDescription>
+                    </CardHeader>
+                    <form onSubmit={handleUpdateMagicNoteAI}>
+                      <CardContent className="space-y-4 text-xs">
+                        <div className="flex items-center justify-between p-3.5 bg-amber-500/5 rounded-xl border border-amber-500/10">
+                          <div className="space-y-0.5">
+                            <Label className="text-xs font-semibold">Creator Engine Active</Label>
+                            <p className="text-[10px] text-muted-foreground">Allows AI notes creation from images.</p>
+                          </div>
+                          <div 
+                            className={`w-11 h-5.5 rounded-full cursor-pointer transition-colors ${editMagicNote.isActive ? 'bg-amber-500' : 'bg-muted'}`}
+                            onClick={() => setEditMagicNote(prev => ({ ...prev, isActive: !prev.isActive }))}
+                          >
+                            <div className={`w-3.5 h-3.5 rounded-full bg-white mt-1 transition-transform ${editMagicNote.isActive ? 'translate-x-6' : 'translate-x-1'}`} />
+                          </div>
+                        </div>
+
+                        <div className="space-y-1.5">
+                          <Label className="text-xs">API Provider</Label>
+                          <Select 
+                            value={editMagicNote.provider} 
+                            onValueChange={(v: 'groq' | 'openrouter' | 'gemini') => {
+                              setEditMagicNote(prev => ({ 
+                                ...prev, 
+                                provider: v,
+                                model: RECOMMENDED_MODELS[v].magicNote
+                              }));
+                            }}
+                          >
+                            <SelectTrigger className="h-9 text-xs">
+                              <SelectValue placeholder="Select Provider" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="groq">Groq (Recommended — Vision Model Free ✓)</SelectItem>
+                              <SelectItem value="gemini">Google Gemini (Native — Free ✓)</SelectItem>
+                              <SelectItem value="openrouter">OpenRouter (Pro Vision)</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </div>
+
+                        <div className="space-y-1.5">
+                          <Label className="text-xs">Model Identifier</Label>
+                          <Input 
+                            value={editMagicNote.model} 
+                            onChange={(e) => setEditMagicNote(prev => ({ ...prev, model: e.target.value }))}
+                            placeholder="Vision Model slug string"
+                            required
+                            className="h-9 text-xs"
+                          />
+                        </div>
+
+                        <div className="space-y-1.5">
+                          <Label className="text-xs">API Key Override</Label>
+                          <Input 
+                            type="password" 
+                            value={editMagicNote.apiKey} 
+                            onChange={(e) => setEditMagicNote(prev => ({ ...prev, apiKey: e.target.value }))}
+                            placeholder="Leave blank to use global fallbacks"
+                            className="h-9 text-xs text-stone-700 dark:text-stone-300"
+                          />
+                        </div>
+                      </CardContent>
+                      <CardFooter>
+                        <Button type="submit" className="w-full bg-amber-600 hover:bg-amber-700 text-white text-xs font-semibold h-9" disabled={loading}>
+                          Save Magic Note Config
+                        </Button>
+                      </CardFooter>
+                    </form>
+                  </Card>
                 </div>
-              </CardContent>
-            </Card>
+              </div>
+            )}
+
+            {/* SECTION 4: INTEGRATIONS & AUTOMATION (LEVEL 4) */}
+            {isLevel4 && (
+              <div>
+                <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-3">Integrations & Automations</h3>
+                <div className="grid gap-6 md:grid-cols-2">
+                  {/* Telegram Alerts Config */}
+                  <Card className="shadow-sm border border-sky-500/20">
+                    <CardHeader>
+                      <CardTitle className="flex items-center gap-2 text-sm font-bold text-sky-700 dark:text-sky-400">
+                        <MessageCircle className="h-4.5 w-4.5 text-sky-500" />
+                        Telegram Alerts Integration
+                      </CardTitle>
+                      <CardDescription>Real-time backend trigger reports channel setup.</CardDescription>
+                    </CardHeader>
+                    <form onSubmit={handleSaveTelegram}>
+                      <CardContent className="space-y-4 text-xs">
+                        <div className="flex items-center justify-between p-3 bg-sky-500/5 rounded-xl border border-sky-200/40">
+                          <div className="space-y-0.5">
+                            <Label className="text-xs font-semibold">Webhook Alerts Channel</Label>
+                            <p className="text-[10px] text-muted-foreground">Alerts are active forever on database modifications.</p>
+                          </div>
+                          <div className="px-2.5 py-0.5 bg-green-500/10 text-green-600 rounded text-[9px] font-bold uppercase tracking-wider border border-green-500/20">
+                            Always Live
+                          </div>
+                        </div>
+
+                        <div className="space-y-1.5">
+                          <Label className="text-xs text-muted-foreground">Bot API Token</Label>
+                          <Input 
+                            type="password" 
+                            value={editTelegram.botToken ? "••••••••••••••••••••••••••••" : ""} 
+                            disabled
+                            placeholder="Secured in backend"
+                            className="h-9 text-xs bg-muted"
+                          />
+                        </div>
+
+                        <div className="space-y-1.5">
+                          <Label className="text-xs text-muted-foreground font-semibold">Target Chat Room ID</Label>
+                          <Input 
+                            value={editTelegram.chatId || ""} 
+                            disabled
+                            placeholder="Secured in backend"
+                            className="h-9 text-xs bg-muted"
+                          />
+                        </div>
+
+                        {editTelegram.source && (
+                          <div className="space-y-1.5">
+                            <Label className="text-xs text-muted-foreground">Source Identity Tag</Label>
+                            <Input 
+                              value={editTelegram.source} 
+                              disabled
+                              className="h-9 text-xs bg-muted font-mono"
+                            />
+                          </div>
+                        )}
+                      </CardContent>
+                      <CardFooter>
+                        <Button 
+                          type="button" 
+                          variant="outline"
+                          className="w-full text-xs font-semibold h-9"
+                          onClick={handleTestTelegram}
+                          disabled={loading}
+                        >
+                          Send Test Alert
+                        </Button>
+                      </CardFooter>
+                    </form>
+                  </Card>
+
+                  {/* Level Shifter */}
+                  <Card className="shadow-sm border border-rose-500/20 bg-rose-500/10 dark:bg-rose-950/20">
+                    <CardHeader>
+                      <CardTitle className="flex items-center gap-2 text-sm font-bold text-rose-700 dark:text-rose-400">
+                        <Users className="h-4.5 w-4.5 text-rose-500" />
+                        Level Shifter (100L → 200L)
+                      </CardTitle>
+                      <CardDescription>Automated batch update task for end of academic session.</CardDescription>
+                    </CardHeader>
+                    <CardContent className="space-y-4">
+                      <div className="p-3.5 bg-white/70 dark:bg-zinc-950/40 rounded-xl border border-rose-200 dark:border-rose-900 text-xs">
+                        <p className="text-muted-foreground leading-relaxed">
+                          This operation will search all system users whose active <strong className="text-rose-600 dark:text-rose-400">academicLevel</strong> equals <strong className="font-bold text-rose-600 dark:text-rose-400">"100"</strong> and instantly shift them to <strong className="font-bold text-rose-600 dark:text-rose-400">"200"</strong>. This is irreversible.
+                        </p>
+                      </div>
+                    </CardContent>
+                    <CardFooter>
+                      <Button 
+                        className="w-full bg-rose-600 hover:bg-rose-700 text-white text-xs font-semibold h-9 shadow-md" 
+                        onClick={handleShiftLevels}
+                        disabled={shifting}
+                      >
+                        {shifting ? 'Shifting Levels...' : 'Switch 100L to 200L'}
+                      </Button>
+                    </CardFooter>
+                  </Card>
+                </div>
+              </div>
+            )}
           </div>
         } />
 
@@ -4331,25 +4465,25 @@ function AdminManual() {
     {
       title: "User Management",
       icon: <Users className="h-5 w-5" />,
-      content: "Admins can elevate users to different levels (1, 2, 3, 4) using their specific UID. You can also ban users and provide a reason.",
+      content: "Admins can elevate user roles, ban users with explicit reasons, and perform batch operations like switching all 100L active accounts to 200L.",
       tutorial: (
-        <div className="space-y-4">
-          <p>The User Management system is designed for account moderation and role assignment.</p>
+        <div className="space-y-4 text-xs md:text-sm">
+          <p>The User Management interface allows administrators to moderate credentials and control permission-level status.</p>
           <div className="space-y-2">
-            <h4 className="font-bold text-sm">Elevating a User:</h4>
-            <ul className="list-disc pl-5 text-sm space-y-1">
-              <li>Open the <strong>Users</strong> tab.</li>
-              <li>Enter the user's unique <strong>UID</strong> (found in their profile or database).</li>
-              <li>Select the desired <strong>Target Level</strong> (Lvl 3/4 are Admins).</li>
-              <li>Click <strong>Elevate User</strong> to apply changes immediately.</li>
+            <h4 className="font-bold text-sm">Role Definitions:</h4>
+            <ul className="list-disc pl-5 space-y-1">
+              <li><strong>Level 1 (Student):</strong> Access standard notes & lectures after entering activation pin.</li>
+              <li><strong>Level 2 (Active Student):</strong> Full dual-semester access badge.</li>
+              <li><strong>Level 3 (Vendor / Creator):</strong> Can generate discount activation pins and transfer lists.</li>
+              <li><strong>Level 4 (Super-Admin):</strong> God-mode system setting edits, reports, and AI endpoints.</li>
             </ul>
           </div>
           <div className="space-y-2">
-            <h4 className="font-bold text-sm">Banning a User:</h4>
-            <ul className="list-disc pl-5 text-sm space-y-1">
-              <li>Enter the user's <strong>UID</strong>.</li>
-              <li>Provide a <strong>Ban Reason</strong> (this is displayed to the user on login).</li>
-              <li>Click <strong>Ban User</strong>. The user will be logged out and blocked.</li>
+            <h4 className="font-bold text-sm">Elevations & Moderations:</h4>
+            <ul className="list-disc pl-5 space-y-1">
+              <li>Input student unique identifier UID or matching database key.</li>
+              <li>Assign Target level and execute <strong>Elevate User</strong>.</li>
+              <li>To ban a user, type the reason and click <strong>Ban User</strong>; they are immediately disconnected.</li>
             </ul>
           </div>
         </div>
@@ -4360,11 +4494,11 @@ function AdminManual() {
       icon: <BookPlus className="h-5 w-5" />,
       content: "Create new courses by providing a unique course code, title, semester, level, and department.",
       tutorial: (
-        <div className="space-y-4">
+        <div className="space-y-4 text-xs md:text-sm">
           <p>Courses serve as the foundation for organizing all study materials on the platform.</p>
           <div className="space-y-2">
             <h4 className="font-bold text-sm">Creating a Course:</h4>
-            <ul className="list-disc pl-5 text-sm space-y-1">
+            <ul className="list-disc pl-5 space-y-1">
               <li>Go to the <strong>Courses</strong> tab.</li>
               <li>Enter <strong>Course Code</strong> (e.g., GST 111) and <strong>Title</strong>.</li>
               <li>Specify <strong>Semester</strong> and <strong>Level</strong>.</li>
@@ -4379,49 +4513,58 @@ function AdminManual() {
     {
       title: "Note Builder & Materials",
       icon: <FileText className="h-5 w-5" />,
-      content: "Use the Note Builder for rich text content, math equations, and linked resources.",
+      content: "Create or modify comprehensive study notes. Supports rich text format, KaTeX equations, and video lesson attachments.",
       tutorial: (
-        <div className="space-y-4">
+        <div className="space-y-4 text-xs md:text-sm">
           <p>The Note Builder is a powerful tool for creating high-quality, readable study guides.</p>
           <div className="space-y-2">
             <h4 className="font-bold text-sm">Structure:</h4>
-            <ul className="list-disc pl-5 text-sm space-y-1">
+            <ul className="list-disc pl-5 space-y-1">
               <li><strong>Headings:</strong> Use `#` for title, `##` for subheadings.</li>
               <li><strong>Math Expressions:</strong> Wrap formulas in `$$` for KaTeX rendering (e.g., `$$E=mc^2$$`).</li>
-              <li><strong>Video Links:</strong> You can link YouTube videos to specific notes in the <strong>Video Library</strong> tab.</li>
+              <li><strong>Video Links:</strong> Link YouTube or Google Drive videos to notes inside the <strong>Video Management</strong> library.</li>
             </ul>
           </div>
           <div className="space-y-2">
             <h4 className="font-bold text-sm">Workflow:</h4>
-            <ol className="list-decimal pl-5 text-sm space-y-1">
+            <ol className="list-decimal pl-5 space-y-1">
               <li>Select a <strong>Course</strong> to host the note.</li>
-              <li>Choose <strong>Note Type</strong> (Lecture, Past Question, or CBT).</li>
-              <li>Draft your content in the editor.</li>
-              <li>Use the <strong>Preview</strong> toggle to see how it looks for students.</li>
-              <li>Click <strong>Save Note</strong>.</li>
+              <li>Choose <strong>Note Type</strong> (such as Lecture Guide or past questions).</li>
+              <li>Draft your content in the interactive markdown editor and review via the <strong>Preview</strong> mode.</li>
+              <li>Click <strong>Save Note</strong> to release.</li>
             </ol>
           </div>
         </div>
       )
     },
     {
-      title: "CBT & Past Questions",
-      icon: <HistoryIcon className="h-5 w-5" />,
-      content: "Organize exams into Question Sheets with detailed explanations for every answer.",
+      title: "Video Library & Quizzes",
+      icon: <PlayCircle className="h-5 w-5" />,
+      content: "Admins can link study videos, arrange lessons group-sorted by semesters and courses, delete old video links, and compile quiz questions.",
       tutorial: (
-        <div className="space-y-4">
-          <p>CBT practice is a core feature for examination preparation.</p>
+        <div className="space-y-4 text-xs md:text-sm">
+          <p>Video lessons supplement reading guides and support active learning via linked micro-quizzes.</p>
           <div className="space-y-2">
-            <h4 className="font-bold text-sm">Creating an Exam:</h4>
-            <ol className="list-decimal pl-5 text-sm space-y-1">
-              <li>In the <strong>CBT</strong> tab, create a <strong>Question Sheet</strong> first.</li>
-              <li>Provide metadata: Course, Semester, Academic Year.</li>
-              <li>Once created, select the sheet from the list.</li>
-              <li>Add questions one-by-one: Text, Correct Answer, and 3 Incorrect options.</li>
-              <li>Add an <strong>Explanation</strong> to help students learn from their mistakes.</li>
-            </ol>
+            <h4 className="font-bold text-sm">Linking to a Note:</h4>
+            <ul className="list-disc pl-5 space-y-1">
+              <li>In the <strong>Video Library</strong> dashboard, select the destination note from the selector.</li>
+              <li>Copy and paste the YouTube / Google Drive file URL, and click <strong>Link to Note</strong>.</li>
+            </ul>
           </div>
-          <p className="text-xs text-amber-600 font-bold border-l-2 border-amber-500 pl-2">Remember to set 'Is Available' to true for students to see the sheet.</p>
+          <div className="space-y-2">
+            <h4 className="font-bold text-sm">Organization & Deletion:</h4>
+            <ul className="list-disc pl-5 space-y-1">
+              <li>Videos are automatically arranged cleanly according to their course semester and department.</li>
+              <li>Admins can delete any video link permanently by clicking the red <strong>Trashcan</strong> button next to the lesson cards.</li>
+            </ul>
+          </div>
+          <div className="space-y-2">
+            <h4 className="font-bold text-sm">Concept Check Quizzes:</h4>
+            <ul className="list-disc pl-5 space-y-1">
+              <li>Select any note in the Library and click <strong>Manage Quiz</strong>.</li>
+              <li>Add multi-choice question items consisting of the question text, the correct answer, three incorrect options, and a helpful explanation.</li>
+            </ul>
+          </div>
         </div>
       )
     },
@@ -4430,18 +4573,18 @@ function AdminManual() {
       icon: <Key className="h-5 w-5" />,
       content: "Generate secure 12-digit pins for account activation and tier upgrades.",
       tutorial: (
-        <div className="space-y-4">
-          <p>Pins are the primary monetization and access control mechanism.</p>
+        <div className="space-y-4 text-xs md:text-sm">
+          <p>Pins are the primary activation and access control mechanism.</p>
           <div className="space-y-2">
             <h4 className="font-bold text-sm">Pin Types:</h4>
-            <ul className="list-disc pl-5 text-sm space-y-1">
+            <ul className="list-disc pl-5 space-y-1">
               <li><strong>Standard:</strong> Activates Level 1 accounts for one semester.</li>
               <li><strong>Plus:</strong> Grants Level 2 status (two semesters of access).</li>
             </ul>
           </div>
           <div className="space-y-2">
             <h4 className="font-bold text-sm">Management:</h4>
-            <ul className="list-disc pl-5 text-sm space-y-1">
+            <ul className="list-disc pl-5 space-y-1">
               <li>Pins can only be generated when a semester is **Active**.</li>
               <li>Copy and send pins directly to students.</li>
               <li>Monitor the **Used Pins** history to prevent fraud.</li>
@@ -4455,11 +4598,11 @@ function AdminManual() {
       icon: <Bell className="h-5 w-5" />,
       content: "Send targeted messages to students using the Notifier system.",
       tutorial: (
-        <div className="space-y-4">
+        <div className="space-y-4 text-xs md:text-sm">
           <p>Keep the student body updated with real-time broadcasts.</p>
           <div className="space-y-2">
             <h4 className="font-bold text-sm">Targeting Options:</h4>
-            <ul className="list-disc pl-5 text-sm space-y-1">
+            <ul className="list-disc pl-5 space-y-1">
               <li><strong>All:</strong> Every user in the system.</li>
               <li><strong>Academic Level:</strong> Specific year (Currently 100L or 200L).</li>
               <li><strong>Department:</strong> Specific faculty group.</li>
@@ -4471,24 +4614,31 @@ function AdminManual() {
       )
     },
     {
-      title: "System Control",
+      title: "System Control Panel",
       icon: <Settings className="h-5 w-5" />,
-      content: "Manage semester states and global system maintenance (Level 4 Admins only).",
+      content: "God-mode settings controlling semester transitions, competition matchmaking seasons, access gates, AI integrations, and real-time backend alerting.",
       tutorial: (
-        <div className="space-y-4">
-          <p>These are 'God Mode' controls that impact the entire platform.</p>
-          <div className="space-y-2">
-            <h4 className="font-bold text-sm">Semester Transition:</h4>
-            <ul className="list-disc pl-5 text-sm space-y-1">
-              <li><strong>Starting 1st/2nd:</strong> Opens materials for the current session.</li>
-              <li><strong>Ending Semester:</strong> Triggers global reset.</li>
+        <div className="space-y-4 text-xs md:text-sm">
+          <p>Platform system configurations are structured into four clean sub-panels:</p>
+          <div className="space-y-2.5">
+            <h4 className="font-bold text-sm">1. Academic & Tournament Cycles:</h4>
+            <ul className="list-disc pl-5 space-y-1">
+              <li><strong>Semester toggling:</strong> Deactivate past semester pins and update current course semesters (1st/2nd/None).</li>
+              <li><strong>Matchmaking Seasons:</strong> Reset leaderboards, update championship name titles, and permit matchmaking leagues.</li>
             </ul>
-          </div>
-          <div className="space-y-2">
-            <h4 className="font-bold text-sm">Maintenance Mode:</h4>
-            <ul className="list-disc pl-5 text-sm space-y-1">
-              <li>Use during database updates or critical fixes.</li>
-              <li>Locks all students out while allowing Admins to continue work.</li>
+            <h4 className="font-bold text-sm">2. Platform Access Gates:</h4>
+            <ul className="list-disc pl-5 space-y-1">
+              <li><strong>Maintenance:</strong> Lock student routing access locks for emergency database updates.</li>
+              <li><strong>Flux:</strong> Suspend or actuate the CoLearn Extracurricular Skills & active engines.</li>
+              <li><strong>Promo:</strong> Grant free registration slots easily with targeted quotas.</li>
+            </ul>
+            <h4 className="font-bold text-sm">3. AI Model Configurations (Level 4 Only):</h4>
+            <ul className="list-disc pl-5 space-y-1">
+              <li>Select active providers (Groq, Gemini, OpenRouter) and customize LLM model parameters for the **Hermes Chatbot** and the **Magic Notes vision OCR processor**.</li>
+            </ul>
+            <h4 className="font-bold text-sm">4. Integrations & Automations (Level 4 Only):</h4>
+            <ul className="list-disc pl-5 space-y-1">
+              <li>Test the webhook configuration for Telegram operations notifications and deploy the **Level Shifter batch utility** shifting 100L users to 200L.</li>
             </ul>
           </div>
         </div>
@@ -4499,10 +4649,10 @@ function AdminManual() {
       icon: <UserPlus className="h-5 w-5" />,
       content: "Policy enforcement for the automated referral and point system.",
       tutorial: (
-        <div className="space-y-4">
+        <div className="space-y-4 text-xs md:text-sm">
           <p>Understanding the anti-fraud measures in the referral system.</p>
           <p className="text-sm">The software automatically blocks Levels {">"}= 2 from participation. This is hardcoded into the business logic to prevent Admins, Vendors, or Multi-Semester users from farming points using their influence.</p>
-          <div className="p-3 bg-destructive/5 rounded border border-destructive/20 text-destructive text-xs font-bold uppercase tracking-tight">
+          <div className="p-3 bg-destructive/5 rounded border border-destructive/20 text-destructive text-xs font-bold uppercase tracking-tight text-center">
             Level 2 / 3 / 4 Restricted
           </div>
         </div>

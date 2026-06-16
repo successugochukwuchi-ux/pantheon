@@ -80,7 +80,6 @@ export const Sidebar: React.FC<SidebarProps> = ({ onClose, isCollapsed = false, 
   const adminNavItems: SidebarNavItem[] = [
     { name: 'Admin Overview', path: '/administrator', icon: Shield },
     { name: 'User Management', path: '/administrator/users', icon: Users },
-    { name: 'Verification Queue', path: '/administrator/verifications', icon: CheckCircle },
     { name: 'Course Management', path: '/administrator/courses', icon: BookPlus },
     { name: 'Notes Management', path: '/administrator/notes', icon: FileText },
     { name: 'Question Management', path: '/administrator/questions', icon: HelpCircle },
