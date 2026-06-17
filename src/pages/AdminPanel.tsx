@@ -1586,24 +1586,30 @@ export default function AdminPanel() {
         let countDemoted = 0;
 
         try {
-          // 1. Deactivate Level 1 users
-          const level1Query = query(collection(db, 'users'), where('level', '==', '1'), where('isActivated', '==', true));
-          const level1Snap = await getDocs(level1Query);
-          level1Snap.docs.forEach((userDoc) => {
-            batch.update(userDoc.ref, { isActivated: false });
-            countDeactivated++;
+          // 1. Deactivate Level 1 and Level 3 users
+          const level1And3Query = query(collection(db, 'users'), where('level', 'in', ['1', '3']));
+          const level1And3Snap = await getDocs(level1And3Query);
+          level1And3Snap.docs.forEach((userDoc) => {
+            const data = userDoc.data();
+            if (data.isActivated !== false || data.activatedViaPromo !== false) {
+              batch.update(userDoc.ref, { isActivated: false, activatedViaPromo: false });
+              countDeactivated++;
+            }
           });
 
           // 2. Demote Level 2 users to Level 1 while keeping them activated
           const level2Query = query(collection(db, 'users'), where('level', '==', '2'));
           const level2Snap = await getDocs(level2Query);
           level2Snap.docs.forEach((userDoc) => {
-            batch.update(userDoc.ref, { level: '1' });
-            countDemoted++;
+            const data = userDoc.data();
+            if (data.level !== '1' || data.isActivated !== true) {
+              batch.update(userDoc.ref, { level: '1', isActivated: true });
+              countDemoted++;
+            }
           });
 
           await batch.commit();
-          toast.success(`Semester ended. ${countDeactivated} deactivated, ${countDemoted} demoted.`);
+          toast.success(`Semester ended. ${countDeactivated} level 1/3 users deactivated, ${countDemoted} level 2 users demoted.`);
         } catch (innerError: any) {
           console.error("Batch update failed during semester end:", innerError);
           toast.error(`Semester config updated, but user reset failed: ${innerError.message}. Please check indexes.`);
