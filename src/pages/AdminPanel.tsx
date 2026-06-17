@@ -11,7 +11,9 @@ import {
   getDocs,
   query,
   where,
-  deleteDoc
+  deleteDoc,
+  increment,
+  limit
 } from 'firebase/firestore';
 import { db, handleFirestoreError, OperationType } from '../firebase';
 import { useAuth } from '../contexts/AuthContext';
@@ -280,6 +282,16 @@ export default function AdminPanel() {
   // Verification Requests State
   const [verificationRequests, setVerificationRequests] = useState<VerificationRequest[]>([]);
 
+  // System Stats State
+  const [stats, setStats] = useState({
+    totalCourses: 0,
+    totalNotes: 0,
+    totalQuestionSheets: 0,
+    totalUnusedPins: 0,
+    totalUsedPins: 0,
+    totalUsers: 0
+  });
+
   // Notifier State
   const [notifyTitle, setNotifyTitle] = useState('');
   const [notifyMessage, setNotifyMessage] = useState('');
@@ -341,70 +353,71 @@ export default function AdminPanel() {
     isActive: true
   });
 
+  const updateStatCount = async (field: string, amount: number) => {
+    try {
+      const statsDocRef = doc(db, 'system', 'stats');
+      await setDoc(statsDocRef, {
+        [field]: increment(amount)
+      }, { merge: true });
+    } catch (err) {
+      console.error(`Error updating stat ${field}:`, err);
+    }
+  };
+
+  const fetchAndSyncStats = async () => {
+    try {
+      const statsDocRef = doc(db, 'system', 'stats');
+      const snap = await getDoc(statsDocRef);
+      let currentStats = snap.exists() ? snap.data() : {};
+      
+      let needsUpdate = false;
+      const updatedStats = { ...currentStats };
+
+      const checkAndSync = async (field: string, collectionName: string, queryConstraint?: any) => {
+        if (currentStats[field] === undefined || currentStats[field] === null || currentStats[field] === 0) {
+          console.log(`Stat ${field} is 0 or missing, performing manual count...`);
+          let count = 0;
+          if (queryConstraint) {
+            const qSnap = await getDocs(queryConstraint);
+            count = qSnap.size;
+          } else {
+            const cSnap = await getDocs(collection(db, collectionName));
+            count = cSnap.size;
+          }
+          updatedStats[field] = count;
+          needsUpdate = true;
+        }
+      };
+
+      await checkAndSync('totalCourses', 'courses');
+      await checkAndSync('totalNotes', 'notes');
+      await checkAndSync('totalQuestionSheets', 'questionSheets');
+      await checkAndSync('totalUnusedPins', 'activationCodes', query(collection(db, 'activationCodes'), where('isUsed', '==', false)));
+      await checkAndSync('totalUsedPins', 'activationCodes', query(collection(db, 'activationCodes'), where('isUsed', '==', true)));
+      await checkAndSync('totalUsers', 'users');
+
+      if (needsUpdate || !snap.exists()) {
+        await setDoc(statsDocRef, updatedStats, { merge: true });
+      }
+      
+      setStats({
+        totalCourses: updatedStats.totalCourses || 0,
+        totalNotes: updatedStats.totalNotes || 0,
+        totalQuestionSheets: updatedStats.totalQuestionSheets || 0,
+        totalUnusedPins: updatedStats.totalUnusedPins || 0,
+        totalUsedPins: updatedStats.totalUsedPins || 0,
+        totalUsers: updatedStats.totalUsers || 0,
+      });
+    } catch (error) {
+      console.error("Error fetching or syncing stats:", error);
+    }
+  };
+
   useEffect(() => {
     if (!profile) return;
 
     if (profile.level === '4') {
-      getDocs(collection(db, 'courses')).then((snapshot) => {
-        const fetchedCourses = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Course));
-        fetchedCourses.sort((a, b) => safeCompareStrings(a.code, b.code));
-        setCourses(fetchedCourses);
-      }).catch((err) => {
-        handleFirestoreError(err, OperationType.LIST, 'courses');
-      });
-
-      getDocs(collection(db, 'notes')).then((snapshot) => {
-        setNotes(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Note)));
-      }).catch((err) => {
-        handleFirestoreError(err, OperationType.LIST, 'notes');
-      });
-
-      getDocs(collection(db, 'questions')).then((snapshot) => {
-        setQuestions(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Question)));
-      }).catch((err) => {
-        handleFirestoreError(err, OperationType.LIST, 'questions');
-      });
-
-      getDocs(collection(db, 'questionSheets')).then((snapshot) => {
-        setQuestionSheets(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as QuestionSheet)));
-      }).catch((err) => {
-        handleFirestoreError(err, OperationType.LIST, 'questionSheets');
-      });
-
-      getDocs(collection(db, 'announcements')).then((snapshot) => {
-        setAnnouncements(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Announcement)).sort((a, b) => safeCompareDates(a.createdAt, b.createdAt)));
-      }).catch((err) => {
-        handleFirestoreError(err, OperationType.LIST, 'announcements');
-      });
-    }
-
-    getDocs(collection(db, 'activationCodes')).then((snapshot) => {
-      const allPins = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as ActivationCode));
-      if (profile.level === '3') {
-        const sortedUnused = allPins.filter(p => !p.isUsed && p.assignedTo === user?.uid).sort((a, b) => safeCompareDates(a.createdAt, b.createdAt));
-        const sortedUsed = allPins.filter(p => p.isUsed && p.assignedTo === user?.uid).sort((a, b) => safeCompareDates(a.usedAt || a.createdAt, b.usedAt || b.createdAt));
-        setUnusedPins(sortedUnused);
-        setUsedPins(sortedUsed);
-        setTransferredPins([]);
-      } else {
-        const sortedUnused = allPins.filter(p => !p.isUsed && !p.assignedTo).sort((a, b) => safeCompareDates(a.createdAt, b.createdAt));
-        const sortedUsed = allPins.filter(p => p.isUsed).sort((a, b) => safeCompareDates(a.usedAt || a.createdAt, b.usedAt || b.createdAt));
-        const sortedTransferred = allPins.filter(p => p.assignedTo).sort((a, b) => safeCompareDates(a.createdAt, b.createdAt));
-        setUnusedPins(sortedUnused);
-        setUsedPins(sortedUsed);
-        setTransferredPins(sortedTransferred);
-      }
-    }).catch((err) => {
-      handleFirestoreError(err, OperationType.LIST, 'activationCodes');
-    });
-
-    if (profile.level === '4') {
-      getDocs(collection(db, 'verificationRequests')).then((snapshot) => {
-        setVerificationRequests(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as VerificationRequest)));
-      }).catch((err) => {
-        handleFirestoreError(err, OperationType.LIST, 'verificationRequests');
-      });
-
+      // Fetch system configs
       getDoc(doc(db, 'system', 'telegram')).then((snapshot) => {
         if (snapshot.exists()) {
           const data = snapshot.data() as TelegramConfig;
@@ -449,8 +462,100 @@ export default function AdminPanel() {
       }).catch((err) => {
         handleFirestoreError(err, OperationType.GET, 'system/magicNote');
       });
+
+      // Bootstrap and sync stats
+      fetchAndSyncStats();
+
+      // Listen to real-time updates for stats
+      const statsDocRef = doc(db, 'system', 'stats');
+      const unsub = onSnapshot(statsDocRef, (snap) => {
+        if (snap.exists()) {
+          const data = snap.data();
+          setStats({
+            totalCourses: data.totalCourses || 0,
+            totalNotes: data.totalNotes || 0,
+            totalQuestionSheets: data.totalQuestionSheets || 0,
+            totalUnusedPins: data.totalUnusedPins || 0,
+            totalUsedPins: data.totalUsedPins || 0,
+            totalUsers: data.totalUsers || 0,
+          });
+        }
+      });
+      return () => unsub();
     }
   }, [profile, refreshTrigger]);
+
+  // Route-Specific Resource Loader to cut database read operations by 99%
+  useEffect(() => {
+    if (!profile) return;
+    const path = location.pathname;
+
+    // Fetch courses when on courses, notes, questions, videos, or system tabs, or overview
+    const needCourses = path.includes('/courses') || path.includes('/notes') || path.includes('/questions') || path.includes('/videos') || path.includes('/system') || path === '/administrator' || path === '/administrator/';
+    if (needCourses && courses.length === 0) {
+      getDocs(collection(db, 'courses')).then((snapshot) => {
+        const fetchedCourses = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Course));
+        fetchedCourses.sort((a, b) => safeCompareStrings(a.code, b.code));
+        setCourses(fetchedCourses);
+      }).catch((err) => {
+        handleFirestoreError(err, OperationType.LIST, 'courses');
+      });
+    }
+
+    // Fetch notes when on notes or videos tab
+    const needNotes = path.includes('/notes') || path.includes('/videos');
+    if (needNotes && notes.length === 0) {
+      getDocs(collection(db, 'notes')).then((snapshot) => {
+        setNotes(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Note)));
+      }).catch((err) => {
+        handleFirestoreError(err, OperationType.LIST, 'notes');
+      });
+    }
+
+    // Fetch questionSheets when on questions tab
+    const needQuestionSheets = path.includes('/questions');
+    if (needQuestionSheets && questionSheets.length === 0) {
+      getDocs(collection(db, 'questionSheets')).then((snapshot) => {
+        setQuestionSheets(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as QuestionSheet)));
+      }).catch((err) => {
+        handleFirestoreError(err, OperationType.LIST, 'questionSheets');
+      });
+    }
+
+    // Fetch announcements when on notifier tab
+    const needAnnouncements = path.includes('/notifier');
+    if (needAnnouncements && announcements.length === 0) {
+      getDocs(collection(db, 'announcements')).then((snapshot) => {
+        setAnnouncements(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Announcement)).sort((a, b) => safeCompareDates(a.createdAt, b.createdAt)));
+      }).catch((err) => {
+        handleFirestoreError(err, OperationType.LIST, 'announcements');
+      });
+    }
+
+    // Fetch activationCodes when on pins tab OR if the user is Level 3 (vendor ONLY receives activation codes)
+    const needPins = path.includes('/pins') || profile.level === '3';
+    if (needPins && unusedPins.length === 0 && usedPins.length === 0) {
+      getDocs(collection(db, 'activationCodes')).then((snapshot) => {
+        const allPins = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as ActivationCode));
+        if (profile.level === '3') {
+          const sortedUnused = allPins.filter(p => !p.isUsed && p.assignedTo === user?.uid).sort((a, b) => safeCompareDates(a.createdAt, b.createdAt));
+          const sortedUsed = allPins.filter(p => p.isUsed && p.assignedTo === user?.uid).sort((a, b) => safeCompareDates(a.usedAt || a.createdAt, b.usedAt || b.createdAt));
+          setUnusedPins(sortedUnused);
+          setUsedPins(sortedUsed);
+          setTransferredPins([]);
+        } else {
+          const sortedUnused = allPins.filter(p => !p.isUsed && !p.assignedTo).sort((a, b) => safeCompareDates(a.createdAt, b.createdAt));
+          const sortedUsed = allPins.filter(p => p.isUsed).sort((a, b) => safeCompareDates(a.usedAt || a.createdAt, b.usedAt || b.createdAt));
+          const sortedTransferred = allPins.filter(p => p.assignedTo).sort((a, b) => safeCompareDates(a.createdAt, b.createdAt));
+          setUnusedPins(sortedUnused);
+          setUsedPins(sortedUsed);
+          setTransferredPins(sortedTransferred);
+        }
+      }).catch((err) => {
+        handleFirestoreError(err, OperationType.LIST, 'activationCodes');
+      });
+    }
+  }, [profile, location.pathname, refreshTrigger]);
 
   useEffect(() => {
     if (!selectedVideoNote) {
@@ -598,6 +703,10 @@ export default function AdminPanel() {
         department: newCourse.department || null,
         createdAt: new Date().toISOString()
       });
+      
+      // Update system stats
+      await updateStatCount('totalCourses', 1);
+
       toast.success('Course created successfully');
       setNewCourse({ code: '', title: '', semester: '1st', level: '100', department: 'general' });
     } catch (error: any) {
@@ -660,6 +769,15 @@ export default function AdminPanel() {
       
       await batch.commit();
       console.log("Cascading deletion completed successfully");
+
+      // Update system stats trackers
+      await updateStatCount('totalCourses', -1);
+      if (notesSnap.size > 0) {
+        await updateStatCount('totalNotes', -notesSnap.size);
+      }
+      if (sheetsSnap.size > 0) {
+        await updateStatCount('totalQuestionSheets', -sheetsSnap.size);
+      }
       
       toast.success('Course and all associated materials deleted');
       setCourseToDelete(null);
@@ -682,6 +800,10 @@ export default function AdminPanel() {
         authorId: user.uid,
         createdAt: new Date().toISOString()
       });
+
+      // Update system stats
+      await updateStatCount('totalNotes', 1);
+
       toast.success('Note created successfully', { id: toastId });
       setNewNote({ courseId: '', title: '', content: '', type: 'lecture' });
       setCreateNoteKey(prev => prev + 1);
@@ -698,6 +820,10 @@ export default function AdminPanel() {
     setLoading(true);
     try {
       await deleteDoc(doc(db, 'notes', noteToDelete));
+
+      // Update system stats
+      await updateStatCount('totalNotes', -1);
+
       toast.success('Note deleted');
       setNoteToDelete(null);
     } catch (error: any) {
@@ -758,6 +884,10 @@ export default function AdminPanel() {
         authorId: user.uid,
         createdAt: new Date().toISOString()
       });
+
+      // Update system stats
+      await updateStatCount('totalQuestionSheets', 1);
+
       toast.success('Question sheet created');
       setNewSheet({ courseId: '', semester: '1st', academicLevel: '100', year: '', isAvailable: true });
     } catch (error: any) {
@@ -799,6 +929,9 @@ export default function AdminPanel() {
       batch.delete(doc(db, 'questionSheets', sheetToDelete));
       await batch.commit();
 
+      // Update system stats
+      await updateStatCount('totalQuestionSheets', -1);
+
       toast.success('Sheet and all questions deleted');
       setSheetToDelete(null);
       if (selectedSheet?.id === sheetToDelete) setSelectedSheet(null);
@@ -818,7 +951,7 @@ export default function AdminPanel() {
     }
     setLoading(true);
     try {
-      const order = questions.length + 1;
+      const order = sheetQuestions.length + 1;
       await addDoc(collection(db, 'questions'), {
         ...newQuestion,
         sheetId: selectedSheet.id,
@@ -1073,6 +1206,10 @@ export default function AdminPanel() {
         type: pinType,
         owner: creatorId
       });
+
+      // Update system stats
+      await updateStatCount('totalUnusedPins', 1);
+
       setGeneratedCode(pin);
       
       // Send Telegram Alert for pin generation
@@ -1102,8 +1239,10 @@ export default function AdminPanel() {
     try {
       const pinRef = doc(db, 'activationCodes', pinToDelete);
       const pinSnap = await getDoc(pinRef);
+      let isPinUsed = false;
       if (pinSnap.exists()) {
         const pinData = pinSnap.data();
+        isPinUsed = !!pinData.isUsed;
         if (profile?.level === '3') {
           if (pinData.assignedTo !== user?.uid) {
             toast.error("You are only allowed to delete pins assigned to you.");
@@ -1119,6 +1258,13 @@ export default function AdminPanel() {
         }
       }
       await deleteDoc(pinRef);
+
+      // Update system stats
+      if (isPinUsed) {
+        await updateStatCount('totalUsedPins', -1);
+      } else {
+        await updateStatCount('totalUnusedPins', -1);
+      }
       
       // Send Telegram alert for single pin deletion
       const deleteAlert = 
@@ -1199,6 +1345,9 @@ export default function AdminPanel() {
       });
       await batch.commit();
 
+      // Update system stats
+      await updateStatCount('totalUsedPins', -pinsToProcess.length);
+
       // Send Telegram alert for cleared history pins
       const clearAlert = 
         `<b>🗑️ ALERT: ACTIVATION PINS DELETED (HISTORY CLEAR)</b>\n\n` +
@@ -1256,6 +1405,9 @@ export default function AdminPanel() {
       }
       
       await batch.commit();
+
+      // Update system stats
+      await updateStatCount('totalUnusedPins', bulkCount);
 
       // Send Telegram notification
       const numPlus = bulkIncludePlus ? bulkPlusCount : 0;
@@ -1789,7 +1941,7 @@ export default function AdminPanel() {
         <Route index element={
           profile?.level === '3' 
             ? <Navigate to="/administrator/pins" replace />
-            : <AdminOverview courses={courses} notes={notes} questions={questions} unusedPins={unusedPins} usedPins={usedPins} />
+            : <AdminOverview courses={courses} notes={notes} questions={questions} unusedPins={unusedPins} usedPins={usedPins} stats={stats} />
         } />
         <Route path="/manual" element={<AdminManual />} />
         <Route path="/videos" element={
@@ -4743,12 +4895,13 @@ function AdminManual() {
   );
 }
 
-function AdminOverview({ courses, notes, questions, unusedPins, usedPins }: { 
+function AdminOverview({ courses, notes, questions, unusedPins, usedPins, stats }: { 
   courses: Course[], 
   notes: Note[], 
   questions: Question[], 
   unusedPins: ActivationCode[], 
-  usedPins: ActivationCode[] 
+  usedPins: ActivationCode[],
+  stats: any
 }) {
   const [userStats, setUserStats] = useState<{ date: string, count: number }[]>([]);
   const [cbtStats, setCbtStats] = useState<{ name: string, value: number }[]>([]);
@@ -4756,7 +4909,9 @@ function AdminOverview({ courses, notes, questions, unusedPins, usedPins }: {
   useEffect(() => {
     const fetchStats = async () => {
       try {
-        const usersSnap = await getDocs(collection(db, 'users'));
+        // Query recent users with limits to save reads
+        const usersQuery = query(collection(db, 'users'), limit(50));
+        const usersSnap = await getDocs(usersQuery);
         const users = usersSnap.docs.map(d => d.data());
         
         // Group users by join date
@@ -4775,8 +4930,9 @@ function AdminOverview({ courses, notes, questions, unusedPins, usedPins }: {
         
         setUserStats(chartData);
 
-        // Group CBT sessions by course
-        const sessionsSnap = await getDocs(collection(db, 'cbt_sessions'));
+        // Limit query of cbt_sessions to save reads
+        const sessionsQuery = query(collection(db, 'cbt_sessions'), limit(50));
+        const sessionsSnap = await getDocs(sessionsQuery);
         const sessions = sessionsSnap.docs.map(d => d.data());
         const courseGroups: Record<string, number> = {};
         sessions.forEach(s => {
@@ -4809,7 +4965,7 @@ function AdminOverview({ courses, notes, questions, unusedPins, usedPins }: {
             <BookPlus className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{courses.length}</div>
+            <div className="text-2xl font-bold">{stats.totalCourses || 0}</div>
           </CardContent>
         </Card>
         <Card>
@@ -4818,16 +4974,16 @@ function AdminOverview({ courses, notes, questions, unusedPins, usedPins }: {
             <FileText className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{notes.length}</div>
+            <div className="text-2xl font-bold">{stats.totalNotes || 0}</div>
           </CardContent>
         </Card>
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">CBT Questions</CardTitle>
+            <CardTitle className="text-sm font-medium">Question Sheets</CardTitle>
             <HelpCircle className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{questions.length}</div>
+            <div className="text-2xl font-bold">{stats.totalQuestionSheets || 0}</div>
           </CardContent>
         </Card>
         <Card>
@@ -4836,8 +4992,8 @@ function AdminOverview({ courses, notes, questions, unusedPins, usedPins }: {
             <Key className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{unusedPins.length}</div>
-            <p className="text-xs text-muted-foreground">{usedPins.length} used so far</p>
+            <div className="text-2xl font-bold">{stats.totalUnusedPins || 0}</div>
+            <p className="text-xs text-muted-foreground">{stats.totalUsedPins || 0} used so far</p>
           </CardContent>
         </Card>
       </div>

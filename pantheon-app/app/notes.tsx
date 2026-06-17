@@ -149,11 +149,41 @@ export default function NotesScreen() {
     
     setLoading(true);
     const semester = systemConfig.currentSemester || '1st';
+    const userDept = (profile.department || '').toLowerCase();
+    const userLevel = (profile.academicLevel || '100').replace('LVL', '');
 
-    if (isOffline) {
-      try {
-        const localCourses = getDownloadedCoursesLocal();
-        const mappedLocal = localCourses.map(c => ({
+    const filterCoursesHelper = (allC: any[]) => {
+      return allC.map(c => {
+        const courseDept = (c.department || '').toLowerCase();
+        const courseLevel = (c.level || '').replace('LVL', '');
+
+        const ulInt = parseInt(userLevel, 10);
+        const clInt = parseInt(courseLevel, 10);
+        const levelMatch = courseLevel === userLevel || 
+                          (!isNaN(ulInt) && !isNaN(clInt) && (
+                            ulInt === clInt ||
+                            ulInt === clInt * 100 ||
+                            clInt === ulInt * 100 ||
+                            clInt === ulInt / 100 ||
+                            ulInt === clInt / 100
+                          ));
+        
+        const semesterMatch = (c.semester || semester) === semester;
+
+        let isRecommended = false;
+        if (levelMatch && semesterMatch) {
+          if (!c.department || courseDept === 'general' || courseDept === 'college') {
+            isRecommended = true;
+          } else {
+            const userTokens = userDept.split(/[\s()\-]+/).filter(t => t.length > 2 && t !== 'engineering');
+            const courseTokens = courseDept.split(/[\s()\-]+/).filter(t => t.length > 2 && t !== 'engineering');
+            if (userTokens.some(ut => courseDept.includes(ut)) || courseTokens.some(ct => userDept.includes(ct))) {
+              isRecommended = true;
+            }
+          }
+        }
+
+        return {
           id: c.id,
           code: c.code || '',
           title: c.title || '',
@@ -161,9 +191,16 @@ export default function NotesScreen() {
           level: c.level || '',
           department: c.department || '',
           progress: c.progress || 0,
-          isRecommended: true
-        }));
-        setCourses(mappedLocal);
+          isRecommended
+        };
+      }).filter(c => c.isRecommended);
+    };
+
+    if (isOffline) {
+      try {
+        const localCourses = getDownloadedCoursesLocal();
+        const filteredLocal = filterCoursesHelper(localCourses);
+        setCourses(filteredLocal);
       } catch (err) {
         console.log('Error loading offline courses:', err);
       } finally {
@@ -176,17 +213,8 @@ export default function NotesScreen() {
     try {
       const localCourses = getDownloadedCoursesLocal();
       if (localCourses && localCourses.length > 0) {
-        const mappedLocal = localCourses.map(c => ({
-          id: c.id,
-          code: c.code || '',
-          title: c.title || '',
-          semester: c.semester || semester,
-          level: c.level || '',
-          department: c.department || '',
-          progress: c.progress || 0,
-          isRecommended: true
-        }));
-        setCourses(mappedLocal);
+        const filteredLocal = filterCoursesHelper(localCourses);
+        setCourses(filteredLocal);
         setLoading(false);
       }
     } catch (err) {
@@ -221,44 +249,14 @@ export default function NotesScreen() {
           if (data.targetId) progMap[data.targetId] = data.percentage || 0;
         });
 
-        // 3. Mark Recommended and merge progress
-        const userDept = (profile.department || '').toLowerCase();
-        const userLevel = (profile.academicLevel || '100').replace('LVL', '');
+        // 3. Filter and merge progress
+        const filtered = filterCoursesHelper(allFetched).map(c => ({
+          ...c,
+          progress: progMap[c.id] || 0
+        }));
 
-        const mapped = allFetched.map(c => {
-          const courseDept = (c.department || '').toLowerCase();
-          const courseLevel = (c.level || '').replace('LVL', '');
-
-          const levelMatch = courseLevel === userLevel || 
-                            (userLevel === '100' && courseLevel === '1') ||
-                            (userLevel === '1' && courseLevel === '100');
-          
-          let isRecommended = false;
-          if (levelMatch) {
-            if (!c.department || courseDept === 'general' || courseDept === 'college') {
-              isRecommended = true;
-            } else {
-              const userTokens = userDept.split(/[\s()\-]+/).filter(t => t.length > 2 && t !== 'engineering');
-              const courseTokens = courseDept.split(/[\s()\-]+/).filter(t => t.length > 2 && t !== 'engineering');
-              if (userTokens.some(ut => courseDept.includes(ut)) || courseTokens.some(ct => userDept.includes(ct))) {
-                isRecommended = true;
-              }
-            }
-          }
-
-          return {
-            ...c,
-            progress: progMap[c.id] || 0,
-            isRecommended
-          };
-        });
-
-        // Sort: Recommended first, then by code
-        const sorted = mapped.sort((a, b) => {
-          if (a.isRecommended && !b.isRecommended) return -1;
-          if (!a.isRecommended && b.isRecommended) return 1;
-          return a.code.localeCompare(b.code);
-        });
+        // Sort by code
+        const sorted = filtered.sort((a, b) => a.code.localeCompare(b.code));
 
         setCourses(sorted);
         setLoading(false);

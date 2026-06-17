@@ -10,7 +10,7 @@ import {
   Alert,
   Linking,
 } from 'react-native';
-import { doc, getDoc, updateDoc, serverTimestamp, query, where, getDocs, collection, writeBatch } from 'firebase/firestore';
+import { doc, getDoc, updateDoc, serverTimestamp, query, where, getDocs, collection, writeBatch, increment, setDoc } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 import { useAuth } from '../context/AuthContext';
 import { C, F } from './Theme';
@@ -146,6 +146,16 @@ export function ActivationModal() {
         usedByStudentId: profile?.studentId || '',
         usedAt: usedAtStr,
       });
+
+      // Update system stats on pin consumption
+      try {
+        await setDoc(doc(db, 'system', 'stats'), {
+          totalUnusedPins: increment(-1),
+          totalUsedPins: increment(1)
+        }, { merge: true });
+      } catch (statsErr) {
+        console.warn("Failed to update system stats via mobile activation:", statsErr);
+      }
 
       await updateDoc(doc(db, 'users', user?.uid!), {
         isActivated: true,

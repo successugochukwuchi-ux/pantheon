@@ -15,7 +15,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { auth, db } from '../lib/firebase';
 import { createUserWithEmailAndPassword } from 'firebase/auth';
-import { doc, setDoc, serverTimestamp } from 'firebase/firestore';
+import { doc, setDoc, serverTimestamp, increment } from 'firebase/firestore';
 import { Alert, ActivityIndicator } from 'react-native';
 
 const C = {
@@ -312,6 +312,15 @@ export default function RegisterScreen() {
           photoURL: photoURL,
           createdAt: new Date().toISOString(),
         });
+
+        // Increment stats total users
+        try {
+          await setDoc(doc(db, 'system', 'stats'), {
+            totalUsers: increment(1)
+          }, { merge: true });
+        } catch (statsErr) {
+          console.warn("Failed to increment totalUsers on mobile:", statsErr);
+        }
 
         router.push('/dashboard');
       } catch (error: any) {

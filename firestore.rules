@@ -223,15 +223,17 @@ service cloud.firestore {
       allow read, list: if true; 
       allow write: if isAdmin();
       
-      // Specific rule to allow promo activation tracking
-      allow update: if docId == "promo" && 
+      // Allow update on stats by any signed-in user for registration/activation counts, and restrict promo updates
+      allow update: if (docId == "stats" && isSignedIn()) || (
+                     docId == "promo" && 
                      isSignedIn() && 
                      existing().isActive == true &&
                      incoming().count == existing().count + 1 &&
                      incoming().quota == existing().quota &&
                      incoming().isActive == (incoming().count < incoming().quota) &&
                      // Ensure only the expected fields are updated
-                     incoming().diff(existing()).affectedKeys().hasOnly(['count', 'isActive']);
+                     incoming().diff(existing()).affectedKeys().hasOnly(['count', 'isActive'])
+                    );
     }
     match /cbt_sessions/{sessionId} {
       allow create: if isSignedIn() && incoming().userId == request.auth.uid;

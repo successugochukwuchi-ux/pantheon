@@ -376,3 +376,19 @@ export function removeCourseLocal(courseId: string) {
     console.error('Error removing local course:', e);
   }
 }
+
+export function clearAllCoursesLocal() {
+  const db = getDatabase();
+  if (!db) return;
+  try {
+    if (db.runSync) {
+      db.runSync('DELETE FROM courses');
+      db.runSync('DELETE FROM notes');
+      db.runSync('DELETE FROM questions');
+      db.runSync('DELETE FROM question_sheets');
+      console.log('Cleared all downloaded courses and notes/questions locally from SQLite due to semester change/end.');
+    }
+  } catch (e) {
+    console.error('Error clearing local courses:', e);
+  }
+}

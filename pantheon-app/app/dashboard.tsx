@@ -274,13 +274,17 @@ export default function DashboardScreen() {
   const { colors: C } = useTheme();
   const s = useMemo(() => createStyles(C), [C]);
   const [sidebarOpen, setSidebarOpen] = useState(false);
-  const { user, loading } = useAuth();
+  const { user, profile, loading } = useAuth();
 
   useEffect(() => {
-    if (!loading && !user) {
-      router.replace('/' as any);
+    if (!loading) {
+      if (!user) {
+        router.replace('/' as any);
+      } else if (profile?.isBanned) {
+        router.replace('/banned' as any);
+      }
     }
-  }, [user, loading]);
+  }, [user, profile, loading]);
 
   return (
     <SafeAreaView style={[s.root, { backgroundColor: C.bg }]} edges={['top']}>

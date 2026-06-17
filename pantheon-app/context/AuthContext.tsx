@@ -1,11 +1,11 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
 import { onAuthStateChanged, User, signOut } from 'firebase/auth';
-import { doc, onSnapshot, updateDoc, collection, query, where, getDocs, getDoc } from 'firebase/firestore';
+import { doc, onSnapshot, updateDoc, collection, query, where, getDocs, getDoc, orderBy, limit } from 'firebase/firestore';
 import { Alert, AppState } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Notifications from 'expo-notifications';
 import { auth, db } from '../lib/firebase';
-import { saveCoursesFromServer, clearUserProfileLocal } from '../lib/db';
+import { saveCoursesFromServer, clearUserProfileLocal, clearAllCoursesLocal } from '../lib/db';
 
 Notifications.setNotificationHandler({
   handleNotification: async () => ({
@@ -31,6 +31,8 @@ interface UserProfile {
   theme: string;
   photoURL: string;
   createdAt: string;
+  isBanned?: boolean;
+  banReason?: string;
 }
 
 interface SystemConfig {
@@ -73,6 +75,36 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [promoConfig, setPromoConfig] = useState<PromoConfig | null>(null);
   const [loading, setLoading] = useState(true);
   const [isOffline, setIsOffline] = useState(false);
+  const [prevSemester, setPrevSemester] = useState<string | null>(null);
+  const [prevAcademicLevel, setPrevAcademicLevel] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (systemConfig) {
+      if (prevSemester && prevSemester !== systemConfig.currentSemester) {
+        console.log(`[Semester Change] Semester changed from ${prevSemester} to ${systemConfig.currentSemester}. Deleting downloaded SQLite courses...`);
+        try {
+          clearAllCoursesLocal();
+        } catch (e) {
+          console.error("Failed to clear local courses on semester switch:", e);
+        }
+      }
+      setPrevSemester(systemConfig.currentSemester);
+    }
+  }, [systemConfig?.currentSemester]);
+
+  useEffect(() => {
+    if (profile?.academicLevel) {
+      if (prevAcademicLevel && prevAcademicLevel !== profile.academicLevel) {
+        console.log(`[Academic Level Change] Academic level changed from ${prevAcademicLevel} to ${profile.academicLevel}. Clearing local downloaded SQLite courses...`);
+        try {
+          clearAllCoursesLocal();
+        } catch (e) {
+          console.error("Failed to clear local courses on academic level switch:", e);
+        }
+      }
+      setPrevAcademicLevel(profile.academicLevel);
+    }
+  }, [profile?.academicLevel]);
 
   useEffect(() => {
     async function initAuth() {
@@ -205,6 +237,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
               theme: data.theme || 'light',
               photoURL: data.photoURL || `https://api.dicebear.com/7.x/avataaars/svg?seed=${user.uid}`,
               createdAt: data.createdAt ? (typeof data.createdAt === 'string' ? data.createdAt : data.createdAt.toDate?.().toISOString() || new Date().toISOString()) : new Date().toISOString(),
+              isBanned: data.isBanned ?? false,
+              banReason: data?.banReason || '',
             };
 
             // If studentId is missing, generate a pretty placeholder
@@ -229,26 +263,22 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     return () => unsubscribeProfile();
   }, [user]);
 
-  // Verify session lock on App State foreground change
+  // Verify session lock on App State foreground change using local state to avoid database reads
   useEffect(() => {
     let isSubscribed = true;
     const subscription = AppState.addEventListener('change', async (nextAppState) => {
       if (nextAppState === 'active' && user && isSubscribed) {
         try {
           const activeSessionId = await AsyncStorage.getItem('colearn_session_id');
-          if (activeSessionId) {
-            const userDoc = await getDoc(doc(db, 'users', user.uid));
-            if (userDoc.exists() && isSubscribed) {
-              const data = userDoc.data();
-              if (data && data.currentSessionId && data.currentSessionId !== activeSessionId) {
-                setProfile(null);
-                await AsyncStorage.removeItem('colearn_session_id').catch(() => {});
-                await signOut(auth).catch(() => {});
-                Alert.alert(
-                  "Logged Out",
-                  "Your account is open on another device or browser session."
-                );
-              }
+          if (activeSessionId && profile) {
+            if (profile.currentSessionId && profile.currentSessionId !== activeSessionId) {
+              setProfile(null);
+              await AsyncStorage.removeItem('colearn_session_id').catch(() => {});
+              await signOut(auth).catch(() => {});
+              Alert.alert(
+                "Logged Out",
+                "Your account is open on another device or browser session."
+              );
             }
           }
         } catch (err) {
@@ -261,7 +291,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       isSubscribed = false;
       subscription.remove();
     };
-  }, [user]);
+  }, [user, profile]);
 
   // Keep track of connection status periodically
   useEffect(() => {
@@ -516,9 +546,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       console.log("Bg Notify: Notifications trigger failed:", e);
     }
 
-    // 4. Institutional Announcements
+    // 4. Institutional Announcements (limited to last 15 to save reads)
     try {
-      const unsub = onSnapshot(collection(db, 'announcements'), (snap) => {
+      const qAnn = query(
+        collection(db, 'announcements'),
+        orderBy('createdAt', 'desc'),
+        limit(15)
+      );
+      const unsub = onSnapshot(qAnn, (snap) => {
         if (isAnnouncementsInitial) {
           snap.docs.forEach(doc => knownAnnouncementIds.add(doc.id));
           isAnnouncementsInitial = false;
@@ -553,9 +588,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       console.log("Bg Notify: Announcements subscription failed:", e);
     }
 
-    // 5. Discussion board (courses Study Group messages)
+    // 5. Discussion board (courses Study Group messages, limited to last 15 to save reads)
     try {
-      const unsub = onSnapshot(collection(db, 'discussions'), (snap) => {
+      const qDisc = query(
+        collection(db, 'discussions'),
+        orderBy('createdAt', 'desc'),
+        limit(15)
+      );
+      const unsub = onSnapshot(qDisc, (snap) => {
         if (isDiscussionsInitial) {
           snap.docs.forEach(doc => knownDiscussionIds.add(doc.id));
           isDiscussionsInitial = false;
@@ -581,9 +621,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       console.log("Bg Notify: Discussions subscription failed:", e);
     }
 
-    // 6. News Board (news)
+    // 6. News Board (news, limited to last 10 to save reads)
     try {
-      const unsub = onSnapshot(collection(db, 'news'), (snap) => {
+      const qNews = query(
+        collection(db, 'news'),
+        orderBy('createdAt', 'desc'),
+        limit(10)
+      );
+      const unsub = onSnapshot(qNews, (snap) => {
         if (isNewsInitial) {
           snap.docs.forEach(doc => knownNewsIds.add(doc.id));
           isNewsInitial = false;

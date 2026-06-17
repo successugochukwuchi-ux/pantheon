@@ -234,4 +234,28 @@ export interface Report {
   reason: string;
   createdAt: string;
   status: 'pending' | 'resolved' | 'dismissed';
+  evidence?: {
+    id: string;
+    senderUid: string;
+    senderName: string;
+    senderStudentId: string;
+    text: string;
+    createdAt: string;
+  }[];
+  contextBefore?: {
+    id: string;
+    senderUid: string;
+    senderName: string;
+    senderStudentId: string;
+    text: string;
+    createdAt: string;
+  }[];
+  contextAfter?: {
+    id: string;
+    senderUid: string;
+    senderName: string;
+    senderStudentId: string;
+    text: string;
+    createdAt: string;
+  }[];
 }

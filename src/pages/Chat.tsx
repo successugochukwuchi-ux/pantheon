@@ -79,7 +79,16 @@ export default function Chat() {
   const [replyingTo, setReplyingTo] = useState<Message | null>(null);
   const [reportReason, setReportReason] = useState('');
   const [isReportDialogOpen, setIsReportDialogOpen] = useState(false);
+  const [selectedEvidenceIds, setSelectedEvidenceIds] = useState<string[]>([]);
+  const [reportStep, setReportStep] = useState<'evidence' | 'reason'>('evidence');
   const [memberProfiles, setMemberProfiles] = useState<{ [uid: string]: UserProfile }>({});
+
+  const handleOpenReportDialog = () => {
+    setSelectedEvidenceIds([]);
+    setReportStep('evidence');
+    setReportReason('');
+    setIsReportDialogOpen(true);
+  };
   const scrollRef = useRef<HTMLDivElement>(null);
   const typingTimeoutRef = useRef<any>(null);
 
@@ -483,9 +492,34 @@ export default function Chat() {
   };
 
   const handleReportChat = async () => {
-    if (!user || !activeChat || !reportReason.trim()) return;
+    if (!user || !activeChat || !reportReason.trim() || selectedEvidenceIds.length === 0) return;
     
     try {
+      // Find the messages & context before/after
+      const selectedIndices = messages
+        .map((msg, idx) => ({ msg, idx }))
+        .filter(item => selectedEvidenceIds.includes(item.msg.id));
+      
+      const minIdx = selectedIndices.length > 0 ? Math.min(...selectedIndices.map(x => x.idx)) : -1;
+      const maxIdx = selectedIndices.length > 0 ? Math.max(...selectedIndices.map(x => x.idx)) : -1;
+      
+      const contextBeforeRaw = minIdx > 0 ? messages.slice(Math.max(0, minIdx - 3), minIdx) : [];
+      const contextAfterRaw = (maxIdx > -1 && maxIdx < messages.length - 1) ? messages.slice(maxIdx + 1, maxIdx + 4) : [];
+      const selectedMsgsRaw = messages.filter(msg => selectedEvidenceIds.includes(msg.id));
+
+      const mapMessageToDoc = (msg: Message) => ({
+        id: msg.id,
+        senderUid: msg.senderUid,
+        senderName: msg.senderName,
+        senderStudentId: msg.senderUid === user.uid ? (profile?.studentId || 'N/A') : (memberProfiles[msg.senderUid]?.studentId || 'N/A'),
+        text: msg.text || (msg.referencedNoteId ? "Shared a note" : ""),
+        createdAt: msg.createdAt
+      });
+
+      const evidence = selectedMsgsRaw.map(mapMessageToDoc);
+      const contextBefore = contextBeforeRaw.map(mapMessageToDoc);
+      const contextAfter = contextAfterRaw.map(mapMessageToDoc);
+
       await addDoc(collection(db, 'reports'), {
         reporterId: user.uid,
         reporterName: profile?.username || 'User',
@@ -494,11 +528,17 @@ export default function Chat() {
         targetUids: activeChat.uids.filter(id => id !== user.uid),
         reason: reportReason.trim(),
         createdAt: new Date().toISOString(),
-        status: 'pending'
+        status: 'pending',
+        evidence,
+        contextBefore,
+        contextAfter
       });
+
       toast.success('Chat reported to administrators');
       setIsReportDialogOpen(false);
       setReportReason('');
+      setSelectedEvidenceIds([]);
+      setReportStep('evidence');
     } catch (err) {
       toast.error('Failed to submit report');
     }
@@ -689,29 +729,143 @@ export default function Chat() {
               </div>
               <div className="flex items-center gap-1">
                 <Dialog open={isReportDialogOpen} onOpenChange={setIsReportDialogOpen}>
-                  <DialogContent>
-                    <DialogHeader>
-                      <DialogTitle>Report Conversation</DialogTitle>
+                  <DialogContent className="sm:max-w-[550px] max-h-[90vh] flex flex-col p-6 overflow-hidden">
+                    <DialogHeader className="pb-4 border-b">
+                      <DialogTitle className="flex items-center gap-2">
+                        <Flag className="h-5 w-5 text-amber-500" />
+                        Report Conversation
+                      </DialogTitle>
                       <DialogDescription>
-                        Please provide a reason for reporting this chat. Our admins will investigate.
+                        {reportStep === 'evidence' 
+                          ? "Step 1: Select evidence messages. For every selected message of the reported user, you must select one of your own messages to keep the report factual." 
+                          : "Step 2: Provide details about why you are filing this report."}
                       </DialogDescription>
                     </DialogHeader>
-                    <div className="py-4 space-y-4">
-                      <div className="space-y-2">
-                        <Label htmlFor="reason">Reason for Reporting</Label>
-                        <Input 
-                          id="reason" 
-                          placeholder="e.g. Harassment, Spam, etc." 
-                          value={reportReason}
-                          onChange={(e) => setReportReason(e.target.value)}
-                        />
+
+                    {reportStep === 'evidence' ? (
+                      <div className="flex-1 overflow-hidden flex flex-col gap-4 py-4">
+                        <div className="flex items-center justify-between text-xs font-semibold px-1">
+                          <span className="text-muted-foreground">
+                            Recent Messages ({messages.length})
+                          </span>
+                          <span className={cn(
+                            "px-2 py-0.5 rounded",
+                            (messages.filter(m => selectedEvidenceIds.includes(m.id) && m.senderUid === user?.uid).length >= messages.filter(m => selectedEvidenceIds.includes(m.id) && m.senderUid !== user?.uid).length && messages.filter(m => selectedEvidenceIds.includes(m.id) && m.senderUid !== user?.uid).length > 0)
+                              ? "bg-green-500/10 text-green-500" 
+                              : "bg-amber-500/10 text-amber-500"
+                          )}>
+                            Your Messages: {messages.filter(m => selectedEvidenceIds.includes(m.id) && m.senderUid === user?.uid).length} vs Reported User's: {messages.filter(m => selectedEvidenceIds.includes(m.id) && m.senderUid !== user?.uid).length}
+                          </span>
+                        </div>
+                        <div className="flex-1 overflow-y-auto border rounded-lg p-2 space-y-2 bg-muted/5">
+                          {messages.length === 0 ? (
+                            <p className="text-center text-xs text-muted-foreground p-8">No messages available in this chat room.</p>
+                          ) : (
+                            messages.map((msg) => {
+                              const isMe = msg.senderUid === user?.uid;
+                              const isSelected = selectedEvidenceIds.includes(msg.id);
+                              return (
+                                <div 
+                                  key={msg.id}
+                                  onClick={() => {
+                                    setSelectedEvidenceIds(prev => 
+                                      prev.includes(msg.id) 
+                                        ? prev.filter(id => id !== msg.id) 
+                                        : [...prev, msg.id]
+                                    );
+                                  }}
+                                  className={cn(
+                                    "flex items-start gap-3 p-3 rounded-xl border cursor-pointer transition-all hover:bg-muted/30",
+                                    isSelected 
+                                      ? "border-primary bg-primary/5 shadow-sm" 
+                                      : "border-border bg-card",
+                                    isMe ? "ml-6" : "mr-6"
+                                  )}
+                                >
+                                  <div className="flex items-center justify-center pt-0.5" onClick={(e) => e.stopPropagation()}>
+                                    <div 
+                                      onClick={() => {
+                                        setSelectedEvidenceIds(prev => 
+                                          prev.includes(msg.id) 
+                                            ? prev.filter(id => id !== msg.id) 
+                                            : [...prev, msg.id]
+                                        );
+                                      }}
+                                      className={cn(
+                                        "h-4 w-4 rounded border flex items-center justify-center shrink-0 transition-colors",
+                                        isSelected ? "bg-primary border-primary text-primary-foreground" : "border-muted-foreground"
+                                      )}
+                                    >
+                                      {isSelected && <Check className="h-3 w-3 text-white" />}
+                                    </div>
+                                  </div>
+                                  <div className="flex-1 min-w-0">
+                                    <div className="flex items-center justify-between mb-1">
+                                      <span className={cn("text-xs font-bold truncate", isMe ? "text-primary" : "text-foreground")}>
+                                        {isMe ? "You" : msg.senderName}
+                                      </span>
+                                      <span className="text-[9px] text-muted-foreground">
+                                        {new Date(msg.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                      </span>
+                                    </div>
+                                    <p className="text-xs text-muted-foreground break-words">{msg.text || (msg.referencedNoteId ? "📎 Shared a note" : "")}</p>
+                                  </div>
+                                </div>
+                              );
+                            })
+                          )}
+                        </div>
+                        {messages.filter(m => selectedEvidenceIds.includes(m.id) && m.senderUid !== user?.uid).length > 0 && 
+                         messages.filter(m => selectedEvidenceIds.includes(m.id) && m.senderUid === user?.uid).length < messages.filter(m => selectedEvidenceIds.includes(m.id) && m.senderUid !== user?.uid).length && (
+                          <p className="text-xs text-amber-500 font-medium animate-pulse px-1">
+                            * To ensure reports are factual, you need to select at least {messages.filter(m => selectedEvidenceIds.includes(m.id) && m.senderUid !== user?.uid).length} of your own messages (currently selected: {messages.filter(m => selectedEvidenceIds.includes(m.id) && m.senderUid === user?.uid).length}).
+                          </p>
+                        )}
                       </div>
-                    </div>
-                    <DialogFooter>
-                      <Button variant="outline" onClick={() => setIsReportDialogOpen(false)}>Cancel</Button>
-                      <Button variant="destructive" onClick={handleReportChat} disabled={!reportReason.trim()}>
-                        Submit Report
-                      </Button>
+                    ) : (
+                      <div className="flex-1 py-4 space-y-4">
+                        <div className="space-y-2">
+                          <Label htmlFor="reason" className="text-sm font-semibold">Reason for Reporting</Label>
+                          <textarea 
+                            id="reason" 
+                            placeholder="Please explain the details of the issue so our administrators can take action..." 
+                            value={reportReason}
+                            onChange={(e) => setReportReason(e.target.value)}
+                            className="min-h-[120px] w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
+                          />
+                        </div>
+                      </div>
+                    )}
+
+                    <DialogFooter className="pt-4 border-t flex flex-row justify-end gap-2 shrink-0">
+                      {reportStep === 'evidence' ? (
+                        <>
+                          <Button variant="outline" size="sm" onClick={() => setIsReportDialogOpen(false)}>Cancel</Button>
+                          <Button 
+                            size="sm"
+                            disabled={
+                              messages.filter(m => selectedEvidenceIds.includes(m.id) && m.senderUid !== user?.uid).length === 0 ||
+                              messages.filter(m => selectedEvidenceIds.includes(m.id) && m.senderUid === user?.uid).length < messages.filter(m => selectedEvidenceIds.includes(m.id) && m.senderUid !== user?.uid).length
+                            }
+                            onClick={() => setReportStep('reason')}
+                          >
+                            Continue to Reason
+                            <ChevronRight className="ml-1 h-3 w-3" />
+                          </Button>
+                        </>
+                      ) : (
+                        <>
+                          <Button variant="outline" size="sm" onClick={() => setReportStep('evidence')}>Back</Button>
+                          <Button 
+                            variant="destructive" 
+                            size="sm"
+                            onClick={handleReportChat} 
+                            disabled={!reportReason.trim()}
+                          >
+                            Submit Report
+                          </Button>
+                        </>
+                      )}
                     </DialogFooter>
                   </DialogContent>
                 </Dialog>
@@ -723,7 +877,7 @@ export default function Chat() {
                     </Button>
                   } />
                   <DropdownMenuContent align="end" className="w-48">
-                    <DropdownMenuItem onClick={() => setIsReportDialogOpen(true)} className="text-amber-600 focus:text-amber-700">
+                    <DropdownMenuItem onClick={handleOpenReportDialog} className="text-amber-600 focus:text-amber-700">
                       <Flag className="mr-2 h-4 w-4" />
                       Report Chat
                     </DropdownMenuItem>

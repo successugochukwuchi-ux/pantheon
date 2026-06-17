@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { doc, getDoc, updateDoc, setDoc, serverTimestamp, writeBatch, collection, query, where, getDocs } from 'firebase/firestore';
+import { doc, getDoc, updateDoc, setDoc, serverTimestamp, writeBatch, collection, query, where, getDocs, increment } from 'firebase/firestore';
 import { db, handleFirestoreError, OperationType } from '../firebase';
 import { useAuth } from '../contexts/AuthContext';
 import { Button } from '../components/ui/button';
@@ -127,6 +127,16 @@ export default function Activate() {
           usedByStudentId: profile?.studentId || '',
           usedAt: new Date().toISOString()
         });
+
+        // Update stats unused/used pin counts
+        try {
+          await setDoc(doc(db, 'system', 'stats'), {
+            totalUnusedPins: increment(-1),
+            totalUsedPins: increment(1)
+          }, { merge: true });
+        } catch (statsErr) {
+          console.error("Failed to update stats on activation:", statsErr);
+        }
       } catch (error) {
         handleFirestoreError(error, OperationType.UPDATE, pinPath);
         return;

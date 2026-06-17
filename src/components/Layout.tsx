@@ -14,7 +14,7 @@ import { Badge } from './ui/badge';
 import { Sheet, SheetContent, SheetTrigger } from './ui/sheet';
 import { Avatar, AvatarFallback, AvatarImage } from './ui/avatar';
 import { auth, db } from '../firebase';
-import { collection, query, where, onSnapshot } from 'firebase/firestore';
+import { collection, query, where, onSnapshot, orderBy, limit } from 'firebase/firestore';
 import { Sidebar } from './Sidebar';
 import { SystemStatus } from './SystemStatus';
 import { UserSearch } from './UserSearch';
@@ -94,8 +94,13 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
       console.error("Notifications listener failed:", error);
     });
 
-    // Announcements listener
-    unsubAnn = onSnapshot(collection(db, 'announcements'), (snapshot) => {
+    // Announcements listener with limit and sorting to save reads
+    const qAnn = query(
+      collection(db, 'announcements'),
+      orderBy('createdAt', 'desc'),
+      limit(15)
+    );
+    unsubAnn = onSnapshot(qAnn, (snapshot) => {
       announcements = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Announcement));
       updateUnread(specificUnread, announcements);
     }, (error) => {

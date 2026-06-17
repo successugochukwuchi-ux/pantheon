@@ -251,14 +251,18 @@ function Footer() {
 
 export default function LandingScreen() {
   const router = useRouter();
-  const { user, loading } = useAuth();
+  const { user, profile, loading } = useAuth();
   const [prices, setPrices] = useState({ standard: 3000, plus: 5000 });
 
   useEffect(() => {
     if (!loading && user) {
-      router.replace('/dashboard');
+      if (profile?.isBanned) {
+        router.replace('/banned' as any);
+      } else {
+        router.replace('/dashboard');
+      }
     }
-  }, [user, loading]);
+  }, [user, profile, loading]);
 
   useEffect(() => {
     try {

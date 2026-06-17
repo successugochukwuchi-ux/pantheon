@@ -215,23 +215,18 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   }, [user, retryCount]);
 
-  // Active session lock validation on visibility change (for web app)
+  // Active session lock validation on visibility change (for web app) using local state to avoid database reads
   useEffect(() => {
-    let active = true;
     const handleVisibilityChange = async () => {
-      if (document.visibilityState === 'visible' && user && active) {
+      if (document.visibilityState === 'visible' && user) {
         try {
           const activeSessionId = sessionStorage.getItem('colearn_session_id');
-          if (activeSessionId) {
-            const userDoc = await getDoc(doc(db, 'users', user.uid));
-            if (userDoc.exists() && active) {
-              const data = userDoc.data() as UserProfile;
-              if (data.currentSessionId && data.currentSessionId !== activeSessionId) {
-                setProfile(null);
-                sessionStorage.removeItem('colearn_session_id');
-                await firebaseSignOut(auth);
-                toast.error("Logged out: Your account is open on another device.");
-              }
+          if (activeSessionId && profile) {
+            if (profile.currentSessionId && profile.currentSessionId !== activeSessionId) {
+              setProfile(null);
+              sessionStorage.removeItem('colearn_session_id');
+              await firebaseSignOut(auth);
+              toast.error("Logged out: Your account is open on another device.");
             }
           }
         } catch (err) {
@@ -242,10 +237,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     document.addEventListener('visibilitychange', handleVisibilityChange);
     return () => {
-      active = false;
       document.removeEventListener('visibilitychange', handleVisibilityChange);
     };
-  }, [user]);
+  }, [user, profile]);
 
   return (
     <AuthContext.Provider value={{ user, profile, systemConfig, promoConfig, loading, isAuthReady, isSystemConfigReady, isOnline }}>

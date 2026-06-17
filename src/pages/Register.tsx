@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate, Link, useSearchParams } from 'react-router-dom';
 import { createUserWithEmailAndPassword, updateProfile } from 'firebase/auth';
-import { doc, setDoc, getDoc, updateDoc } from 'firebase/firestore';
+import { doc, setDoc, getDoc, updateDoc, increment } from 'firebase/firestore';
 import { auth, db } from '../firebase';
 import { formatAuthError } from '../lib/auth-errors';
 import { Button } from '../components/ui/button';
@@ -71,6 +71,15 @@ export default function Register() {
           photoURL: photoURL,
           createdAt: new Date().toISOString()
         });
+
+        // Update stats register count
+        try {
+          await setDoc(doc(db, 'system', 'stats'), {
+            totalUsers: increment(1)
+          }, { merge: true });
+        } catch (statsErr) {
+          console.error("Failed to update stats user count:", statsErr);
+        }
 
         // Increment referrer count if applicable
         if (referrerUid) {
