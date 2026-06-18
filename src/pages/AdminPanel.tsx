@@ -52,7 +52,8 @@ import {
   Users,
   MessageCircle,
   History as HistoryIcon,
-  Zap
+  Zap,
+  Download
 } from 'lucide-react';
 import { Course, UserLevel, Semester, Note, Question, ActivationCode, VerificationRequest, QuestionSheet, VideoQuestion, NotificationTarget, Announcement, TelegramConfig, AIConfig } from '../types';
 import { sendTelegramAlert, testTelegramConnection } from '../services/telegramService';
@@ -1087,6 +1088,63 @@ export default function AdminPanel() {
     } finally {
       setLoading(false);
       e.target.value = ''; // Reset input
+    }
+  };
+
+  const handleDownloadSheetPLX = () => {
+    if (!selectedSheet) {
+      toast.error("No sheet selected");
+      return;
+    }
+    
+    if (sheetQuestions.length === 0) {
+      toast.error("This sheet has no questions to download");
+      return;
+    }
+
+    try {
+      let plxContent = "<PLX>\n";
+      
+      sheetQuestions.forEach((q) => {
+        plxContent += "  <QUES>\n";
+        plxContent += `    ${q.text}\n`;
+        if (q.correctAnswer) {
+          plxContent += `    <COR ="${q.correctAnswer}">\n`;
+        }
+        if (Array.isArray(q.incorrectAnswers)) {
+          q.incorrectAnswers.forEach((inc) => {
+            if (inc) {
+              plxContent += `    <INC ="${inc}">\n`;
+            }
+          });
+        }
+        if (q.explanation) {
+          plxContent += `    <EXP ="${q.explanation}">\n`;
+        }
+        plxContent += "  </QUES>\n\n";
+      });
+      
+      plxContent += "</PLX>";
+
+      const course = courses.find(c => c.id === selectedSheet.courseId);
+      const courseCode = course ? course.code : 'Course';
+      const rawFileName = `${courseCode}_${selectedSheet.year}_${selectedSheet.semester}_Level_${selectedSheet.academicLevel}.plx`;
+      const fileName = rawFileName.replace(/[^a-zA-Z0-9._-]/g, '_');
+
+      const blob = new Blob([plxContent], { type: 'text/plain;charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = fileName;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      
+      toast.success(`Sheet exported as ${fileName}`);
+    } catch (error: any) {
+      console.error("Failed to export PLX sheet:", error);
+      toast.error("Failed to export PLX sheet");
     }
   };
 
@@ -3093,7 +3151,19 @@ export default function AdminPanel() {
                       <p className="text-muted-foreground">{selectedSheet.academicLevel} Level • {selectedSheet.semester} Semester</p>
                     </div>
                   </div>
-                  <Badge>{sheetQuestions.length} Questions</Badge>
+                  <div className="flex items-center gap-2">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="gap-2 text-emerald-600 dark:text-emerald-400 border-emerald-500/20 hover:bg-emerald-500/5"
+                      onClick={handleDownloadSheetPLX}
+                      disabled={sheetQuestions.length === 0}
+                    >
+                      <Download className="h-3.5 w-3.5" /> Export Sheet (.PLX)
+                    </Button>
+                    <Badge>{sheetQuestions.length} Questions</Badge>
+                  </div>
                 </div>
 
                 <Card>
