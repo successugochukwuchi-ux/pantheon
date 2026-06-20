@@ -102,6 +102,57 @@ export interface NoteBlock {
   };
 }
 
+/**
+ * Advanced parser for CSV-style rows. 
+ * Correctly handles:
+ * 1. Pipe-separated tables (Markdown-style) like: ` cell 1 | cell 2 with, commas | cell 3 `
+ * 2. Comma-separated tables (with support for fields that contain commas if enclosed in double quotes)
+ */
+export function parseCSVRow(rowText: string): string[] {
+  const trimmedRow = rowText.trim();
+  
+  // If the row contains '|', check if it's a pipe-separated (Markdown-style) table row
+  if (trimmedRow.includes('|')) {
+    let cleaned = trimmedRow;
+    if (cleaned.startsWith('|')) cleaned = cleaned.slice(1);
+    if (cleaned.endsWith('|')) cleaned = cleaned.slice(0, -1);
+    
+    // Skip Markdown separator rows (e.g., |---|---| or | :--- | ---: |)
+    if (/^[|:\s-]+$/.test(cleaned)) {
+      return [];
+    }
+    
+    return cleaned.split('|').map(cell => cell.trim());
+  }
+
+  // Otherwise, parse as CSV with quote support (RFC 4180 style)
+  const result: string[] = [];
+  let current = '';
+  let inQuotes = false;
+  
+  for (let i = 0; i < trimmedRow.length; i++) {
+    const char = trimmedRow[i];
+    if (char === '"') {
+      // If we see two double quotes together inside quotes, treat it as an escaped quote
+      if (inQuotes && i + 1 < trimmedRow.length && trimmedRow[i + 1] === '"') {
+        current += '"';
+        i++; // Skip the second double quote
+      } else {
+        // Toggle the quote state
+        inQuotes = !inQuotes;
+      }
+    } else if (char === ',' && !inQuotes) {
+      result.push(current.trim());
+      current = '';
+    } else {
+      current += char;
+    }
+  }
+  result.push(current.trim());
+  
+  return result;
+}
+
 const MATH_SYMBOLS: Record<string, { icon: any; symbols: (string | { label: string; value: string })[] }> = {
   Mathematics: {
     icon: <Sigma className="h-4 w-4" />,
@@ -301,7 +352,7 @@ const DEEPSEEK_PROMPT_GUIDE = `You are an expert CoLearn PLX Note Writer. Conver
    - <LIST>- Bullet item 1\\n- Bullet item 2</LIST> (prefix items with dashes)
    - <ORDERED>1. Step 1\\n2. Step 2</ORDERED> (prefix items with numbers)
    - <MATH>Block level LaTeX. Do NOT use single or double dollards ($) inside this block.</MATH>
-   - <TABLE>Comma-separated CSV standard rows (Header row followed by data rows).</TABLE>
+   - <TABLE>Comma-separated CSV rows. For fields/cells containing commas, wrap them in double quotes (e.g. "Some, text", 25) or separate fields using pipes "|" instead of commas.</TABLE>
    - <DIAGRAM>mermaid or text-based charts</DIAGRAM>
    - <QUES ="#">
        Multiple-choice question text
@@ -1258,10 +1309,11 @@ export const NoteBuilder: React.FC<NoteBuilderProps> = ({ initialContent, onChan
           }
 
           if (tagName === 'TABLE') {
-            // Revamped: Parse CSV-style content to JSON array of arrays
+            // Revamped: Parse CSV/Pipe-style content with quote protection to JSON array of arrays
             const rows = content.split('\n')
               .filter(row => row.trim().length > 0)
-              .map(row => row.split(',').map(cell => cell.trim()));
+              .map(row => parseCSVRow(row))
+              .filter(row => row.length > 0);
             content = JSON.stringify(rows.length > 0 ? rows : [['']]);
           }
 
@@ -1323,7 +1375,8 @@ export const NoteBuilder: React.FC<NoteBuilderProps> = ({ initialContent, onChan
               if (tagName === 'TABLE') {
                 const rows = content.split('\n')
                   .filter(row => row.trim().length > 0)
-                  .map(row => row.split(',').map(cell => cell.trim()));
+                  .map(row => parseCSVRow(row))
+                  .filter(row => row.length > 0);
                 content = JSON.stringify(rows.length > 0 ? rows : [['']]);
               }
 
@@ -1450,7 +1503,7 @@ Use 2 spaces per indentation level.
   John Doe, 19, Physics
   Jane Smith, 21, Engineering
 </TABLE>
-*Note: Tables are CSV-style (comma separated). 
+*Note: Tables are CSV-style (comma separated). For fields containing commas, wrap them in double quotes (e.g. "John, Doe", 19) or use pipes "|" to separate fields instead of commas.
 
 <VIDEO>
   https://www.youtube.com/watch?v=example
@@ -1559,7 +1612,19 @@ Save the final text as a file named "note.plx" (or .txt) then upload it.
         try {
           const grid = JSON.parse(content);
           if (Array.isArray(grid)) {
-            const csvStr = grid.map(row => (Array.isArray(row) ? row.join(', ') : '')).join('\n');
+            const escapeCSVCell = (cell: string) => {
+              const str = cell !== undefined && cell !== null ? String(cell) : '';
+              if (str.includes(',') || str.includes('"') || str.includes('\n')) {
+                return `"${str.replace(/"/g, '""')}"`;
+              }
+              return str;
+            };
+            const csvStr = grid.map(row => {
+              if (Array.isArray(row)) {
+                return row.map(escapeCSVCell).join(', ');
+              }
+              return '';
+            }).join('\n');
             plxContent += `  <TABLE>\n    ${csvStr}\n  </TABLE>\n\n`;
           } else {
             plxContent += `  <TABLE>\n    ${content}\n  </TABLE>\n\n`;
