@@ -21,6 +21,7 @@ import { useTheme } from '../context/ThemeContext';
 import { collection, doc, getDoc, setDoc, getDocs, query, where } from 'firebase/firestore';
 import { db, auth } from '../lib/firebase';
 import { useAuth } from '../context/AuthContext';
+import { getFilteredCoursesForStudent } from '../lib/courseFilter';
 import * as Notifications from 'expo-notifications';
 
 // Dynamic loaders for platform-specific alarm packages
@@ -482,14 +483,9 @@ export default function TimetableScreen() {
       where('semester', '==', semesterArg === 'none' ? '1st' : semesterArg)
     );
 
-    getDocs(coursesQuery).then((snapshot) => {
+    getDocs(coursesQuery).then(async (snapshot) => {
       const allFetched = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as any));
-      const relevant = allFetched.filter(c => {
-        const isSameLevel = String(c.level) === studentLevel;
-        const isGeneral = !c.department || c.department.trim() === '' || c.department.toLowerCase() === 'general';
-        const isSameDept = c.department?.toLowerCase() === studentDept.toLowerCase();
-        return isSameLevel && (isGeneral || isSameDept);
-      });
+      const relevant = await getFilteredCoursesForStudent(allFetched, profile, true);
       setCourses(relevant);
     }).catch(err => {
       console.error("Error loading timetable courses:", err);

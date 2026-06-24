@@ -17,6 +17,8 @@ import 'katex/dist/katex.min.css';
 import { ScientificCalculator } from '../components/ScientificCalculator';
 import { VideoPlayer } from '../components/VideoPlayer';
 
+import { getFilteredCoursesForStudent } from '../lib/courseFilter';
+
 export default function VideoLibrary() {
   const { profile } = useAuth();
   const [courses, setCourses] = useState<Course[]>([]);
@@ -29,10 +31,11 @@ export default function VideoLibrary() {
 
   useEffect(() => {
     if (!profile) return;
-    getDocs(collection(db, 'courses')).then((snapshot) => {
+    getDocs(collection(db, 'courses')).then(async (snapshot) => {
       const allCourses = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Course));
-      allCourses.sort((a, b) => a.code.localeCompare(b.code));
-      setCourses(allCourses);
+      const filtered = await getFilteredCoursesForStudent(allCourses, profile, true);
+      filtered.sort((a, b) => a.code.localeCompare(b.code));
+      setCourses(filtered);
     }).catch((err) => {
       handleFirestoreError(err, OperationType.LIST, 'courses');
     });

@@ -60,6 +60,7 @@ import { sendTelegramAlert, testTelegramConnection } from '../services/telegramS
 import { Routes, Route, useNavigate, useLocation, Navigate } from 'react-router-dom';
 import { NoteBuilder } from '../components/NoteBuilder';
 import AdminReports from './AdminReports';
+import AdminDiscipline from '../components/AdminDiscipline';
 import { useTitle } from '../hooks/useTitle';
 import { MathJax } from 'better-react-mathjax';
 import ReactMarkdown from 'react-markdown';
@@ -1983,6 +1984,7 @@ export default function AdminPanel() {
           <>
             <Button variant={location.pathname.includes('users') ? 'default' : 'ghost'} size="sm" onClick={() => navigate('/administrator/users')}>Users</Button>
             <Button variant={location.pathname.includes('courses') ? 'default' : 'ghost'} size="sm" onClick={() => navigate('/administrator/courses')}>Courses</Button>
+            <Button variant={location.pathname.includes('discipline') ? 'default' : 'ghost'} size="sm" onClick={() => navigate('/administrator/discipline')}>Discipline</Button>
             <Button variant={location.pathname.includes('notes') ? 'default' : 'ghost'} size="sm" onClick={() => navigate('/administrator/notes')}>Notes</Button>
             <Button variant={location.pathname.includes('news') ? 'default' : 'ghost'} size="sm" onClick={() => navigate('/administrator/news')}>News</Button>
           </>
@@ -2008,6 +2010,7 @@ export default function AdminPanel() {
             : <AdminOverview courses={courses} notes={notes} questions={questions} unusedPins={unusedPins} usedPins={usedPins} stats={stats} />
         } />
         <Route path="/manual" element={<AdminManual />} />
+        <Route path="/discipline" element={<AdminDiscipline />} />
         <Route path="/videos" element={
           <div className="space-y-6">
             <Card>

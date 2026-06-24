@@ -24,6 +24,7 @@ import {
   getLocalQuestionSheets, 
   getLocalQuestions 
 } from '../lib/db';
+import { getFilteredCoursesForStudent } from '../lib/courseFilter';
 
 interface Course {
   id: string;
@@ -171,6 +172,8 @@ export default function PastQuestionsScreen() {
 
           // Extra safety local filter
           fbCourses = fbCourses.filter(fc => isSameSemester(fc.semester || '', activeSemester));
+
+          fbCourses = await getFilteredCoursesForStudent(fbCourses, profile, true);
 
           const enriched = fbCourses.map(c => ({
             ...c,

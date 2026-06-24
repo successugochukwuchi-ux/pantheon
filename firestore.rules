@@ -319,6 +319,11 @@ service cloud.firestore {
       allow read, list, write: if isSignedIn();
     }
 
+    match /disciplines/{disciplineId} {
+      allow read, list: if isSignedIn();
+      allow write: if isAdmin();
+    }
+
     match /seasons/{seasonId} {
       allow read, list: if isSignedIn();
       allow write: if isAdmin();

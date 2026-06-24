@@ -89,6 +89,7 @@ const DEPARTMENTS = [
   "Prosthetics and Orthotics",
   "Public Health Technology",
   "Quantity Surveying",
+  "Radiography",
   "Science Laboratory Technology",
   "Software Engineering",
   "Soil Science and Technology",
@@ -96,7 +97,9 @@ const DEPARTMENTS = [
   "Supply Chain Management",
   "Surveying and Geoinformatics",
   "Telecommunications Engineering",
-  "Urban and Regional Planning"
+  "Urban and Regional Planning",
+  "Estate Management and Valuation",
+  "Finance and Innovation Technology"
 ].sort((a, b) => a.localeCompare(b));
 
 const LEVELS = ['100LVL', '200LVL'];

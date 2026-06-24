@@ -23,6 +23,8 @@ import { ScientificCalculator } from '../components/ScientificCalculator';
 import { AIAssistant } from '../components/AIAssistant';
 import { VideoPlayer } from '../components/VideoPlayer';
 
+import { getFilteredCoursesForStudent } from '../lib/courseFilter';
+
 export default function LectureNotes() {
   const { systemConfig, profile } = useAuth();
   const [courses, setCourses] = useState<Course[]>([]);
@@ -42,10 +44,11 @@ export default function LectureNotes() {
       where('semester', '==', systemConfig.currentSemester)
     );
 
-    getDocs(q).then((snapshot) => {
+    getDocs(q).then(async (snapshot) => {
       const fetchedCourses = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Course));
-      fetchedCourses.sort((a, b) => a.code.localeCompare(b.code));
-      setCourses(fetchedCourses);
+      const filtered = await getFilteredCoursesForStudent(fetchedCourses, profile, true);
+      filtered.sort((a, b) => a.code.localeCompare(b.code));
+      setCourses(filtered);
     }).catch((error) => {
       console.error("Courses fetch error:", error);
     });

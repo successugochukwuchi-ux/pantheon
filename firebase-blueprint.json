@@ -406,6 +406,20 @@
         "updatedAt": { "type": "string", "format": "date-time" }
       },
       "required": ["level", "department", "grid", "updatedBy", "updatedAt"]
+    },
+    "Discipline": {
+      "title": "Discipline",
+      "description": "CCMAS curriculum discipline containing departments and course lock configurations",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "departments": { "type": "array", "items": { "type": "string" } },
+        "courses": { 
+          "type": "object"
+        },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["name", "departments", "createdAt"]
     }
   },
   "firestore": {
@@ -516,6 +530,10 @@
     "/seasons/{seasonId}/leaderboard/{userId}": {
       "schema": "SeasonLeaderboardEntry",
       "description": "User leaderboard ratings within target season"
+    },
+    "/disciplines/{disciplineId}": {
+      "schema": "Discipline",
+      "description": "CCMAS curriculum disciplines with department mapping and course lock properties"
     }
   }
 }

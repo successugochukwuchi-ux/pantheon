@@ -11,6 +11,7 @@ import { Alert, AlertDescription, AlertTitle } from '../components/ui/alert';
 import { useTitle } from '../hooks/useTitle';
 import { SystemStatus } from '../components/SystemStatus';
 import { Progress } from '../components/ui/progress';
+import { getFilteredCoursesForStudent } from '../lib/courseFilter';
 
 export default function Dashboard() {
   useTitle('Dashboard');
@@ -32,32 +33,9 @@ export default function Dashboard() {
       const fetchedCourses = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Course));
       fetchedCourses.sort((a, b) => a.code.localeCompare(b.code));
       
-      const userDept = (profile.department || '').toLowerCase();
-      const userLevel = (profile.academicLevel || profile.level || '100').replace('LVL', '');
-
-      const filteredCourses = fetchedCourses.filter(c => {
-        const courseDept = (c.department || '').toLowerCase();
-        const courseLevel = (c.level || '').replace('LVL', '');
-
-        const levelMatch = courseLevel === userLevel || 
-                          (userLevel === '100' && courseLevel === '1') ||
-                          (userLevel === '1' && courseLevel === '100');
-        
-        if (levelMatch) {
-          if (!c.department || courseDept === 'general' || courseDept === 'college') {
-            return true;
-          } else {
-            const userTokens = userDept.split(/[\s()\-]+/).filter(t => t.length > 2 && t !== 'engineering');
-            const courseTokens = courseDept.split(/[\s()\-]+/).filter(t => t.length > 2 && t !== 'engineering');
-            if (userTokens.some(ut => courseDept.includes(ut)) || courseTokens.some(ct => userDept.includes(ct))) {
-              return true;
-            }
-          }
-        }
-        return false;
+      getFilteredCoursesForStudent(fetchedCourses, profile, true).then((filteredCourses) => {
+        setCourses(filteredCourses);
       });
-
-      setCourses(filteredCourses);
     }).catch((err) => {
       handleFirestoreError(err, OperationType.LIST, 'courses');
     });

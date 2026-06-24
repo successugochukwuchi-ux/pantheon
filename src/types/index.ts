@@ -259,3 +259,11 @@ export interface Report {
     createdAt: string;
   }[];
 }
+
+export interface Discipline {
+  id: string;
+  name: string;
+  departments: string[];
+  courses?: Record<string, 'allow' | 'lock'>;
+  createdAt: string;
+}

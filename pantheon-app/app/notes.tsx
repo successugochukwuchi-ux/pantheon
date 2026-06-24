@@ -18,6 +18,7 @@ import { db } from '../lib/firebase';
 import { useAuth } from '../context/AuthContext';
 import { useTheme } from '../context/ThemeContext';
 import { getDownloadedCoursesLocal } from '../lib/db';
+import { getFilteredCoursesForStudent } from '../lib/courseFilter';
 
 interface Course {
   id: string;
@@ -149,61 +150,29 @@ export default function NotesScreen() {
     
     setLoading(true);
     const semester = systemConfig.currentSemester || '1st';
-    const userDept = (profile.department || '').toLowerCase();
-    const userLevel = (profile.academicLevel || '100').replace('LVL', '');
 
-    const filterCoursesHelper = (allC: any[]) => {
-      return allC.map(c => {
-        const courseDept = (c.department || '').toLowerCase();
-        const courseLevel = (c.level || '').replace('LVL', '');
-
-        const ulInt = parseInt(userLevel, 10);
-        const clInt = parseInt(courseLevel, 10);
-        const levelMatch = courseLevel === userLevel || 
-                          (!isNaN(ulInt) && !isNaN(clInt) && (
-                            ulInt === clInt ||
-                            ulInt === clInt * 100 ||
-                            clInt === ulInt * 100 ||
-                            clInt === ulInt / 100 ||
-                            ulInt === clInt / 100
-                          ));
-        
-        const semesterMatch = (c.semester || semester) === semester;
-
-        let isRecommended = false;
-        if (levelMatch && semesterMatch) {
-          if (!c.department || courseDept === 'general' || courseDept === 'college') {
-            isRecommended = true;
-          } else {
-            const userTokens = userDept.split(/[\s()\-]+/).filter(t => t.length > 2 && t !== 'engineering');
-            const courseTokens = courseDept.split(/[\s()\-]+/).filter(t => t.length > 2 && t !== 'engineering');
-            if (userTokens.some(ut => courseDept.includes(ut)) || courseTokens.some(ct => userDept.includes(ct))) {
-              isRecommended = true;
-            }
-          }
-        }
-
-        return {
-          id: c.id,
-          code: c.code || '',
-          title: c.title || '',
-          semester: c.semester || semester,
-          level: c.level || '',
-          department: c.department || '',
-          progress: c.progress || 0,
-          isRecommended
-        };
-      }).filter(c => c.isRecommended);
+    const loadAndFilter = async (list: any[], callback: (res: any[]) => void) => {
+      const filtered = await getFilteredCoursesForStudent(list, profile, true);
+      const mapped = filtered.map(c => ({
+        id: c.id,
+        code: c.code || '',
+        title: c.title || '',
+        semester: c.semester || semester,
+        level: c.level || '',
+        department: c.department || '',
+        progress: c.progress || 0
+      }));
+      callback(mapped);
     };
 
     if (isOffline) {
       try {
         const localCourses = getDownloadedCoursesLocal();
-        const filteredLocal = filterCoursesHelper(localCourses);
-        setCourses(filteredLocal);
+        loadAndFilter(localCourses, (filteredLocal) => {
+          setCourses(filteredLocal);
+        }).finally(() => setLoading(false));
       } catch (err) {
         console.log('Error loading offline courses:', err);
-      } finally {
         setLoading(false);
       }
       return;
@@ -213,9 +182,10 @@ export default function NotesScreen() {
     try {
       const localCourses = getDownloadedCoursesLocal();
       if (localCourses && localCourses.length > 0) {
-        const filteredLocal = filterCoursesHelper(localCourses);
-        setCourses(filteredLocal);
-        setLoading(false);
+        loadAndFilter(localCourses, (filteredLocal) => {
+          setCourses(filteredLocal);
+          setLoading(false);
+        });
       }
     } catch (err) {
       console.log('Offline/SQLite courses loading skipped:', err);
@@ -250,16 +220,18 @@ export default function NotesScreen() {
         });
 
         // 3. Filter and merge progress
-        const filtered = filterCoursesHelper(allFetched).map(c => ({
-          ...c,
-          progress: progMap[c.id] || 0
-        }));
+        loadAndFilter(allFetched, (filtered) => {
+          const withProgress = filtered.map(c => ({
+            ...c,
+            progress: progMap[c.id] || 0
+          }));
 
-        // Sort by code
-        const sorted = filtered.sort((a, b) => a.code.localeCompare(b.code));
+          // Sort by code
+          const sorted = withProgress.sort((a, b) => a.code.localeCompare(b.code));
 
-        setCourses(sorted);
-        setLoading(false);
+          setCourses(sorted);
+          setLoading(false);
+        });
       } catch (e) {
         console.error("Courses/Progress fetch error (using cache fallback if offline):", e);
         setLoading(false);

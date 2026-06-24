@@ -19,6 +19,8 @@ import { useTitle } from '../hooks/useTitle';
 import { AIAssistant } from '../components/AIAssistant';
 import { SafeMathRenderer, prepareMarkdownMath } from '../components/SafeMathRenderer';
 
+import { getFilteredCoursesForStudent } from '../lib/courseFilter';
+
 export default function PastQuestions() {
   useTitle('Past Questions');
   const { profile, systemConfig } = useAuth();
@@ -53,13 +55,16 @@ export default function PastQuestions() {
       q = query(collection(db, 'courses'), where('semester', '==', systemConfig.currentSemester));
     }
 
-    getDocs(q).then((snapshot) => {
+    getDocs(q).then(async (snapshot) => {
       const allCourses = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Course));
-      // Only show courses for student's level and current semester
-      const filtered = allCourses.filter(c => 
-        (showAllSemesters || c.semester === systemConfig.currentSemester) && 
-        (!isStudent || c.level === profile.academicLevel)
-      );
+      
+      let filtered = allCourses;
+      if (isStudent) {
+        filtered = await getFilteredCoursesForStudent(allCourses, profile, true);
+      } else {
+        filtered = allCourses.filter(c => showAllSemesters || c.semester === systemConfig.currentSemester);
+      }
+      
       filtered.sort((a, b) => a.code.localeCompare(b.code));
       setCourses(filtered);
       setLoading(false);

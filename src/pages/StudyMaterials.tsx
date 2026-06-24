@@ -25,6 +25,8 @@ import { useSearchParams, useNavigate } from 'react-router-dom';
 import { useTitle } from '../hooks/useTitle';
 import { toast } from 'sonner';
 
+import { getFilteredCoursesForStudent } from '../lib/courseFilter';
+
 export default function StudyMaterials() {
   const { user, profile, systemConfig } = useAuth();
   const [searchParams, setSearchParams] = useSearchParams();
@@ -112,18 +114,13 @@ export default function StudyMaterials() {
       }
     }
 
-    getDocs(q).then((snapshot) => {
+    getDocs(q).then(async (snapshot) => {
       let loadedCourses = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Course));
       
       // Secondary filter by level and department ONLY for actual student accounts (level 1 or 2)
       // Level 3 vendors can see all departments/levels but restricted to current semester
       if (isStudent) {
-        loadedCourses = loadedCourses.filter(course => {
-          const userAcademicLevel = profile.academicLevel || profile.level; // Fallback for old accounts
-          const isCorrectLevel = String(course.level) === String(userAcademicLevel);
-          const isCorrectDepartment = !course.department || course.department === 'general' || course.department === profile.department;
-          return isCorrectLevel && isCorrectDepartment;
-        });
+        loadedCourses = await getFilteredCoursesForStudent(loadedCourses, profile, true);
       }
       
       loadedCourses.sort((a, b) => a.code.localeCompare(b.code));

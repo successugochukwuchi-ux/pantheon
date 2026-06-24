@@ -366,7 +366,10 @@ const DEEPSEEK_PROMPT_GUIDE = `You are an expert CoLearn PLX Note Writer. Conver
 4. Keep strict 2-space indentation inside container tags (like <PLX> and <QUES>).
 
 [CRITICAL - LANGUAGE DIACRITICS & ACCENTS]:
-When converting text containing Yoruba, Igbo, French, Spanish, etc., maintain 100% precision. Because complex diacritics (e.g. dotted high/low tones) can get corrupted across LLM generation layers, you may use either native Unicode characters OR write the following keyboard-friendly typing codes. The CoLearn system compiler will automatically parse and expand them into professional diacritics:
+When writing text containing Yoruba, Igbo, French, Spanish, etc., you MUST wrap any accented or diacritic-containing phrase or word inside the special inline tag <A>...</A> or [A]...[/A] (e.g. <TEXT>He is my <A>ko.ni</A></TEXT>).
+ONLY text inside the <A>...</A> tag will have the site's accenting rules applied. All text outside <A>...</A> must remain standard plain English. This strictly prevents false positive accent conversions on normal English words or punctuation (like in "Example:", "Two-Mass" or English contractions).
+
+Inside the <A>...</A> tag, you can use either native Unicode characters OR write the following keyboard-friendly typing codes which the system automatically expands:
 
 1. Subdots / Underdots (Igbo and Yoruba):
    * o. / O. -> ọ / Ọ
@@ -394,7 +397,7 @@ When converting text containing Yoruba, Igbo, French, Spanish, etc., maintain 10
 
 [OUTPUT RULES]:
 - Output raw PLX format text strictly without markdown fences or preamble.
-- Write naturally, incorporating both native unicode diacritics and shorthands for full resilience.`;
+- Write naturally, wrapping non-English terms requiring accents inside <A>...</A> tags. Use shortcuts inside <A>...</A> for full resilience.`;
 
 interface SortableBlockProps {
   block: NoteBlock;
@@ -934,241 +937,284 @@ const SortableBlock = ({ block, onUpdate, onDelete, onFocus, isPreview }: Sortab
 const applyAccentShortcuts = (text: string): string => {
   if (!text) return text;
 
-  // We want to skip replacing characters in LaTeX blocks ($...$ or $$...$$) and HTML tags (<...>)
-  // Let's tokenize the string by keeping LaTeX blocks and tags separate from regular text.
-  const pattern = /(\$\$[\s\S]*?\$\$|\$[\s\S]*?\$|<[^>]+>)/g;
-  const parts = text.split(pattern);
+  // We only run accent transformations if <A> or [A] tags exist as a paired set (case-insensitive)
+  const hasATags = /<A[\s\S]*?>[\s\S]*?<\/A>|\[A\][\s\S]*?\[\/A\]/i.test(text);
+  if (!hasATags) {
+    // Return completely untouched as normal pure English text
+    return text;
+  }
 
-  // Safe Underdots replacement helper.
-  // Replaces o., O., u., U. etc with underdots but strictly avoids matching end-of-sentence punctuation (like in "sentence. ", "is. ", etc.)
-  const safeReplaceUnderdot = (inputStr: string, char: string, replacement: string): string => {
-    // 1. Convert when followed by letters (intra-word underdots e.g. "ko.ni" -> "kọni")
-    const regexInsideWord = new RegExp(`${char}\\.(?=[a-zA-Z])`, 'g');
-    let output = inputStr.replace(regexInsideWord, replacement);
+  // Helper to temporarily protect common English hybrid/compound words starting with any letter (like e-business, e-commerce, a-list, etc.)
+  const protectEnglishHybridWords = (str: string): { processed: string, restore: (s: string) => string } => {
+    const placeholders: Record<string, string> = {};
+    let counter = 0;
 
-    // 2. Convert standalone single letters (e.g. Yoruba pronoun "o." -> "ọ")
-    const regexStandalone = new RegExp(`(^|\\s|[()[\\]{}"',;])(${char})\\.(?=\\s|$|[()[\\]{}"',;?!])`, 'g');
-    output = output.replace(regexStandalone, `$1${replacement}`);
+    // Pattern for English compound words like E-Business, E-Commerce, E-Learning, E-Mail, E-Book, E-Ticket, E-Banking, etc.
+    const englishHybridRegex = /\b[a-zA-Z]-(business|commerce|learning|mail|book|ticket|banking|government|wallet|scooter|cigarette|reader|waste|signature|filing|level|class|cycle|structure|type|system|learning|driven|cards?|forms?|games?|solutions?)s?\b/gi;
 
-    return output;
+    const processed = str.replace(englishHybridRegex, (match) => {
+      const key = `__ENG_HYBRID_${counter++}__`;
+      placeholders[key] = match;
+      return key;
+    });
+
+    const restore = (s: string): string => {
+      let result = s;
+      for (const [key, original] of Object.entries(placeholders)) {
+        result = result.replaceAll(key, original);
+      }
+      return result;
+    };
+
+    return { processed, restore };
   };
 
-  // Safe Umlaut / Diaeresis replacement helper.
-  // Restricts e: -> ë, i: -> ï, u: -> ü to only inside-word or extremely short word boundaries to avoid matching common punctuation colons like in "Example:" or "Note:".
-  const safeReplaceUmlaut = (inputStr: string, char: string, replacement: string, charUpper: string, replacementUpper: string): string => {
-    const regexInsideWord = new RegExp(`${char}:(?=[a-zA-Z])`, 'g');
-    const regexInsideWordUpper = new RegExp(`${charUpper}:(?=[a-zA-Z])`, 'g');
-    let output = inputStr.replace(regexInsideWord, replacement);
-    output = output.replace(regexInsideWordUpper, replacementUpper);
+  // The core accenting sequence engine applied exclusively to content within the accent tags
+  const transformAccentsOnly = (inputStr: string): string => {
+    if (!inputStr) return inputStr;
 
-    const blacklist = new Set([
-      'the', 'use', 'one', 'are', 'see', 'fee', 'ice', 'age', 'tie', 'lie', 'pie', 'toe', 'due', 'cue', 'bye', 'owe', 'she'
-    ]);
+    // We skip replacing characters in LaTeX blocks ($...$ or $$...$$) and HTML tags (<...>)
+    const pattern = /(\$\$[\s\S]*?\$\$|\$[\s\S]*?\$|<[^>]+>)/g;
+    const parts = inputStr.split(pattern);
 
-    const regexEndWord = new RegExp(`\\b([a-zA-Z]+)(${char}):(?![a-zA-Z])`, 'g');
-    output = output.replace(regexEndWord, (match, prefix, suffixChar) => {
-      const fullWord = (prefix + suffixChar).toLowerCase();
-      if (blacklist.has(fullWord) || fullWord.length > 3) {
-        return match;
+    // Safe Underdots replacement helper.
+    const safeReplaceUnderdot = (s: string, char: string, replacement: string): string => {
+      const regexInsideWord = new RegExp(`${char}\\.(?=[a-zA-Z])`, 'g');
+      let output = s.replace(regexInsideWord, replacement);
+
+      const regexStandalone = new RegExp(`(^|\\s|[()[\\]{}"',;])(${char})\\.(?=\\s|$|[()[\\]{}"',;?!])`, 'g');
+      output = output.replace(regexStandalone, `$1${replacement}`);
+
+      return output;
+    };
+
+    // Safe Umlaut / Diaeresis replacement helper.
+    const safeReplaceUmlaut = (s: string, char: string, replacement: string, charUpper: string, replacementUpper: string): string => {
+      const regexInsideWord = new RegExp(`${char}:(?=[a-zA-Z])`, 'g');
+      const regexInsideWordUpper = new RegExp(`${charUpper}:(?=[a-zA-Z])`, 'g');
+      let output = s.replace(regexInsideWord, replacement);
+      output = output.replace(regexInsideWordUpper, replacementUpper);
+
+      const blacklist = new Set([
+        'the', 'use', 'one', 'are', 'see', 'fee', 'ice', 'age', 'tie', 'lie', 'pie', 'toe', 'due', 'cue', 'bye', 'owe', 'she'
+      ]);
+
+      const regexEndWord = new RegExp(`\\b([a-zA-Z]+)(${char}):(?![a-zA-Z])`, 'g');
+      output = output.replace(regexEndWord, (match, prefix, suffixChar) => {
+        const fullWord = (prefix + suffixChar).toLowerCase();
+        if (blacklist.has(fullWord) || fullWord.length > 3) {
+          return match;
+        }
+        return prefix + replacement;
+      });
+
+      const regexEndWordUpper = new RegExp(`\\b([a-zA-Z]+)(${charUpper}):(?![a-zA-Z])`, 'g');
+      output = output.replace(regexEndWordUpper, (match, prefix, suffixChar) => {
+        const fullWord = (prefix + suffixChar).toLowerCase();
+        if (blacklist.has(fullWord) || fullWord.length > 3) {
+          return match;
+        }
+        return prefix + replacementUpper;
+      });
+
+      return output;
+    };
+
+    // Safe Macron / Mid voice replacement helper.
+    const safeReplaceMacron = (s: string, char: string, replacement: string, charUpper: string, replacementUpper: string): string => {
+      const regexEnd = new RegExp(`${char}-(?![a-zA-Z])`, 'g');
+      const regexEndUpper = new RegExp(`${charUpper}-(?![a-zA-Z])`, 'g');
+      let output = s.replace(regexEnd, replacement);
+      output = output.replace(regexEndUpper, replacementUpper);
+
+      // List of English terms to protect from macron hyphen replacement (case-insensitive)
+      const protectedWords = '(?:business|commerce|learning|mail|book|ticket|banking|government|wallet|scooter|cigarette|reader|waste|signature|filing|level|class|cycle|structure|type|system|learning|driven|card|form|game|solution)s?';
+      
+      const regexStandalone = new RegExp(`(^|\\s|[()[\\]{}"',;])(${char})-(?=[a-zA-Z])(?!(?:${protectedWords})\\b)`, 'gi');
+      
+      output = output.replace(regexStandalone, (match, prefix, charMatch) => {
+        const isUpper = charMatch === charUpper;
+        return prefix + (isUpper ? replacementUpper : replacement);
+      });
+
+      return output;
+    };
+
+    // Safe Acute replacement helper.
+    const safeReplaceAcute = (s: string, char: string, replacement: string, charUpper: string, replacementUpper: string): string => {
+      const regexEnd = new RegExp(`${char}'(?![a-zA-Z])`, 'g');
+      const regexEndUpper = new RegExp(`${charUpper}'(?![a-zA-Z])`, 'g');
+      let output = s.replace(regexEnd, replacement);
+      output = output.replace(regexEndUpper, replacementUpper);
+
+      const regexInside = new RegExp(`${char}'([a-zA-Z]+)`, 'g');
+      output = output.replace(regexInside, (match, suffix) => {
+        const lowerSuffix = suffix.toLowerCase();
+        const isContraction = ['s', 't', 'd', 've', 're', 'll', 'm'].includes(lowerSuffix);
+        if (isContraction) {
+          return match;
+        }
+        return replacement + suffix;
+      });
+
+      const regexInsideUpper = new RegExp(`${charUpper}'([a-zA-Z]+)`, 'g');
+      output = output.replace(regexInsideUpper, (match, suffix) => {
+        const lowerSuffix = suffix.toLowerCase();
+        const isContraction = ['s', 't', 'd', 've', 're', 'll', 'm'].includes(lowerSuffix);
+        if (isContraction) {
+          return match;
+        }
+        return replacementUpper + suffix;
+      });
+
+      return output;
+    };
+
+    // Safe Circumflex replacement helper.
+    const safeReplaceCircumflex = (s: string, char: string, replacement: string, charUpper: string, replacementUpper: string): string => {
+      const mathSucceeding = /[-0-9{}()[\]+*\/=_$]/;
+
+      const regex = new RegExp(`${char}\\^(.?)`, 'g');
+      let output = s.replace(regex, (match, nextChar) => {
+        if (!nextChar) return replacement;
+        if (mathSucceeding.test(nextChar)) {
+          return match;
+        }
+        return replacement + nextChar;
+      });
+
+      const regexUpper = new RegExp(`${charUpper}\\^(.?)`, 'g');
+      output = output.replace(regexUpper, (match, nextChar) => {
+        if (!nextChar) return replacementUpper;
+        if (mathSucceeding.test(nextChar)) {
+          return match;
+        }
+        return replacementUpper + nextChar;
+      });
+
+      const regexStandalone = new RegExp(`(^|\\s|[()[\\]{}"',;])(${char})\\^([a-zA-Z])`, 'g');
+      const regexStandaloneUpper = new RegExp(`(^|\\s|[()[\\]{}"',;])(${charUpper})\\^([a-zA-Z])`, 'g');
+      output = output.replace(regexStandalone, `$1$2^$3`);
+      output = output.replace(regexStandaloneUpper, `$1$2^$3`);
+
+      return output;
+    };
+
+    const processedParts = parts.map((part, index) => {
+      if (index % 2 === 1) {
+        return part;
       }
-      return prefix + replacement;
+
+      // Temporarily protect common English compound/hybrid words from being accent-processed
+      const { processed: resProtected, restore } = protectEnglishHybridWords(part);
+      let res = resProtected;
+
+      // Dotted + High/Low/Mid tone replacements for Igbo & Yoruba (e.g. o.' -> ọ́, o.` -> ọ̀, o.- -> ọ̄)
+      res = res.replace(/o\.'|ọ'/g, 'ọ́');
+      res = res.replace(/u\.'|ụ'/g, 'ụ́');
+      res = res.replace(/i\.'|ị'/g, 'ị́');
+      res = res.replace(/e\.'|ẹ'/g, 'ẹ́');
+      res = res.replace(/O\.'|Ọ'/g, 'Ọ́');
+      res = res.replace(/U\.'|Ụ'/g, 'Ụ́');
+      res = res.replace(/I\.'|Ị'/g, 'Ị́');
+      res = res.replace(/E\.'|Ẹ'/g, 'Ẹ́');
+
+      res = res.replace(/o\.`|ọ`/g, 'ọ̀');
+      res = res.replace(/u\.`|ụ'/g, 'ụ̀');
+      res = res.replace(/i\.`|ị'/g, 'ị̀');
+      res = res.replace(/e\.`|ẹ'/g, 'ẹ̀');
+      res = res.replace(/O\.`|Ọ'/g, 'Ọ̀');
+      res = res.replace(/U\.`|Ụ'/g, 'Ụ̀');
+      res = res.replace(/I\.`|Ị'/g, 'Ị̀');
+      res = res.replace(/E\.`|Ẹ'/g, 'Ẹ̀');
+
+      res = res.replace(/o\.-|ọ-/g, 'ọ̄');
+      res = res.replace(/e\.-|ẹ-/g, 'ẹ̄');
+      res = res.replace(/O\.-|Ọ'/g, 'Ọ̄');
+      res = res.replace(/E\.-|Ẹ'/g, 'Ẹ̄');
+
+      // Safe Umlauts (e.g. e: -> ë, i: -> ï, u: -> ü)
+      res = safeReplaceUmlaut(res, 'e', 'ë', 'E', 'Ë');
+      res = safeReplaceUmlaut(res, 'i', 'ï', 'I', 'Ï');
+      res = safeReplaceUmlaut(res, 'u', 'ü', 'U', 'Ü');
+
+      // Safe Underdots
+      res = safeReplaceUnderdot(res, 'o', 'ọ');
+      res = safeReplaceUnderdot(res, 'O', 'Ọ');
+      res = safeReplaceUnderdot(res, 'u', 'ụ');
+      res = safeReplaceUnderdot(res, 'U', 'Ụ');
+      res = safeReplaceUnderdot(res, 'i', 'ị');
+      res = safeReplaceUnderdot(res, 'I', 'Ị');
+      res = safeReplaceUnderdot(res, 'e', 'ẹ');
+      res = safeReplaceUnderdot(res, 'E', 'Ẹ');
+      res = safeReplaceUnderdot(res, 's', 'ṣ');
+      res = safeReplaceUnderdot(res, 'S', 'Ṣ');
+      res = safeReplaceUnderdot(res, 'n', 'ṅ');
+      res = safeReplaceUnderdot(res, 'N', 'Ṅ');
+
+      res = res.replace(/n~/g, 'ñ');
+      res = res.replace(/N~/g, 'Ñ');
+
+      // Safe Acute accents (e.g. a' -> á) protecting English contractions/possessives
+      res = safeReplaceAcute(res, 'a', 'á', 'A', 'Á');
+      res = safeReplaceAcute(res, 'e', 'é', 'E', 'É');
+      res = safeReplaceAcute(res, 'i', 'í', 'I', 'Í');
+      res = safeReplaceAcute(res, 'o', 'ó', 'O', 'Ó');
+      res = safeReplaceAcute(res, 'u', 'ú', 'U', 'Ú');
+      res = safeReplaceAcute(res, 'm', 'ḿ', 'M', 'Ḿ');
+      res = safeReplaceAcute(res, 'n', 'ń', 'N', 'Ń');
+
+      // Grave accents (e.g. a` -> à)
+      res = res.replace(/a`/g, 'à');
+      res = res.replace(/e`/g, 'è');
+      res = res.replace(/i`/g, 'ì');
+      res = res.replace(/o`/g, 'ò');
+      res = res.replace(/u`/g, 'ù');
+      res = res.replace(/A`/g, 'À');
+      res = res.replace(/E`/g, 'È');
+      res = res.replace(/I`/g, 'Ì');
+      res = res.replace(/O`/g, 'Ò');
+      res = res.replace(/U`/g, 'Ù');
+
+      // Safe Macrons / Mid voice (e.g. a- -> ā) protecting English compound hyphens
+      res = safeReplaceMacron(res, 'a', 'ā', 'A', 'Ā');
+      res = safeReplaceMacron(res, 'e', 'ē', 'E', 'Ē');
+      res = safeReplaceMacron(res, 'i', 'ī', 'I', 'Ī');
+      res = safeReplaceMacron(res, 'o', 'ō', 'O', 'Ō');
+      res = safeReplaceMacron(res, 'u', 'ū', 'U', 'Ū');
+      res = safeReplaceMacron(res, 'm', 'm̄', 'M', 'M̄');
+      res = safeReplaceMacron(res, 'n', 'n̄', 'N', 'N̄');
+
+      // Cedilla for French (c, -> ç)
+      res = res.replace(/c,/g, 'ç');
+      res = res.replace(/C,/g, 'Ç');
+
+      // Safe Circumflex (e.g. a^ -> â) protecting math and physics exponents
+      res = safeReplaceCircumflex(res, 'a', 'â', 'A', 'Â');
+      res = safeReplaceCircumflex(res, 'e', 'ê', 'E', 'Ê');
+      res = safeReplaceCircumflex(res, 'i', 'î', 'I', 'Î');
+      res = safeReplaceCircumflex(res, 'o', 'ô', 'O', 'Ô');
+      res = safeReplaceCircumflex(res, 'u', 'û', 'U', 'Û');
+
+      // Ligatures (oe -> œ, ae -> æ) - limit to standalone/non-alphas to protect words like "does" or "aesthetic"
+      res = res.replace(/(?<![a-zA-Z])oe(?![a-zA-Z])/g, 'œ');
+      res = res.replace(/(?<![a-zA-Z])ae(?![a-zA-Z])/g, 'æ');
+      res = res.replace(/(?<![a-zA-Z])OE(?![a-zA-Z])/g, 'Œ');
+      res = res.replace(/(?<![a-zA-Z])AE(?![a-zA-Z])/g, 'Æ');
+
+      return restore(res);
     });
 
-    const regexEndWordUpper = new RegExp(`\\b([a-zA-Z]+)(${charUpper}):(?![a-zA-Z])`, 'g');
-    output = output.replace(regexEndWordUpper, (match, prefix, suffixChar) => {
-      const fullWord = (prefix + suffixChar).toLowerCase();
-      if (blacklist.has(fullWord) || fullWord.length > 3) {
-        return match;
-      }
-      return prefix + replacementUpper;
-    });
-
-    return output;
+    return processedParts.join('');
   };
 
-  // Safe Macron / Mid voice replacement helper.
-  // Restricts a- -> ā, e- -> ē etc. avoiding English hyphenated compounds (e.g. "Two-Mass", "co-operate", "pre-existing", "first-order").
-  const safeReplaceMacron = (inputStr: string, char: string, replacement: string, charUpper: string, replacementUpper: string): string => {
-    const regexEnd = new RegExp(`${char}-(?![a-zA-Z])`, 'g');
-    const regexEndUpper = new RegExp(`${charUpper}-(?![a-zA-Z])`, 'g');
-    let output = inputStr.replace(regexEnd, replacement);
-    output = output.replace(regexEndUpper, replacementUpper);
 
-    const regexStandalone = new RegExp(`(^|\\s|[()[\\]{}"',;])(${char})-(?=[a-zA-Z])`, 'g');
-    const regexStandaloneUpper = new RegExp(`(^|\\s|[()[\\]{}"',;])(${charUpper})-(?=[a-zA-Z])`, 'g');
-    output = output.replace(regexStandalone, `$1${replacement}`);
-    output = output.replace(regexStandaloneUpper, `$1${replacementUpper}`);
-
-    return output;
-  };
-
-  // Safe Acute replacement helper.
-  // Replaces char' with acute accent but strictly preserves English contractions and possessives (e.g. "don't", "can't", "John's").
-  const safeReplaceAcute = (inputStr: string, char: string, replacement: string, charUpper: string, replacementUpper: string): string => {
-    const regexEnd = new RegExp(`${char}'(?![a-zA-Z])`, 'g');
-    const regexEndUpper = new RegExp(`${charUpper}'(?![a-zA-Z])`, 'g');
-    let output = inputStr.replace(regexEnd, replacement);
-    output = output.replace(regexEndUpper, replacementUpper);
-
-    const regexInside = new RegExp(`${char}'([a-zA-Z]+)`, 'g');
-    output = output.replace(regexInside, (match, suffix) => {
-      const lowerSuffix = suffix.toLowerCase();
-      const isContraction = ['s', 't', 'd', 've', 're', 'll', 'm'].includes(lowerSuffix);
-      if (isContraction) {
-        return match;
-      }
-      return replacement + suffix;
-    });
-
-    const regexInsideUpper = new RegExp(`${charUpper}'([a-zA-Z]+)`, 'g');
-    output = output.replace(regexInsideUpper, (match, suffix) => {
-      const lowerSuffix = suffix.toLowerCase();
-      const isContraction = ['s', 't', 'd', 've', 're', 'll', 'm'].includes(lowerSuffix);
-      if (isContraction) {
-        return match;
-      }
-      return replacementUpper + suffix;
-    });
-
-    return output;
-  };
-
-  // Safe Circumflex replacement helper.
-  // Replaces char^ with circumflex but strictly preserves math and physics exponents (e.g. "x^2", "e^-t", "e^x", "\omega^2").
-  const safeReplaceCircumflex = (inputStr: string, char: string, replacement: string, charUpper: string, replacementUpper: string): string => {
-    const mathSucceeding = /[-0-9{}()[\]+*\/=_$]/;
-
-    const regex = new RegExp(`${char}\\^(.?)`, 'g');
-    let output = inputStr.replace(regex, (match, nextChar) => {
-      if (!nextChar) return replacement;
-      if (mathSucceeding.test(nextChar)) {
-        return match;
-      }
-      return replacement + nextChar;
-    });
-
-    const regexUpper = new RegExp(`${charUpper}\\^(.?)`, 'g');
-    output = output.replace(regexUpper, (match, nextChar) => {
-      if (!nextChar) return replacementUpper;
-      if (mathSucceeding.test(nextChar)) {
-        return match;
-      }
-      return replacementUpper + nextChar;
-    });
-
-    const regexStandalone = new RegExp(`(^|\\s|[()[\\]{}"',;])(${char})\\^([a-zA-Z])`, 'g');
-    const regexStandaloneUpper = new RegExp(`(^|\\s|[()[\\]{}"',;])(${charUpper})\\^([a-zA-Z])`, 'g');
-    output = output.replace(regexStandalone, `$1$2^$3`);
-    output = output.replace(regexStandaloneUpper, `$1$2^$3`);
-
-    return output;
-  };
-
-  const processedParts = parts.map((part, index) => {
-    // Every odd item (1, 3, 5, etc.) is a matched group (math block or tag) which we leave completely untouched
-    if (index % 2 === 1) {
-      return part;
-    }
-
-    let res = part;
-
-    // Dotted + High/Low/Mid tone replacements for Igbo & Yoruba (e.g. o.' -> ọ́, o.` -> ọ̀, o.- -> ọ̄)
-    res = res.replace(/o\.'|ọ'/g, 'ọ́');
-    res = res.replace(/u\.'|ụ'/g, 'ụ́');
-    res = res.replace(/i\.'|ị'/g, 'ị́');
-    res = res.replace(/e\.'|ẹ'/g, 'ẹ́');
-    res = res.replace(/O\.'|Ọ'/g, 'Ọ́');
-    res = res.replace(/U\.'|Ụ'/g, 'Ụ́');
-    res = res.replace(/I\.'|Ị'/g, 'Ị́');
-    res = res.replace(/E\.'|Ẹ'/g, 'Ẹ́');
-
-    res = res.replace(/o\.`|ọ`/g, 'ọ̀');
-    res = res.replace(/u\.`|ụ`/g, 'ụ̀');
-    res = res.replace(/i\.`|ị`/g, 'ị̀');
-    res = res.replace(/e\.`|ẹ`/g, 'ẹ̀');
-    res = res.replace(/O\.`|Ọ`/g, 'Ọ̀');
-    res = res.replace(/U\.`|Ụ`/g, 'Ụ̀');
-    res = res.replace(/I\.`|Ị`/g, 'Ị̀');
-    res = res.replace(/E\.`|Ẹ`/g, 'Ẹ̀');
-
-    res = res.replace(/o\.-|ọ-/g, 'ọ̄');
-    res = res.replace(/e\.-|ẹ-/g, 'ẹ̄');
-    res = res.replace(/O\.-|Ọ-/g, 'Ọ̄');
-    res = res.replace(/E\.-|Ẹ-/g, 'Ẹ̄');
-
-    // Safe Umlauts (e.g. e: -> ë, i: -> ï, u: -> ü)
-    res = safeReplaceUmlaut(res, 'e', 'ë', 'E', 'Ë');
-    res = safeReplaceUmlaut(res, 'i', 'ï', 'I', 'Ï');
-    res = safeReplaceUmlaut(res, 'u', 'ü', 'U', 'Ü');
-
-    // Safe Underdots
-    res = safeReplaceUnderdot(res, 'o', 'ọ');
-    res = safeReplaceUnderdot(res, 'O', 'Ọ');
-    res = safeReplaceUnderdot(res, 'u', 'ụ');
-    res = safeReplaceUnderdot(res, 'U', 'Ụ');
-    res = safeReplaceUnderdot(res, 'i', 'ị');
-    res = safeReplaceUnderdot(res, 'I', 'Ị');
-    res = safeReplaceUnderdot(res, 'e', 'ẹ');
-    res = safeReplaceUnderdot(res, 'E', 'Ẹ');
-    res = safeReplaceUnderdot(res, 's', 'ṣ');
-    res = safeReplaceUnderdot(res, 'S', 'Ṣ');
-    res = safeReplaceUnderdot(res, 'n', 'ṅ');
-    res = safeReplaceUnderdot(res, 'N', 'Ṅ');
-
-    res = res.replace(/n~/g, 'ñ');
-    res = res.replace(/N~/g, 'Ñ');
-
-    // Safe Acute accents (e.g. a' -> á) protecting English contractions/possessives
-    res = safeReplaceAcute(res, 'a', 'á', 'A', 'Á');
-    res = safeReplaceAcute(res, 'e', 'é', 'E', 'É');
-    res = safeReplaceAcute(res, 'i', 'í', 'I', 'Í');
-    res = safeReplaceAcute(res, 'o', 'ó', 'O', 'Ó');
-    res = safeReplaceAcute(res, 'u', 'ú', 'U', 'Ú');
-    res = safeReplaceAcute(res, 'm', 'ḿ', 'M', 'Ḿ');
-    res = safeReplaceAcute(res, 'n', 'ń', 'N', 'Ń');
-
-    // Grave accents (e.g. a` -> à)
-    res = res.replace(/a`/g, 'à');
-    res = res.replace(/e`/g, 'è');
-    res = res.replace(/i`/g, 'ì');
-    res = res.replace(/o`/g, 'ò');
-    res = res.replace(/u`/g, 'ù');
-    res = res.replace(/A`/g, 'À');
-    res = res.replace(/E`/g, 'È');
-    res = res.replace(/I`/g, 'Ì');
-    res = res.replace(/O`/g, 'Ò');
-    res = res.replace(/U`/g, 'Ù');
-
-    // Safe Macrons / Mid voice (e.g. a- -> ā) protecting English compound hyphens
-    res = safeReplaceMacron(res, 'a', 'ā', 'A', 'Ā');
-    res = safeReplaceMacron(res, 'e', 'ē', 'E', 'Ē');
-    res = safeReplaceMacron(res, 'i', 'ī', 'I', 'Ī');
-    res = safeReplaceMacron(res, 'o', 'ō', 'O', 'Ō');
-    res = safeReplaceMacron(res, 'u', 'ū', 'U', 'Ū');
-    res = safeReplaceMacron(res, 'm', 'm̄', 'M', 'M̄');
-    res = safeReplaceMacron(res, 'n', 'n̄', 'N', 'N̄');
-
-    // Cedilla for French (c, -> ç)
-    res = res.replace(/c,/g, 'ç');
-    res = res.replace(/C,/g, 'Ç');
-
-    // Safe Circumflex (e.g. a^ -> â) protecting math and physics exponents
-    res = safeReplaceCircumflex(res, 'a', 'â', 'A', 'Â');
-    res = safeReplaceCircumflex(res, 'e', 'ê', 'E', 'Ê');
-    res = safeReplaceCircumflex(res, 'i', 'î', 'I', 'Î');
-    res = safeReplaceCircumflex(res, 'o', 'ô', 'O', 'Ô');
-    res = safeReplaceCircumflex(res, 'u', 'û', 'U', 'Û');
-
-    // Ligatures (oe -> œ, ae -> æ) - limit to standalone/non-alphas to protect words like "does" or "aesthetic"
-    res = res.replace(/(?<![a-zA-Z])oe(?![a-zA-Z])/g, 'œ');
-    res = res.replace(/(?<![a-zA-Z])ae(?![a-zA-Z])/g, 'æ');
-    res = res.replace(/(?<![a-zA-Z])OE(?![a-zA-Z])/g, 'Œ');
-    res = res.replace(/(?<![a-zA-Z])AE(?![a-zA-Z])/g, 'Æ');
-
-    return res;
+  // Extract <A>content</A> or [A]content[/A] blocks (case-insensitive)
+  const aTagRegex = /<A>([\s\S]*?)<\/A>|\[A\]([\s\S]*?)\[\/A\]/gi;
+  return text.replace(aTagRegex, (match, p1, p2) => {
+    const rawContent = p1 !== undefined ? p1 : p2;
+    return transformAccentsOnly(rawContent);
   });
-
-  return processedParts.join('');
 };
 
 interface NoteBuilderProps {
@@ -1430,7 +1476,7 @@ export const NoteBuilder: React.FC<NoteBuilderProps> = ({ initialContent, onChan
             // Revamped: Parse CSV/Pipe-style content with quote protection to JSON array of arrays
             const rows = content.split('\n')
               .filter(row => row.trim().length > 0)
-              .map(row => parseCSVRow(row))
+              .map(row => parseCSVRow(row).map(cell => applyAccentShortcuts(cell)))
               .filter(row => row.length > 0);
             content = JSON.stringify(rows.length > 0 ? rows : [['']]);
           }
@@ -1498,7 +1544,7 @@ export const NoteBuilder: React.FC<NoteBuilderProps> = ({ initialContent, onChan
               if (tagName === 'TABLE') {
                 const rows = content.split('\n')
                   .filter(row => row.trim().length > 0)
-                  .map(row => parseCSVRow(row))
+                  .map(row => parseCSVRow(row).map(cell => applyAccentShortcuts(cell)))
                   .filter(row => row.length > 0);
                 content = JSON.stringify(rows.length > 0 ? rows : [['']]);
               }

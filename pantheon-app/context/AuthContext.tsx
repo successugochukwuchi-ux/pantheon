@@ -6,6 +6,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Notifications from 'expo-notifications';
 import { auth, db } from '../lib/firebase';
 import { saveCoursesFromServer, clearUserProfileLocal, clearAllCoursesLocal } from '../lib/db';
+import { getFilteredCoursesForStudent } from '../lib/courseFilter';
 
 Notifications.setNotificationHandler({
   handleNotification: async () => ({
@@ -345,30 +346,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           ...doc.data()
         })) as any[];
 
-        const userDept = (profile.department || '').toLowerCase();
-        const userLevel = (profile.academicLevel || '100').replace('LVL', '');
-
-        const coursesToSave = allFetched.filter(c => {
-          const courseDept = (c.department || '').toLowerCase();
-          const courseLevel = (c.level || '').replace('LVL', '');
-
-          const levelMatch = courseLevel === userLevel || 
-                            (userLevel === '100' && courseLevel === '1') ||
-                            (userLevel === '1' && courseLevel === '100');
-          
-          if (levelMatch) {
-            if (!c.department || courseDept === 'general' || courseDept === 'college') {
-              return true;
-            } else {
-              const userTokens = userDept.split(/[\s()\-]+/).filter(t => t.length > 2 && t !== 'engineering');
-              const courseTokens = courseDept.split(/[\s()\-]+/).filter(t => t.length > 2 && t !== 'engineering');
-              if (userTokens.some(ut => courseDept.includes(ut)) || courseTokens.some(ct => userDept.includes(ct))) {
-                return true;
-              }
-            }
-          }
-          return false;
-        });
+        const coursesToSave = await getFilteredCoursesForStudent(allFetched, profile, true);
 
         saveCoursesFromServer(coursesToSave);
       } catch (err) {
