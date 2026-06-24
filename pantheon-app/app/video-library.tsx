@@ -19,6 +19,7 @@ import { BottomNav } from '../components/BottomNav';
 import { collection, query, where, getDocs } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 import { useAuth } from '../context/AuthContext';
+import { getFilteredCoursesForStudent } from '../lib/courseFilter';
 
 interface Course {
   id: string;
@@ -108,15 +109,16 @@ export default function VideoLibraryScreen() {
       collection(db, 'courses'),
       where('semester', '==', activeSemester)
     );
-    getDocs(q).then((snapshot) => {
+    getDocs(q).then(async (snapshot) => {
       const allCourses = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Course));
-      allCourses.sort((a, b) => (a.code || '').localeCompare(b.code || ''));
-      setCourses(allCourses);
+      const filtered = await getFilteredCoursesForStudent(allCourses, profile, true);
+      filtered.sort((a, b) => (a.code || '').localeCompare(b.code || ''));
+      setCourses(filtered);
       
       // Auto-select first course if none selected yet or previously selected is no longer valid
-      if (allCourses.length > 0) {
-        if (!selectedCourse || !allCourses.some(c => c.id === selectedCourse.id)) {
-          setSelectedCourse(allCourses[0]);
+      if (filtered.length > 0) {
+        if (!selectedCourse || !filtered.some(c => c.id === selectedCourse.id)) {
+          setSelectedCourse(filtered[0]);
         }
       } else {
         setSelectedCourse(null);

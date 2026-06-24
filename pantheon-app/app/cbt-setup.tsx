@@ -21,6 +21,7 @@ import { useTheme } from '../context/ThemeContext';
 import { collection, query, where, getDocs } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 import { useAuth } from '../context/AuthContext';
+import { getFilteredCoursesForStudent } from '../lib/courseFilter';
 import { getDownloadedCoursesLocal } from '../lib/db';
 
 interface Course {
@@ -173,12 +174,16 @@ export default function CbtSetupScreen() {
             semester: c.semester || semester,
             level: c.level || '',
             department: c.department || '',
+            disabled: c.disabled,
             label: `⭐ ${c.code} — ${c.title}`
           }));
-          setCourses(mappedLocal);
-          setSelectedCourse(mappedLocal[0].id);
-          localPopulated = true;
-          setLoading(false);
+          const filteredLocal = await getFilteredCoursesForStudent(mappedLocal, profile, true);
+          if (filteredLocal.length > 0) {
+            setCourses(filteredLocal);
+            setSelectedCourse(filteredLocal[0].id);
+            localPopulated = true;
+            setLoading(false);
+          }
         }
       } catch (err) {
         console.log('Skipping local downloaded courses init in CBT setup:', err);
@@ -197,15 +202,17 @@ export default function CbtSetupScreen() {
           where('semester', '==', semester)
         );
         const snapshot = await getDocs(q);
-        const fetched = snapshot.docs.map(doc => {
+        const fetchedRaw = snapshot.docs.map(doc => {
           const d = doc.data();
           return {
             id: doc.id,
             ...d,
             label: `${d.code} — ${d.title}`
           };
-        }) as Course[];
+        }) as any[];
         
+        const fetched = await getFilteredCoursesForStudent(fetchedRaw, profile, true);
+
         const userDept = (profile.department || '').toLowerCase();
         const userLevel = (profile.academicLevel || '100').replace('LVL', '');
 

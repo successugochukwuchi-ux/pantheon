@@ -193,7 +193,8 @@ export default function AdminPanel() {
     title: '', 
     semester: '1st', 
     level: '100',
-    department: 'general' 
+    department: 'general',
+    disabled: false
   });
   const [courseToEdit, setCourseToEdit] = useState<Course | null>(null);
   const [editCourse, setEditCourse] = useState({ 
@@ -201,7 +202,8 @@ export default function AdminPanel() {
     title: '', 
     semester: '1st', 
     level: '100',
-    department: 'general' 
+    department: 'general',
+    disabled: false
   });
   const [courseToDelete, setCourseToDelete] = useState<string | null>(null);
 
@@ -700,17 +702,31 @@ export default function AdminPanel() {
     e.preventDefault();
     setLoading(true);
     try {
-      await addDoc(collection(db, 'courses'), {
+      const docRef = await addDoc(collection(db, 'courses'), {
         ...newCourse,
         department: newCourse.department || null,
+        disabled: newCourse.disabled || false,
         createdAt: new Date().toISOString()
       });
       
       // Update system stats
       await updateStatCount('totalCourses', 1);
 
+      // Update local state
+      const createdCourse: Course = {
+        id: docRef.id,
+        code: newCourse.code,
+        title: newCourse.title,
+        semester: newCourse.semester as '1st' | '2nd',
+        level: newCourse.level,
+        department: newCourse.department || undefined,
+        disabled: newCourse.disabled || false,
+        createdAt: new Date().toISOString()
+      };
+      setCourses(prev => [...prev, createdCourse].sort((a, b) => safeCompareStrings(a.code, b.code)));
+
       toast.success('Course created successfully');
-      setNewCourse({ code: '', title: '', semester: '1st', level: '100', department: 'general' });
+      setNewCourse({ code: '', title: '', semester: '1st', level: '100', department: 'general', disabled: false });
     } catch (error: any) {
       toast.error(error.message);
     } finally {
@@ -727,6 +743,14 @@ export default function AdminPanel() {
         ...editCourse,
         updatedAt: new Date().toISOString()
       });
+      
+      // Update local state
+      setCourses(prev => prev.map(c => c.id === courseToEdit.id ? { 
+        ...c, 
+        ...editCourse, 
+        department: editCourse.department === 'general' ? undefined : editCourse.department 
+      } as Course : c));
+
       toast.success('Course updated successfully');
       setCourseToEdit(null);
     } catch (error: any) {
@@ -781,6 +805,9 @@ export default function AdminPanel() {
         await updateStatCount('totalQuestionSheets', -sheetsSnap.size);
       }
       
+      // Update local state
+      setCourses(prev => prev.filter(c => c.id !== courseToDelete));
+
       toast.success('Course and all associated materials deleted');
       setCourseToDelete(null);
     } catch (error: any) {
@@ -2495,6 +2522,20 @@ export default function AdminPanel() {
                       </SelectContent>
                     </Select>
                   </div>
+                  {profile?.level === '4' && (
+                    <div className="flex items-center space-x-2 md:col-span-2 pt-2">
+                      <input 
+                        type="checkbox" 
+                        id="new-course-disabled"
+                        checked={newCourse.disabled} 
+                        onChange={(e) => setNewCourse({...newCourse, disabled: e.target.checked})}
+                        className="h-4 w-4 rounded border-gray-300 text-primary focus:ring-primary"
+                      />
+                      <Label htmlFor="new-course-disabled" className="font-normal cursor-pointer text-sm text-muted-foreground">
+                        Disable Course (Invisible to all students and non-Level 4 admins)
+                      </Label>
+                    </div>
+                  )}
                 </CardContent>
                 <CardFooter>
                   <Button type="submit" disabled={loading}>Create Course</Button>
@@ -2508,11 +2549,16 @@ export default function AdminPanel() {
                 Existing Courses
               </h3>
               <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-                {courses.map(course => (
-                  <Card key={course.id} className="hover:shadow-md transition-shadow">
+                {courses.filter(course => profile?.level === '4' || !course.disabled).map(course => (
+                  <Card key={course.id} className={`hover:shadow-md transition-shadow ${course.disabled ? 'opacity-70 border-dashed border-destructive/50' : ''}`}>
                     <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
                       <div className="space-y-1">
-                        <CardTitle className="text-sm font-bold">{course.code}</CardTitle>
+                        <CardTitle className="text-sm font-bold flex items-center gap-2">
+                          {course.code}
+                          {course.disabled && (
+                            <span className="text-[10px] text-destructive bg-destructive/10 px-1.5 py-0.5 rounded font-normal">Disabled</span>
+                          )}
+                        </CardTitle>
                         <CardDescription className="text-xs line-clamp-1">{course.title}</CardDescription>
                       </div>
                       <div className="flex items-center gap-1">
@@ -2523,7 +2569,8 @@ export default function AdminPanel() {
                             title: course.title,
                             semester: course.semester,
                             level: course.level,
-                            department: course.department || 'general'
+                            department: course.department || 'general',
+                            disabled: !!course.disabled
                           });
                         }} disabled={loading}>
                           <Pencil className="h-4 w-4 text-primary" />
@@ -2546,6 +2593,92 @@ export default function AdminPanel() {
                 ))}
               </div>
             </div>
+
+            <Dialog open={!!courseToEdit} onOpenChange={(open) => !open && setCourseToEdit(null)}>
+              <DialogContent>
+                <DialogHeader>
+                  <DialogTitle>Edit Course</DialogTitle>
+                  <DialogDescription>Update course details below.</DialogDescription>
+                </DialogHeader>
+                <form onSubmit={handleUpdateCourse}>
+                  <div className="grid gap-4 py-4">
+                    <div className="space-y-2">
+                      <Label>Course Code</Label>
+                      <Input value={editCourse.code} onChange={(e) => setEditCourse({...editCourse, code: e.target.value})} placeholder="MATH101" required />
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Course Title</Label>
+                      <Input value={editCourse.title} onChange={(e) => setEditCourse({...editCourse, title: e.target.value})} placeholder="General Mathematics I" required />
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Semester</Label>
+                      <Select value={editCourse.semester} onValueChange={(v) => setEditCourse({...editCourse, semester: v as any})}>
+                        <SelectTrigger><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="1st">1st Semester</SelectItem>
+                          <SelectItem value="2nd">2nd Semester</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Level</Label>
+                      <Select value={editCourse.level} onValueChange={(v) => setEditCourse({...editCourse, level: v})}>
+                        <SelectTrigger><SelectValue placeholder="Select Level" /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="100">100</SelectItem>
+                          <SelectItem value="200">200</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Department</Label>
+                      <Select value={editCourse.department} onValueChange={(v) => setEditCourse({...editCourse, department: v})}>
+                        <SelectTrigger><SelectValue placeholder="General / All Departments" /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="general">General / All Departments</SelectItem>
+                          {DEPARTMENTS.map(dept => (
+                            <SelectItem key={dept} value={dept}>{dept}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    {profile?.level === '4' && (
+                      <div className="flex items-center space-x-2 pt-2">
+                        <input 
+                          type="checkbox" 
+                          id="edit-course-disabled"
+                          checked={editCourse.disabled} 
+                          onChange={(e) => setEditCourse({...editCourse, disabled: e.target.checked})}
+                          className="h-4 w-4 rounded border-gray-300 text-primary focus:ring-primary"
+                        />
+                        <Label htmlFor="edit-course-disabled" className="font-normal cursor-pointer text-sm text-muted-foreground">
+                          Disable Course (Invisible to all students and non-Level 4 admins)
+                        </Label>
+                      </div>
+                    )}
+                  </div>
+                  <DialogFooter>
+                    <Button type="button" variant="outline" onClick={() => setCourseToEdit(null)}>Cancel</Button>
+                    <Button type="submit" disabled={loading}>Update Course</Button>
+                  </DialogFooter>
+                </form>
+              </DialogContent>
+            </Dialog>
+
+            <Dialog open={!!courseToDelete} onOpenChange={(open) => !open && setCourseToDelete(null)}>
+              <DialogContent>
+                <DialogHeader>
+                  <DialogTitle>Delete Course</DialogTitle>
+                  <DialogDescription>
+                    Are you sure you want to delete this course? All associated notes and questions might be orphaned or inaccessible. This action cannot be undone.
+                  </DialogDescription>
+                </DialogHeader>
+                <DialogFooter>
+                  <Button variant="outline" onClick={() => setCourseToDelete(null)}>Cancel</Button>
+                  <Button variant="destructive" onClick={handleDeleteCourse} disabled={loading}>Delete Course</Button>
+                </DialogFooter>
+              </DialogContent>
+            </Dialog>
           </div>
         } />
 
@@ -2591,7 +2724,7 @@ export default function AdminPanel() {
                     <Select value={newNote.courseId} onValueChange={(v) => setNewNote({...newNote, courseId: v})}>
                       <SelectTrigger><SelectValue placeholder="Select Course" /></SelectTrigger>
                       <SelectContent>
-                        {courses.map(course => (
+                        {courses.filter(course => profile?.level === '4' || !course.disabled).map(course => (
                           <SelectItem key={course.id} value={course.id}>{course.code} - {course.title}</SelectItem>
                         ))}
                       </SelectContent>
@@ -2891,7 +3024,7 @@ export default function AdminPanel() {
                       <Select value={editNote.courseId} onValueChange={(v) => setEditNote({...editNote, courseId: v})}>
                         <SelectTrigger className="h-10"><SelectValue placeholder="Select Course" /></SelectTrigger>
                         <SelectContent>
-                          {courses.map(course => (
+                          {courses.filter(course => profile?.level === '4' || !course.disabled).map(course => (
                             <SelectItem key={course.id} value={course.id}>{course.code} - {course.title}</SelectItem>
                           ))}
                         </SelectContent>
@@ -2965,77 +3098,7 @@ export default function AdminPanel() {
               </DialogContent>
             </Dialog>
 
-            <Dialog open={!!courseToEdit} onOpenChange={(open) => !open && setCourseToEdit(null)}>
-              <DialogContent>
-                <DialogHeader>
-                  <DialogTitle>Edit Course</DialogTitle>
-                  <DialogDescription>Update course details below.</DialogDescription>
-                </DialogHeader>
-                <form onSubmit={handleUpdateCourse}>
-                  <div className="grid gap-4 py-4">
-                    <div className="space-y-2">
-                      <Label>Course Code</Label>
-                      <Input value={editCourse.code} onChange={(e) => setEditCourse({...editCourse, code: e.target.value})} placeholder="MATH101" required />
-                    </div>
-                    <div className="space-y-2">
-                      <Label>Course Title</Label>
-                      <Input value={editCourse.title} onChange={(e) => setEditCourse({...editCourse, title: e.target.value})} placeholder="General Mathematics I" required />
-                    </div>
-                    <div className="space-y-2">
-                      <Label>Semester</Label>
-                      <Select value={editCourse.semester} onValueChange={(v) => setEditCourse({...editCourse, semester: v as any})}>
-                        <SelectTrigger><SelectValue /></SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="1st">1st Semester</SelectItem>
-                          <SelectItem value="2nd">2nd Semester</SelectItem>
-                        </SelectContent>
-                      </Select>
-                    </div>
-                    <div className="space-y-2">
-                      <Label>Level</Label>
-                      <Select value={editCourse.level} onValueChange={(v) => setEditCourse({...editCourse, level: v})}>
-                        <SelectTrigger><SelectValue placeholder="Select Level" /></SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="100">100</SelectItem>
-                          <SelectItem value="200">200</SelectItem>
-                        </SelectContent>
-                      </Select>
-                    </div>
-                    <div className="space-y-2">
-                      <Label>Department</Label>
-                      <Select value={editCourse.department} onValueChange={(v) => setEditCourse({...editCourse, department: v})}>
-                        <SelectTrigger><SelectValue placeholder="General / All Departments" /></SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="general">General / All Departments</SelectItem>
-                          {DEPARTMENTS.map(dept => (
-                            <SelectItem key={dept} value={dept}>{dept}</SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </div>
-                  </div>
-                  <DialogFooter>
-                    <Button type="button" variant="outline" onClick={() => setCourseToEdit(null)}>Cancel</Button>
-                    <Button type="submit" disabled={loading}>Update Course</Button>
-                  </DialogFooter>
-                </form>
-              </DialogContent>
-            </Dialog>
 
-            <Dialog open={!!courseToDelete} onOpenChange={(open) => !open && setCourseToDelete(null)}>
-              <DialogContent>
-                <DialogHeader>
-                  <DialogTitle>Delete Course</DialogTitle>
-                  <DialogDescription>
-                    Are you sure you want to delete this course? All associated notes and questions might be orphaned or inaccessible. This action cannot be undone.
-                  </DialogDescription>
-                </DialogHeader>
-                <DialogFooter>
-                  <Button variant="outline" onClick={() => setCourseToDelete(null)}>Cancel</Button>
-                  <Button variant="destructive" onClick={handleDeleteCourse} disabled={loading}>Delete Course</Button>
-                </DialogFooter>
-              </DialogContent>
-            </Dialog>
           </div>
         } />
 
@@ -3058,7 +3121,7 @@ export default function AdminPanel() {
                         <Select value={newSheet.courseId} onValueChange={(v) => setNewSheet({...newSheet, courseId: v})}>
                           <SelectTrigger><SelectValue placeholder="Select Course" /></SelectTrigger>
                           <SelectContent>
-                            {courses.map(course => (
+                            {courses.filter(course => profile?.level === '4' || !course.disabled).map(course => (
                               <SelectItem key={course.id} value={course.id}>{course.code} - {course.title}</SelectItem>
                             ))}
                           </SelectContent>

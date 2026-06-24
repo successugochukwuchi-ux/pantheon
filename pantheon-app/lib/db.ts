@@ -46,7 +46,8 @@ export async function initDatabase() {
           level TEXT,
           department TEXT,
           progress INTEGER,
-          isDownloaded INTEGER DEFAULT 0
+          isDownloaded INTEGER DEFAULT 0,
+          disabled INTEGER DEFAULT 0
         );
         CREATE TABLE IF NOT EXISTS notes (
           id TEXT PRIMARY KEY,
@@ -73,15 +74,21 @@ export async function initDatabase() {
           academicLevel TEXT
         );
       `);
+      try {
+        db.execSync("ALTER TABLE courses ADD COLUMN disabled INTEGER DEFAULT 0;");
+      } catch (e) {
+        // column already exists
+      }
       console.log('Local SQLite Database: Initialized.');
     } else {
       db.transaction((tx: any) => {
         tx.executeSql('CREATE TABLE IF NOT EXISTS system_config (key TEXT PRIMARY KEY, value TEXT);');
         tx.executeSql('CREATE TABLE IF NOT EXISTS user_profile (uid TEXT PRIMARY KEY, studentId TEXT, email TEXT, username TEXT, department TEXT, mobileNumber TEXT, academicLevel TEXT, level TEXT, isActivated INTEGER);');
-        tx.executeSql('CREATE TABLE IF NOT EXISTS courses (id TEXT PRIMARY KEY, code TEXT, title TEXT, semester TEXT, level TEXT, department TEXT, progress INTEGER, isDownloaded INTEGER DEFAULT 0);');
+        tx.executeSql('CREATE TABLE IF NOT EXISTS courses (id TEXT PRIMARY KEY, code TEXT, title TEXT, semester TEXT, level TEXT, department TEXT, progress INTEGER, isDownloaded INTEGER DEFAULT 0, disabled INTEGER DEFAULT 0);');
         tx.executeSql('CREATE TABLE IF NOT EXISTS notes (id TEXT PRIMARY KEY, courseId TEXT, title TEXT, content TEXT, "order" INTEGER, duration TEXT, tag TEXT);');
         tx.executeSql('CREATE TABLE IF NOT EXISTS questions (id TEXT PRIMARY KEY, courseId TEXT, q TEXT, options TEXT, answer INTEGER, sheetId TEXT);');
         tx.executeSql('CREATE TABLE IF NOT EXISTS question_sheets (id TEXT PRIMARY KEY, courseId TEXT, year TEXT, semester TEXT, academicLevel TEXT);');
+        tx.executeSql('ALTER TABLE courses ADD COLUMN disabled INTEGER DEFAULT 0;', [], () => {}, () => {});
       }, (e: any) => {
         console.error('Legacy SQLite transaction error:', e);
       });
@@ -127,15 +134,16 @@ export function saveCoursesFromServer(courses: any[]) {
     if (db.runSync) {
       for (const course of courses) {
         db.runSync(
-          `INSERT INTO courses (id, code, title, semester, level, department, progress, isDownloaded)
-          VALUES (?, ?, ?, ?, ?, ?, ?, 0)
+          `INSERT INTO courses (id, code, title, semester, level, department, progress, isDownloaded, disabled)
+          VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?)
           ON CONFLICT(id) DO UPDATE SET
             code = excluded.code,
             title = excluded.title,
             semester = excluded.semester,
             level = excluded.level,
             department = excluded.department,
-            progress = excluded.progress`,
+            progress = excluded.progress,
+            disabled = excluded.disabled`,
           [
             course.id,
             course.code || '',
@@ -143,7 +151,8 @@ export function saveCoursesFromServer(courses: any[]) {
             course.semester || '',
             course.level || '',
             course.department || '',
-            course.progress || 0
+            course.progress || 0,
+            course.disabled ? 1 : 0
           ]
         );
       }
@@ -161,9 +170,18 @@ export function saveCourseLocal(course: any) {
   try {
     if (db.runSync) {
       db.runSync(
-        `INSERT OR REPLACE INTO courses (id, code, title, semester, level, department, progress, isDownloaded) 
-         VALUES (?, ?, ?, ?, ?, ?, ?, 1)`,
-        [course.id, course.code, course.title, course.semester, course.level, course.department || '', course.progress || 0]
+        `INSERT OR REPLACE INTO courses (id, code, title, semester, level, department, progress, isDownloaded, disabled) 
+         VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?)`,
+        [
+          course.id, 
+          course.code, 
+          course.title, 
+          course.semester, 
+          course.level, 
+          course.department || '', 
+          course.progress || 0,
+          course.disabled ? 1 : 0
+        ]
       );
     }
   } catch (e) {

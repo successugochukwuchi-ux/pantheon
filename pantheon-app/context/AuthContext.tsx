@@ -346,9 +346,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           ...doc.data()
         })) as any[];
 
-        const coursesToSave = await getFilteredCoursesForStudent(allFetched, profile, true);
-
-        saveCoursesFromServer(coursesToSave);
+        saveCoursesFromServer(allFetched);
       } catch (err) {
         console.log('[Background Auto-Sync] Course synchronization skipped (offline):', err);
       }

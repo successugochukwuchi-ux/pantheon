@@ -16,6 +16,7 @@ import { useTheme } from '../context/ThemeContext';
 import { collection, query, where, getDocs } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 import { useAuth } from '../context/AuthContext';
+import { getFilteredCoursesForStudent } from '../lib/courseFilter';
 import { 
   isCourseDownloadedLocal, 
   getDownloadedCoursesLocal,
@@ -220,9 +221,11 @@ export default function NoteGrabberScreen() {
           semester: c.semester || activeSemester,
           level: c.level || '',
           department: c.department || '',
+          disabled: c.disabled,
           isDownloaded: true,
         }));
-        setDownloadedCourses(mappedLocal);
+        const filteredLocal = await getFilteredCoursesForStudent(mappedLocal, profile, true);
+        setDownloadedCourses(filteredLocal);
         setAvailableCourses([]);
         setLoading(false);
         return;
@@ -234,7 +237,7 @@ export default function NoteGrabberScreen() {
         where('semester', '==', activeSemester)
       );
       const snapshot = await getDocs(q);
-      const fsCourses: Course[] = snapshot.docs.map(doc => {
+      const fsCourses: any[] = snapshot.docs.map(doc => {
         const d = doc.data();
         const courseId = doc.id;
         const downloaded = isCourseDownloadedLocal(courseId);
@@ -245,13 +248,16 @@ export default function NoteGrabberScreen() {
           semester: d.semester || '',
           level: d.level || '',
           department: d.department || '',
+          disabled: d.disabled,
           isDownloaded: downloaded,
         };
       });
 
+      const filtered = await getFilteredCoursesForStudent(fsCourses, profile, true);
+
       // Split based on offline SQLite status
-      setDownloadedCourses(fsCourses.filter(c => c.isDownloaded));
-      setAvailableCourses(fsCourses.filter(c => !c.isDownloaded));
+      setDownloadedCourses(filtered.filter(c => c.isDownloaded));
+      setAvailableCourses(filtered.filter(c => !c.isDownloaded));
     } catch (e) {
       console.error('Error loading courses for Note Grabber:', e);
     } finally {

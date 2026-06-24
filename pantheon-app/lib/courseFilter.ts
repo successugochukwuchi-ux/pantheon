@@ -10,11 +10,18 @@ export async function getFilteredCoursesForStudent(
   profile: any,
   applyLevelFilter = true
 ): Promise<any[]> {
-  if (!profile) return allCourses;
+  const isLevel4 = profile?.level === '4' || profile?.permissionLevel === '4';
+  const visibleCourses = allCourses.filter(course => isLevel4 || !(course.disabled === 1 || course.disabled === true));
 
-  // Level 3 (vendors) and Level 4 (admins) can see everything
-  if (profile.level === '3' || profile.level === '4' || profile.permissionLevel === '3' || profile.permissionLevel === '4') {
+  if (!profile) return visibleCourses;
+
+  // Level 3 (vendors) and Level 4 (admins) can see everything (Level 4 can see disabled too)
+  if (profile.level === '4' || profile.permissionLevel === '4') {
     return allCourses;
+  }
+
+  if (profile.level === '3' || profile.permissionLevel === '3') {
+    return visibleCourses;
   }
 
   try {
@@ -42,7 +49,7 @@ export async function getFilteredCoursesForStudent(
       (d.departments || []).some((dept: string) => dept.toLowerCase().trim() === userDept)
     );
 
-    return allCourses.filter(course => {
+    return visibleCourses.filter(course => {
       // 1) Level filter (optional, default true)
       if (applyLevelFilter) {
         const courseLevel = (course.level || '').replace('LVL', '').trim();
@@ -86,7 +93,7 @@ export async function getFilteredCoursesForStudent(
     console.error("Error filtering courses by discipline:", error);
     // Fallback: simple department filter if firestore read/cache fails
     const userDept = (profile.department || '').toLowerCase().trim();
-    return allCourses.filter(c => {
+    return visibleCourses.filter(c => {
       const courseDept = (c.department || '').toLowerCase().trim();
       return !c.department || courseDept === 'general' || courseDept === 'college' || courseDept === userDept;
     });

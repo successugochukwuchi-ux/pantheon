@@ -29,6 +29,7 @@ export interface Course {
   semester: '1st' | '2nd';
   level: string;
   department?: string; // If null/empty, it's a General Course
+  disabled?: boolean;
   createdAt: string;
 }
 

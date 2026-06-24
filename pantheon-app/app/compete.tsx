@@ -33,6 +33,7 @@ import {
   serverTimestamp,
 } from 'firebase/firestore';
 import { db } from '../lib/firebase';
+import { getFilteredCoursesForStudent } from '../lib/courseFilter';
 
 interface Course {
   id: string;
@@ -124,13 +125,14 @@ export default function CompeteScreen() {
     setLoadingCourses(true);
     const coursesCol = collection(db, 'courses');
     getDocs(coursesCol)
-      .then((snap) => {
+      .then(async (snap) => {
         const list = snap.docs.map((d) => ({ id: d.id, ...d.data() }) as Course);
+        let semFiltered = list;
         if (systemConfig && systemConfig.currentSemester !== 'none') {
-          setCourses(list.filter((c) => c.semester === systemConfig.currentSemester));
-        } else {
-          setCourses(list);
+          semFiltered = list.filter((c) => c.semester === systemConfig.currentSemester);
         }
+        const filtered = await getFilteredCoursesForStudent(semFiltered, profile, true);
+        setCourses(filtered);
         setLoadingCourses(false);
       })
       .catch((err) => {
