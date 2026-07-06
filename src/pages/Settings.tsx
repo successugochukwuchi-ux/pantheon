@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { updateProfile, updatePassword } from 'firebase/auth';
-import { doc, updateDoc } from 'firebase/firestore';
+import { doc, updateDoc, collection, query, where, getDocs } from 'firebase/firestore';
 import { auth, db } from '../firebase';
 import { useAuth } from '../contexts/AuthContext';
 import { useTheme } from '../contexts/ThemeContext';
@@ -40,15 +40,35 @@ export default function Settings() {
 
   const handleUpdateProfile = async (e: React.FormEvent) => {
     e.preventDefault();
+    const cleanUsername = username.trim().replace(/[^a-zA-Z0-9_]/g, '');
+    
+    if (cleanUsername.length < 3) {
+      toast.error('Username must be at least 3 characters long');
+      return;
+    }
+
     setLoading(true);
     try {
       if (user) {
+        // If username changed (case-insensitively), check uniqueness
+        if (cleanUsername.toLowerCase() !== profile?.username?.toLowerCase()) {
+          const q = query(collection(db, 'users'), where('username_lower', '==', cleanUsername.toLowerCase()));
+          const snap = await getDocs(q);
+          if (!snap.empty) {
+            toast.error("Username is already taken. Please choose another one.");
+            setLoading(false);
+            return;
+          }
+        }
+
         const photoURL = `https://api.dicebear.com/7.x/${avatarStyle}/svg?seed=${avatarSeed}`;
         await updateProfile(user, { photoURL });
         await updateDoc(doc(db, 'users', user.uid), {
-          username: username,
+          username: cleanUsername,
+          username_lower: cleanUsername.toLowerCase(),
           photoURL: photoURL
         });
+        setUsername(cleanUsername);
         toast.success('Profile updated successfully');
       }
     } catch (error: any) {

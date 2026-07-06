@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate, Link, useSearchParams } from 'react-router-dom';
 import { createUserWithEmailAndPassword, updateProfile, signInWithPopup, GoogleAuthProvider } from 'firebase/auth';
-import { doc, setDoc, getDoc, updateDoc, increment, collection, getDocs } from 'firebase/firestore';
+import { doc, setDoc, getDoc, updateDoc, increment, collection, getDocs, query, where } from 'firebase/firestore';
 import { auth, db } from '../firebase';
 import { formatAuthError } from '../lib/auth-errors';
 import { Button } from '../components/ui/button';
@@ -150,8 +150,22 @@ export default function Register() {
     return true;
   };
 
-  const handleNextStep = () => {
+  const handleNextStep = async () => {
     if (step === 1 && validateStep1()) {
+      setLoading(true);
+      try {
+        const q = query(collection(db, 'users'), where('username_lower', '==', username.trim().toLowerCase()));
+        const snap = await getDocs(q);
+        if (!snap.empty) {
+          toast.error("Username is already taken. Please choose another one.");
+          setLoading(false);
+          return;
+        }
+      } catch (err) {
+        console.error("Error checking username uniqueness:", err);
+      } finally {
+        setLoading(false);
+      }
       setStep(2);
     } else if (step === 2 && validateStep2()) {
       setStep(3);
@@ -181,6 +195,16 @@ export default function Register() {
 
     setLoading(true);
     try {
+      // Re-verify username uniqueness before creation
+      const q = query(collection(db, 'users'), where('username_lower', '==', username.trim().toLowerCase()));
+      const snap = await getDocs(q);
+      if (!snap.empty) {
+        toast.error("Username is already taken. Please choose another one.");
+        setStep(1);
+        setLoading(false);
+        return;
+      }
+
       const userCredential = await createUserWithEmailAndPassword(auth, email, password);
       const user = userCredential.user;
 
@@ -198,6 +222,7 @@ export default function Register() {
           studentId: studentId,
           email: user.email,
           username: username.trim(),
+          username_lower: username.trim().toLowerCase(),
           department: department,
           mobileNumber: mobileNumber,
           academicLevel: level,
@@ -268,13 +293,33 @@ export default function Register() {
         const defaultLevel = '100';
 
         const photoURL = user.photoURL || `https://api.dicebear.com/7.x/avataaars/svg?seed=${user.uid}`;
-        const username = user.displayName?.toLowerCase().replace(/[^a-z0-9_]/g, '') || user.email?.split('@')[0] || 'user';
+        
+        let baseUsername = user.displayName?.replace(/[^a-zA-Z0-9_]/g, '') || user.email?.split('@')[0] || 'user';
+        if (baseUsername.length < 3) {
+          baseUsername = baseUsername + '123';
+        }
+        
+        let finalUsername = baseUsername;
+        let isUnique = false;
+        let attempt = 0;
+        
+        while (!isUnique && attempt < 10) {
+          const checkUsername = attempt === 0 ? finalUsername : `${baseUsername}${Math.floor(100 + Math.random() * 900)}`;
+          const q = query(collection(db, 'users'), where('username_lower', '==', checkUsername.toLowerCase()));
+          const snap = await getDocs(q);
+          if (snap.empty) {
+            finalUsername = checkUsername;
+            isUnique = true;
+          }
+          attempt++;
+        }
 
         await setDoc(profileRef, {
           uid: user.uid,
           studentId: studentId,
           email: user.email,
-          username: username,
+          username: finalUsername,
+          username_lower: finalUsername.toLowerCase(),
           department: defaultDept,
           mobileNumber: '',
           academicLevel: defaultLevel,
@@ -379,7 +424,7 @@ export default function Register() {
                             placeholder="johndoe" 
                             required 
                             value={username}
-                            onChange={(e) => setUsername(e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, ''))}
+                            onChange={(e) => setUsername(e.target.value.replace(/[^a-zA-Z0-9_]/g, ''))}
                             className="h-12 pl-11 rounded-xl bg-muted/25 border-border focus:bg-background focus:ring-2 focus:ring-primary/20 transition-all text-sm font-medium"
                           />
                         </div>
