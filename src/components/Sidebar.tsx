@@ -50,8 +50,8 @@ export const Sidebar: React.FC<SidebarProps> = ({ onClose, isCollapsed = false, 
   const { isFluxMode, setFluxMode } = useFlux();
   const location = useLocation();
 
-  const isAtLeastLevel2 = profile?.level === '2' || profile?.level === '3' || profile?.level === '4';
-  const isAdmin = profile?.level === '3' || profile?.level === '4';
+  const isAtLeastLevel2 = profile?.level === '2' || profile?.level === '3' || profile?.level === '4' || profile?.level === '5';
+  const isAdmin = profile?.level === '3' || profile?.level === '4' || profile?.level === '5';
   const isAdminPath = location.pathname.startsWith('/administrator');
 
   interface SidebarNavItem {
@@ -101,6 +101,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ onClose, isCollapsed = false, 
 
   const level4NavItems: SidebarNavItem[] = [
     ...adminNavItems,
+    { name: 'Credentials', path: '/administrator/credentials', icon: Key },
     { name: 'System Control', path: '/administrator/system', icon: Settings },
     { name: 'System Reports', path: '/administrator/reports', icon: FileText },
   ];
@@ -123,7 +124,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ onClose, isCollapsed = false, 
     }
     
     if (isAdminPath) {
-      if (profile?.level === '4') return level4NavItems;
+      if (profile?.level === '4' || profile?.level === '5') return level4NavItems;
       if (profile?.level === '3') return level3AdminNavItems;
       return level2AdminNavItems;
     }

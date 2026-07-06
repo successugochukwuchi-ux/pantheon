@@ -40,10 +40,10 @@ export default function StudyMaterials() {
   const [searchQuery, setSearchQuery] = useState('');
   const [viewingImage, setViewingImage] = useState<string | null>(null);
 
-  const isAdmin = profile?.level === '3' || profile?.level === '4';
-  const showAllSemesters = profile?.level === '4';
+  const isAdmin = profile?.level === '3' || profile?.level === '4' || profile?.level === '5';
+  const showAllSemesters = profile?.level === '4' || profile?.level === '5';
   const isHoliday = systemConfig && systemConfig.currentSemester === 'none' && !showAllSemesters;
-  const isUnactivatedStudent = (!profile || !profile.isActivated) && profile?.level !== '3' && profile?.level !== '4';
+  const isUnactivatedStudent = (!profile || !profile.isActivated) && profile?.level !== '3' && profile?.level !== '4' && profile?.level !== '5';
 
   const typeLabels: Record<string, string> = {
     'lecture': 'Lecture Notes',

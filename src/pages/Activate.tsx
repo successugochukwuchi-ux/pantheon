@@ -10,6 +10,7 @@ import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle }
 import { toast } from 'sonner';
 import { MessageCircle, Gift, Info, Star } from 'lucide-react';
 import { sendTelegramAlert } from '../services/telegramService';
+import { getContactWhatsAppNumber } from '../services/credentialService';
 import { 
   Dialog, 
   DialogContent, 
@@ -26,6 +27,13 @@ export default function Activate() {
   const [usePinMode, setUsePinMode] = useState(false);
   const { user, profile, promoConfig, systemConfig } = useAuth();
   const navigate = useNavigate();
+  const [whatsappNumber, setWhatsappNumber] = useState('2348118429150');
+
+  useEffect(() => {
+    getContactWhatsAppNumber(profile?.At).then(num => {
+      setWhatsappNumber(num);
+    });
+  }, [profile?.At]);
 
   const handlePromoActivate = async () => {
     if (!user || !promoConfig?.isActive) return;
@@ -188,6 +196,7 @@ export default function Activate() {
       // Get pin creator profile for telegram alert metadata
       let isCreatorLevel4 = false;
       let creatorStudentId = 'N/A';
+      let creatorAt = 'N/A';
       
       if (pinData.createdBy) {
         try {
@@ -196,7 +205,8 @@ export default function Activate() {
           if (creatorSnap.exists()) {
             const creatorData = creatorSnap.data();
             creatorStudentId = creatorData?.studentId || 'N/A';
-            if (creatorData?.level === '4') {
+            creatorAt = creatorData?.At || 'N/A';
+            if (creatorData?.level === '4' || creatorData?.level === '5') {
               isCreatorLevel4 = true;
             }
           }
@@ -208,11 +218,13 @@ export default function Activate() {
       // If we couldn't resolve via createdBy, let's query users by studentId matching the pin's owner field to check if they are level 4
       if (!isCreatorLevel4 && pinData.owner) {
         try {
-          const usersQ = query(collection(db, 'users'), where('studentId', '==', pinData.owner), where('level', '==', '4'));
+          const usersQ = query(collection(db, 'users'), where('studentId', '==', pinData.owner), where('level', 'in', ['4', '5']));
           const usersSnap = await getDocs(usersQ);
           if (!usersSnap.empty) {
             isCreatorLevel4 = true;
             creatorStudentId = pinData.owner;
+            const adminDoc = usersSnap.docs[0].data();
+            creatorAt = adminDoc?.At || 'N/A';
           }
         } catch (err) {
           console.error("Failed to query user by pin owner studentId:", err);
@@ -228,9 +240,11 @@ export default function Activate() {
           `<b>Pin Code:</b> ${pin}\n` +
           `<b>Pin Type:</b> ${pinData.type?.toUpperCase() || 'STANDARD'}\n` +
           `<b>User Student ID:</b> ${profile?.studentId || 'N/A'}\n` +
+          `<b>User At:</b> ${profile?.At || 'N/A'}\n` +
           `<b>Time Used:</b> ${new Date().toLocaleString()}\n` +
           `<b>Pin Created At:</b> ${pinData.createdAt ? new Date(pinData.createdAt).toLocaleString() : 'N/A'}\n` +
           `<b>Creator/Owner Student ID:</b> ${creatorStudentId}\n` +
+          `<b>Creator At:</b> ${creatorAt}\n` +
           `<b>Pool Status:</b> Master Pool`
         );
       }
@@ -245,7 +259,7 @@ export default function Activate() {
 
   const openWhatsApp = () => {
     const message = encodeURIComponent("Hello, I want to purchase an activation pin for CoLearn App.");
-    window.open(`https://wa.me/2348118429150?text=${message}`, '_blank');
+    window.open(`https://wa.me/${whatsappNumber}?text=${message}`, '_blank');
   };
 
   useEffect(() => {

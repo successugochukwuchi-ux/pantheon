@@ -1,4 +1,4 @@
-import { collection, getDocs } from 'firebase/firestore';
+import { collection, getDocs, doc, getDoc } from 'firebase/firestore';
 import { db } from '../firebase';
 import { Course, Discipline, UserProfile } from '../types';
 
@@ -8,15 +8,16 @@ import { Course, Discipline, UserProfile } from '../types';
 export async function getFilteredCoursesForStudent(
   allCourses: Course[],
   profile: UserProfile | null | undefined,
-  applyLevelFilter = true
+  applyLevelFilter = true,
+  currentSemester?: string
 ): Promise<Course[]> {
-  const isLevel4 = profile?.level === '4';
+  const isLevel4 = profile?.level === '4' || profile?.level === '5';
   const visibleCourses = allCourses.filter(course => isLevel4 || !course.disabled);
 
-  if (!profile) return visibleCourses;
+  if (!profile) return [];
 
-  // Level 4 (admins) can see everything
-  if (profile.level === '4') {
+  // Level 4 (admins) and Level 5 can see everything
+  if (profile.level === '4' || profile.level === '5') {
     return allCourses;
   }
 
@@ -29,62 +30,92 @@ export async function getFilteredCoursesForStudent(
     const disciplineSnap = await getDocs(collection(db, 'disciplines'));
     const disciplines = disciplineSnap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Discipline));
 
-    const userDept = (profile.department || '').toLowerCase().trim();
-    const userLevel = (profile.academicLevel || profile.level || '100').replace('LVL', '').trim();
+    // Fetch currentSemester if not passed
+    let activeSemester = currentSemester;
+    if (!activeSemester) {
+      try {
+        const configSnap = await getDoc(doc(db, 'system', 'config'));
+        if (configSnap.exists()) {
+          activeSemester = configSnap.data().currentSemester || '1st';
+        }
+      } catch (err) {
+        console.error("Error fetching system config in courseFilter:", err);
+      }
+    }
+    if (!activeSemester) {
+      activeSemester = '1st';
+    }
 
-    // Find disciplines that contain student's department
-    const studentDisciplines = disciplines.filter(d => 
-      (d.departments || []).some(dept => dept.toLowerCase().trim() === userDept)
-    );
+    const userDept = (profile.department || '').toLowerCase().trim();
+
+    // Normalization helper for level comparison
+    const normalizeLvl = (lvl: string | number | undefined | null): string => {
+      if (!lvl) return '';
+      const s = String(lvl).toLowerCase().replace(/lvl|level/gi, '').trim();
+      const m = s.match(/\d+/);
+      return m ? m[0] : s;
+    };
+
+    const userLevelNorm = normalizeLvl(profile.academicLevel || profile.level || '100');
+
+    // Normalization helper for semester comparison
+    const normalizeSemester = (sem: string | undefined | null): string => {
+      if (!sem) return '';
+      const s = String(sem).toLowerCase().trim();
+      if (s.includes('1') || s.includes('first') || s.includes('harmattan')) return '1st';
+      if (s.includes('2') || s.includes('second') || s.includes('rain')) return '2nd';
+      return s;
+    };
+
+    const activeSemesterNorm = normalizeSemester(activeSemester);
 
     return visibleCourses.filter(course => {
-      // 1) Level filter (optional, default true)
-      if (applyLevelFilter) {
-        const courseLevel = (course.level || '').replace('LVL', '').trim();
-        const levelMatch = courseLevel === userLevel || 
-                          (userLevel === '100' && courseLevel === '1') ||
-                          (userLevel === '1' && courseLevel === '100');
-        if (!levelMatch) return false;
-      }
-
-      const courseDept = (course.department || '').toLowerCase().trim();
-      const isGeneral = !course.department || courseDept === 'general' || courseDept === 'college';
-
-      // 2) Departmental course: student can see it if it matches their department
-      if (!isGeneral) {
-        if (courseDept === userDept) return true;
-        // Token match as in Dashboard.tsx
-        const userTokens = userDept.split(/[\s()\-]+/).filter(t => t.length > 2 && t !== 'engineering');
-        const courseTokens = courseDept.split(/[\s()\-]+/).filter(t => t.length > 2 && t !== 'engineering');
-        if (userTokens.some(ut => courseDept.includes(ut)) || courseTokens.some(ct => userDept.includes(ct))) {
-          return true;
-        }
+      // A. The course must be visible i.e the field "disabled" must be false
+      if (course.disabled) {
         return false;
       }
 
-      // 3) General course:
-      // "and courses that are marked as general but are allowed or locked within their discipline. there should be no indication of discipline locking for students it should be a backend affair"
-      if (studentDisciplines.length > 0) {
-        // Must be explicitly enabled (allow or lock) in at least one of their assigned disciplines
-        return studentDisciplines.some(d => {
-          const opt = d.courses?.[course.id];
-          return opt === 'allow' || opt === 'lock';
-        });
-      } else {
-        // If student department is not yet mapped to any discipline:
-        // Show this general course unless it is locked by some other discipline.
-        const isLockedElsewhere = disciplines.some(d => d.courses?.[course.id] === 'lock');
-        return !isLockedElsewhere;
+      // B. The course is assigned to one or more disciplines.
+      const courseDisciplines = disciplines.filter(d => {
+        const opt = d.courses?.[course.id];
+        return opt === 'allow' || opt === 'lock';
+      });
+
+      if (courseDisciplines.length === 0) {
+        return false;
       }
+
+      // C. The user's department is a part of the same discipline as the course
+      const hasSharedDiscipline = courseDisciplines.some(d =>
+        (d.departments || []).some(dept => dept.toLowerCase().trim() === userDept)
+      );
+
+      if (!hasSharedDiscipline) {
+        return false;
+      }
+
+      // D. The user is of the same level as the course i.e user's academiclevel matches the course's level
+      const courseLevelNorm = normalizeLvl(course.level);
+      if (userLevelNorm !== courseLevelNorm) {
+        return false;
+      }
+
+      // E. The currentSemester matches the course's semester.
+      const courseSemesterNorm = normalizeSemester(course.semester);
+      if (courseSemesterNorm !== activeSemesterNorm) {
+        return false;
+      }
+
+      // F. The course must belong to the user's university (At)
+      if (course.At && profile.At && course.At.toLowerCase() !== profile.At.toLowerCase()) {
+        return false;
+      }
+
+      return true;
     });
 
   } catch (error) {
     console.error("Error filtering courses by discipline:", error);
-    // Fallback: simple department filter if firestore read fails
-    const userDept = (profile.department || '').toLowerCase().trim();
-    return visibleCourses.filter(c => {
-      const courseDept = (c.department || '').toLowerCase().trim();
-      return !c.department || courseDept === 'general' || courseDept === 'college' || courseDept === userDept;
-    });
+    return [];
   }
 }

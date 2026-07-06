@@ -1,4 +1,4 @@
-export type UserLevel = '1' | '2' | '3' | '4';
+export type UserLevel = '1' | '2' | '3' | '4' | '5';
 export type Semester = '1st' | '2nd' | 'none';
 
 export interface UserProfile {
@@ -20,6 +20,15 @@ export interface UserProfile {
   photoURL?: string;
   currentSessionId?: string;
   createdAt: string;
+  At?: string; // University ID/code
+}
+
+export interface University {
+  id: string; // e.g. futo, unilag
+  name: string;
+  shortName: string;
+  departments: Array<{ name: string; disciplineId: string | null }>;
+  createdAt: string;
 }
 
 export interface Course {
@@ -31,6 +40,7 @@ export interface Course {
   department?: string; // If null/empty, it's a General Course
   disabled?: boolean;
   createdAt: string;
+  At?: string; // University ID/code
 }
 
 export interface Note {
@@ -43,6 +53,7 @@ export interface Note {
   videoUrl?: string;
   createdAt: string;
   updatedAt?: string;
+  At?: string; // University ID/code
 }
 
 export interface VideoQuestion {
@@ -99,6 +110,7 @@ export interface QuestionSheet {
   isAvailable: boolean;
   createdAt: string;
   authorId: string;
+  At?: string; // University ID/code
 }
 
 export interface Question {
@@ -140,6 +152,7 @@ export interface ActivationCode {
   assignedTo?: string;
   assignedToStudentId?: string;
   owner?: string;
+  At?: string; // University ID/code
 }
 
 export interface Notification {

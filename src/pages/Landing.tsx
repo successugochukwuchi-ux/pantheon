@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { Button, buttonVariants } from '../components/ui/button';
 import { cn } from '../lib/utils';
@@ -6,14 +6,22 @@ import { BookOpen, Shield, Zap, Users, GraduationCap, ChevronRight, MessageCircl
 import { useTitle } from '../hooks/useTitle';
 import { useAuth } from '../contexts/AuthContext';
 import { SystemStatus } from '../components/SystemStatus';
+import { getContactWhatsAppNumber } from '../services/credentialService';
 
 export default function Landing() {
   useTitle('Welcome');
-  const { user, isAuthReady, systemConfig } = useAuth();
+  const { user, profile, isAuthReady, systemConfig } = useAuth();
+  const [whatsappNumber, setWhatsappNumber] = useState('2348118429150');
+
+  useEffect(() => {
+    getContactWhatsAppNumber(profile?.At).then(num => {
+      setWhatsappNumber(num);
+    });
+  }, [profile?.At]);
 
   const openWhatsApp = () => {
-    const message = encodeURIComponent("Hello, I'm interested in the CoLearn Study App for FUTO.");
-    window.open(`https://wa.me/2348118429150?text=${message}`, '_blank');
+    const message = encodeURIComponent("Hello, I'm interested in the CoLearn Study App.");
+    window.open(`https://wa.me/${whatsappNumber}?text=${message}`, '_blank');
   };
 
   return (
@@ -57,7 +65,7 @@ export default function Landing() {
           <div className="flex flex-col items-center text-center max-w-4xl mx-auto">
             <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-primary/10 text-primary text-sm font-medium mb-6">
               <GraduationCap className="h-4 w-4" />
-              <span>Built Exclusively for FUTO Students</span>
+              <span>Built Exclusively for University Students</span>
             </div>
             
             <h1 className="text-5xl md:text-7xl font-extrabold tracking-tighter mb-6 bg-clip-text text-transparent bg-gradient-to-r from-primary to-primary/60">
@@ -69,7 +77,7 @@ export default function Landing() {
             </div>
             
             <p className="text-xl text-muted-foreground mb-10 max-w-2xl">
-              The ultimate study companion for FUTO students. Lecture notes, past questions, and CBT practice—all in one place, even offline.
+              The ultimate study companion for university students. Lecture notes, past questions, and CBT practice—all in one place, even offline.
             </p>
             
             <div className="flex flex-col sm:flex-row gap-4">
@@ -99,14 +107,14 @@ export default function Landing() {
         <div className="container px-4 mx-auto">
           <div className="text-center mb-16">
             <h2 className="text-3xl md:text-4xl font-bold mb-4">Everything You Need to Excel</h2>
-            <p className="text-muted-foreground max-w-2xl mx-auto">Designed by students, for students. We know the FUTO curriculum inside out.</p>
+            <p className="text-muted-foreground max-w-2xl mx-auto">Designed by students, for students. We know your university curriculum inside out.</p>
           </div>
           
           <div className="grid md:grid-cols-3 gap-8">
             <FeatureCard 
               icon={<BookOpen className="h-8 w-8 text-blue-500" />}
               title="Lecture Notes"
-              description="Comprehensive, easy-to-understand notes for all FUTO courses, organized by semester."
+              description="Comprehensive, easy-to-understand notes for all courses, organized by semester."
             />
             <FeatureCard 
               icon={<History className="h-8 w-8 text-purple-500" />}
@@ -121,7 +129,7 @@ export default function Landing() {
             <FeatureCard 
               icon={<Users className="h-8 w-8 text-pink-500" />}
               title="Community News"
-              description="Stay updated with the latest news from the CoLearn team and FUTO campus."
+              description="Stay updated with the latest news from the CoLearn team and your campus."
             />
             <FeatureCard 
               icon={<GraduationCap className="h-8 w-8 text-indigo-500" />}
@@ -179,7 +187,7 @@ export default function Landing() {
         <div className="container px-4 mx-auto flex flex-col md:flex-row justify-between items-center gap-8">
           <div className="flex flex-col gap-2">
             <span className="text-2xl font-bold tracking-tighter">COLEARN</span>
-            <p className="text-muted-foreground text-sm max-w-xs">Empowering FUTO students through technology and accessible education.</p>
+            <p className="text-muted-foreground text-sm max-w-xs">Empowering university students through technology and accessible education.</p>
             <p className="text-xs text-muted-foreground mt-4">© 2026 Pillara Education 2026</p>
           </div>
           <div className="flex flex-wrap gap-4 md:gap-8 justify-center">

@@ -35,7 +35,7 @@ export default function Referrals() {
   }, [user]);
 
   const referralLink = `${window.location.origin}/register?ref=${user?.uid}`;
-  const isRestricted = profile?.level === '2' || profile?.level === '3' || profile?.level === '4';
+  const isRestricted = profile?.level === '2' || profile?.level === '3' || profile?.level === '4' || profile?.level === '5';
 
   const copyToClipboard = () => {
     if (isRestricted) {

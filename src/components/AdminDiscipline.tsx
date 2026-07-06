@@ -5,9 +5,11 @@ import {
   setDoc, 
   doc, 
   deleteDoc, 
-  onSnapshot 
+  onSnapshot,
+  getDoc
 } from 'firebase/firestore';
 import { db } from '../firebase';
+import { useAuth } from '../contexts/AuthContext';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from '../components/ui/card';
 import { Button } from '../components/ui/button';
 import { Badge } from '../components/ui/badge';
@@ -28,10 +30,18 @@ import {
   Building2, 
   X,
   BookOpen,
-  Check
+  Check,
+  Pencil,
+  Save,
+  School
 } from 'lucide-react';
 
 export default function AdminDiscipline() {
+  const { profile } = useAuth();
+  const isLevel5 = profile?.level === '5' || profile?.email === 'successugochukwuchi@gmail.com';
+  const isLevel4 = profile?.level === '4';
+  const universityId = profile?.At || 'futo';
+
   const [disciplines, setDisciplines] = useState<Discipline[]>([]);
   const [courses, setCourses] = useState<Course[]>([]);
   const [loading, setLoading] = useState(false);
@@ -45,6 +55,104 @@ export default function AdminDiscipline() {
   const [selectedDiscipline, setSelectedDiscipline] = useState<Discipline | null>(null);
   const [manageDialogOpen, setManageDialogOpen] = useState(false);
   const [courseSearch, setCourseSearch] = useState('');
+
+  // Departments management state
+  const [selectedDisciplineForDepts, setSelectedDisciplineForDepts] = useState<Discipline | null>(null);
+  const [deptsDialogOpen, setDeptsDialogOpen] = useState(false);
+  const [deptsSearch, setDeptsSearch] = useState('');
+  const [deptsLoading, setDeptsLoading] = useState(false);
+
+  // University specific departments
+  const [uniDepartments, setUniDepartments] = useState<string[]>([]);
+
+  // Edit university departments states
+  const [editUniDeptsDialogOpen, setEditUniDeptsDialogOpen] = useState(false);
+  const [newUniDeptName, setNewUniDeptName] = useState('');
+  const [editingUniDeptIndex, setEditingUniDeptIndex] = useState<number | null>(null);
+  const [editingUniDeptValue, setEditingUniDeptValue] = useState('');
+  const [uniDeptsSaving, setUniDeptsSaving] = useState(false);
+
+  const handleAddUniDept = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newUniDeptName.trim()) return;
+
+    if (uniDepartments.some(d => d.toLowerCase() === newUniDeptName.trim().toLowerCase())) {
+      toast.error("Department already exists!");
+      return;
+    }
+
+    setUniDeptsSaving(true);
+    try {
+      const updated = [...uniDepartments, newUniDeptName.trim()];
+      await setDoc(doc(db, 'universities', universityId), {
+        departments: updated
+      }, { merge: true });
+      setUniDepartments(updated);
+      setNewUniDeptName('');
+      toast.success("Department added successfully!");
+    } catch (err) {
+      console.error("Failed to add department:", err);
+      toast.error("Failed to add department");
+    } finally {
+      setUniDeptsSaving(false);
+    }
+  };
+
+  const handleSaveEditUniDept = async (index: number) => {
+    if (!editingUniDeptValue.trim()) return;
+
+    const updated = [...uniDepartments];
+    updated[index] = editingUniDeptValue.trim();
+
+    setUniDeptsSaving(true);
+    try {
+      await setDoc(doc(db, 'universities', universityId), {
+        departments: updated
+      }, { merge: true });
+      setUniDepartments(updated);
+      setEditingUniDeptIndex(null);
+      toast.success("Department updated successfully!");
+    } catch (err) {
+      console.error("Failed to update department:", err);
+      toast.error("Failed to update department");
+    } finally {
+      setUniDeptsSaving(false);
+    }
+  };
+
+  const handleDeleteUniDept = async (index: number) => {
+    const deptToDelete = uniDepartments[index];
+    const updated = uniDepartments.filter((_, i) => i !== index);
+
+    setUniDeptsSaving(true);
+    try {
+      await setDoc(doc(db, 'universities', universityId), {
+        departments: updated
+      }, { merge: true });
+      setUniDepartments(updated);
+      toast.success(`Department "${deptToDelete}" deleted`);
+    } catch (err) {
+      console.error("Failed to delete department:", err);
+      toast.error("Failed to delete department");
+    } finally {
+      setUniDeptsSaving(false);
+    }
+  };
+
+  useEffect(() => {
+    if (!universityId) return;
+    const fetchUni = async () => {
+      try {
+        const uSnap = await getDoc(doc(db, 'universities', universityId));
+        if (uSnap.exists()) {
+          setUniDepartments(uSnap.data().departments || []);
+        }
+      } catch (err) {
+        console.error("Error fetching university departments:", err);
+      }
+    };
+    fetchUni();
+  }, [universityId]);
 
   // Fetch disciplines and courses
   useEffect(() => {
@@ -121,6 +229,46 @@ export default function AdminDiscipline() {
     }
   };
 
+  const handleToggleDepartmentLink = async (deptName: string, isLinked: boolean) => {
+    if (!selectedDisciplineForDepts) return;
+    
+    setDeptsLoading(true);
+    try {
+      let updatedDepts = [...(selectedDisciplineForDepts.departments || [])];
+      if (isLinked) {
+        // Remove department
+        updatedDepts = updatedDepts.filter(d => d !== deptName);
+      } else {
+        // Add department if not already present
+        if (!updatedDepts.includes(deptName)) {
+          updatedDepts.push(deptName);
+        }
+      }
+
+      await setDoc(doc(db, 'disciplines', selectedDisciplineForDepts.id), {
+        ...selectedDisciplineForDepts,
+        departments: updatedDepts
+      });
+
+      // Update local state for open dialog
+      const updatedDisc = {
+        ...selectedDisciplineForDepts,
+        departments: updatedDepts
+      };
+      setSelectedDisciplineForDepts(updatedDisc);
+      
+      // Update the general disciplines state to match
+      setDisciplines(prev => prev.map(d => d.id === selectedDisciplineForDepts.id ? updatedDisc : d));
+
+      toast.success(isLinked ? `Unlinked "${deptName}" from ${selectedDisciplineForDepts.name}` : `Linked "${deptName}" to ${selectedDisciplineForDepts.name}`);
+    } catch (err: any) {
+      console.error("Error toggling department link:", err);
+      toast.error("Failed to update departments: " + err.message);
+    } finally {
+      setDeptsLoading(false);
+    }
+  };
+
   const handleCourseOptionChange = async (discipline: Discipline, courseId: string, option: 'allow' | 'lock' | 'remove') => {
     const updatedCourses = { ...(discipline.courses || {}) };
     
@@ -184,94 +332,146 @@ export default function AdminDiscipline() {
     <div className="space-y-6">
       {/* Upper Area: Form and Details */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Create Form */}
-        <Card className="lg:col-span-1">
-          <CardHeader>
-            <CardTitle className="text-xl flex items-center gap-2">
-              <GraduationCap className="h-5 w-5 text-primary" />
-              New Discipline
-            </CardTitle>
-            <CardDescription aria-describedby="discipline-form-desc">
-              Create a CCMAS discipline and map departments to it.
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <form onSubmit={handleCreateDiscipline} className="space-y-4">
-              <div className="space-y-2">
-                <Label htmlFor="discipline-name">Discipline Name</Label>
-                <Input 
-                  id="discipline-name"
-                  placeholder="e.g. Computing, Engineering" 
-                  value={newDisciplineName}
-                  onChange={(e) => setNewDisciplineName(e.target.value)}
-                />
-              </div>
-
-              <div className="space-y-2">
-                <Label>Linked Departments</Label>
-                
-                {/* Selected departments view */}
-                {selectedDepts.length > 0 ? (
-                  <div className="flex flex-wrap gap-1.5 p-2 border rounded-md bg-muted/40 max-h-36 overflow-y-auto">
-                    {selectedDepts.map(dept => (
-                      <Badge key={dept} variant="secondary" className="flex items-center gap-1">
-                        <span className="truncate max-w-[150px]">{dept}</span>
-                        <button 
-                          type="button" 
-                          onClick={() => toggleDeptSelection(dept)}
-                          className="hover:text-destructive focus:outline-none"
-                        >
-                          <X className="h-3 w-3" />
-                        </button>
-                      </Badge>
-                    ))}
-                  </div>
-                ) : (
-                  <div className="text-xs text-muted-foreground p-3 border border-dashed rounded-md text-center">
-                    No departments added yet. Select from below.
-                  </div>
-                )}
-
-                {/* Dropdown / list of departments */}
-                <div className="space-y-2 pt-2">
-                  <div className="relative">
-                    <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
-                    <Input 
-                      placeholder="Search departments..." 
-                      className="pl-8"
-                      value={deptSearch}
-                      onChange={(e) => setDeptSearch(e.target.value)}
-                    />
-                  </div>
-                  
-                  <div className="border rounded-md max-h-48 overflow-y-auto divide-y">
-                    {filteredDeptsList.length > 0 ? (
-                      filteredDeptsList.map(dept => (
-                        <button
-                          key={dept}
-                          type="button"
-                          className="w-full text-left px-3 py-2 text-sm hover:bg-accent transition-colors flex items-center justify-between"
-                          onClick={() => toggleDeptSelection(dept)}
-                        >
-                          <span className="truncate">{dept}</span>
-                          <span className="text-xs text-primary">+ Add</span>
-                        </button>
-                      ))
-                    ) : (
-                      <div className="text-center text-xs p-3 text-muted-foreground">
-                        No matches found
-                      </div>
-                    )}
-                  </div>
+        {/* Create Form or University Admin Center */}
+        {!isLevel5 ? (
+          <Card className="lg:col-span-1 border-violet-500/20 bg-violet-500/5">
+            <CardHeader>
+              <CardTitle className="text-xl flex items-center gap-2 text-violet-700">
+                <GraduationCap className="h-5 w-5" />
+                University Portal
+              </CardTitle>
+              <CardDescription>
+                Map your university's departments to national CCMAS disciplines.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="space-y-2 p-3 bg-background border rounded-lg">
+                <Label className="text-xs text-muted-foreground block font-bold uppercase tracking-wide">Selected University</Label>
+                <div className="text-sm font-black flex items-center gap-1.5 text-primary">
+                  <Building2 className="h-4 w-4 text-violet-500" />
+                  {universityId.toUpperCase()}
                 </div>
               </div>
 
-              <Button type="submit" className="w-full" disabled={loading}>
-                {loading ? 'Creating...' : 'Create Discipline'}
-              </Button>
-            </form>
-          </CardContent>
-        </Card>
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <Label className="text-xs text-muted-foreground block font-bold uppercase tracking-wide">Your Registered Departments ({uniDepartments.length})</Label>
+                  <Button 
+                    variant="ghost" 
+                    size="sm" 
+                    className="h-6 px-1.5 text-xs text-violet-700 hover:text-violet-800 font-semibold"
+                    onClick={() => setEditUniDeptsDialogOpen(true)}
+                  >
+                    <Settings2 className="h-3 w-3 mr-1" /> Edit
+                  </Button>
+                </div>
+                <div className="max-h-52 overflow-y-auto space-y-1.5 border rounded-lg p-2.5 bg-background">
+                  {uniDepartments.map(dept => (
+                    <div key={dept} className="text-xs py-1 px-2 rounded-md bg-muted/40 font-medium flex items-center gap-1.5">
+                      <Check className="h-3.5 w-3.5 text-green-600" />
+                      <span className="truncate">{dept}</span>
+                    </div>
+                  ))}
+                  {uniDepartments.length === 0 && (
+                    <p className="text-xs text-muted-foreground italic p-2 text-center">No departments registered. Click edit to add departments.</p>
+                  )}
+                </div>
+              </div>
+              
+              <div className="text-xs text-muted-foreground bg-background p-3 border rounded-lg leading-normal">
+                As an administrator of <strong>{universityId.toUpperCase()}</strong>, you can link or unlink your university's registered departments to existing CCMAS disciplines. Click <strong>"Manage Departments"</strong> on any discipline card to configure.
+              </div>
+            </CardContent>
+          </Card>
+        ) : (
+          <Card className="lg:col-span-1">
+            <CardHeader>
+              <CardTitle className="text-xl flex items-center gap-2">
+                <GraduationCap className="h-5 w-5 text-primary" />
+                New Discipline
+              </CardTitle>
+              <CardDescription aria-describedby="discipline-form-desc">
+                Create a CCMAS discipline and map departments to it.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <form onSubmit={handleCreateDiscipline} className="space-y-4">
+                <div className="space-y-2">
+                  <Label htmlFor="discipline-name">Discipline Name</Label>
+                  <Input 
+                    id="discipline-name"
+                    placeholder="e.g. Computing, Engineering" 
+                    value={newDisciplineName}
+                    onChange={(e) => setNewDisciplineName(e.target.value)}
+                  />
+                </div>
+
+                <div className="space-y-2">
+                  <Label>Linked Departments</Label>
+                  
+                  {/* Selected departments view */}
+                  {selectedDepts.length > 0 ? (
+                    <div className="flex flex-wrap gap-1.5 p-2 border rounded-md bg-muted/40 max-h-36 overflow-y-auto">
+                      {selectedDepts.map(dept => (
+                        <Badge key={dept} variant="secondary" className="flex items-center gap-1">
+                          <span className="truncate max-w-[150px]">{dept}</span>
+                          <button 
+                            type="button" 
+                            onClick={() => toggleDeptSelection(dept)}
+                            className="hover:text-destructive focus:outline-none"
+                          >
+                            <X className="h-3 w-3" />
+                          </button>
+                        </Badge>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="text-xs text-muted-foreground p-3 border border-dashed rounded-md text-center">
+                      No departments added yet. Select from below.
+                    </div>
+                  )}
+
+                  {/* Dropdown / list of departments */}
+                  <div className="space-y-2 pt-2">
+                    <div className="relative">
+                      <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+                      <Input 
+                        placeholder="Search departments..." 
+                        className="pl-8"
+                        value={deptSearch}
+                        onChange={(e) => setDeptSearch(e.target.value)}
+                      />
+                    </div>
+                    
+                    <div className="border rounded-md max-h-48 overflow-y-auto divide-y">
+                      {filteredDeptsList.length > 0 ? (
+                        filteredDeptsList.map(dept => (
+                          <button
+                            key={dept}
+                            type="button"
+                            className="w-full text-left px-3 py-2 text-sm hover:bg-accent transition-colors flex items-center justify-between"
+                            onClick={() => toggleDeptSelection(dept)}
+                          >
+                            <span className="truncate">{dept}</span>
+                            <span className="text-xs text-primary">+ Add</span>
+                          </button>
+                        ))
+                      ) : (
+                        <div className="text-center text-xs p-3 text-muted-foreground">
+                          No matches found
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+
+                <Button type="submit" className="w-full" disabled={loading}>
+                  {loading ? 'Creating...' : 'Create Discipline'}
+                </Button>
+              </form>
+            </CardContent>
+          </Card>
+        )}
 
         {/* Existing Disciplines Cards Grid */}
         <div className="lg:col-span-2 space-y-4">
@@ -303,21 +503,23 @@ export default function AdminDiscipline() {
                             {numCourses} configured course{numCourses !== 1 ? 's' : ''}
                           </CardDescription>
                         </div>
-                        <Button 
-                          variant="ghost" 
-                          size="icon" 
-                          className="text-destructive hover:bg-destructive/10 -mt-1 -mr-1 h-8 w-8"
-                          onClick={() => handleDeleteDiscipline(disc.id, disc.name)}
-                        >
-                          <Trash2 className="h-4 w-4" />
-                        </Button>
+                        {isLevel5 && (
+                          <Button 
+                            variant="ghost" 
+                            size="icon" 
+                            className="text-destructive hover:bg-destructive/10 -mt-1 -mr-1 h-8 w-8"
+                            onClick={() => handleDeleteDiscipline(disc.id, disc.name)}
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        )}
                       </div>
                     </CardHeader>
                     <CardContent className="pt-3 flex-grow">
                       <div className="space-y-2">
-                        <Label className="text-xs text-muted-foreground">Departments ({disc.departments.length})</Label>
+                        <Label className="text-xs text-muted-foreground">Departments ({(disc.departments || []).length})</Label>
                         <div className="flex flex-wrap gap-1 max-h-32 overflow-y-auto">
-                          {disc.departments.map(dept => (
+                          {(disc.departments || []).map(dept => (
                             <Badge key={dept} variant="outline" className="text-[10px] py-0 px-2 rounded-sm bg-muted/35">
                               {dept}
                             </Badge>
@@ -325,11 +527,11 @@ export default function AdminDiscipline() {
                         </div>
                       </div>
                     </CardContent>
-                    <CardFooter className="pt-0 pb-3 block">
+                    <CardFooter className="pt-0 pb-3 block space-y-2">
                       <Button 
                         size="sm" 
                         variant="secondary" 
-                        className="w-full flex items-center justify-center gap-1.5"
+                        className="w-full flex items-center justify-center gap-1.5 font-semibold"
                         onClick={() => {
                           setSelectedDiscipline(disc);
                           setManageDialogOpen(true);
@@ -338,6 +540,20 @@ export default function AdminDiscipline() {
                       >
                         <Settings2 className="h-4 w-4" />
                         Manage CCMAS Courses
+                      </Button>
+                      
+                      <Button 
+                        size="sm" 
+                        variant="outline" 
+                        className="w-full flex items-center justify-center gap-1.5 border-violet-200 text-violet-700 hover:bg-violet-50 hover:text-violet-800 font-semibold"
+                        onClick={() => {
+                          setSelectedDisciplineForDepts(disc);
+                          setDeptsDialogOpen(true);
+                          setDeptsSearch('');
+                        }}
+                      >
+                        <Building2 className="h-4 w-4" />
+                        Manage Departments
                       </Button>
                     </CardFooter>
                   </Card>
@@ -528,6 +744,189 @@ export default function AdminDiscipline() {
           <DialogFooter className="mt-4 pt-3 border-t shrink-0 flex items-center justify-between w-full">
             <p className="text-[11px] text-muted-foreground hidden sm:block">Changes are synchronized dynamically into the curriculum matrix.</p>
             <Button onClick={() => setManageDialogOpen(false)} className="px-6 font-semibold shadow-xs">Done Editing</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* MANAGE DEPARTMENTS DIALOG */}
+      <Dialog open={deptsDialogOpen} onOpenChange={setDeptsDialogOpen}>
+        <DialogContent className="max-w-md w-full p-6">
+          <DialogHeader className="pb-2 border-b">
+            <DialogTitle className="text-xl flex items-center gap-2 font-bold text-violet-700">
+              <Building2 className="h-5 w-5" />
+              Manage Departments
+            </DialogTitle>
+            <DialogDescription className="text-xs text-muted-foreground mt-1">
+              {isLevel5 
+                ? `Add or remove departments for the discipline: ${selectedDisciplineForDepts?.name}`
+                : `Map departments from ${universityId.toUpperCase()} to the discipline: ${selectedDisciplineForDepts?.name}`}
+            </DialogDescription>
+          </DialogHeader>
+
+          {/* Search bar */}
+          <div className="relative my-3">
+            <Search className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
+            <Input 
+              placeholder="Search departments..." 
+              className="pl-9 h-10 text-sm shadow-inner animate-none"
+              value={deptsSearch}
+              onChange={(e) => setDeptsSearch(e.target.value)}
+            />
+          </div>
+
+          <div className="space-y-4">
+            <Label className="text-xs font-bold text-muted-foreground uppercase tracking-wide block">
+              {isLevel5 ? "All Departments Catalog" : `${universityId.toUpperCase()} Registered Departments`}
+            </Label>
+
+            <div className="border rounded-lg max-h-60 overflow-y-auto divide-y bg-background">
+              {(isLevel5 ? DEPARTMENTS : uniDepartments)
+                .filter(dept => dept.toLowerCase().includes(deptsSearch.toLowerCase()))
+                .map(dept => {
+                  const isLinked = selectedDisciplineForDepts?.departments?.includes(dept);
+                  return (
+                    <div key={dept} className="flex items-center justify-between p-2.5 text-sm hover:bg-accent/40">
+                      <span className="font-medium text-foreground truncate max-w-[240px]" title={dept}>{dept}</span>
+                      <Button
+                        size="sm"
+                        variant={isLinked ? "destructive" : "secondary"}
+                        className="h-7 px-2.5 text-xs font-bold"
+                        disabled={deptsLoading}
+                        onClick={() => handleToggleDepartmentLink(dept, !!isLinked)}
+                      >
+                        {isLinked ? "Unlink" : "Link"}
+                      </Button>
+                    </div>
+                  );
+                })}
+              
+              {((isLevel5 ? DEPARTMENTS : uniDepartments).filter(dept => dept.toLowerCase().includes(deptsSearch.toLowerCase())).length === 0) && (
+                <div className="p-4 text-center text-xs text-muted-foreground italic">
+                  No departments found.
+                </div>
+              )}
+            </div>
+
+            {/* Read-only other departments for Level 4 admins */}
+            {!isLevel5 && selectedDisciplineForDepts && (
+              <div className="space-y-2 pt-3 border-t">
+                <Label className="text-[11px] font-bold text-muted-foreground uppercase tracking-wide flex items-center gap-1">
+                  <Lock className="h-3.5 w-3.5" /> Other Universities / General Departments ({
+                    (selectedDisciplineForDepts.departments || []).filter(d => !uniDepartments.includes(d)).length
+                  })
+                </Label>
+                <div className="flex flex-wrap gap-1 max-h-24 overflow-y-auto p-2 bg-muted/40 border rounded-lg">
+                  {(selectedDisciplineForDepts.departments || [])
+                    .filter(d => !uniDepartments.includes(d))
+                    .map(dept => (
+                      <Badge key={dept} variant="outline" className="text-[10px] py-0 px-2 rounded-sm bg-background border-muted text-muted-foreground">
+                        {dept}
+                      </Badge>
+                    ))}
+                  {(selectedDisciplineForDepts.departments || []).filter(d => !uniDepartments.includes(d)).length === 0 && (
+                    <p className="text-[10px] text-muted-foreground italic">None</p>
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
+
+          <DialogFooter className="mt-4 pt-3 border-t">
+            <Button onClick={() => setDeptsDialogOpen(false)} className="w-full">Close</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* EDIT UNIVERSITY DEPARTMENTS DIALOG */}
+      <Dialog open={editUniDeptsDialogOpen} onOpenChange={setEditUniDeptsDialogOpen}>
+        <DialogContent className="max-w-md w-full p-6">
+          <DialogHeader className="pb-2 border-b">
+            <DialogTitle className="text-xl flex items-center gap-2 font-bold text-violet-700">
+              <School className="h-5 w-5" />
+              University Departments
+            </DialogTitle>
+            <DialogDescription className="text-xs text-muted-foreground mt-1">
+              Add, rename, or delete registered departments for <strong>{universityId.toUpperCase()}</strong>. Changes are instantly reflected across the platform.
+            </DialogDescription>
+          </DialogHeader>
+
+          {/* Add Department Form */}
+          <form onSubmit={handleAddUniDept} className="flex gap-2 my-4">
+            <Input 
+              placeholder="e.g. Mechanical Engineering"
+              value={newUniDeptName}
+              onChange={(e) => setNewUniDeptName(e.target.value)}
+              className="h-10 text-sm"
+              required
+            />
+            <Button type="submit" disabled={uniDeptsSaving} className="h-10 bg-violet-600 hover:bg-violet-700">
+              <Plus className="h-4 w-4 mr-1" /> Add
+            </Button>
+          </form>
+
+          <div className="space-y-2">
+            <Label className="text-xs font-bold text-muted-foreground uppercase tracking-wide block">
+              Registered Departments ({uniDepartments.length})
+            </Label>
+
+            <div className="border rounded-lg max-h-64 overflow-y-auto divide-y bg-background">
+              {uniDepartments.map((dept, index) => (
+                <div key={index} className="flex items-center justify-between p-2.5 text-sm">
+                  {editingUniDeptIndex === index ? (
+                    <div className="flex items-center gap-2 flex-1 mr-2">
+                      <Input 
+                        value={editingUniDeptValue}
+                        onChange={(e) => setEditingUniDeptValue(e.target.value)}
+                        className="h-8 py-0 text-sm"
+                        autoFocus
+                      />
+                      <Button size="icon" variant="ghost" className="h-8 w-8 text-green-600 hover:bg-green-50" onClick={() => handleSaveEditUniDept(index)} disabled={uniDeptsSaving}>
+                        <Save className="h-4 w-4" />
+                      </Button>
+                      <Button size="icon" variant="ghost" className="h-8 w-8 text-muted-foreground hover:bg-muted" onClick={() => setEditingUniDeptIndex(null)}>
+                        <X className="h-4 w-4" />
+                      </Button>
+                    </div>
+                  ) : (
+                    <>
+                      <span className="font-medium text-foreground truncate max-w-[260px]">{dept}</span>
+                      <div className="flex items-center gap-1">
+                        <Button 
+                          size="icon" 
+                          variant="ghost" 
+                          className="h-8 w-8 text-muted-foreground hover:text-foreground"
+                          onClick={() => {
+                            setEditingUniDeptIndex(index);
+                            setEditingUniDeptValue(dept);
+                          }}
+                        >
+                          <Pencil className="h-3.5 w-3.5" />
+                        </Button>
+                        <Button 
+                          size="icon" 
+                          variant="ghost" 
+                          className="h-8 w-8 text-destructive hover:bg-destructive/10"
+                          onClick={() => handleDeleteUniDept(index)}
+                          disabled={uniDeptsSaving}
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </Button>
+                      </div>
+                    </>
+                  )}
+                </div>
+              ))}
+              
+              {uniDepartments.length === 0 && (
+                <div className="p-4 text-center text-xs text-muted-foreground italic">
+                  No registered departments yet. Add one above!
+                </div>
+              )}
+            </div>
+          </div>
+
+          <DialogFooter className="mt-4 pt-3 border-t">
+            <Button onClick={() => setEditUniDeptsDialogOpen(false)} variant="secondary" className="w-full">Done</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

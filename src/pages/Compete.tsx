@@ -22,6 +22,7 @@ import {
 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { db, handleFirestoreError, OperationType } from '../firebase';
+import { getFilteredCoursesForStudent } from '../lib/courseFilter';
 import { 
   collection, 
   doc, 
@@ -115,20 +116,17 @@ export default function Compete() {
     // Load courses
     setLoadingCourses(true);
     const coursesCol = collection(db, 'courses');
-    getDocs(coursesCol).then((snap) => {
+    getDocs(coursesCol).then(async (snap) => {
       const list = snap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Course));
-      // filter current semester courses (or fallback if none)
-      if (systemConfig && systemConfig.currentSemester !== 'none') {
-        setCourses(list.filter(c => c.semester === systemConfig.currentSemester));
-      } else {
-        setCourses(list);
-      }
+      
+      const filtered = await getFilteredCoursesForStudent(list, profile, true, systemConfig?.currentSemester);
+      setCourses(filtered);
       setLoadingCourses(false);
     }).catch(err => {
       handleFirestoreError(err, OperationType.GET, 'courses');
       setLoadingCourses(false);
     });
-  }, [user, systemConfig]);
+  }, [user, systemConfig, profile]);
 
   // Load Leaderboard inside Active Season
   useEffect(() => {

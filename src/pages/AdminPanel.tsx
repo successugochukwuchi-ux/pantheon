@@ -63,6 +63,8 @@ import AdminReports from './AdminReports';
 import AdminDiscipline from '../components/AdminDiscipline';
 import { useTitle } from '../hooks/useTitle';
 import { MathJax } from 'better-react-mathjax';
+import AdminCredentials from '../components/AdminCredentials';
+import OverseerControl from '../components/OverseerControl';
 import ReactMarkdown from 'react-markdown';
 import remarkMath from 'remark-math';
 import rehypeKatex from 'rehype-katex';
@@ -706,6 +708,7 @@ export default function AdminPanel() {
         ...newCourse,
         department: newCourse.department || null,
         disabled: newCourse.disabled || false,
+        At: profile?.At || 'futo',
         createdAt: new Date().toISOString()
       });
       
@@ -721,6 +724,7 @@ export default function AdminPanel() {
         level: newCourse.level,
         department: newCourse.department || undefined,
         disabled: newCourse.disabled || false,
+        At: profile?.At || 'futo',
         createdAt: new Date().toISOString()
       };
       setCourses(prev => [...prev, createdCourse].sort((a, b) => safeCompareStrings(a.code, b.code)));
@@ -1282,6 +1286,7 @@ export default function AdminPanel() {
     const pin = Math.floor(100000000000 + Math.random() * 900000000000).toString();
     const path = `activationCodes/${pin}`;
     const creatorId = profile?.studentId || 'N/A';
+    const creatorAt = profile?.At || 'futo';
     setLoading(true);
     try {
       await setDoc(doc(db, 'activationCodes', pin), {
@@ -1290,7 +1295,8 @@ export default function AdminPanel() {
         createdBy: user?.uid,
         createdAt: new Date().toISOString(),
         type: pinType,
-        owner: creatorId
+        owner: creatorId,
+        At: creatorAt
       });
 
       // Update system stats
@@ -1307,6 +1313,7 @@ export default function AdminPanel() {
         `<b>Pin Type:</b> ${pinTypeStr}\n` +
         `<b>Time Created:</b> ${new Date().toLocaleString()}\n` +
         `<b>Creator Student ID:</b> ${creatorId}\n` +
+        `<b>Creator At:</b> ${creatorAt}\n` +
         `<b>Initial Owner:</b> ${creatorId}`;
       await sendTelegramAlert(pinCreatedAlert);
 
@@ -1474,6 +1481,7 @@ export default function AdminPanel() {
       const batch = writeBatch(db);
       const now = new Date().toISOString();
       const creatorId = profile?.studentId || 'Admin';
+      const creatorAt = profile?.At || 'futo';
       
       for (let i = 0; i < bulkCount; i++) {
         const pin = Math.floor(100000000000 + Math.random() * 900000000000).toString();
@@ -1486,7 +1494,8 @@ export default function AdminPanel() {
           createdBy: user?.uid,
           createdAt: now,
           type: type,
-          owner: creatorId
+          owner: creatorId,
+          At: creatorAt
         });
       }
       
@@ -1504,6 +1513,7 @@ export default function AdminPanel() {
         `<b>Total Generated:</b> ${bulkCount} (Standard: ${numStandard}, PLUS: ${numPlus})\n` +
         `<b>Time Created:</b> ${new Date(now).toLocaleString()}\n` +
         `<b>Creator Student ID:</b> ${creatorId}\n` +
+        `<b>Creator At:</b> ${creatorAt}\n` +
         `<b>Initial Owner:</b> ${creatorId}`;
       await sendTelegramAlert(bulkAlert);
 
@@ -1572,6 +1582,8 @@ export default function AdminPanel() {
       await batch.commit();
 
       // Send Telegram alert for transfer
+      const senderAt = profile?.At || 'N/A';
+      const receiverAt = vendorData.At || 'N/A';
       const transferAlert = 
         `<b>🔔 ALERT: ACTIVATION PINS TRANSFERRED</b>\n\n` +
         `<b>Source:</b> {source}\n` +
@@ -1579,7 +1591,9 @@ export default function AdminPanel() {
         `<b>Pin(s) Creation Time:</b> ${creationTimes}\n` +
         `<b>Pins Transferred:</b> ${pinsToTransfer.length} (PLUS: ${numPlus}, Standard: ${numStandard})\n` +
         `<b>Sender Student ID:</b> ${profile?.studentId || 'Admin (N/A)'}\n` +
-        `<b>Receiver Student ID:</b> ${transferStudentId.trim()}`;
+        `<b>Sender At:</b> ${senderAt}\n` +
+        `<b>Receiver Student ID:</b> ${transferStudentId.trim()}\n` +
+        `<b>Receiver At:</b> ${receiverAt}`;
       await sendTelegramAlert(transferAlert);
 
       toast.success(`Successfully transferred ${selectedPinIds.length} pins to ${vendorName}!`);
@@ -1594,6 +1608,10 @@ export default function AdminPanel() {
   };
 
   const handleSavePinPrices = async () => {
+    if (!isLevel5) {
+      toast.error('Only Level 5 Platform Overseers are authorized to modify activation code prices.');
+      return;
+    }
     if (Number(standardPriceSetting) <= 0 || Number(plusPriceSetting) <= 0) {
       toast.error('Price values must be greater than zero');
       return;
@@ -1601,14 +1619,23 @@ export default function AdminPanel() {
     
     setLoading(true);
     try {
+      const nowStr = new Date().toISOString();
       const configRef = doc(db, 'system', 'config');
       await setDoc(configRef, {
         ...systemConfig,
         standardPrice: Number(standardPriceSetting),
         plusPrice: Number(plusPriceSetting),
         updatedBy: user?.uid,
-        updatedAt: new Date().toISOString()
+        updatedAt: nowStr
       });
+      
+      // Save to price history
+      await addDoc(collection(db, 'priceHistory'), {
+        standardPrice: Number(standardPriceSetting),
+        plusPrice: Number(plusPriceSetting),
+        updatedAt: nowStr
+      });
+
       toast.success('Pin prices updated successfully!');
     } catch (error: any) {
       console.error("Save prices error:", error);
@@ -1988,8 +2015,9 @@ export default function AdminPanel() {
     }
   };
 
-  const isLevel4 = profile?.level === '4';
-  const isAtLeastLevel3 = profile?.level === '3' || profile?.level === '4';
+  const isLevel5 = profile?.level === '5' || profile?.email === 'successugochukwuchi@gmail.com' || user?.email === 'successugochukwuchi@gmail.com';
+  const isLevel4 = profile?.level === '4' || profile?.level === '5' || isLevel5;
+  const isAtLeastLevel3 = profile?.level === '3' || profile?.level === '4' || profile?.level === '5' || isLevel5;
   const isLevel2 = profile?.level === '2';
 
   if (profile?.level === '3' && !location.pathname.endsWith('/pins') && !location.pathname.includes('/pins')) {
@@ -2023,10 +2051,14 @@ export default function AdminPanel() {
           <>
             <Button variant={location.pathname.includes('videos') ? 'default' : 'ghost'} size="sm" onClick={() => navigate('/administrator/videos')}>Video Library</Button>
             <Button variant={location.pathname.includes('notifier') ? 'default' : 'ghost'} size="sm" onClick={() => navigate('/administrator/notifier')}>Notifier</Button>
+            <Button variant={location.pathname.includes('credentials') ? 'default' : 'ghost'} size="sm" onClick={() => navigate('/administrator/credentials')}>Credentials</Button>
             <Button variant={location.pathname.includes('reports') ? 'default' : 'ghost'} size="sm" onClick={() => navigate('/administrator/reports')}>Reports</Button>
             <Button variant={location.pathname.includes('manual') ? 'default' : 'ghost'} size="sm" onClick={() => navigate('/administrator/manual')}>Admin Manual</Button>
             <Button variant={location.pathname.includes('system') ? 'default' : 'ghost'} size="sm" onClick={() => navigate('/administrator/system')}>System</Button>
           </>
+        )}
+        {isLevel5 && (
+          <Button variant={location.pathname.includes('overseer') ? 'default' : 'ghost'} size="sm" onClick={() => navigate('/administrator/overseer')}>Overseer Control</Button>
         )}
       </div>
 
@@ -2038,6 +2070,8 @@ export default function AdminPanel() {
         } />
         <Route path="/manual" element={<AdminManual />} />
         <Route path="/discipline" element={<AdminDiscipline />} />
+        <Route path="/credentials" element={<AdminCredentials />} />
+        <Route path="/overseer" element={isLevel5 ? <OverseerControl /> : <Navigate to="/administrator" replace />} />
         <Route path="/videos" element={
           <div className="space-y-6">
             <Card>

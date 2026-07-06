@@ -124,7 +124,7 @@ export default function StudyTimetable() {
   const { profile, user, systemConfig } = useAuth();
 
   // Roles check
-  const isAdmin = profile?.level === '3' || profile?.level === '4';
+  const isAdmin = profile?.level === '3' || profile?.level === '4' || profile?.level === '5';
 
   // Spacing configurations
   const [blockSize, setBlockSize] = useState<'20min' | '30min' | '1hr'>('1hr');

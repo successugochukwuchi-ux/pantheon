@@ -14,7 +14,7 @@ export const FluxGuard: React.FC<FluxGuardProps> = ({ children }) => {
   // If fluxEnabled is explicitly set to false, check permissions
   // By default, it is enabled (undefined or true)
   const isFluxEnabled = systemConfig?.fluxEnabled !== false;
-  const isLevel4Admin = profile?.level === '4';
+  const isLevel4Admin = profile?.level === '4' || profile?.level === '5';
 
   if (!isFluxEnabled && !isLevel4Admin) {
     return (

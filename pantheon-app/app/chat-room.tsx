@@ -19,6 +19,7 @@ import { db } from '../lib/firebase';
 import { useAuth } from '../context/AuthContext';
 import { useTheme } from '../context/ThemeContext';
 import { getDownloadedCoursesLocal, getLocalNotes } from '../lib/db';
+import { getFilteredCoursesForStudent } from '../lib/courseFilter';
 
 // ── Icons with Dynamic Theming ───────────────────────────────────────────────
 
@@ -345,7 +346,8 @@ export default function ChatRoomScreen() {
         const semester = systemConfig?.currentSemester || '1st';
         const localCourses = getDownloadedCoursesLocal();
         if (isOffline && localCourses && localCourses.length > 0) {
-          if (active) setCourses(localCourses);
+          const filteredLocal = await getFilteredCoursesForStudent(localCourses, profile, true, semester);
+          if (active) setCourses(filteredLocal);
           return;
         }
 
@@ -353,27 +355,31 @@ export default function ChatRoomScreen() {
         const snapshot = await getDocs(q);
         const list = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
         
+        let finalCourses = list;
         if (list.length === 0) {
           const qAll = query(collection(db, 'courses'));
           const snapAll = await getDocs(qAll);
           const listAll = snapAll.docs.map(d => ({ id: d.id, ...d.data() }));
-          if (active) setCourses(listAll);
-        } else {
-          if (active) setCourses(list);
+          finalCourses = listAll;
         }
+        
+        const filtered = await getFilteredCoursesForStudent(finalCourses, profile, true, semester);
+        if (active) setCourses(filtered);
       } catch (err) {
         console.error("Error loading courses for reference picker:", err);
         try {
           const localCourses = getDownloadedCoursesLocal();
           if (localCourses && localCourses.length > 0) {
-            if (active) setCourses(localCourses);
+            const semester = systemConfig?.currentSemester || '1st';
+            const filteredLocal = await getFilteredCoursesForStudent(localCourses, profile, true, semester);
+            if (active) setCourses(filteredLocal);
           }
         } catch (_) {}
       }
     }
     loadCourses();
     return () => { active = false; };
-  }, [systemConfig, isOffline]);
+  }, [systemConfig, isOffline, profile]);
   const handleSend = async () => {
     if (!profile || !activeChatId) {
       Alert.alert('Error', 'Thread not established.');

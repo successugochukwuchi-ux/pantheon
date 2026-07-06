@@ -224,7 +224,7 @@ export default function NoteGrabberScreen() {
           disabled: c.disabled,
           isDownloaded: true,
         }));
-        const filteredLocal = await getFilteredCoursesForStudent(mappedLocal, profile, true);
+        const filteredLocal = await getFilteredCoursesForStudent(mappedLocal, profile, true, activeSemester);
         setDownloadedCourses(filteredLocal);
         setAvailableCourses([]);
         setLoading(false);
@@ -253,7 +253,7 @@ export default function NoteGrabberScreen() {
         };
       });
 
-      const filtered = await getFilteredCoursesForStudent(fsCourses, profile, true);
+      const filtered = await getFilteredCoursesForStudent(fsCourses, profile, true, activeSemester);
 
       // Split based on offline SQLite status
       setDownloadedCourses(filtered.filter(c => c.isDownloaded));

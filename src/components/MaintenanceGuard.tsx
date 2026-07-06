@@ -6,7 +6,7 @@ export const MaintenanceGuard: React.FC<{ children: React.ReactNode }> = ({ chil
   const { systemConfig, profile } = useAuth();
 
   // Only Level 4 admins can bypass maintenance mode
-  const isLevel4 = profile?.level === '4';
+  const isLevel4 = profile?.level === '4' || profile?.level === '5';
   const isMaintenance = systemConfig?.maintenanceMode;
 
   if (isMaintenance && !isLevel4) {

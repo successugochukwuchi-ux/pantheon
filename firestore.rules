@@ -31,14 +31,30 @@ service cloud.firestore {
       return resource.data;
     }
 
-    // High-priority admin check (Level 3 or 4)
+    // High-priority admin check (Level 3, 4, or 5)
     function isAdmin() {
       return isSignedIn() && (
         request.auth.token.email == "successugochukwuchi@gmail.com" || 
         (exists(/databases/$(database)/documents/users/$(request.auth.uid)) && (
-          get(/databases/$(database)/documents/users/$(request.auth.uid)).data.get('level', '1') in ["3", "4"] ||
+          get(/databases/$(database)/documents/users/$(request.auth.uid)).data.get('level', '1') in ["3", "4", "5"] ||
           get(/databases/$(database)/documents/users/$(request.auth.uid)).data.get('email', '') == "successugochukwuchi@gmail.com"
         ))
+      );
+    }
+
+    function isLevel5() {
+      return isSignedIn() && (
+        request.auth.token.email == "successugochukwuchi@gmail.com" ||
+        (exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+         get(/databases/$(database)/documents/users/$(request.auth.uid)).data.get('level', '1') == "5")
+      );
+    }
+
+    function isLevel4() {
+      return isSignedIn() && (
+        request.auth.token.email == "successugochukwuchi@gmail.com" ||
+        (exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+         get(/databases/$(database)/documents/users/$(request.auth.uid)).data.get('level', '1') == "4")
       );
     }
 
@@ -46,7 +62,7 @@ service cloud.firestore {
       return isSignedIn() && (
         request.auth.token.email == "successugochukwuchi@gmail.com" ||
         (exists(/databases/$(database)/documents/users/$(request.auth.uid)) && (
-          get(/databases/$(database)/documents/users/$(request.auth.uid)).data.get('level', '1') in ["3", "4"] ||
+          get(/databases/$(database)/documents/users/$(request.auth.uid)).data.get('level', '1') in ["3", "4", "5"] ||
           get(/databases/$(database)/documents/users/$(request.auth.uid)).data.get('email', '') == "successugochukwuchi@gmail.com"
         ))
       );
@@ -56,7 +72,7 @@ service cloud.firestore {
       return isSignedIn() && (
         request.auth.token.email == "successugochukwuchi@gmail.com" ||
         (exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
-         get(/databases/$(database)/documents/users/$(request.auth.uid)).data.get('level', '1') in ["2", "3", "4"])
+         get(/databases/$(database)/documents/users/$(request.auth.uid)).data.get('level', '1') in ["2", "3", "4", "5"])
       );
     }
 
@@ -321,7 +337,31 @@ service cloud.firestore {
 
     match /disciplines/{disciplineId} {
       allow read, list: if isSignedIn();
-      allow write: if isAdmin();
+      allow create: if isLevel5();
+      allow delete: if isLevel5();
+      allow update: if isLevel5() || (
+        isLevel4() &&
+        incoming().name == existing().name &&
+        incoming().courses == existing().courses &&
+        incoming().diff(existing()).affectedKeys().hasOnly(['departments'])
+      );
+    }
+
+    match /universities/{uniId} {
+      allow read, list: if true;
+      allow create, update: if isLevel5() || isLevel4();
+      allow delete: if isLevel5();
+    }
+
+    match /credentialSets/{credentialId} {
+      allow read, list: if isSignedIn();
+      allow create, update, delete: if isLevel5() || isLevel4();
+    }
+
+    match /priceHistory/{historyId} {
+      allow read, list: if isLevel5() || isLevel4();
+      allow create: if isLevel5();
+      allow update, delete: if false;
     }
 
     match /seasons/{seasonId} {

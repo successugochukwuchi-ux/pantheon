@@ -110,7 +110,7 @@ const FluxDashboard = () => {
             </button>
           </div>
           <div className="space-y-4">
-            <CompetitionItem title="FUTO Hackathon 2024" date="May 15" status="Registration Open" />
+            <CompetitionItem title="CoLearn Hackathon 2024" date="May 15" status="Registration Open" />
             <CompetitionItem title="Regional Debate Finals" date="June 02" status="Invited" />
             <CompetitionItem title="Science Fair Expo" date="June 20" status="Coming soon" />
           </div>

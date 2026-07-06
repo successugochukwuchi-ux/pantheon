@@ -1,15 +1,23 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '../components/ui/card';
 import { Button } from '../components/ui/button';
 import { MessageCircle, ShieldAlert } from 'lucide-react';
+import { getContactWhatsAppNumber } from '../services/credentialService';
 
 export default function Banned() {
   const { profile } = useAuth();
+  const [whatsappNumber, setWhatsappNumber] = useState('2348118429150');
+
+  useEffect(() => {
+    getContactWhatsAppNumber(profile?.At).then(num => {
+      setWhatsappNumber(num);
+    });
+  }, [profile?.At]);
 
   const openAppeal = () => {
     const message = encodeURIComponent(`Hello, my account (UID: ${profile?.uid}) has been banned. I want to appeal. Reason given: ${profile?.banReason}`);
-    window.open(`https://wa.me/2348118429150?text=${message}`, '_blank');
+    window.open(`https://wa.me/${whatsappNumber}?text=${message}`, '_blank');
   };
 
   return (
