@@ -50,17 +50,6 @@ export default function Settings() {
     setLoading(true);
     try {
       if (user) {
-        // If username changed (case-insensitively), check uniqueness
-        if (cleanUsername.toLowerCase() !== profile?.username?.toLowerCase()) {
-          const q = query(collection(db, 'users'), where('username_lower', '==', cleanUsername.toLowerCase()));
-          const snap = await getDocs(q);
-          if (!snap.empty) {
-            toast.error("Username is already taken. Please choose another one.");
-            setLoading(false);
-            return;
-          }
-        }
-
         const photoURL = `https://api.dicebear.com/7.x/${avatarStyle}/svg?seed=${avatarSeed}`;
         await updateProfile(user, { photoURL });
         await updateDoc(doc(db, 'users', user.uid), {

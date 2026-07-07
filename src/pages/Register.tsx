@@ -152,20 +152,6 @@ export default function Register() {
 
   const handleNextStep = async () => {
     if (step === 1 && validateStep1()) {
-      setLoading(true);
-      try {
-        const q = query(collection(db, 'users'), where('username_lower', '==', username.trim().toLowerCase()));
-        const snap = await getDocs(q);
-        if (!snap.empty) {
-          toast.error("Username is already taken. Please choose another one.");
-          setLoading(false);
-          return;
-        }
-      } catch (err) {
-        console.error("Error checking username uniqueness:", err);
-      } finally {
-        setLoading(false);
-      }
       setStep(2);
     } else if (step === 2 && validateStep2()) {
       setStep(3);
@@ -195,16 +181,6 @@ export default function Register() {
 
     setLoading(true);
     try {
-      // Re-verify username uniqueness before creation
-      const q = query(collection(db, 'users'), where('username_lower', '==', username.trim().toLowerCase()));
-      const snap = await getDocs(q);
-      if (!snap.empty) {
-        toast.error("Username is already taken. Please choose another one.");
-        setStep(1);
-        setLoading(false);
-        return;
-      }
-
       const userCredential = await createUserWithEmailAndPassword(auth, email, password);
       const user = userCredential.user;
 
@@ -299,20 +275,7 @@ export default function Register() {
           baseUsername = baseUsername + '123';
         }
         
-        let finalUsername = baseUsername;
-        let isUnique = false;
-        let attempt = 0;
-        
-        while (!isUnique && attempt < 10) {
-          const checkUsername = attempt === 0 ? finalUsername : `${baseUsername}${Math.floor(100 + Math.random() * 900)}`;
-          const q = query(collection(db, 'users'), where('username_lower', '==', checkUsername.toLowerCase()));
-          const snap = await getDocs(q);
-          if (snap.empty) {
-            finalUsername = checkUsername;
-            isUnique = true;
-          }
-          attempt++;
-        }
+        const finalUsername = baseUsername;
 
         await setDoc(profileRef, {
           uid: user.uid,
@@ -330,7 +293,8 @@ export default function Register() {
           theme: 'light',
           photoURL: photoURL,
           createdAt: new Date().toISOString(),
-          At: defaultUniId
+          At: defaultUniId,
+          isOnboarded: false
         });
 
         try {
@@ -341,12 +305,18 @@ export default function Register() {
           console.error("Failed to update stats user count:", statsErr);
         }
 
-        toast.success('Account created with Google successfully!');
+        toast.success('Account created with Google! Let\'s complete your onboarding.');
+        navigate('/onboarding');
       } else {
-        toast.success('Signed in with Google successfully!');
+        const existingProfile = profileSnap.data();
+        if (existingProfile && existingProfile.isOnboarded === false) {
+          toast.success('Logged in with Google! Let\'s complete your onboarding.');
+          navigate('/onboarding');
+        } else {
+          toast.success('Signed in with Google successfully!');
+          navigate('/dashboard');
+        }
       }
-
-      navigate('/dashboard');
     } catch (error: any) {
       console.error("Google Sign-In Error:", error);
       toast.error(error.message || 'Failed to sign in with Google');

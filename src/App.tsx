@@ -35,6 +35,7 @@ import Chat from './pages/Chat';
 import PrivacyPolicy from './pages/PrivacyPolicy';
 import TermsOfService from './pages/TermsOfService';
 import StudyTimetable from './pages/StudyTimetable';
+import Onboarding from './pages/Onboarding';
 
 import { MaintenanceGuard } from './components/MaintenanceGuard';
 import Diagnostic from './pages/Diagnostic';
@@ -113,6 +114,11 @@ export default function App() {
                     <Route path="/terms" element={<TermsOfService />} />
                     <Route path="/banned" element={<Banned />} />
                     <Route path="/diag" element={<Diagnostic />} />
+                    <Route path="/onboarding" element={
+                      <ProtectedRoute requireActivation={false} requireOnboarding={false}>
+                        <Onboarding />
+                      </ProtectedRoute>
+                    } />
 
                     {/* FLUX Routes */}
                     <Route path="/flux" element={

@@ -21,6 +21,7 @@ export interface UserProfile {
   currentSessionId?: string;
   createdAt: string;
   At?: string; // University ID/code
+  isOnboarded?: boolean;
 }
 
 export interface University {
@@ -53,7 +54,6 @@ export interface Note {
   videoUrl?: string;
   createdAt: string;
   updatedAt?: string;
-  At?: string; // University ID/code
 }
 
 export interface VideoQuestion {
@@ -110,7 +110,6 @@ export interface QuestionSheet {
   isAvailable: boolean;
   createdAt: string;
   authorId: string;
-  At?: string; // University ID/code
 }
 
 export interface Question {

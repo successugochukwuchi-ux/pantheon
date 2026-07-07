@@ -91,20 +91,7 @@ export default function Login() {
           baseUsername = baseUsername + '123';
         }
         
-        let finalUsername = baseUsername;
-        let isUnique = false;
-        let attempt = 0;
-        
-        while (!isUnique && attempt < 10) {
-          const checkUsername = attempt === 0 ? finalUsername : `${baseUsername}${Math.floor(100 + Math.random() * 900)}`;
-          const q = query(collection(db, 'users'), where('username_lower', '==', checkUsername.toLowerCase()));
-          const snap = await getDocs(q);
-          if (snap.empty) {
-            finalUsername = checkUsername;
-            isUnique = true;
-          }
-          attempt++;
-        }
+        const finalUsername = baseUsername;
 
         await setDoc(profileRef, {
           uid: user.uid,
@@ -122,7 +109,8 @@ export default function Login() {
           theme: 'light',
           photoURL: photoURL,
           createdAt: new Date().toISOString(),
-          At: defaultUniId
+          At: defaultUniId,
+          isOnboarded: false
         });
 
         try {
@@ -133,12 +121,18 @@ export default function Login() {
           console.error("Failed to update stats user count:", statsErr);
         }
 
-        toast.success('Account created with Google! Complete your setup if needed.');
+        toast.success('Account created with Google! Let\'s complete your onboarding.');
+        navigate('/onboarding');
       } else {
-        toast.success('Logged in with Google successfully!');
+        const existingProfile = profileSnap.data();
+        if (existingProfile && existingProfile.isOnboarded === false) {
+          toast.success('Logged in with Google! Let\'s complete your onboarding.');
+          navigate('/onboarding');
+        } else {
+          toast.success('Logged in with Google successfully!');
+          navigate('/dashboard');
+        }
       }
-
-      navigate('/dashboard');
     } catch (error: any) {
       console.error("Google Sign-In Error:", error);
       toast.error(error.message || 'Failed to sign in with Google');

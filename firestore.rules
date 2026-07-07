@@ -139,6 +139,8 @@ service cloud.firestore {
              data.department is string &&
              data.level is string &&
              data.isActivated is bool &&
+             (data.get('At', null) == null || data.At is string) &&
+             (data.get('isOnboarded', null) == null || data.isOnboarded is bool) &&
              (data.get('username_lower', null) == null || data.username_lower is string) &&
              (data.get('mobileNumber', null) == null || data.mobileNumber is string) &&
              (data.get('studentId', null) == null || data.studentId is string) &&
@@ -152,13 +154,12 @@ service cloud.firestore {
     }
 
     match /users/{userId} {
-      allow read: if isSignedIn();
-      allow list: if isAdmin();
+      allow read, list: if true;
       allow create: if isOwner(userId) && isValidUser(incoming()) && 
                       incoming().isActivated == (incoming().email == "successugochukwuchi@gmail.com");
       allow update: if isAdmin() || (
                       isOwner(userId) && (
-                        (incoming().diff(existing()).affectedKeys().hasOnly(['username', 'username_lower', 'theme', 'referredBy', 'mobileNumber', 'photoURL', 'currentSessionId']) && isValidUser(incoming())) ||
+                        (incoming().diff(existing()).affectedKeys().hasOnly(['username', 'username_lower', 'theme', 'referredBy', 'mobileNumber', 'photoURL', 'currentSessionId', 'At', 'department', 'academicLevel', 'isOnboarded']) && isValidUser(incoming())) ||
                         (
                           incoming().diff(existing()).affectedKeys().hasOnly(['isActivated', 'activatedViaPromo', 'level', 'currentSessionId']) &&
                           existing().isActivated == false &&

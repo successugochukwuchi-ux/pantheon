@@ -94,7 +94,16 @@ export default function CBTPractice() {
       where('isAvailable', '==', true)
     );
     getDocs(q).then((snapshot) => {
-      setSheets(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as QuestionSheet)));
+      const allSheets = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as QuestionSheet));
+      
+      const isUnactivatedStudent = (!profile || !profile.isActivated) && profile?.level !== '3' && profile?.level !== '4';
+      if (isUnactivatedStudent) {
+        // Sort oldest first (ascending)
+        const sortedByYearAsc = [...allSheets].sort((a, b) => a.year.localeCompare(b.year));
+        setSheets(sortedByYearAsc.slice(0, 1));
+      } else {
+        setSheets(allSheets);
+      }
     }).catch((error) => {
       console.error("Sheets fetch error:", error);
     });
@@ -207,25 +216,6 @@ export default function CBTPractice() {
   };
 
   const isUnactivatedStudent = (!profile || !profile.isActivated) && profile?.level !== '3' && profile?.level !== '4';
-  if (isUnactivatedStudent) {
-    return (
-      <div className="flex flex-col items-center justify-center min-h-[400px] text-center p-6 space-y-4 max-w-2xl mx-auto">
-        <Lock className="h-16 w-16 text-amber-500 animate-pulse" />
-        <h1 className="text-3xl font-bold tracking-tight">CBT Practice Locked</h1>
-        <p className="text-muted-foreground">
-          Standard accounts must buy an activation pin to access the Computer-Based Test (CBT) simulator, practice modes, and full study metrics.
-        </p>
-        <p className="text-sm font-medium text-amber-600 dark:text-amber-400">
-          Unlock everything instantly by entering your activation pin!
-        </p>
-        <div className="pt-2">
-          <Button size="lg" onClick={() => window.location.href = '/activate'}>
-            Go to Activation Page
-          </Button>
-        </div>
-      </div>
-    );
-  }
 
   if (loading && !testStarted) {
     return <div className="flex items-center justify-center min-h-[400px]">Loading...</div>;
@@ -238,6 +228,18 @@ export default function CBTPractice() {
           <h1 className="text-3xl font-bold tracking-tight">CBT Practice</h1>
           <p className="text-muted-foreground">Master your courses with exam-standard simulation.</p>
         </div>
+
+        {isUnactivatedStudent && (
+          <div className="p-4 rounded-xl bg-amber-500/10 border border-amber-500/20 text-amber-600 dark:text-amber-400 text-sm flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+            <div>
+              <p className="font-bold">Free Preview Mode</p>
+              <p className="text-muted-foreground text-xs mt-0.5">You can only run simulations on the oldest past question sheet. Activate your account to unlock all years and unlimited CBT configurations.</p>
+            </div>
+            <Button size="sm" variant="outline" className="border-amber-500/30 text-amber-600 hover:bg-amber-500/20 shrink-0" onClick={() => window.location.href = '/activate'}>
+              Unlock All
+            </Button>
+          </div>
+        )}
 
         <Card>
           <CardHeader>

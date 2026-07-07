@@ -2,10 +2,16 @@ import React from 'react';
 import { Navigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 
-export const ProtectedRoute: React.FC<{ children: React.ReactNode; requireActivation?: boolean; minLevel?: string }> = ({ 
+export const ProtectedRoute: React.FC<{ 
+  children: React.ReactNode; 
+  requireActivation?: boolean; 
+  minLevel?: string;
+  requireOnboarding?: boolean;
+}> = ({ 
   children, 
   requireActivation = true,
-  minLevel = '1'
+  minLevel = '1',
+  requireOnboarding = true
 }) => {
   const { user, profile, loading, isAuthReady } = useAuth();
   const location = useLocation();
@@ -20,6 +26,10 @@ export const ProtectedRoute: React.FC<{ children: React.ReactNode; requireActiva
 
   if (profile?.isBanned) {
     return <Navigate to="/banned" replace />;
+  }
+
+  if (requireOnboarding && profile && profile.isOnboarded === false) {
+    return <Navigate to="/onboarding" replace />;
   }
 
   if (requireActivation && !profile?.isActivated) {

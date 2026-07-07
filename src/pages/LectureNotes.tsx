@@ -52,7 +52,7 @@ export default function LectureNotes() {
     }).catch((error) => {
       console.error("Courses fetch error:", error);
     });
-  }, [systemConfig, isHoliday]);
+  }, [systemConfig, isHoliday, profile]);
 
   useEffect(() => {
     if (!selectedCourse || !profile) {
@@ -69,7 +69,13 @@ export default function LectureNotes() {
     getDocs(q).then((snapshot) => {
       const allNotes = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Note));
       const sorted = allNotes.sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
-      setNotes(sorted);
+      
+      const isUnactivatedStudent = (!profile || !profile.isActivated) && profile?.level !== '3' && profile?.level !== '4';
+      if (isUnactivatedStudent) {
+        setNotes(sorted.slice(0, 1));
+      } else {
+        setNotes(sorted);
+      }
     }).catch((error) => {
       console.error("Notes fetch error:", error);
     });
@@ -294,6 +300,7 @@ export default function LectureNotes() {
   }
 
   if (selectedCourse) {
+    const isUnactivatedStudent = (!profile || !profile.isActivated) && profile?.level !== '3' && profile?.level !== '4';
     return (
       <div className="space-y-6">
         <Button variant="ghost" onClick={() => setSelectedCourse(null)} className="gap-2">
@@ -304,6 +311,18 @@ export default function LectureNotes() {
           <h1 className="text-3xl font-bold tracking-tight">{selectedCourse.code} Notes</h1>
           <p className="text-muted-foreground">{selectedCourse.title}</p>
         </div>
+
+        {isUnactivatedStudent && (
+          <div className="p-4 rounded-xl bg-amber-500/10 border border-amber-500/20 text-amber-600 dark:text-amber-400 text-sm flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+            <div>
+              <p className="font-bold">Free Preview Mode</p>
+              <p className="text-muted-foreground text-xs mt-0.5">You are only seeing the oldest topic. Activate your account to unlock all lectures and study materials.</p>
+            </div>
+            <Button size="sm" variant="outline" className="border-amber-500/30 text-amber-600 hover:bg-amber-500/20 shrink-0" onClick={() => window.location.href = '/activate'}>
+              Unlock All
+            </Button>
+          </div>
+        )}
 
         <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
           {notes.length > 0 ? (

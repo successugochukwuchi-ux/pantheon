@@ -49,8 +49,15 @@ export default function VideoLibrary() {
     const q = query(collection(db, 'notes'), where('courseId', '==', selectedCourseId));
     getDocs(q).then((snapshot) => {
       const allNotes = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Note));
-      // Filter notes that have a videoUrl
-      setNotes(allNotes.filter(n => n.videoUrl));
+      const videoNotes = allNotes.filter(n => n.videoUrl);
+      const sorted = videoNotes.sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
+      
+      const isUnactivatedStudent = (!profile || !profile.isActivated) && profile?.level !== '3' && profile?.level !== '4';
+      if (isUnactivatedStudent) {
+        setNotes(sorted.slice(0, 1));
+      } else {
+        setNotes(sorted);
+      }
     }).catch((err) => {
       handleFirestoreError(err, OperationType.LIST, 'notes');
     });
@@ -86,25 +93,6 @@ export default function VideoLibrary() {
   };
 
   const isUnactivatedStudent = (!profile || !profile.isActivated) && profile?.level !== '3' && profile?.level !== '4';
-  if (isUnactivatedStudent) {
-    return (
-      <div className="flex flex-col items-center justify-center min-h-[400px] text-center p-6 space-y-4 max-w-2xl mx-auto">
-        <Lock className="h-16 w-16 text-amber-500 animate-pulse" />
-        <h1 className="text-3xl font-bold tracking-tight">Video Library Locked</h1>
-        <p className="text-muted-foreground animate-pulse">
-          Standard accounts must buy an activation pin to access our premium video library, interactive video quizzes, and lecture video archives.
-        </p>
-        <p className="text-sm font-medium text-amber-600 dark:text-amber-400">
-          Unlock instant access to all expert-led video lessons by activating your account now!
-        </p>
-        <div className="pt-2">
-          <Button size="lg" onClick={() => window.location.href = '/activate'}>
-            Go to Activation Page
-          </Button>
-        </div>
-      </div>
-    );
-  }
 
   return (
     <div className="container mx-auto py-8 px-4 max-w-6xl">
@@ -112,6 +100,18 @@ export default function VideoLibrary() {
         <h1 className="text-3xl font-bold tracking-tight">Video Library</h1>
         <p className="text-muted-foreground">Interactive video lessons and quizzes for your courses.</p>
       </div>
+
+      {isUnactivatedStudent && (
+        <div className="mb-8 p-4 rounded-xl bg-amber-500/10 border border-amber-500/20 text-amber-600 dark:text-amber-400 text-sm flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+          <div>
+            <p className="font-bold">Free Preview Mode</p>
+            <p className="text-muted-foreground text-xs mt-0.5">You are only seeing the oldest video lesson for each course. Activate your account to unlock all video lessons and quizzes.</p>
+          </div>
+          <Button size="sm" variant="outline" className="border-amber-500/30 text-amber-600 hover:bg-amber-500/20 shrink-0" onClick={() => window.location.href = '/activate'}>
+            Unlock All
+          </Button>
+        </div>
+      )}
 
       <ScientificCalculator />
 

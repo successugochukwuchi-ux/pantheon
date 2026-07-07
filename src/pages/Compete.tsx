@@ -138,13 +138,19 @@ export default function Compete() {
 
     setLoadingLeaderboard(true);
     const leaderboardCol = collection(db, 'seasons', activeSeasonId, 'leaderboard');
-    const leaderboardQuery = query(leaderboardCol, orderBy('stars', 'desc'), limit(100));
+    // Fetch up to 1000 items from the season leaderboard collection to filter university-specific rankings in-memory.
+    // This allows university-specific leaderboards without requiring manual composite indexes.
+    const leaderboardQuery = query(leaderboardCol, limit(1000));
 
     const unsubscribe = onSnapshot(leaderboardQuery, (snapshot) => {
-      const parsedList = snapshot.docs.map(doc => ({
+      const allPlayers = snapshot.docs.map(doc => ({
         id: doc.id,
         ...(doc.data() as any)
       }));
+
+      // Filter by user's university
+      const myUniversity = profile?.At || 'futo';
+      const parsedList = allPlayers.filter((player: any) => player.At === myUniversity);
 
       // Secondary sort locally in memory: stars desc, then updatedAt asc (earliest wins)
       parsedList.sort((a: any, b: any) => {
@@ -160,7 +166,7 @@ export default function Compete() {
         ...item,
         rank: idx + 1
       }));
-      setLeaderboard(list);
+      setLeaderboard(list.slice(0, 100));
       
       const myDoc = list.find(item => item.id === user?.uid);
       if (myDoc) {
@@ -175,7 +181,7 @@ export default function Compete() {
     });
 
     return () => unsubscribe();
-  }, [activeSeasonId, user]);
+  }, [activeSeasonId, user, profile]);
 
   // Match Listener
   useEffect(() => {
@@ -449,11 +455,16 @@ export default function Compete() {
         if (winnerId !== 'bot_colearn') {
           const leaderDocRef = doc(db, 'seasons', activeSeasonId, 'leaderboard', winnerId);
           const leaderSnap = await getDoc(leaderDocRef);
+          
+          const winnerAt = winnerId === freshData.creatorId 
+            ? (freshData.creatorAt || freshData.At || 'futo') 
+            : (freshData.opponentAt || freshData.At || 'futo');
 
           if (leaderSnap.exists()) {
             await updateDoc(leaderDocRef, {
               stars: increment(1),
-              updatedAt: serverTimestamp()
+              updatedAt: serverTimestamp(),
+              At: winnerAt
             });
           } else {
             await setDoc(leaderDocRef, {
@@ -462,7 +473,8 @@ export default function Compete() {
               photoURL: winnerPhoto || '',
               favoriteCourse: freshData.courseCode || 'GENERAL',
               stars: 1,
-              updatedAt: serverTimestamp()
+              updatedAt: serverTimestamp(),
+              At: winnerAt
             });
           }
         }
@@ -653,13 +665,14 @@ export default function Compete() {
         setGameState('waiting');
         setSearchCountdown(10); // 10s search window, then triggers system Bot to keep it enjoyable
 
-        // Look for waiting lobby matching the number of questions!
+        // Look for waiting lobby matching the number of questions and university!
         const lobbiesQuery = query(
           collection(db, 'compete_matches'),
           where('status', '==', 'waiting'),
           where('type', '==', 'quick_match'),
           where('courseId', '==', selectedCourse.id),
-          where('numQuestions', '==', selectedNumQuestions)
+          where('numQuestions', '==', selectedNumQuestions),
+          where('At', '==', profile?.At || 'futo')
         );
         const lobbiesSnap = await getDocs(lobbiesQuery);
         
@@ -679,10 +692,19 @@ export default function Compete() {
             opponentId: user?.uid,
             opponentUsername: profile?.username || user?.email || 'Student User',
             opponentPhotoURL: profile?.photoURL || '',
+            opponentAt: profile?.At || 'futo',
             status: 'active',
             startTime: Date.now()
           });
-          setCurrentMatch({ id: foundLobby.id, ...foundLobby, status: 'active' });
+          setCurrentMatch({ 
+            id: foundLobby.id, 
+            ...foundLobby, 
+            opponentId: user?.uid,
+            opponentUsername: profile?.username || user?.email || 'Student User',
+            opponentPhotoURL: profile?.photoURL || '',
+            opponentAt: profile?.At || 'futo',
+            status: 'active' 
+          });
         } else {
           // Create new waiting quick lobby
           const newMatchDoc = doc(collection(db, 'compete_matches'));
@@ -696,9 +718,12 @@ export default function Compete() {
             creatorId: user?.uid,
             creatorUsername: profile?.username || user?.email || 'Student User',
             creatorPhotoURL: profile?.photoURL || '',
+            creatorAt: profile?.At || 'futo',
+            At: profile?.At || 'futo',
             opponentId: null,
             opponentUsername: null,
             opponentPhotoURL: null,
+            opponentAt: null,
             roomCode: null,
             questions: selectedQuestions,
             creatorPoints: 0,
@@ -713,7 +738,7 @@ export default function Compete() {
           setCurrentMatch({ id: newMatchDoc.id, ...matchPayload });
         }
       } else if (mode === 'create') {
-        // Create Custom room
+        // Create Custom room (cross-university, but we still track creatorAt for potential leaderboard references)
         const roomCode = Math.random().toString(36).substring(2, 7).toUpperCase();
         const newMatchDoc = doc(collection(db, 'compete_matches'));
         const matchPayload = {
@@ -726,9 +751,12 @@ export default function Compete() {
           creatorId: user?.uid,
           creatorUsername: profile?.username || user?.email || 'Student User',
           creatorPhotoURL: profile?.photoURL || '',
+          creatorAt: profile?.At || 'futo',
+          At: profile?.At || 'futo',
           opponentId: null,
           opponentUsername: null,
           opponentPhotoURL: null,
+          opponentAt: null,
           roomCode,
           questions: selectedQuestions,
           creatorPoints: 0,
@@ -782,10 +810,19 @@ export default function Compete() {
         opponentId: user?.uid,
         opponentUsername: profile?.username || user?.email || 'Student User',
         opponentPhotoURL: profile?.photoURL || '',
+        opponentAt: profile?.At || 'futo',
         startTime: Date.now()
       });
 
-      setCurrentMatch({ id: matchDoc.id, ...matchData, status: 'active' });
+      setCurrentMatch({ 
+        id: matchDoc.id, 
+        ...matchData, 
+        opponentId: user?.uid,
+        opponentUsername: profile?.username || user?.email || 'Student User',
+        opponentPhotoURL: profile?.photoURL || '',
+        opponentAt: profile?.At || 'futo',
+        status: 'active' 
+      });
     } catch (err) {
       handleFirestoreError(err, OperationType.UPDATE, `compete_matches/${joinRoomCode}`);
     }
@@ -937,22 +974,32 @@ export default function Compete() {
           // 1. Deduct star from forfeiter
           const forfeiterLeaderDoc = doc(db, 'seasons', activeSeasonId, 'leaderboard', forfeiterId);
           const fSnap = await getDoc(forfeiterLeaderDoc);
+          const forfeiterAt = forfeiterId === currentMatch.creatorId 
+            ? (currentMatch.creatorAt || currentMatch.At || 'futo') 
+            : (currentMatch.opponentAt || currentMatch.At || 'futo');
+
           if (fSnap.exists()) {
             const currentStars = fSnap.data().stars || 0;
             const newStars = Math.max(0, currentStars - 1);
             await updateDoc(forfeiterLeaderDoc, {
               stars: newStars,
-              updatedAt: serverTimestamp()
+              updatedAt: serverTimestamp(),
+              At: forfeiterAt
             });
           }
 
           // 2. Award star to remaining player
           const remainingLeaderDoc = doc(db, 'seasons', activeSeasonId, 'leaderboard', remainingUserId);
           const rSnap = await getDoc(remainingLeaderDoc);
+          const remainingAt = remainingUserId === currentMatch.creatorId 
+            ? (currentMatch.creatorAt || currentMatch.At || 'futo') 
+            : (currentMatch.opponentAt || currentMatch.At || 'futo');
+
           if (rSnap.exists()) {
             await updateDoc(remainingLeaderDoc, {
               stars: increment(1),
-              updatedAt: serverTimestamp()
+              updatedAt: serverTimestamp(),
+              At: remainingAt
             });
           } else {
             const remainingUsername = isCreator ? currentMatch.opponentUsername : currentMatch.creatorUsername;
@@ -963,7 +1010,8 @@ export default function Compete() {
               photoURL: remainingPhoto || '',
               favoriteCourse: currentMatch.courseCode || 'GENERAL',
               stars: 1,
-              updatedAt: serverTimestamp()
+              updatedAt: serverTimestamp(),
+              At: remainingAt
             });
           }
 
