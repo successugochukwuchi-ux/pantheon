@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { doc, getDoc, setDoc, collection, getDocs, limit, query } from 'firebase/firestore';
 import { db, auth } from '../firebase';
-import { signInWithPopup, GoogleAuthProvider, signOut, signInAnonymously } from 'firebase/auth';
+import { signOut, signInAnonymously } from 'firebase/auth';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
 import { Button } from '../components/ui/button';
 import { Badge } from '../components/ui/badge';
@@ -86,24 +86,7 @@ export default function Diagnostic() {
     runTests();
   }, []);
 
-  const handleLogin = async () => {
-    try {
-      const provider = new GoogleAuthProvider();
-      await signInWithPopup(auth, provider);
-      toast.success("Logged in successfully");
-      runTests();
-    } catch (err: any) {
-      console.error("Login Error:", err);
-      if (err.code === 'auth/unauthorized-domain') {
-        toast.error("Domain Unauthorized", {
-          description: "This URL needs to be added to your Firebase Authorized Domains.",
-          duration: 10000
-        });
-      } else {
-        toast.error(`Login failed: ${err.message}`);
-      }
-    }
-  };
+
 
   const domain = window.location.hostname;
 
@@ -169,9 +152,6 @@ export default function Diagnostic() {
             </Button>
           ) : (
             <div className="flex flex-wrap gap-2">
-              <Button size="sm" onClick={handleLogin} className="gap-2">
-                <LogIn className="h-4 w-4" /> Google Login
-              </Button>
               <Button variant="outline" size="sm" onClick={handleAnonymousLogin} className="gap-2">
                 <User className="h-4 w-4" /> Try Anonymous
               </Button>

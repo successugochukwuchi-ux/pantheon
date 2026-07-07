@@ -1381,6 +1381,10 @@ export default function AdminPanel() {
   const handleUpdateAI = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!user) return;
+    if (!isLevel5) {
+      toast.error("Only Level 5 Admins can configure AI models.");
+      return;
+    }
     setLoading(true);
     try {
       const sanitizedKey = editAI.apiKey.toString().replace(/\s+/g, '').replace(/['"]/g, '').replace(/[\u200B-\u200D\uFEFF]/g, '');
@@ -1401,6 +1405,10 @@ export default function AdminPanel() {
   const handleUpdateMagicNoteAI = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!user) return;
+    if (!isLevel5) {
+      toast.error("Only Level 5 Admins can configure AI models.");
+      return;
+    }
     setLoading(true);
     try {
       const sanitizedKey = editMagicNote.apiKey.toString().replace(/\s+/g, '').replace(/['"]/g, '').replace(/[\u200B-\u200D\uFEFF]/g, '');
@@ -1677,20 +1685,39 @@ export default function AdminPanel() {
     setLoading(true);
     console.log(`Updating semester to: ${semester}`);
     try {
-      const configRef = doc(db, 'system', 'config');
-      const updateData: any = {
-        currentSemester: semester,
-        updatedBy: user.uid,
-        updatedAt: new Date().toISOString()
-      };
+      const isLevel4Only = profile?.level === '4' && !isLevel5;
       
-      // Preserve maintenance mode if it exists in current local state
-      if (systemConfig) {
-        updateData.maintenanceMode = systemConfig.maintenanceMode;
+      if (isLevel4Only) {
+        if (!profile?.At) {
+          toast.error("You are not associated with any university to manage semesters.");
+          setLoading(false);
+          return;
+        }
+        
+        const uniRef = doc(db, 'universities', profile.At);
+        await updateDoc(uniRef, {
+          currentSemester: semester,
+          updatedSemesterBy: user.uid,
+          updatedSemesterAt: new Date().toISOString()
+        });
+        console.log(`University ${profile.At} semester updated successfully to ${semester}`);
+      } else {
+        // Level 5 updates global config
+        const configRef = doc(db, 'system', 'config');
+        const updateData: any = {
+          currentSemester: semester,
+          updatedBy: user.uid,
+          updatedAt: new Date().toISOString()
+        };
+        
+        // Preserve maintenance mode if it exists in current local state
+        if (systemConfig) {
+          updateData.maintenanceMode = systemConfig.maintenanceMode;
+        }
+        
+        await setDoc(configRef, updateData, { merge: true });
+        console.log("Global system config updated successfully");
       }
-      
-      await setDoc(configRef, updateData, { merge: true });
-      console.log("System config updated successfully");
 
       // If ending a semester, demote 2 to 1 and deactivate 1
       if (semester === 'none') {
@@ -1700,10 +1727,20 @@ export default function AdminPanel() {
 
         try {
           // 1. Deactivate Level 1 and Level 3 users
-          const level1And3Query = query(collection(db, 'users'), where('level', 'in', ['1', '3']));
+          let level1And3Query;
+          if (isLevel4Only && profile?.At) {
+            level1And3Query = query(
+              collection(db, 'users'), 
+              where('level', 'in', ['1', '3']),
+              where('At', '==', profile.At)
+            );
+          } else {
+            level1And3Query = query(collection(db, 'users'), where('level', 'in', ['1', '3']));
+          }
+          
           const level1And3Snap = await getDocs(level1And3Query);
           level1And3Snap.docs.forEach((userDoc) => {
-            const data = userDoc.data();
+            const data = userDoc.data() as any;
             if (data.isActivated !== false || data.activatedViaPromo !== false) {
               batch.update(userDoc.ref, { isActivated: false, activatedViaPromo: false });
               countDeactivated++;
@@ -1711,10 +1748,20 @@ export default function AdminPanel() {
           });
 
           // 2. Demote Level 2 users to Level 1 while keeping them activated
-          const level2Query = query(collection(db, 'users'), where('level', '==', '2'));
+          let level2Query;
+          if (isLevel4Only && profile?.At) {
+            level2Query = query(
+              collection(db, 'users'), 
+              where('level', '==', '2'),
+              where('At', '==', profile.At)
+            );
+          } else {
+            level2Query = query(collection(db, 'users'), where('level', '==', '2'));
+          }
+          
           const level2Snap = await getDocs(level2Query);
           level2Snap.docs.forEach((userDoc) => {
-            const data = userDoc.data();
+            const data = userDoc.data() as any;
             if (data.level !== '1' || data.isActivated !== true) {
               batch.update(userDoc.ref, { level: '1', isActivated: true });
               countDemoted++;
@@ -1739,7 +1786,10 @@ export default function AdminPanel() {
   };
 
   const handleTogglePromo = async (active: boolean) => {
-    if (!profile || profile.level !== '4') return;
+    if (!isLevel5) {
+      toast.error("Only Level 5 Admins can manage platform access gates.");
+      return;
+    }
     if (active && promoQuota <= 0) {
       toast.error("Please set a valid quota first");
       return;
@@ -1790,6 +1840,10 @@ export default function AdminPanel() {
 
   const handleStartSeason = async () => {
     if (!user) return;
+    if (!isLevel5) {
+      toast.error("Only Level 5 Admins can start a competition season.");
+      return;
+    }
     if (!newSeasonName.trim()) {
       toast.error("Please enter a valid season name");
       return;
@@ -1826,6 +1880,10 @@ export default function AdminPanel() {
 
   const handleEndSeason = async () => {
     if (!user) return;
+    if (!isLevel5) {
+      toast.error("Only Level 5 Admins can end a competition season.");
+      return;
+    }
     if (!window.confirm("Are you sure you want to end the current season? Quick Match mode will be locked and the leaderboard will be reset!")) return;
     setLoading(true);
     try {
@@ -1847,6 +1905,10 @@ export default function AdminPanel() {
 
   const handleToggleMaintenance = async () => {
     if (!user || !systemConfig) return;
+    if (!isLevel5) {
+      toast.error("Only Level 5 Admins can manage platform access gates.");
+      return;
+    }
     setLoading(true);
     try {
       const configRef = doc(db, 'system', 'config');
@@ -1865,6 +1927,10 @@ export default function AdminPanel() {
 
   const handleToggleFlux = async () => {
     if (!user) return;
+    if (!isLevel5) {
+      toast.error("Only Level 5 Admins can manage platform access gates.");
+      return;
+    }
     setLoading(true);
     try {
       const configRef = doc(db, 'system', 'config');
@@ -1885,17 +1951,37 @@ export default function AdminPanel() {
   const handleShiftLevels = async () => {
     if (!user || !isLevel4) return;
     
-    const confirmAction = window.confirm("Are you sure you want to switch all users with an academicLevel of 100 to 200?");
+    const isLevel4Only = profile?.level === '4' && !isLevel5;
+    
+    if (isLevel4Only && !profile?.At) {
+      toast.error("You are not associated with any university to shift levels.");
+      return;
+    }
+
+    const confirmMessage = isLevel4Only 
+      ? `Are you sure you want to switch all 100 level students to 200 level within your university (${profile?.At?.toUpperCase()})?`
+      : "Are you sure you want to switch all users with an academicLevel of 100 to 200 across the entire platform?";
+
+    const confirmAction = window.confirm(confirmMessage);
     if (!confirmAction) return;
 
     setShifting(true);
     try {
-      // Find all users with academicLevel == "100"
-      const usersQuery = query(collection(db, 'users'), where('academicLevel', '==', '100'));
+      let usersQuery;
+      if (isLevel4Only && profile?.At) {
+        usersQuery = query(
+          collection(db, 'users'), 
+          where('academicLevel', '==', '100'),
+          where('At', '==', profile.At)
+        );
+      } else {
+        usersQuery = query(collection(db, 'users'), where('academicLevel', '==', '100'));
+      }
+      
       const snap = await getDocs(usersQuery);
       
       if (snap.empty) {
-        toast.info("No users found with academicLevel of 100");
+        toast.info(isLevel4Only ? "No 100 level students found in your university." : "No users found with academicLevel of 100.");
         setShifting(false);
         return;
       }
@@ -1916,7 +2002,10 @@ export default function AdminPanel() {
         await batch.commit();
       }
 
-      toast.success(`Successfully switched ${count} users from academic level 100 to 200.`);
+      toast.success(isLevel4Only 
+        ? `Successfully switched ${count} 100 level students to 200 level in your university.`
+        : `Successfully switched ${count} users from academic level 100 to 200 across the platform.`
+      );
     } catch (err: any) {
       console.error("Error shifting academic levels:", err);
       toast.error(`Failed to switch academic levels: ${err.message || err}`);
@@ -4114,7 +4203,9 @@ export default function AdminPanel() {
                       <Settings className="h-4.5 w-4.5 text-primary" />
                       Semester Control
                     </CardTitle>
-                    <CardDescription>Manage the active academic semester configuration.</CardDescription>
+                    <CardDescription>
+                      Manage the active academic semester configuration {profile?.level === '4' && !isLevel5 ? `for ${profile?.At?.toUpperCase() || 'your university'}` : 'platform-wide'}.
+                    </CardDescription>
                   </CardHeader>
                   <CardContent className="space-y-4">
                     <div className="flex items-center justify-between p-3.5 bg-muted/65 rounded-xl border border-muted-foreground/10">
@@ -4158,7 +4249,9 @@ export default function AdminPanel() {
                   </CardContent>
                   <CardFooter className="pt-0 justify-center">
                     <p className="text-[10px] text-muted-foreground/80 italic text-center">
-                      * Ending a semester deactivates all Level 1 (student) activation codes.
+                      {profile?.level === '4' && !isLevel5 
+                        ? "* Ending a semester deactivates all Level 1 (student) activation codes within your university." 
+                        : "* Ending a semester deactivates all Level 1 (student) activation codes platform-wide."}
                     </p>
                   </CardFooter>
                 </Card>
@@ -4183,10 +4276,10 @@ export default function AdminPanel() {
                           size="sm" 
                           variant="destructive" 
                           onClick={handleEndSeason}
-                          disabled={loading}
+                          disabled={loading || !isLevel5}
                           className="w-full text-xs font-semibold h-9"
                         >
-                          End Season & Reset Leaderboard
+                          {!isLevel5 ? "End Season (Requires Level 5 Admin)" : "End Season & Reset Leaderboard"}
                         </Button>
                       </div>
                     ) : (
@@ -4198,16 +4291,17 @@ export default function AdminPanel() {
                             value={newSeasonName} 
                             onChange={(e) => setNewSeasonName(e.target.value)}
                             onKeyDown={(e) => e.key === 'Enter' && e.preventDefault()}
+                            disabled={!isLevel5}
                             className="h-9 text-xs"
                           />
                         </div>
                         <Button 
                           size="sm"
                           onClick={handleStartSeason}
-                          disabled={loading || !newSeasonName.trim()}
+                          disabled={loading || !newSeasonName.trim() || !isLevel5}
                           className="w-full text-xs font-semibold h-9"
                         >
-                          Start New Season
+                          {!isLevel5 ? "Start Season (Requires Level 5 Admin)" : "Start New Season"}
                         </Button>
                       </div>
                     )}
@@ -4243,10 +4337,10 @@ export default function AdminPanel() {
                         size="sm"
                         variant={systemConfig?.maintenanceMode ? "default" : "destructive"}
                         onClick={handleToggleMaintenance}
-                        disabled={loading}
+                        disabled={loading || !isLevel5}
                         className="w-full text-xs font-semibold h-8 mt-1"
                       >
-                        {systemConfig?.maintenanceMode ? "Disable Maintenance" : "Go Under Maintenance"}
+                        {!isLevel5 ? "Toggle Maintenance (Requires L5)" : (systemConfig?.maintenanceMode ? "Disable Maintenance" : "Go Under Maintenance")}
                       </Button>
                     </div>
                   </CardContent>
@@ -4275,10 +4369,10 @@ export default function AdminPanel() {
                         size="sm"
                         variant={systemConfig?.fluxEnabled !== false ? "destructive" : "default"}
                         onClick={handleToggleFlux}
-                        disabled={loading}
+                        disabled={loading || !isLevel5}
                         className={`w-full text-xs font-semibold h-8 mt-1 ${systemConfig?.fluxEnabled === false ? "bg-pink-600 hover:bg-pink-700 text-white" : ""}`}
                       >
-                        {systemConfig?.fluxEnabled !== false ? "Suspend Flux Tracks" : "De-suspend Flux Tracks"}
+                        {!isLevel5 ? "Toggle Flux (Requires L5)" : (systemConfig?.fluxEnabled !== false ? "Suspend Flux Tracks" : "De-suspend Flux Tracks")}
                       </Button>
                     </div>
                   </CardContent>
@@ -4306,9 +4400,9 @@ export default function AdminPanel() {
                             variant="destructive" 
                             className="h-7 text-[10px] font-bold px-2"
                             onClick={() => handleTogglePromo(false)}
-                            disabled={loading}
+                            disabled={loading || !isLevel5}
                           >
-                            Disable
+                            {!isLevel5 ? "L5 only" : "Disable"}
                           </Button>
                         </div>
                         <div className="w-full bg-muted rounded-full h-1.5 overflow-hidden">
@@ -4329,6 +4423,7 @@ export default function AdminPanel() {
                             onChange={(e) => setPromoQuota(parseInt(e.target.value) || 0)}
                             min="1"
                             onKeyDown={(e) => e.key === 'Enter' && e.preventDefault()}
+                            disabled={!isLevel5}
                             className="h-8 text-xs"
                           />
                         </div>
@@ -4336,9 +4431,9 @@ export default function AdminPanel() {
                           size="sm"
                           className="w-full bg-amber-600 hover:bg-amber-700 text-white text-xs font-semibold h-8" 
                           onClick={() => handleTogglePromo(true)}
-                          disabled={loading || promoQuota <= 0}
+                          disabled={loading || promoQuota <= 0 || !isLevel5}
                         >
-                          Enable Promo Mode
+                          {!isLevel5 ? "Enable Promo (Requires L5)" : "Enable Promo Mode"}
                         </Button>
                       </div>
                     )}
@@ -4347,8 +4442,8 @@ export default function AdminPanel() {
               </div>
             </div>
 
-            {/* SECTION 3: SYSTEM AI INTERFACES (LEVEL 4) */}
-            {isLevel4 && (
+            {/* SECTION 3: SYSTEM AI INTERFACES (LEVEL 5 ONLY) */}
+            {isLevel5 && (
               <div>
                 <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-3">AI Model Configurations</h3>
                 <div className="grid gap-6 md:grid-cols-2">
@@ -4593,7 +4688,11 @@ export default function AdminPanel() {
                     <CardContent className="space-y-4">
                       <div className="p-3.5 bg-white/70 dark:bg-zinc-950/40 rounded-xl border border-rose-200 dark:border-rose-900 text-xs">
                         <p className="text-muted-foreground leading-relaxed">
-                          This operation will search all system users whose active <strong className="text-rose-600 dark:text-rose-400">academicLevel</strong> equals <strong className="font-bold text-rose-600 dark:text-rose-400">"100"</strong> and instantly shift them to <strong className="font-bold text-rose-600 dark:text-rose-400">"200"</strong>. This is irreversible.
+                          {profile?.level === '4' && !isLevel5 ? (
+                            <>This operation will search all students in <strong className="font-bold text-rose-600 dark:text-rose-400">{profile?.At?.toUpperCase() || "your university"}</strong> whose active <strong>academicLevel</strong> is <strong className="font-bold text-rose-600 dark:text-rose-400">"100"</strong> and instantly shift them to <strong className="font-bold text-rose-600 dark:text-rose-400">"200"</strong>.</>
+                          ) : (
+                            <>This operation will search all system users whose active <strong className="text-rose-600 dark:text-rose-400">academicLevel</strong> equals <strong className="font-bold text-rose-600 dark:text-rose-400">"100"</strong> and instantly shift them to <strong className="font-bold text-rose-600 dark:text-rose-400">"200"</strong>.</>
+                          )} This is irreversible.
                         </p>
                       </div>
                     </CardContent>

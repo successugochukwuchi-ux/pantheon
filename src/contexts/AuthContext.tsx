@@ -1,9 +1,9 @@
-import React, { createContext, useContext, useEffect, useState } from 'react';
+import React, { createContext, useContext, useEffect, useState, useMemo } from 'react';
 import { onAuthStateChanged, User, signOut as firebaseSignOut } from 'firebase/auth';
 import { doc, onSnapshot, updateDoc, setDoc, getDoc } from 'firebase/firestore';
 import { auth, db, handleFirestoreError, OperationType } from '../firebase';
 import { toast } from 'sonner';
-import { UserProfile, SystemConfig, PromoConfig } from '../types';
+import { UserProfile, SystemConfig, PromoConfig, Semester } from '../types';
 
 interface AuthContextType {
   user: User | null;
@@ -241,8 +241,40 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     };
   }, [user, profile]);
 
+  const [uniSemester, setUniSemester] = useState<Semester | null>(null);
+
+  useEffect(() => {
+    if (profile?.At) {
+      const unsubUni = onSnapshot(doc(db, 'universities', profile.At), (snapshot) => {
+        if (snapshot.exists()) {
+          const data = snapshot.data();
+          setUniSemester(data.currentSemester || null);
+        } else {
+          setUniSemester(null);
+        }
+      }, (error) => {
+        console.error("Error listening to university:", error);
+        setUniSemester(null);
+      });
+      return () => unsubUni();
+    } else {
+      setUniSemester(null);
+    }
+  }, [profile?.At]);
+
+  const effectiveSystemConfig = useMemo(() => {
+    if (!systemConfig) return null;
+    if (profile?.At && uniSemester) {
+      return {
+        ...systemConfig,
+        currentSemester: uniSemester
+      };
+    }
+    return systemConfig;
+  }, [systemConfig, profile?.At, uniSemester]);
+
   return (
-    <AuthContext.Provider value={{ user, profile, systemConfig, promoConfig, loading, isAuthReady, isSystemConfigReady, isOnline }}>
+    <AuthContext.Provider value={{ user, profile, systemConfig: effectiveSystemConfig, promoConfig, loading, isAuthReady, isSystemConfigReady, isOnline }}>
       {children}
     </AuthContext.Provider>
   );
