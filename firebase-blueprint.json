@@ -420,6 +420,99 @@
         "createdAt": { "type": "string", "format": "date-time" }
       },
       "required": ["name", "departments", "createdAt"]
+    },
+    "ColodgeLocation": {
+      "title": "ColodgeLocation",
+      "description": "Nearby town or city to the university for student lodging",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "description": { "type": "string" },
+        "gallery": { "type": "array", "items": { "type": "string" } },
+        "At": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["name", "description", "gallery", "At", "createdAt"]
+    },
+    "ColodgeLodge": {
+      "title": "ColodgeLodge",
+      "description": "Lodge inside a ColodgeLocation",
+      "type": "object",
+      "properties": {
+        "locationId": { "type": "string" },
+        "name": { "type": "string" },
+        "description": { "type": "string" },
+        "gallery": { "type": "array", "items": { "type": "string" } },
+        "At": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["locationId", "name", "description", "gallery", "At", "createdAt"]
+    },
+    "ColodgeRoom": {
+      "title": "ColodgeRoom",
+      "description": "A single rentable room inside a ColodgeLodge",
+      "type": "object",
+      "properties": {
+        "lodgeId": { "type": "string" },
+        "name": { "type": "string" },
+        "description": { "type": "string" },
+        "photoUrl": { "type": "string" },
+        "videoUrl": { "type": "string" },
+        "price": { "type": "number" },
+        "status": { "type": "string", "enum": ["available", "in talks", "rented"] },
+        "inTalksWith": { "type": "string" },
+        "rentedBy": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["lodgeId", "name", "description", "photoUrl", "videoUrl", "price", "status", "createdAt"]
+    },
+    "ColodgeAgentApplication": {
+      "title": "ColodgeAgentApplication",
+      "description": "Application to become a Colodge Agent",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string" },
+        "governmentName": { "type": "string" },
+        "bankAccount": { "type": "string" },
+        "bankName": { "type": "string" },
+        "ticketCode": { "type": "string" },
+        "status": { "type": "string", "enum": ["pending", "approved", "rejected"] },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["uid", "governmentName", "bankAccount", "bankName", "ticketCode", "status", "createdAt"]
+    },
+    "ColodgeDeal": {
+      "title": "ColodgeDeal",
+      "description": "Lodging transaction process between user and agent",
+      "type": "object",
+      "properties": {
+        "roomId": { "type": "string" },
+        "roomName": { "type": "string" },
+        "lodgeId": { "type": "string" },
+        "lodgeName": { "type": "string" },
+        "locationId": { "type": "string" },
+        "userId": { "type": "string" },
+        "username": { "type": "string" },
+        "userEmail": { "type": "string" },
+        "agentId": { "type": "string" },
+        "agentName": { "type": "string" },
+        "agentFeePaid": { "type": "number" },
+        "status": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["roomId", "roomName", "lodgeId", "lodgeName", "locationId", "userId", "username", "userEmail", "agentId", "agentName", "agentFeePaid", "status", "createdAt"]
+    },
+    "ColodgeEscrowAccount": {
+      "title": "ColodgeEscrowAccount",
+      "description": "Bank account used for CoLodge escrow payments",
+      "type": "object",
+      "properties": {
+        "accountNumber": { "type": "string" },
+        "bankName": { "type": "string" },
+        "isActive": { "type": "boolean" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["accountNumber", "bankName", "isActive", "createdAt"]
     }
   },
   "firestore": {
@@ -450,6 +543,34 @@
     "/system/promo": {
       "schema": "PromoConfig",
       "description": "Promo mode configuration"
+    },
+    "/system/colodge": {
+      "schema": "object",
+      "description": "Colodge configurations (banks, toggles, etc)"
+    },
+    "/colodge_locations/{locationId}": {
+      "schema": "ColodgeLocation",
+      "description": "Nearby towns or cities to the university"
+    },
+    "/colodge_lodges/{lodgeId}": {
+      "schema": "ColodgeLodge",
+      "description": "Lodges within locations"
+    },
+    "/colodge_rooms/{roomId}": {
+      "schema": "ColodgeRoom",
+      "description": "Rooms inside lodges"
+    },
+    "/colodge_agent_applications/{uid}": {
+      "schema": "ColodgeAgentApplication",
+      "description": "Agent applications under review or history"
+    },
+    "/colodge_deals/{dealId}": {
+      "schema": "ColodgeDeal",
+      "description": "Deals and payments between users and agents"
+    },
+    "/colodge_escrow_accounts/{accountId}": {
+      "schema": "ColodgeEscrowAccount",
+      "description": "Escrow bank accounts managed by admin"
     },
     "/notes/{noteId}": {
       "schema": "Note",

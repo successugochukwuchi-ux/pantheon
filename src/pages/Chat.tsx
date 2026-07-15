@@ -523,6 +523,7 @@ export default function Chat() {
       await addDoc(collection(db, 'reports'), {
         reporterId: user.uid,
         reporterName: profile?.username || 'User',
+        At: profile?.At || 'futo',
         chatId: activeChat.id,
         chatType: activeChat.type,
         targetUids: activeChat.uids.filter(id => id !== user.uid),

@@ -15,7 +15,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { auth, db } from '../lib/firebase';
 import { createUserWithEmailAndPassword } from 'firebase/auth';
-import { doc, setDoc, serverTimestamp, increment } from 'firebase/firestore';
+import { doc, setDoc, serverTimestamp, increment, collection, getDocs } from 'firebase/firestore';
 import { Alert, ActivityIndicator } from 'react-native';
 
 const C = {
@@ -103,6 +103,13 @@ const DEPARTMENTS = [
 ].sort((a, b) => a.localeCompare(b));
 
 const LEVELS = ['100LVL', '200LVL'];
+
+const UNIVERSITIES = [
+  'Federal University of Technology, Owerri (FUTO)',
+  'University of Port Harcourt (UNIPORT)',
+  'University of Lagos (UNILAG)',
+  'University of Ibadan (UI)',
+];
 
 function Navbar() {
   const router = useRouter();
@@ -198,7 +205,7 @@ function PickerField({
     <View style={s.fieldWrap}>
       <Text style={s.label}>{label}</Text>
       <TouchableOpacity
-        style={[s.input, s.pickerTrigger, !!error && s.inputError]}
+        style={[s.inputContainer, s.pickerTrigger, !!error && s.inputContainerError]}
         onPress={() => setOpen(true)}
         activeOpacity={0.8}
       >
@@ -245,6 +252,7 @@ function PickerField({
 type FormErrors = {
   username?: string;
   email?: string;
+  university?: string;
   department?: string;
   level?: string;
   phone?: string;
@@ -258,6 +266,7 @@ export default function RegisterScreen() {
   const [form, setForm] = useState({
     username: '',
     email: '',
+    university: '',
     department: '',
     level: '',
     phone: '',
@@ -267,9 +276,61 @@ export default function RegisterScreen() {
   const [errors, setErrors] = useState<FormErrors>({});
 
   const [loading, setLoading] = useState(false);
+  const [universities, setUniversities] = useState<any[]>([]);
+  const [loadingLists, setLoadingLists] = useState(true);
 
-  const set = (key: keyof typeof form) => (val: string) =>
-    setForm((f) => ({ ...f, [key]: val }));
+  React.useEffect(() => {
+    const fetchUniversities = async () => {
+      try {
+        const snap = await getDocs(collection(db, 'universities'));
+        if (snap.empty) {
+          const defaultUni = {
+            id: 'futo',
+            name: 'Federal University of Technology, Owerri',
+            shortName: 'FUTO',
+            departments: DEPARTMENTS,
+          };
+          setUniversities([defaultUni]);
+        } else {
+          const unis = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+          setUniversities(unis);
+        }
+      } catch (err) {
+        console.error("Error loading universities:", err);
+        const defaultUni = {
+          id: 'futo',
+          name: 'Federal University of Technology, Owerri',
+          shortName: 'FUTO',
+          departments: DEPARTMENTS,
+        };
+        setUniversities([defaultUni]);
+      } finally {
+        setLoadingLists(false);
+      }
+    };
+    fetchUniversities();
+  }, []);
+
+  const universityOptions = universities.map(
+    uni => `${uni.name || ''}${uni.shortName ? ' (' + uni.shortName + ')' : ''}`
+  );
+
+  const selectedUni = universities.find(uni => {
+    const displayStr = `${uni.name || ''}${uni.shortName ? ' (' + uni.shortName + ')' : ''}`;
+    return displayStr === form.university;
+  });
+
+  const departmentOptions = selectedUni
+    ? (selectedUni.departments || []).map((dept: any) => typeof dept === 'string' ? dept : dept.name).sort((a: string, b: string) => a.localeCompare(b))
+    : [];
+
+  const set = (key: keyof typeof form) => (val: string) => {
+    if (key === 'university') {
+      setForm((f) => ({ ...f, university: val, department: '' }));
+    } else {
+      setForm((f) => ({ ...f, [key]: val }));
+    }
+  };
 
   const validate = (): boolean => {
     const e: FormErrors = {};
@@ -277,6 +338,7 @@ export default function RegisterScreen() {
     else if (form.username.length < 3) e.username = 'Username must be at least 3 characters';
     if (!form.email.trim()) e.email = 'Email is required';
     else if (!/\S+@\S+\.\S+/.test(form.email)) e.email = 'Enter a valid email address';
+    if (!form.university) e.university = 'Please select your university';
     if (!form.department) e.department = 'Please select your department';
     if (!form.level) e.level = 'Please select your level';
     if (!form.phone.trim()) e.phone = 'Phone number is required';
@@ -299,6 +361,8 @@ export default function RegisterScreen() {
         const photoURL = `https://api.dicebear.com/7.x/avataaars/svg?seed=${user.uid}`;
         const academicLevel = form.level.replace('LVL', '');
 
+        const universityId = selectedUni?.id || 'futo';
+
         await setDoc(doc(db, 'users', user.uid), {
           uid: user.uid,
           studentId: studentId,
@@ -314,6 +378,7 @@ export default function RegisterScreen() {
           theme: 'light',
           photoURL: photoURL,
           createdAt: new Date().toISOString(),
+          At: universityId,
         });
 
         // Increment stats total users
@@ -377,9 +442,17 @@ export default function RegisterScreen() {
             />
 
             <PickerField
+              label="UNIVERSITY"
+              value={form.university}
+              options={universityOptions}
+              onSelect={set('university')}
+              error={errors.university}
+            />
+
+            <PickerField
               label="DEPARTMENT"
               value={form.department}
-              options={DEPARTMENTS}
+              options={departmentOptions}
               onSelect={set('department')}
               error={errors.department}
             />
@@ -543,6 +616,8 @@ const s = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
+    paddingHorizontal: 16,
+    paddingVertical: 14,
   },
   pickerText: { fontFamily: F.body, fontSize: 15, color: C.ink, flex: 1 },
   pickerPlaceholder: { color: C.inkLight },

@@ -46,6 +46,11 @@ export default function AdminDiscipline() {
   const [courses, setCourses] = useState<Course[]>([]);
   const [loading, setLoading] = useState(false);
 
+  const userUni = (profile?.At || 'futo').toLowerCase().trim();
+  const displayedCourses = isLevel4 
+    ? courses.filter(course => (course.At || 'futo').toLowerCase().trim() === userUni) 
+    : courses;
+
   // Form State
   const [newDisciplineName, setNewDisciplineName] = useState('');
   const [selectedDepts, setSelectedDepts] = useState<string[]>([]);
@@ -307,7 +312,7 @@ export default function AdminDiscipline() {
 
   // Render Courses in current discipline
   const assignedCourses = Object.entries(selectedDiscipline?.courses || {}).map(([cId, option]) => {
-    const matchedCourse = courses.find(c => c.id === cId);
+    const matchedCourse = displayedCourses.find(c => c.id === cId);
     return {
       id: cId,
       option,
@@ -319,7 +324,7 @@ export default function AdminDiscipline() {
   ));
 
   // Render Courses available to be added
-  const availableToAddCourses = courses.filter(course => {
+  const availableToAddCourses = displayedCourses.filter(course => {
     // Not already added
     const isAssigned = !!selectedDiscipline?.courses?.[course.id];
     // Matches search
@@ -492,7 +497,14 @@ export default function AdminDiscipline() {
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               {disciplines.map(disc => {
-                const numCourses = Object.keys(disc.courses || {}).length;
+                const numCourses = Object.keys(disc.courses || {}).filter(cId => {
+                  if (isLevel4) {
+                    const matchedCourse = courses.find(c => c.id === cId);
+                    if (!matchedCourse) return false;
+                    return (matchedCourse.At || 'futo').toLowerCase().trim() === userUni;
+                  }
+                  return true;
+                }).length;
                 return (
                   <Card key={disc.id} className="flex flex-col justify-between">
                     <CardHeader className="pb-3 border-b">

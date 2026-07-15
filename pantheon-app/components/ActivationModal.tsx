@@ -14,6 +14,7 @@ import { doc, getDoc, updateDoc, serverTimestamp, query, where, getDocs, collect
 import { db } from '../lib/firebase';
 import { useAuth } from '../context/AuthContext';
 import { C, F } from './Theme';
+import { contactAdmin } from '../lib/support';
 
 async function sendTelegramAlertMobile(message: string) {
   try {
@@ -50,7 +51,7 @@ async function sendTelegramAlertMobile(message: string) {
 }
 
 export function ActivationModal() {
-  const { user, profile, promoConfig } = useAuth();
+  const { user, profile, promoConfig, isOffline } = useAuth();
   const [code, setCode] = useState('');
   const [loading, setLoading] = useState(false);
   const [closedByUser, setClosedByUser] = useState(false);
@@ -268,7 +269,7 @@ export function ActivationModal() {
               <TouchableOpacity 
                 style={[s.secondaryBtn, { marginTop: 12 }]}
                 onPress={() => {
-                  Linking.openURL('https://wa.me/2348118429150?text=Hello%2C%20I%20want%20to%20purchase%20an%20activation%20pin%20for%20CoLearn%20App.');
+                  contactAdmin(profile?.At, !!isOffline, "Hello, I want to purchase an activation pin for CoLearn App.");
                 }}
               >
                 <Text style={s.secondaryBtnText}>Need a Code? Contact an Admin</Text>
@@ -321,7 +322,7 @@ export function ActivationModal() {
               <TouchableOpacity 
                 style={[s.secondaryBtn, { marginTop: 12 }]}
                 onPress={() => {
-                  Linking.openURL('https://wa.me/2348118429150?text=Hello%2C%20I%20want%20to%20purchase%20an%20activation%20pin%20for%20CoLearn%20App.');
+                  contactAdmin(profile?.At, !!isOffline, "Hello, I want to purchase an activation pin for CoLearn App.");
                 }}
               >
                 <Text style={s.secondaryBtnText}>Need a Code? Contact an Admin</Text>

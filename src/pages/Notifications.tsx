@@ -52,6 +52,11 @@ export default function Notifications() {
       
       // Filter based on user profile
       const filtered = allAnn.filter(ann => {
+        // University restriction check: if announcement has At, it must match user's At
+        if (ann.At && (!profile || ann.At !== profile.At)) {
+          return false;
+        }
+
         if (ann.targetType === 'all') return true;
         if (ann.targetType === 'uid' && ann.targetValue === user.uid) return true;
         if (!profile) return false;

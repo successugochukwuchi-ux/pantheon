@@ -34,6 +34,7 @@ interface UserProfile {
   createdAt: string;
   isBanned?: boolean;
   banReason?: string;
+  At?: string;
 }
 
 interface SystemConfig {
@@ -240,6 +241,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
               createdAt: data.createdAt ? (typeof data.createdAt === 'string' ? data.createdAt : data.createdAt.toDate?.().toISOString() || new Date().toISOString()) : new Date().toISOString(),
               isBanned: data.isBanned ?? false,
               banReason: data?.banReason || '',
+              At: data.At || 'futo',
             };
 
             // If studentId is missing, generate a pretty placeholder
@@ -298,34 +300,30 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     async function verifyConnection() {
       if (typeof navigator !== 'undefined' && navigator.onLine !== undefined) {
-        if (!navigator.onLine) {
-          setIsOffline(true);
-          return;
-        }
+        setIsOffline(!navigator.onLine);
+        return;
       }
 
+      // If navigator.onLine is not available (e.g. React Native/Native platform), we assume online
+      // and only mark as offline if we explicitly fail to ping a reliable server.
       try {
         const controller = new AbortController();
-        const id = setTimeout(() => controller.abort(), 2500);
-        // Use a highly reliable CORS-enabled endpoint
-        const response = await fetch('https://api.github.com/', {
+        const id = setTimeout(() => controller.abort(), 3000);
+        await fetch('https://www.google.com', {
+          method: 'HEAD',
+          mode: 'no-cors',
           signal: controller.signal,
-          headers: { 'Accept': 'application/json' }
         });
         clearTimeout(id);
-        setIsOffline(!response.ok);
+        setIsOffline(false);
       } catch (err) {
-        // If we got a network error or abort but navigator.onLine is true, assume we have a live interface
-        if (typeof navigator !== 'undefined' && navigator.onLine) {
-          setIsOffline(false);
-        } else {
-          setIsOffline(true);
-        }
+        // Default to false (online) on Native/Sandbox to prevent false offline states
+        setIsOffline(false);
       }
     }
 
     verifyConnection();
-    const interval = setInterval(verifyConnection, 3000);
+    const interval = setInterval(verifyConnection, 10000);
     return () => clearInterval(interval);
   }, []);
 
@@ -540,6 +538,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             const data = change.doc.data();
             knownAnnouncementIds.add(change.doc.id);
             
+            // Check university filter
+            if (data.At && profile.At && data.At !== profile.At) {
+              return;
+            }
+            
             // Check if announcement targets us
             const userDept = (profile.department || '').toLowerCase();
             const userLevel = (profile.academicLevel || '100').replace('LVL', '').replace('lvl', '');
@@ -614,6 +617,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           if (change.type === 'added' && !knownNewsIds.has(change.doc.id)) {
             const data = change.doc.data();
             knownNewsIds.add(change.doc.id);
+            if (data.At && profile.At && data.At !== profile.At) {
+              return;
+            }
             showLocalNotify(
               "News Board: " + (data.title || "Latest Update"),
               data.content || data.body || "New campus update posted"

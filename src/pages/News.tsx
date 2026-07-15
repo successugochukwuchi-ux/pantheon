@@ -21,19 +21,21 @@ export default function News() {
   const [news, setNews] = useState<NewsItem[]>([]);
   const [loading, setLoading] = useState(true);
 
-  const { user } = useAuth();
+  const { user, profile } = useAuth();
 
   useEffect(() => {
     if (!user) return;
     const q = query(collection(db, 'news'), orderBy('createdAt', 'desc'));
     getDocs(q).then((snapshot) => {
-      setNews(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as NewsItem)));
+      const allNews = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as any));
+      const filteredNews = allNews.filter((n: any) => !n.At || (profile && n.At === profile.At));
+      setNews(filteredNews);
       setLoading(false);
     }).catch((error) => {
       console.error("News fetch error:", error);
       setLoading(false);
     });
-  }, [user]);
+  }, [user, profile]);
 
   return (
     <div className="max-w-5xl mx-auto space-y-8">

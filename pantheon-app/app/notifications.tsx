@@ -191,6 +191,9 @@ export default function NotificationsScreen() {
         const userLevel = (profile.academicLevel || '100').replace('LVL', '').replace('lvl', '');
 
         const filteredAnn = allAnn.filter((ann: any) => {
+          // Check university filter
+          if (ann.At && profile.At && ann.At !== profile.At) return false;
+
           if (ann.targetType === 'all') return true;
           if (ann.targetType === 'uid' && ann.targetValue === profile.uid) return true;
           

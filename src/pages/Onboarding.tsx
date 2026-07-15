@@ -53,7 +53,13 @@ export default function Onboarding() {
       } else if (profile.username) {
         setUsername(profile.username);
       }
-      if (profile.mobileNumber) setMobileNumber(profile.mobileNumber);
+      if (profile.mobileNumber) {
+        if (profile.mobileNumber.startsWith('+234')) {
+          setMobileNumber(profile.mobileNumber.slice(4));
+        } else {
+          setMobileNumber(profile.mobileNumber);
+        }
+      }
       if (profile.At) setSelectedUniversityId(profile.At);
       if (profile.department) setDepartment(profile.department);
       if (profile.academicLevel) setLevel(profile.academicLevel);
@@ -118,8 +124,8 @@ export default function Onboarding() {
       toast.error("Please enter your mobile number");
       return false;
     }
-    if (mobileNumber.length < 10) {
-      toast.error("Mobile number must be at least 10 digits");
+    if (mobileNumber.length !== 10) {
+      toast.error("Mobile number must be exactly 10 digits (excluding the leading 0)");
       return false;
     }
     return true;
@@ -163,7 +169,7 @@ export default function Onboarding() {
       await updateDoc(doc(db, 'users', user.uid), {
         username: cleanUsername,
         username_lower: cleanUsername.toLowerCase(),
-        mobileNumber: mobileNumber.trim(),
+        mobileNumber: `+234${mobileNumber.trim()}`,
         At: selectedUniversityId,
         department: department,
         academicLevel: level,
@@ -252,18 +258,29 @@ export default function Onboarding() {
 
                     <div className="space-y-2">
                       <Label htmlFor="mobile" className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Mobile Phone Number</Label>
-                      <div className="relative">
-                        <Phone className="absolute left-3.5 top-1/2 -translate-y-1/2 h-5 w-5 text-muted-foreground/80" />
+                      <div className="relative flex items-center">
+                        <div className="absolute left-3.5 flex items-center pointer-events-none gap-2">
+                          <Phone className="h-5 w-5 text-muted-foreground/80" />
+                          <span className="text-sm font-bold text-muted-foreground/90 border-r border-border pr-2">+234</span>
+                        </div>
                         <Input 
                           id="mobile" 
                           type="tel" 
-                          placeholder="08012345678" 
+                          placeholder="8031234567" 
                           required 
                           value={mobileNumber}
-                          onChange={(e) => setMobileNumber(e.target.value.replace(/\D/g, ''))}
-                          className="h-12 pl-11 rounded-xl bg-muted/25 border-border focus:bg-background focus:ring-2 focus:ring-primary/20 transition-all text-sm font-medium"
+                          onChange={(e) => {
+                            let val = e.target.value.replace(/\D/g, '');
+                            if (val.startsWith('0')) {
+                              toast.error("Phone number cannot start with 0. The country code +234 is already applied.");
+                              val = val.replace(/^0+/, '');
+                            }
+                            setMobileNumber(val.slice(0, 10));
+                          }}
+                          className="h-12 pl-24 rounded-xl bg-muted/25 border-border focus:bg-background focus:ring-2 focus:ring-primary/20 transition-all text-sm font-medium animate-none"
                         />
                       </div>
+                      <p className="text-[10px] text-muted-foreground">Please ensure this phone number is active and linked to WhatsApp so admins can contact you easily.</p>
                     </div>
                   </motion.div>
                 )}

@@ -154,10 +154,15 @@ export default function CompeteScreen() {
     const unsubscribe = onSnapshot(
       query(leaderboardCol),
       (snapshot) => {
-        const parsedList = snapshot.docs.map((d) => ({
+        let parsedList = snapshot.docs.map((d) => ({
           id: d.id,
           ...(d.data() as any),
         }));
+
+        // Filter by user university (At)
+        if (profile?.At) {
+          parsedList = parsedList.filter((item: any) => !item.At || item.At.toLowerCase() === profile.At.toLowerCase());
+        }
 
         parsedList.sort((a: any, b: any) => {
           if ((b.stars || 0) !== (a.stars || 0)) {
@@ -354,7 +359,8 @@ export default function CompeteScreen() {
           where('status', '==', 'waiting'),
           where('type', '==', 'quick_match'),
           where('courseId', '==', selectedCourse.id),
-          where('numQuestions', '==', selectedNumQuestions)
+          where('numQuestions', '==', selectedNumQuestions),
+          where('At', '==', profile?.At || 'futo')
         );
         const lobbiesSnap = await getDocs(lobbiesQuery);
         
@@ -515,7 +521,8 @@ export default function CompeteScreen() {
           where('status', '==', 'waiting'),
           where('type', '==', 'quick_match'),
           where('courseId', '==', selectedCourse.id),
-          where('numQuestions', '==', selectedNumQuestions)
+          where('numQuestions', '==', selectedNumQuestions),
+          where('At', '==', profile?.At || 'futo')
         );
         const lobbiesSnap = await getDocs(lobbiesQuery);
 
@@ -563,6 +570,7 @@ export default function CompeteScreen() {
             finishGraceTime: null,
             firstFinishedUserId: null,
             createdAt: Date.now(),
+            At: profile?.At || 'futo',
           };
           await setDoc(newMatchDoc, matchPayload);
           setCurrentMatch(matchPayload);
@@ -595,6 +603,7 @@ export default function CompeteScreen() {
           finishGraceTime: null,
           firstFinishedUserId: null,
           createdAt: Date.now(),
+          At: profile?.At || 'futo',
         };
         await setDoc(newMatchDoc, matchPayload);
         setCurrentMatch(matchPayload);

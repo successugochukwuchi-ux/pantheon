@@ -134,7 +134,7 @@ export default function PastQuestionsScreen() {
     async function loadCourses() {
       setLoading(true);
       try {
-        const activeSemester = systemConfig?.currentSemester || '1st';
+        const activeSemester = (!systemConfig?.currentSemester || systemConfig.currentSemester === 'none') ? '1st' : systemConfig.currentSemester;
         
         const isSameSemester = (courseSem: string, activeSem: string) => {
           const normCourse = (courseSem || '').toLowerCase().trim();
@@ -188,7 +188,7 @@ export default function PastQuestionsScreen() {
       } catch (err) {
         console.log('PastQuestions screen: Loading offline course data', err);
         setIsOfflineMode(true);
-        const activeSemester = systemConfig?.currentSemester || '1st';
+        const activeSemester = (!systemConfig?.currentSemester || systemConfig.currentSemester === 'none') ? '1st' : systemConfig.currentSemester;
         const isSameSemester = (courseSem: string, activeSem: string) => {
           const normCourse = (courseSem || '').toLowerCase().trim();
           const normActive = (activeSem || '1st').toLowerCase().trim();

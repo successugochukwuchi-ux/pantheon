@@ -10,6 +10,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '.
 import { toast } from 'sonner';
 import { ShieldCheck, School, BookOpen, DollarSign, Calendar, TrendingUp, Key, Plus, List, Eye, FileDown } from 'lucide-react';
 import { jsPDF } from 'jspdf';
+import * as XLSX from 'xlsx';
 
 interface UniversityItem {
   id: string;
@@ -68,8 +69,16 @@ export default function OverseerControl() {
     plusUsedDirect: number;
     standardTotalRevenue: number;
     plusTotalRevenue: number;
+    colodgeCommissionRevenue?: number;
     grandTotal: number;
     details: string[];
+    pins: {
+      code: string;
+      type: 'standard' | 'plus';
+      status: 'transferred' | 'used_direct';
+      associatedId: string;
+      timestamp: string;
+    }[];
   } | null>(null);
 
   // Fetch initial data
@@ -521,7 +530,7 @@ export default function OverseerControl() {
       if (monthPriceChanges.length > 0) {
         details.push("--- Price changes during this month ---");
         monthPriceChanges.forEach(pt => {
-          details.push(`Date: ${new Date(pt.updatedAt).toLocaleDateString()} -> Standard: ₦${pt.standardPrice}, PLUS: ₦${pt.plusPrice}`);
+          details.push(`Date: ${new Date(pt.updatedAt).toLocaleDateString()} -> Standard: NGN ${pt.standardPrice}, PLUS: NGN ${pt.plusPrice}`);
         });
       } else {
         // Find price point before month start
@@ -533,7 +542,82 @@ export default function OverseerControl() {
             activePlus = pt.plusPrice;
           }
         }
-        details.push(`Price Point: Standard: ₦${activeStandard}, PLUS: ₦${activePlus}`);
+        details.push(`Price Point: Standard: NGN ${activeStandard}, PLUS: NGN ${activePlus}`);
+      }
+
+      const detailedPins: {
+        code: string;
+        type: 'standard' | 'plus';
+        status: 'transferred' | 'used_direct';
+        associatedId: string;
+        timestamp: string;
+      }[] = [];
+
+      standardTransferred.forEach(p => {
+        detailedPins.push({
+          code: p.code || p.id,
+          type: 'standard',
+          status: 'transferred',
+          associatedId: p.assignedToStudentId || p.owner || 'Unknown Vendor',
+          timestamp: p.createdAt
+        });
+      });
+
+      plusTransferred.forEach(p => {
+        detailedPins.push({
+          code: p.code || p.id,
+          type: 'plus',
+          status: 'transferred',
+          associatedId: p.assignedToStudentId || p.owner || 'Unknown Vendor',
+          timestamp: p.createdAt
+        });
+      });
+
+      standardUsedDirect.forEach(p => {
+        detailedPins.push({
+          code: p.code || p.id,
+          type: 'standard',
+          status: 'used_direct',
+          associatedId: p.usedByStudentId || 'N/A',
+          timestamp: p.usedAt
+        });
+      });
+
+      plusUsedDirect.forEach(p => {
+        detailedPins.push({
+          code: p.code || p.id,
+          type: 'plus',
+          status: 'used_direct',
+          associatedId: p.usedByStudentId || 'N/A',
+          timestamp: p.usedAt
+        });
+      });
+
+      // Sort chronological by timestamp
+      detailedPins.sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
+
+      // Fetch CoLodge commissions for this university in the selected month
+      let colodgeCommissionRevenue = 0;
+      try {
+        const colodgeQ = query(collection(db, 'colearn_revenue_reports'), where('At', '==', revUni));
+        const colodgeSnap = await getDocs(colodgeQ);
+        const colodgeReports = colodgeSnap.docs.map(d => d.data() as any);
+
+        const filteredColodgeReports = colodgeReports.filter(r => {
+          if (!r.createdAt) return false;
+          const dealDate = new Date(r.createdAt);
+          return dealDate >= startOfChosenMonth && dealDate <= endOfChosenMonth;
+        });
+
+        filteredColodgeReports.forEach(r => {
+          colodgeCommissionRevenue += (r.colearnCommission || 0);
+        });
+
+        if (colodgeCommissionRevenue > 0) {
+          details.push(`CoLodge Commissions: NGN ${colodgeCommissionRevenue.toLocaleString()} (${filteredColodgeReports.length} Deals Completed)`);
+        }
+      } catch (colodgeErr) {
+        console.warn("Could not load colodge commissions for report, defaulting to 0:", colodgeErr);
       }
 
       setCalculatedRevenue({
@@ -543,8 +627,10 @@ export default function OverseerControl() {
         plusUsedDirect: plusUsedDirect.length,
         standardTotalRevenue,
         plusTotalRevenue,
-        grandTotal: standardTotalRevenue + plusTotalRevenue,
-        details
+        colodgeCommissionRevenue,
+        grandTotal: standardTotalRevenue + plusTotalRevenue + colodgeCommissionRevenue,
+        details,
+        pins: detailedPins
       });
 
       toast.success("Revenue report calculated successfully!");
@@ -553,6 +639,93 @@ export default function OverseerControl() {
       toast.error("Failed to calculate monthly revenue");
     } finally {
       setRevLoading(false);
+    }
+  };
+
+  const downloadRevenueExcel = () => {
+    if (!calculatedRevenue) return;
+
+    try {
+      const selectedSchool = universities.find(u => u.id === revUni);
+      const schoolShort = selectedSchool ? selectedSchool.shortName : revUni.toUpperCase();
+      const schoolName = selectedSchool ? selectedSchool.name : revUni.toUpperCase();
+      
+      const monthNames = [
+        "January", "February", "March", "April", "May", "June", 
+        "July", "August", "September", "October", "November", "December"
+      ];
+      const monthName = monthNames[parseInt(revMonth) - 1] || revMonth;
+
+      const wb = XLSX.utils.book_new();
+
+      const dataRows = [
+        ["COLEARN STUDY PORTAL"],
+        ["OFFICIAL ACADEMIC REVENUE AUDIT STATEMENT"],
+        ["University", `${schoolShort} (${schoolName})`],
+        ["Audit Period", `${monthName.toUpperCase()} ${revYear}`],
+        ["Generated On", new Date().toLocaleString()],
+        [],
+        ["FINANCIAL SUMMARY"],
+        ["Grand Total Revenue", `NGN ${calculatedRevenue.grandTotal.toLocaleString()}`],
+        ["Standard PIN Income", `NGN ${calculatedRevenue.standardTotalRevenue.toLocaleString()}`, `${calculatedRevenue.standardTransferred + calculatedRevenue.standardUsedDirect} Pins`],
+        ["PLUS PIN Income", `NGN ${calculatedRevenue.plusTotalRevenue.toLocaleString()}`, `${calculatedRevenue.plusTransferred + calculatedRevenue.plusUsedDirect} Pins`],
+        ["CoLodge Commissions", `NGN ${(calculatedRevenue.colodgeCommissionRevenue || 0).toLocaleString()}`, "10% commission on lodging deals"],
+        [],
+        ["BREAKDOWN COUNTS"],
+        ["Standard Pins Transferred", calculatedRevenue.standardTransferred],
+        ["Standard Pins Used Directly", calculatedRevenue.standardUsedDirect],
+        ["PLUS Pins Transferred", calculatedRevenue.plusTransferred],
+        ["PLUS Pins Used Directly", calculatedRevenue.plusUsedDirect],
+        ["CoLodge Commission Income", `NGN ${(calculatedRevenue.colodgeCommissionRevenue || 0).toLocaleString()}`],
+        [],
+        ["DETAILED ACTIVATION PIN RECORDS"],
+        ["S/N", "PIN Code", "Type", "Category/Status", "Associated Student ID (Vendor or User)", "Date & Time"]
+      ];
+
+      const pins = calculatedRevenue.pins || [];
+      pins.forEach((p, idx) => {
+        const typeStr = p.type.toUpperCase();
+        const statusStr = p.status === 'transferred' ? 'TRANSFERRED' : 'USED DIRECT';
+        const formattedDate = new Date(p.timestamp).toLocaleString();
+        
+        dataRows.push([
+          idx + 1,
+          p.code,
+          typeStr,
+          statusStr,
+          p.associatedId,
+          formattedDate
+        ]);
+      });
+
+      const ws = XLSX.utils.aoa_to_sheet(dataRows);
+
+      // Force string format for PIN Code so Excel doesn't show them in scientific notation
+      const pinsStartRow = 19; // 0-indexed row 19 is where PIN rows start (S/N is row 18)
+      for (let i = pinsStartRow; i < dataRows.length; i++) {
+        const pinCellRef = XLSX.utils.encode_cell({ r: i, c: 1 }); // Row i, Col 1 (PIN Code column B)
+        if (ws[pinCellRef]) {
+          ws[pinCellRef].t = 's'; // Set cell type to String
+        }
+      }
+
+      // Configure beautiful column widths to prevent text clipping/mushing
+      const colWidths = [
+        { wch: 8 },   // S/N (Col A)
+        { wch: 20 },  // PIN Code (Col B)
+        { wch: 12 },  // Type (Col C)
+        { wch: 22 },  // Category/Status (Col D)
+        { wch: 45 },  // Associated Student ID (Col E)
+        { wch: 28 }   // Date & Time (Col F)
+      ];
+      ws['!cols'] = colWidths;
+
+      XLSX.utils.book_append_sheet(wb, ws, "Revenue Audit");
+      XLSX.writeFile(wb, `CoLearn_Revenue_Report_${schoolShort}_${monthName}_${revYear}.xlsx`);
+      toast.success("Excel spreadsheet report downloaded successfully!");
+    } catch (err: any) {
+      console.error("Failed to generate Excel sheet:", err);
+      toast.error(`Spreadsheet generation failed: ${err.message}`);
     }
   };
 
@@ -780,10 +953,120 @@ export default function OverseerControl() {
       doc.setTextColor(148, 163, 184);
       doc.text("This report is programmatically generated directly from live system node logs. Access is strictly governed under Overseer guidelines.", 15, footerY + 4);
       
+      const pins = calculatedRevenue.pins || [];
+      const totalPages = 1 + Math.ceil(pins.length / 22);
+
       doc.setFont("Helvetica", "bold");
       doc.setFontSize(8);
       doc.setTextColor(100, 116, 139);
-      doc.text("Page 1 of 1", 195, footerY, { align: "right" });
+      doc.text(`Page 1 of ${totalPages}`, 195, footerY, { align: "right" });
+
+      // Generate additional pages for detailed pin list
+      let currentPinIndex = 0;
+      let currentPage = 2;
+
+      while (currentPinIndex < pins.length) {
+        doc.addPage();
+        
+        // Header for subsequent pages
+        doc.setFillColor(15, 23, 42); // slate-900
+        doc.rect(0, 0, 210, 20, "F");
+        
+        doc.setFillColor(217, 119, 6); // amber-600
+        doc.rect(0, 19, 210, 1, "F");
+
+        doc.setTextColor(255, 255, 255);
+        doc.setFont("Helvetica", "bold");
+        doc.setFontSize(11);
+        doc.text("COLEARN STUDY PORTAL - DETAILED ACTIVATION RECORDS", 15, 12);
+        
+        doc.setFont("Helvetica", "normal");
+        doc.setFontSize(8);
+        doc.setTextColor(209, 213, 219);
+        doc.text(`${schoolShort} • ${monthName.toUpperCase()} ${revYear}`, 195, 12, { align: "right" });
+
+        // Table Header
+        const tableTop = 28;
+        doc.setFillColor(30, 41, 59); // slate-800
+        doc.rect(15, tableTop, 180, 8, "F");
+
+        doc.setTextColor(255, 255, 255);
+        doc.setFont("Helvetica", "bold");
+        doc.setFontSize(8);
+        doc.text("S/N", 18, tableTop + 5);
+        doc.text("PIN CODE", 30, tableTop + 5);
+        doc.text("TYPE", 70, tableTop + 5);
+        doc.text("CATEGORY/STATUS", 90, tableTop + 5);
+        doc.text("STUDENT / VENDOR ID", 130, tableTop + 5);
+        doc.text("DATE & TIME", 165, tableTop + 5);
+
+        // Draw up to 22 records on this page
+        let yPos = tableTop + 8;
+        const pageLimit = Math.min(currentPinIndex + 22, pins.length);
+        
+        for (let i = currentPinIndex; i < pageLimit; i++) {
+          const pin = pins[i];
+          const isEven = (i - currentPinIndex) % 2 === 0;
+          
+          if (isEven) {
+            doc.setFillColor(248, 250, 252);
+            doc.rect(15, yPos, 180, 8, "F");
+          }
+          doc.setDrawColor(241, 245, 249);
+          doc.line(15, yPos + 8, 195, yPos + 8);
+
+          doc.setTextColor(51, 65, 85);
+          doc.setFont("Helvetica", "normal");
+          doc.setFontSize(8);
+          
+          doc.text((i + 1).toString(), 18, yPos + 5);
+          
+          doc.setFont("Courier", "bold");
+          doc.text(pin.code, 30, yPos + 5);
+          
+          doc.setFont("Helvetica", "bold");
+          if (pin.type === 'plus') {
+            doc.setTextColor(79, 70, 229); // indigo-600
+            doc.text("PLUS", 70, yPos + 5);
+          } else {
+            doc.setTextColor(100, 116, 139); // slate-500
+            doc.text("STD", 70, yPos + 5);
+          }
+          
+          doc.setTextColor(51, 65, 85);
+          doc.setFont("Helvetica", "normal");
+          doc.text(pin.status === 'transferred' ? "TRANSFERRED" : "USED DIRECT", 90, yPos + 5);
+          doc.text(pin.associatedId, 130, yPos + 5);
+          
+          const formattedDate = new Date(pin.timestamp).toLocaleString();
+          doc.setFontSize(7.5);
+          doc.text(formattedDate, 165, yPos + 5);
+          
+          yPos += 8;
+        }
+
+        // Footer
+        doc.setDrawColor(226, 232, 240);
+        doc.line(15, footerY - 5, 195, footerY - 5);
+
+        doc.setFont("Helvetica", "bold");
+        doc.setFontSize(8);
+        doc.setTextColor(100, 116, 139);
+        doc.text("COLEARN SYSTEM PROTOCOL VERIFIED REPORT", 15, footerY);
+        
+        doc.setFont("Helvetica", "normal");
+        doc.setFontSize(7.5);
+        doc.setTextColor(148, 163, 184);
+        doc.text("This report is programmatically generated directly from live system node logs. Access is strictly governed under Overseer guidelines.", 15, footerY + 4);
+        
+        doc.setFont("Helvetica", "bold");
+        doc.setFontSize(8);
+        doc.setTextColor(100, 116, 139);
+        doc.text(`Page ${currentPage} of ${totalPages}`, 195, footerY, { align: "right" });
+
+        currentPinIndex = pageLimit;
+        currentPage++;
+      }
 
       doc.save(`CoLearn_Revenue_Report_${schoolShort}_${monthName}_${revYear}.pdf`);
       toast.success("Stylized revenue report downloaded successfully!");
@@ -1093,13 +1376,22 @@ export default function OverseerControl() {
                 <div className="space-y-1">
                   <h3 className="text-lg font-bold">Revenue Report for {revUni.toUpperCase()}</h3>
                   <p className="text-xs text-muted-foreground">Month: {revMonth}/{revYear}</p>
-                  <Button 
-                    size="sm" 
-                    onClick={downloadRevenuePDF} 
-                    className="mt-2 bg-amber-600 hover:bg-amber-700 text-white flex items-center gap-1.5 text-xs font-bold px-3 py-1.5 h-8 rounded-lg cursor-pointer"
-                  >
-                    <FileDown className="h-3.5 w-3.5" /> Download Stylized PDF
-                  </Button>
+                  <div className="flex flex-wrap gap-2 mt-2">
+                    <Button 
+                      size="sm" 
+                      onClick={downloadRevenuePDF} 
+                      className="bg-amber-600 hover:bg-amber-700 text-white flex items-center gap-1.5 text-xs font-bold px-3 py-1.5 h-8 rounded-lg cursor-pointer"
+                    >
+                      <FileDown className="h-3.5 w-3.5" /> Download Stylized PDF
+                    </Button>
+                    <Button 
+                      size="sm" 
+                      onClick={downloadRevenueExcel} 
+                      className="bg-emerald-600 hover:bg-emerald-700 text-white flex items-center gap-1.5 text-xs font-bold px-3 py-1.5 h-8 rounded-lg cursor-pointer"
+                    >
+                      <FileDown className="h-3.5 w-3.5" /> Download Spreadsheet
+                    </Button>
+                  </div>
                 </div>
                 <div className="text-right">
                   <span className="text-xs text-muted-foreground block">Grand Total Income</span>
@@ -1107,7 +1399,7 @@ export default function OverseerControl() {
                 </div>
               </div>
 
-              <div className="grid gap-4 sm:grid-cols-2 text-sm">
+              <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 text-sm">
                 <div className="space-y-1 p-3 bg-background border rounded-lg">
                   <span className="text-xs text-muted-foreground block">Standard Pin Income</span>
                   <span className="font-bold text-lg text-primary">₦{calculatedRevenue.standardTotalRevenue.toLocaleString()}</span>
@@ -1120,6 +1412,13 @@ export default function OverseerControl() {
                   <span className="font-bold text-lg text-primary">₦{calculatedRevenue.plusTotalRevenue.toLocaleString()}</span>
                   <p className="text-xs text-muted-foreground">
                     Transferred: {calculatedRevenue.plusTransferred} • Used directly: {calculatedRevenue.plusUsedDirect}
+                  </p>
+                </div>
+                <div className="space-y-1 p-3 bg-background border rounded-lg">
+                  <span className="text-xs text-muted-foreground block">CoLodge Commission</span>
+                  <span className="font-bold text-lg text-primary">₦{(calculatedRevenue.colodgeCommissionRevenue || 0).toLocaleString()}</span>
+                  <p className="text-xs text-muted-foreground">
+                    10% share of completed lodging deals
                   </p>
                 </div>
               </div>

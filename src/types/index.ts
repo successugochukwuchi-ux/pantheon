@@ -22,6 +22,100 @@ export interface UserProfile {
   createdAt: string;
   At?: string; // University ID/code
   isOnboarded?: boolean;
+  colodge_agent?: boolean;
+  agentFee?: number;
+  agentFeeHistory?: Array<{ fee: number; changedAt: string }>;
+  walletBalance?: number;
+  agentBankAccount?: string;
+  agentBankName?: string;
+  agentGovernmentName?: string;
+  agentTicketCode?: string;
+}
+
+export interface ColodgeLocation {
+  id: string;
+  name: string;
+  description: string;
+  gallery: string[];
+  At: string; // University ID
+  createdAt: string;
+}
+
+export interface ColodgeLodge {
+  id: string;
+  locationId: string;
+  name: string;
+  description: string;
+  gallery: string[];
+  At: string; // University ID
+  createdAt: string;
+}
+
+export interface ColodgeRoom {
+  id: string;
+  lodgeId: string;
+  name: string;
+  description: string;
+  photoUrl: string; // limit of 1 photo
+  videoUrl: string; // limit of 1 video
+  price: number;
+  status: 'available' | 'in talks' | 'rented';
+  inTalksWith?: string | null; // userId
+  rentedBy?: string | null; // userId
+  createdAt: string;
+}
+
+export interface ColodgeAgentApplication {
+  id: string; // matches user uid
+  uid: string;
+  governmentName: string;
+  bankAccount: string;
+  bankName: string;
+  ticketCode: string; // 5-digit uppercase string
+  status: 'pending' | 'approved' | 'rejected';
+  createdAt: string;
+}
+
+export interface ColodgeDeal {
+  id: string;
+  roomId: string;
+  roomName: string;
+  lodgeId: string;
+  lodgeName: string;
+  locationId: string;
+  userId: string;
+  username: string;
+  userEmail: string;
+  agentId: string;
+  agentName: string;
+  agentFeePaid: number;
+  status: 'in_talks' | 'payment_pending' | 'payment_submitted' | 'payment_confirmed' | 'user_confirmed_lodged' | 'agent_confirmed_lodged' | 'completed' | 'disputed' | 'cancelled_refunded' | 'cancelled_to_agent';
+  createdAt: string;
+  paymentSubmittedAt?: string;
+  paymentConfirmedAt?: string;
+  userConfirmedAt?: string;
+  agentConfirmedAt?: string;
+  escrowAccountUsed?: {
+    accountNumber: string;
+    bankName: string;
+  };
+  disputeReason?: string;
+  resolvedAt?: string;
+  resolvedBy?: string;
+}
+
+export interface ColodgeEscrowAccount {
+  id: string;
+  accountNumber: string;
+  bankName: string;
+  isActive: boolean;
+  createdAt: string;
+}
+
+export interface ColodgeConfig {
+  banks: string[];
+  agentsCanAddLodges: boolean;
+  whatsappNumber: string;
 }
 
 export interface University {
@@ -70,6 +164,7 @@ export interface NewsItem {
   title: string;
   content: string;
   createdAt: string;
+  At?: string;
 }
 
 export interface TelegramConfig {
@@ -176,6 +271,7 @@ export interface Announcement {
   targetValue: string; // e.g., '100', 'uid_123', 'Mechanical', '100_Mechanical'
   createdAt: string;
   authorId: string;
+  At?: string;
 }
 
 export interface DiscussionMessage {

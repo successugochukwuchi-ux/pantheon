@@ -14,7 +14,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { BottomNav } from '../components/BottomNav';
 import { F } from '../components/Theme';
-import { collection, query, limit, getDocs, addDoc } from 'firebase/firestore';
+import { collection, query, limit, getDocs, addDoc, where } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 import { useAuth } from '../context/AuthContext';
 import { useTheme } from '../context/ThemeContext';
@@ -69,6 +69,7 @@ interface Student {
   photoURL?: string;
   department?: string;
   academicLevel?: string;
+  At?: string;
 }
 
 function FriendItem({ student, onAdd, isAdded, styles }: { student: Student; onAdd: () => void; isAdded: boolean; styles: any }) {
@@ -114,12 +115,19 @@ export default function AddMembersScreen() {
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
 
-  // Load students directory from Firestore
+  // Load students directory from Firestore (scoped by university At if defined)
   useEffect(() => {
     async function loadDirectory() {
+      if (!profile) return;
       setLoading(true);
       try {
-        const snapshot = await getDocs(query(collection(db, 'users'), limit(50)));
+        const userUniversity = profile.At || 'futo';
+        const qUsers = query(
+          collection(db, 'users'),
+          where('At', '==', userUniversity),
+          limit(50)
+        );
+        const snapshot = await getDocs(qUsers);
         const list = snapshot.docs
           .map(doc => ({ id: doc.id, ...doc.data() as Omit<Student, 'id'> }))
           .filter(u => u.id !== profile?.uid); // exclude self
@@ -170,7 +178,8 @@ export default function AddMembersScreen() {
         uids: [profile.uid, ...selected.map(f => f.id)],
         lastMessage: `Group "${gNameStr}" created by ${profile.username || 'Student'}`,
         lastSenderId: profile.uid,
-        lastUpdatedAt: new Date().toISOString()
+        lastUpdatedAt: new Date().toISOString(),
+        At: profile.At || 'futo'
       });
 
       Alert.alert('Study Group Formed', `"${gNameStr}" has been created successfully. Let study commence!`, [

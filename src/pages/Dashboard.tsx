@@ -62,12 +62,14 @@ export default function Dashboard() {
     if (!profile) return;
 
     const path = 'news';
-    const q = query(collection(db, 'news'), limit(5));
+    const q = query(collection(db, 'news'));
     getDocs(q).then((snapshot) => {
-      const newsData = snapshot.docs
-        .map(doc => ({ id: doc.id, ...doc.data() } as NewsItem))
-        .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
-      setNews(newsData);
+      const allNews = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as NewsItem));
+      const filteredNews = allNews
+        .filter((n: any) => !n.At || n.At === profile.At)
+        .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+        .slice(0, 5);
+      setNews(filteredNews);
     }).catch((error) => {
       handleFirestoreError(error, OperationType.LIST, path);
     });

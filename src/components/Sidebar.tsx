@@ -26,7 +26,8 @@ import {
   Trophy,
   Compass,
   Star,
-  Calendar
+  Calendar,
+  Home
 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { useFlux } from '../contexts/FluxContext';
@@ -64,6 +65,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ onClose, isCollapsed = false, 
   const studentNavItems: SidebarNavItem[] = [
     { name: 'Dashboard', path: '/dashboard', icon: LayoutDashboard },
     { name: 'Study Timetable', path: '/timetable', icon: Calendar },
+    { name: 'CoLodge', path: '/colodge', icon: Home },
     { name: 'Notifications', path: '/notifications', icon: Bell, badge: unreadCount > 0 ? unreadCount : undefined },
     { name: 'Video Library', path: '/video-library', icon: PlayCircle },
     { name: 'Lecture Notes', path: '/notes?type=lecture', icon: BookOpen },

@@ -22,14 +22,23 @@ export default function AdminReports() {
   useEffect(() => {
     if (authLoading) return;
 
-    if (!user || (profile?.level !== '3' && profile?.level !== '4')) {
+    const isLevel5 = profile?.level === '5' || profile?.email === 'successugochukwuchi@gmail.com' || user?.email === 'successugochukwuchi@gmail.com';
+    const isLevel4 = profile?.level === '4' || profile?.level === '5' || isLevel5;
+
+    if (!user || !isLevel4) {
       navigate('/dashboard');
       return;
     }
 
+    const isLevel4Only = profile?.level === '4' && !isLevel5;
+
     const q = query(collection(db, 'reports'), orderBy('createdAt', 'desc'));
     getDocs(q).then((snapshot) => {
-      setReports(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Report)));
+      let fetchedReports = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as any));
+      if (isLevel4Only && profile?.At) {
+        fetchedReports = fetchedReports.filter((r: any) => r.At === profile.At);
+      }
+      setReports(fetchedReports);
       setLoading(false);
     }).catch((err) => {
       setLoading(false);

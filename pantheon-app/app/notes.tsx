@@ -149,7 +149,7 @@ export default function NotesScreen() {
     if (!profile || !systemConfig) return;
     
     setLoading(true);
-    const semester = systemConfig.currentSemester || '1st';
+    const semester = (!systemConfig.currentSemester || systemConfig.currentSemester === 'none') ? '1st' : systemConfig.currentSemester;
 
     const loadAndFilter = async (list: any[], callback: (res: any[]) => void) => {
       const filtered = await getFilteredCoursesForStudent(list, profile, true);

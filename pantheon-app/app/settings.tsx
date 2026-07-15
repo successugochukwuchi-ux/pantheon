@@ -16,6 +16,7 @@ import { F } from '../components/Theme';
 import { InfoIcon } from '../components/Icons';
 import { useAuth } from '../context/AuthContext';
 import { useTheme } from '../context/ThemeContext';
+import { contactAdmin } from '../lib/support';
 
 import { auth } from '../lib/firebase';
 import { signOut } from 'firebase/auth';
@@ -122,7 +123,7 @@ function SettingRow({ icon, title, subtitle, isDark, onPress }: {
 
 export default function SettingsScreen() {
   const router = useRouter();
-  const { profile, logout } = useAuth();
+  const { profile, logout, isOffline } = useAuth();
   const { colors: C } = useTheme();
   const s = useMemo(() => createStyles(C), [C]);
 
@@ -211,7 +212,7 @@ export default function SettingsScreen() {
           icon={<HeadsetIcon />}
           title="Contact Admin"
           subtitle="Get help with academic or app issues"
-          onPress={() => Linking.openURL('https://wa.me/2348118429150?text=Admin%20Support')}
+          onPress={() => contactAdmin(profile?.At, !!isOffline, "Admin Support")}
         />
         <SettingRow
           icon={<MessageIcon />}

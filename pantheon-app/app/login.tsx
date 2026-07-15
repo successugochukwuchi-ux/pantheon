@@ -175,7 +175,7 @@ export default function LoginScreen() {
           <View style={s.hero}>
             <Text style={s.heroTitle}>Welcome Back.</Text>
             <Text style={s.heroSub}>
-              Access your FUTO academic tools and preparation resources.
+              Access your academic tools and preparation resources.
             </Text>
           </View>
 

@@ -468,7 +468,8 @@ export default function ChatRoomScreen() {
         reason: selectedReason,
         detail: reportDetail.trim(),
         status: 'pending',
-        createdAt: new Date().toISOString()
+        createdAt: new Date().toISOString(),
+        At: profile.At || 'futo'
       });
       setReportStep('success');
     } catch (e) {

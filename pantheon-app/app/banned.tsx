@@ -12,6 +12,7 @@ import { useRouter } from 'expo-router';
 import { useAuth } from '../context/AuthContext';
 import { useTheme } from '../context/ThemeContext';
 import { F } from '../components/Theme';
+import { contactAdmin } from '../lib/support';
 
 function ShieldAlertIcon({ color }: { color: string }) {
   return (
@@ -26,7 +27,7 @@ function ShieldAlertIcon({ color }: { color: string }) {
 
 export default function BannedScreen() {
   const router = useRouter();
-  const { user, loading, profile, logout } = useAuth();
+  const { user, loading, profile, logout, isOffline } = useAuth();
   const { colors: C } = useTheme();
 
   useEffect(() => {
@@ -36,12 +37,8 @@ export default function BannedScreen() {
   }, [user, loading, router]);
 
   const handleAppeal = () => {
-    const message = encodeURIComponent(
-      `Hello, my account (Student ID: ${profile?.studentId || 'N/A'}) has been banned from the mobile app. I want to appeal. Reason given: ${profile?.banReason || 'No reason provided'}`
-    );
-    Linking.openURL(`https://wa.me/2348118429150?text=${message}`).catch((err) => {
-      console.warn("Failed to open WhatsApp:", err);
-    });
+    const message = `Hello, my account (Student ID: ${profile?.studentId || 'N/A'}) has been banned from the mobile app. I want to appeal. Reason given: ${profile?.banReason || 'No reason provided'}`;
+    contactAdmin(profile?.At, !!isOffline, message);
   };
 
   const handleSignOut = async () => {

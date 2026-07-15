@@ -14,6 +14,9 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { F } from '../components/Theme';
 import { useTheme } from '../context/ThemeContext';
+import { addDoc, collection } from 'firebase/firestore';
+import { db } from '../lib/firebase';
+import { useAuth } from '../context/AuthContext';
 
 function BackIcon({ color }: { color: string }) {
   return (
@@ -29,24 +32,39 @@ export default function FeedbackScreen() {
   const router = useRouter();
   const { colors: C } = useTheme();
   const s = useMemo(() => createStyles(C), [C]);
+  const { profile } = useAuth();
 
   const [type, setType] = useState(FEEDBACK_TYPES[2]);
   const [message, setMessage] = useState('');
   const [submitting, setSubmitting] = useState(false);
 
-  const handleSubmit = () => {
+  const handleSubmit = async () => {
     if (!message.trim()) {
       Alert.alert('Empty Message', 'Please tell us what is on your mind.');
       return;
     }
     setSubmitting(true);
-    // Simulate API call
-    setTimeout(() => {
+    try {
+      if (profile) {
+        await addDoc(collection(db, 'feedback'), {
+          uid: profile.uid,
+          username: profile.username || 'Student',
+          email: profile.email || '',
+          type: type,
+          message: message.trim(),
+          createdAt: new Date().toISOString(),
+          At: profile.At || 'futo',
+        });
+      }
       setSubmitting(false);
       Alert.alert('Thank You', 'Your feedback has been received and will be reviewed by our team.', [
         { text: 'OK', onPress: () => router.back() }
       ]);
-    }, 1500);
+    } catch (err) {
+      console.error('Error submitting feedback:', err);
+      setSubmitting(false);
+      Alert.alert('Error', 'Failed to submit feedback. Please check your network connection.');
+    }
   };
 
   return (
@@ -99,7 +117,7 @@ export default function FeedbackScreen() {
 
           <View style={[s.infoBox, { backgroundColor: C.activeBg || '#E8F6EF' }]}>
             <Text style={[s.infoText, { color: C.activeText || '#27AE60' }]}>
-              We value your input! Your feedback helps us make CoLearn the ultimate companion for FUTO students.
+              We value your input! Your feedback helps us make CoLearn the ultimate companion for students.
             </Text>
           </View>
         </ScrollView>

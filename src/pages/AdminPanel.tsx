@@ -53,9 +53,10 @@ import {
   MessageCircle,
   History as HistoryIcon,
   Zap,
-  Download
+  Download,
+  Search
 } from 'lucide-react';
-import { Course, UserLevel, Semester, Note, Question, ActivationCode, VerificationRequest, QuestionSheet, VideoQuestion, NotificationTarget, Announcement, TelegramConfig, AIConfig } from '../types';
+import { Course, UserLevel, Semester, Note, Question, ActivationCode, VerificationRequest, QuestionSheet, VideoQuestion, NotificationTarget, Announcement, TelegramConfig, AIConfig, NewsItem } from '../types';
 import { sendTelegramAlert, testTelegramConnection } from '../services/telegramService';
 import { Routes, Route, useNavigate, useLocation, Navigate } from 'react-router-dom';
 import { NoteBuilder } from '../components/NoteBuilder';
@@ -65,6 +66,7 @@ import { useTitle } from '../hooks/useTitle';
 import { MathJax } from 'better-react-mathjax';
 import AdminCredentials from '../components/AdminCredentials';
 import OverseerControl from '../components/OverseerControl';
+import AdminColodge from '../components/AdminColodge';
 import ReactMarkdown from 'react-markdown';
 import remarkMath from 'remark-math';
 import rehypeKatex from 'rehype-katex';
@@ -184,9 +186,16 @@ export default function AdminPanel() {
   const [refreshTrigger, setRefreshTrigger] = useState(0);
   const triggerRefresh = () => setRefreshTrigger(prev => prev + 1);
 
+  const isLevel5 = profile?.level === '5' || profile?.email === 'successugochukwuchi@gmail.com' || user?.email === 'successugochukwuchi@gmail.com';
+  const isLevel4 = profile?.level === '4' || profile?.level === '5' || isLevel5;
+  const isAtLeastLevel3 = profile?.level === '3' || profile?.level === '4' || profile?.level === '5' || isLevel5;
+  const isLevel2 = profile?.level === '2';
+
   // User Management State
   const [targetUid, setTargetUid] = useState('');
   const [banReason, setBanReason] = useState('');
+  const [lookupStudentId, setLookupStudentId] = useState('');
+  const [lookupResult, setLookupResult] = useState<any | null>(null);
 
   // Course Management State
   const [courses, setCourses] = useState<Course[]>([]);
@@ -258,6 +267,11 @@ export default function AdminPanel() {
   // News State
   const [newsTitle, setNewsTitle] = useState('');
   const [newsContent, setNewsContent] = useState('');
+  const [newsList, setNewsList] = useState<NewsItem[]>([]);
+  const [editingNews, setEditingNews] = useState<NewsItem | null>(null);
+  const [editNewsTitle, setEditNewsTitle] = useState('');
+  const [editNewsContent, setEditNewsContent] = useState('');
+  const [deleteNewsConfirmId, setDeleteNewsConfirmId] = useState<string | null>(null);
 
   // Activation Code State
   const [generatedCode, setGeneratedCode] = useState('');
@@ -532,9 +546,29 @@ export default function AdminPanel() {
     const needAnnouncements = path.includes('/notifier');
     if (needAnnouncements && announcements.length === 0) {
       getDocs(collection(db, 'announcements')).then((snapshot) => {
-        setAnnouncements(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Announcement)).sort((a, b) => safeCompareDates(a.createdAt, b.createdAt)));
+        let fetchedAnnouncements = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Announcement));
+        const isLevel4Only = profile?.level === '4' && !isLevel5;
+        if (isLevel4Only && profile?.At) {
+          fetchedAnnouncements = fetchedAnnouncements.filter(ann => ann.At === profile.At);
+        }
+        setAnnouncements(fetchedAnnouncements.sort((a, b) => safeCompareDates(a.createdAt, b.createdAt)));
       }).catch((err) => {
         handleFirestoreError(err, OperationType.LIST, 'announcements');
+      });
+    }
+
+    // Fetch news when on news tab
+    const needNews = path.includes('/news');
+    if (needNews && newsList.length === 0) {
+      getDocs(collection(db, 'news')).then((snapshot) => {
+        let fetchedNews = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as NewsItem));
+        const isLevel4Only = profile?.level === '4' && !isLevel5;
+        if (isLevel4Only && profile?.At) {
+          fetchedNews = fetchedNews.filter(n => n.At === profile.At);
+        }
+        setNewsList(fetchedNews.sort((a, b) => safeCompareDates(a.createdAt, b.createdAt)));
+      }).catch((err) => {
+        handleFirestoreError(err, OperationType.LIST, 'news');
       });
     }
 
@@ -693,6 +727,37 @@ export default function AdminPanel() {
 
       setTargetUid('');
       setBanReason('');
+    } catch (error: any) {
+      toast.error(error.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleLookupUniversity = async () => {
+    if (!lookupStudentId.trim()) {
+      toast.error('Please enter a Student ID');
+      return;
+    }
+    setLoading(true);
+    setLookupResult(null);
+    try {
+      const q = query(collection(db, 'users'), where('studentId', '==', lookupStudentId.trim()));
+      const querySnap = await getDocs(q);
+      if (querySnap.empty) {
+        toast.error('User with this Student ID not found');
+        return;
+      }
+      const userDoc = querySnap.docs[0];
+      const userData = userDoc.data();
+      setLookupResult({
+        username: userData.username || 'N/A',
+        studentId: userData.studentId || 'N/A',
+        level: userData.level || '1',
+        At: userData.At || 'futo',
+        email: userData.email || 'N/A'
+      });
+      toast.success('User university found!');
     } catch (error: any) {
       toast.error(error.message);
     } finally {
@@ -1259,18 +1324,73 @@ export default function AdminPanel() {
     }
   };
 
+  const [newsTargetAt, setNewsTargetAt] = useState('global');
+
   const handlePostNews = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
     try {
-      await addDoc(collection(db, 'news'), {
+      const postAt = isLevel5 ? (newsTargetAt === 'global' ? '' : newsTargetAt) : (profile?.At || 'futo');
+      const docRef = await addDoc(collection(db, 'news'), {
         title: newsTitle,
         content: newsContent,
-        createdAt: new Date().toISOString()
+        createdAt: new Date().toISOString(),
+        ...(postAt ? { At: postAt } : {})
       });
       toast.success('News posted successfully');
+      
+      const newPost: NewsItem = {
+        id: docRef.id,
+        title: newsTitle,
+        content: newsContent,
+        createdAt: new Date().toISOString(),
+        ...(postAt ? { At: postAt } : {})
+      };
+      setNewsList(prev => [newPost, ...prev]);
       setNewsTitle('');
       setNewsContent('');
+    } catch (error: any) {
+      toast.error(error.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleEditNews = (post: NewsItem) => {
+    setEditingNews(post);
+    setEditNewsTitle(post.title);
+    setEditNewsContent(post.content);
+  };
+
+  const handleUpdateNews = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingNews) return;
+    setLoading(true);
+    try {
+      const updateData: any = {
+        title: editNewsTitle,
+        content: editNewsContent
+      };
+      await updateDoc(doc(db, 'news', editingNews.id), updateData);
+      toast.success('News updated successfully');
+      setNewsList(prev => prev.map(n => n.id === editingNews.id ? { ...n, title: editNewsTitle, content: editNewsContent } : n));
+      setEditingNews(null);
+    } catch (error: any) {
+      toast.error(error.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleDeleteNews = async (id: string) => {
+    setLoading(true);
+    try {
+      await deleteDoc(doc(db, 'news', id));
+      toast.success('News post deleted successfully');
+      setNewsList(prev => [ ...prev.filter(n => n.id !== id) ]);
+      if (deleteNewsConfirmId === id) {
+        setDeleteNewsConfirmId(null);
+      }
     } catch (error: any) {
       toast.error(error.message);
     } finally {
@@ -2058,7 +2178,8 @@ export default function AdminPanel() {
         targetType: notifyTargetType,
         targetValue: finalTargetValue,
         createdAt: new Date().toISOString(),
-        authorId: user.uid
+        authorId: user.uid,
+        ...(profile?.level === '4' && !isLevel5 ? { At: profile?.At || 'futo' } : {})
       });
       toast.success('Announcement broadcasted successfully');
       setNotifyTitle('');
@@ -2104,11 +2225,6 @@ export default function AdminPanel() {
     }
   };
 
-  const isLevel5 = profile?.level === '5' || profile?.email === 'successugochukwuchi@gmail.com' || user?.email === 'successugochukwuchi@gmail.com';
-  const isLevel4 = profile?.level === '4' || profile?.level === '5' || isLevel5;
-  const isAtLeastLevel3 = profile?.level === '3' || profile?.level === '4' || profile?.level === '5' || isLevel5;
-  const isLevel2 = profile?.level === '2';
-
   if (profile?.level === '3' && !location.pathname.endsWith('/pins') && !location.pathname.includes('/pins')) {
     return <Navigate to="/administrator/pins" replace />;
   }
@@ -2142,6 +2258,7 @@ export default function AdminPanel() {
             <Button variant={location.pathname.includes('notifier') ? 'default' : 'ghost'} size="sm" onClick={() => navigate('/administrator/notifier')}>Notifier</Button>
             <Button variant={location.pathname.includes('credentials') ? 'default' : 'ghost'} size="sm" onClick={() => navigate('/administrator/credentials')}>Credentials</Button>
             <Button variant={location.pathname.includes('reports') ? 'default' : 'ghost'} size="sm" onClick={() => navigate('/administrator/reports')}>Reports</Button>
+            <Button variant={location.pathname.includes('colodge') ? 'default' : 'ghost'} size="sm" onClick={() => navigate('/administrator/colodge')}>CoLodge</Button>
             <Button variant={location.pathname.includes('manual') ? 'default' : 'ghost'} size="sm" onClick={() => navigate('/administrator/manual')}>Admin Manual</Button>
             <Button variant={location.pathname.includes('system') ? 'default' : 'ghost'} size="sm" onClick={() => navigate('/administrator/system')}>System</Button>
           </>
@@ -2157,6 +2274,7 @@ export default function AdminPanel() {
             ? <Navigate to="/administrator/pins" replace />
             : <AdminOverview courses={courses} notes={notes} questions={questions} unusedPins={unusedPins} usedPins={usedPins} stats={stats} />
         } />
+        <Route path="/colodge/*" element={<AdminColodge />} />
         <Route path="/manual" element={<AdminManual />} />
         <Route path="/discipline" element={<AdminDiscipline />} />
         <Route path="/credentials" element={<AdminCredentials />} />
@@ -2541,55 +2659,108 @@ export default function AdminPanel() {
           </div>
         } />
         <Route path="/users" element={
-          <div className="grid gap-6 md:grid-cols-2">
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <UserPlus className="h-5 w-5" />
-                  Elevate User
-                </CardTitle>
-                <CardDescription>Change a user's permission level using their Student ID.</CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <div className="space-y-2">
-                  <Label>Student ID</Label>
-                  <Input value={targetUid} onChange={(e) => setTargetUid(e.target.value)} placeholder="Enter 11-digit Student ID" />
-                </div>
-              </CardContent>
-              <CardFooter className="flex flex-wrap gap-2">
-                <Button onClick={() => handleElevate('1')} variant="outline" disabled={loading || !targetUid}>Level 1</Button>
-                <Button onClick={() => handleElevate('2')} disabled={loading || !targetUid}>Level 2</Button>
-                {isLevel4 && (
-                  <>
-                    <Button onClick={() => handleElevate('3')} variant="outline" disabled={loading || !targetUid}>Level 3</Button>
-                    <Button onClick={() => handleElevate('4')} variant="destructive" disabled={loading || !targetUid}>Level 4</Button>
-                  </>
-                )}
-              </CardFooter>
-            </Card>
+          <div className="space-y-6">
+            <div className="grid gap-6 md:grid-cols-2">
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2">
+                    <UserPlus className="h-5 w-5" />
+                    Elevate User
+                  </CardTitle>
+                  <CardDescription>Change a user's permission level using their Student ID.</CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div className="space-y-2">
+                    <Label>Student ID</Label>
+                    <Input value={targetUid} onChange={(e) => setTargetUid(e.target.value)} placeholder="Enter 11-digit Student ID" />
+                  </div>
+                </CardContent>
+                <CardFooter className="flex flex-wrap gap-2">
+                  <Button onClick={() => handleElevate('1')} variant="outline" disabled={loading || !targetUid}>Level 1</Button>
+                  <Button onClick={() => handleElevate('2')} disabled={loading || !targetUid}>Level 2</Button>
+                  {isLevel4 && (
+                    <>
+                      <Button onClick={() => handleElevate('3')} variant="outline" disabled={loading || !targetUid}>Level 3</Button>
+                      <Button onClick={() => handleElevate('4')} variant="destructive" disabled={loading || !targetUid}>Level 4</Button>
+                    </>
+                  )}
+                </CardFooter>
+              </Card>
+
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2">
+                    <Ban className="h-5 w-5" />
+                    Ban/Demote User
+                  </CardTitle>
+                  <CardDescription>Ban/demote user using their Student ID.</CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div className="space-y-2">
+                    <Label>Student ID</Label>
+                    <Input value={targetUid} onChange={(e) => setTargetUid(e.target.value)} placeholder="Enter 11-digit Student ID" />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Reason</Label>
+                    <Textarea value={banReason} onChange={(e) => setBanReason(e.target.value)} placeholder="Reason for ban" />
+                  </div>
+                </CardContent>
+                <CardFooter className="flex gap-2">
+                  <Button variant="destructive" onClick={() => handleBan(true)} disabled={loading || !targetUid}>Ban Account</Button>
+                  <Button variant="outline" onClick={() => handleBan(false)} disabled={loading || !targetUid}>Unban</Button>
+                </CardFooter>
+              </Card>
+            </div>
 
             <Card>
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">
-                  <Ban className="h-5 w-5" />
-                  Ban/Demote User
+                  <Search className="h-5 w-5 text-primary" />
+                  University Lookup ("At")
                 </CardTitle>
-                <CardDescription>Ban/demote user using their Student ID.</CardDescription>
+                <CardDescription>
+                  Look up the university (the "At" field) of any user on the platform by typing in their Student ID.
+                </CardDescription>
               </CardHeader>
               <CardContent className="space-y-4">
-                <div className="space-y-2">
-                  <Label>Student ID</Label>
-                  <Input value={targetUid} onChange={(e) => setTargetUid(e.target.value)} placeholder="Enter 11-digit Student ID" />
+                <div className="flex gap-4 items-end max-w-md">
+                  <div className="space-y-2 flex-1">
+                    <Label>Student ID</Label>
+                    <Input 
+                      value={lookupStudentId} 
+                      onChange={(e) => setLookupStudentId(e.target.value)} 
+                      placeholder="Enter student ID to lookup" 
+                    />
+                  </div>
+                  <Button onClick={handleLookupUniversity} disabled={loading || !lookupStudentId.trim()}>
+                    Lookup User
+                  </Button>
                 </div>
-                <div className="space-y-2">
-                  <Label>Reason</Label>
-                  <Textarea value={banReason} onChange={(e) => setBanReason(e.target.value)} placeholder="Reason for ban" />
-                </div>
+
+                {lookupResult && (
+                  <div className="mt-4 p-4 rounded-lg bg-muted border space-y-3 max-w-md">
+                    <div className="flex items-center justify-between border-b pb-2">
+                      <span className="font-semibold text-sm text-muted-foreground">Lookup Result</span>
+                      <Badge variant="outline" className="bg-primary/10 text-primary uppercase font-bold text-xs px-2 py-0.5">
+                        University: {lookupResult.At}
+                      </Badge>
+                    </div>
+                    <div className="grid grid-cols-2 gap-y-2 text-sm">
+                      <span className="text-muted-foreground">Username:</span>
+                      <span className="font-semibold">{lookupResult.username}</span>
+                      
+                      <span className="text-muted-foreground">Student ID:</span>
+                      <span className="font-mono">{lookupResult.studentId}</span>
+                      
+                      <span className="text-muted-foreground">Email:</span>
+                      <span>{lookupResult.email}</span>
+
+                      <span className="text-muted-foreground">Permission Level:</span>
+                      <span>Level {lookupResult.level}</span>
+                    </div>
+                  </div>
+                )}
               </CardContent>
-              <CardFooter className="flex gap-2">
-                <Button variant="destructive" onClick={() => handleBan(true)} disabled={loading || !targetUid}>Ban Account</Button>
-                <Button variant="outline" onClick={() => handleBan(false)} disabled={loading || !targetUid}>Unban</Button>
-              </CardFooter>
             </Card>
           </div>
         } />
@@ -2806,29 +2977,169 @@ export default function AdminPanel() {
         } />
 
         <Route path="/news" element={
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Newspaper className="h-5 w-5" />
-                Post News
-              </CardTitle>
-            </CardHeader>
-            <form onSubmit={handlePostNews}>
-              <CardContent className="space-y-4">
-                <div className="space-y-2">
-                  <Label>Title</Label>
-                  <Input value={newsTitle} onChange={(e) => setNewsTitle(e.target.value)} required />
-                </div>
-                <div className="space-y-2">
-                  <Label>Content</Label>
-                  <Textarea value={newsContent} onChange={(e) => setNewsContent(e.target.value)} rows={6} required />
-                </div>
-              </CardContent>
-              <CardFooter>
-                <Button type="submit" disabled={loading}>Post to Board</Button>
-              </CardFooter>
-            </form>
-          </Card>
+          <div className="space-y-6">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+              {/* Post News Form Card */}
+              <div className="md:col-span-1">
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="flex items-center gap-2">
+                      <Newspaper className="h-5 w-5 text-primary" />
+                      Post News
+                    </CardTitle>
+                    <CardDescription>
+                      {!isLevel5 ? (
+                        <span>This post will be restricted to your university: <strong className="uppercase">{profile?.At || 'futo'}</strong>. Only Level 5 admins can broadcast globally.</span>
+                      ) : (
+                        <span>Post announcements globally or target specific universities.</span>
+                      )}
+                    </CardDescription>
+                  </CardHeader>
+                  <form onSubmit={handlePostNews}>
+                    <CardContent className="space-y-4">
+                      <div className="space-y-2">
+                        <Label>Title</Label>
+                        <Input value={newsTitle} onChange={(e) => setNewsTitle(e.target.value)} required placeholder="Enter news title" />
+                      </div>
+                      <div className="space-y-2">
+                        <Label>Content</Label>
+                        <Textarea value={newsContent} onChange={(e) => setNewsContent(e.target.value)} rows={6} required placeholder="Write news content here..." />
+                      </div>
+
+                      {isLevel5 && (
+                        <div className="space-y-2">
+                          <Label>Target University</Label>
+                          <Select value={newsTargetAt} onValueChange={setNewsTargetAt}>
+                            <SelectTrigger>
+                              <SelectValue placeholder="Select target university" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="global">Global (Every user on platform)</SelectItem>
+                              <SelectItem value="futo">FUTO</SelectItem>
+                              <SelectItem value="uniport">UNIPORT</SelectItem>
+                              <SelectItem value="unilag">UNILAG</SelectItem>
+                              <SelectItem value="ui">UI</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </div>
+                      )}
+                    </CardContent>
+                    <CardFooter>
+                      <Button type="submit" className="w-full" disabled={loading}>Post to Board</Button>
+                    </CardFooter>
+                  </form>
+                </Card>
+              </div>
+
+              {/* Existing News List */}
+              <div className="md:col-span-2 space-y-4">
+                <Card>
+                  <CardHeader>
+                    <CardTitle>Existing News Posts</CardTitle>
+                    <CardDescription>
+                      Manage and review published academic news updates.
+                    </CardDescription>
+                  </CardHeader>
+                  <CardContent className="space-y-4">
+                    {newsList.length > 0 ? (
+                      <div className="divide-y divide-border">
+                        {newsList.map((post) => (
+                          <div key={post.id} className="py-4 first:pt-0 last:pb-0 flex flex-col justify-between md:flex-row md:items-start gap-4">
+                            <div className="space-y-1 flex-1">
+                              <div className="flex items-center gap-2 flex-wrap">
+                                <h3 className="font-semibold text-base text-foreground">{post.title}</h3>
+                                <Badge variant={post.At ? "outline" : "default"} className={post.At ? "bg-amber-50 text-amber-700 border-amber-200" : "bg-primary text-primary-foreground"}>
+                                  {post.At ? post.At.toUpperCase() : "GLOBAL"}
+                                </Badge>
+                              </div>
+                              <p className="text-xs text-muted-foreground">{new Date(post.createdAt).toLocaleString()}</p>
+                              <p className="text-sm text-foreground/80 line-clamp-3 whitespace-pre-wrap mt-2">{post.content}</p>
+                            </div>
+                            <div className="flex items-center gap-2 shrink-0">
+                              <Button variant="outline" size="sm" onClick={() => handleEditNews(post)} disabled={loading}>
+                                <Pencil className="h-3.5 w-3.5 mr-1" />
+                                Edit
+                              </Button>
+                              {deleteNewsConfirmId === post.id ? (
+                                <div className="flex items-center gap-1 animate-in fade-in zoom-in-95 duration-150">
+                                  <Button 
+                                    size="sm" 
+                                    variant="destructive" 
+                                    className="h-8 text-white px-2.5"
+                                    onClick={() => handleDeleteNews(post.id)}
+                                    disabled={loading}
+                                    title="Confirm Delete"
+                                  >
+                                    <CheckCircle className="h-3.5 w-3.5 mr-1" />
+                                    Confirm
+                                  </Button>
+                                  <Button 
+                                    size="icon" 
+                                    variant="outline" 
+                                    className="h-8 w-8 hover:bg-muted text-muted-foreground"
+                                    onClick={() => setDeleteNewsConfirmId(null)}
+                                    disabled={loading}
+                                    title="Cancel"
+                                  >
+                                    <XCircle className="h-3.5 w-3.5" />
+                                  </Button>
+                                </div>
+                              ) : (
+                                <Button 
+                                  variant="ghost" 
+                                  size="sm" 
+                                  className="text-destructive hover:bg-destructive/10" 
+                                  onClick={() => setDeleteNewsConfirmId(post.id)}
+                                  disabled={loading}
+                                >
+                                  <Trash2 className="h-3.5 w-3.5 mr-1" />
+                                  Delete
+                                </Button>
+                              )}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <div className="text-center py-12 text-muted-foreground">
+                        <Newspaper className="h-12 w-12 mx-auto mb-3 opacity-20" />
+                        <p className="font-medium text-base">No news posts found</p>
+                        <p className="text-xs">Publish your first news post using the form.</p>
+                      </div>
+                    )}
+                  </CardContent>
+                </Card>
+              </div>
+            </div>
+
+            {/* Edit News Dialog */}
+            <Dialog open={editingNews !== null} onOpenChange={(open) => !open && setEditingNews(null)}>
+              <DialogContent className="sm:max-w-[600px]">
+                <DialogHeader>
+                  <DialogTitle>Edit News Post</DialogTitle>
+                  <DialogDescription>
+                    Make changes to the selected news post.
+                  </DialogDescription>
+                </DialogHeader>
+                <form onSubmit={handleUpdateNews}>
+                  <div className="space-y-4 py-4">
+                    <div className="space-y-2">
+                      <Label>Title</Label>
+                      <Input value={editNewsTitle} onChange={(e) => setEditNewsTitle(e.target.value)} required />
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Content</Label>
+                      <Textarea value={editNewsContent} onChange={(e) => setEditNewsContent(e.target.value)} rows={8} required />
+                    </div>
+                  </div>
+                  <DialogFooter>
+                    <Button type="button" variant="outline" onClick={() => setEditingNews(null)}>Cancel</Button>
+                    <Button type="submit" disabled={loading}>Update Post</Button>
+                  </DialogFooter>
+                </form>
+              </DialogContent>
+            </Dialog>
+          </div>
         } />
 
         <Route path="/notes" element={

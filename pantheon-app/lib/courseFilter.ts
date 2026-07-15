@@ -58,7 +58,7 @@ export async function getFilteredCoursesForStudent(
         }
       }
     }
-    if (!activeSemester) {
+    if (!activeSemester || activeSemester === 'none') {
       activeSemester = '1st';
     }
 
@@ -97,16 +97,20 @@ export async function getFilteredCoursesForStudent(
         return opt === 'allow' || opt === 'lock';
       });
 
-      if (courseDisciplines.length === 0) {
-        return false;
+      // C. The user's department is a part of the same discipline as the course, or matches the course department directly
+      const isDirectDeptMatch = course.department && course.department.toLowerCase().trim() === userDept;
+      
+      let hasSharedDiscipline = false;
+      if (disciplines.length > 0) {
+        hasSharedDiscipline = courseDisciplines.some(d =>
+          (d.departments || []).some(dept => dept.toLowerCase().trim() === userDept)
+        );
+      } else {
+        // Fallback when offline/cache-empty: allow direct department match or any course already downloaded
+        hasSharedDiscipline = isDirectDeptMatch || !!course.isDownloaded;
       }
 
-      // C. The user's department is a part of the same discipline as the course
-      const hasSharedDiscipline = courseDisciplines.some(d =>
-        (d.departments || []).some(dept => dept.toLowerCase().trim() === userDept)
-      );
-
-      if (!hasSharedDiscipline) {
+      if (!hasSharedDiscipline && !isDirectDeptMatch) {
         return false;
       }
 
@@ -119,6 +123,13 @@ export async function getFilteredCoursesForStudent(
       // E. The currentSemester matches the course's semester.
       const courseSemesterNorm = normalizeSemester(course.semester);
       if (courseSemesterNorm !== activeSemesterNorm) {
+        return false;
+      }
+
+      // F. The course must belong to the user's university (At)
+      const userUni = (profile.At || 'futo').toLowerCase().trim();
+      const courseUni = (course.At || 'futo').toLowerCase().trim();
+      if (userUni !== courseUni) {
         return false;
       }
 

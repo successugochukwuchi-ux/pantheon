@@ -13,6 +13,7 @@ import { useRouter } from 'expo-router';
 import { Linking } from 'react-native';
 import { useAuth } from '../context/AuthContext';
 import { useTheme } from '../context/ThemeContext';
+import { contactAdmin } from '../lib/support';
 import { C, F, width } from './Theme';
 import { 
   HomeIcon, 
@@ -50,7 +51,7 @@ const NAV_ITEMS = [
 
 export function Sidebar({ isOpen, onClose }: SidebarProps) {
   const router = useRouter();
-  const { profile, logout } = useAuth();
+  const { profile, logout, isOffline } = useAuth();
   const { colors: C, themeName } = useTheme();
   const slideAnim = useRef(new Animated.Value(-width)).current;
   const opacityAnim = useRef(new Animated.Value(0)).current;
@@ -135,7 +136,7 @@ export function Sidebar({ isOpen, onClose }: SidebarProps) {
               style={s.sidebarItem}
               onPress={() => {
                 onClose();
-                Linking.openURL('https://wa.me/2348118429150?text=Help%20Needed');
+                contactAdmin(profile?.At, !!isOffline, "Help Needed");
               }}
               activeOpacity={0.7}
             >

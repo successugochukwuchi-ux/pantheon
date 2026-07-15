@@ -101,7 +101,8 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
       limit(15)
     );
     unsubAnn = onSnapshot(qAnn, (snapshot) => {
-      announcements = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Announcement));
+      const allAnn = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Announcement));
+      announcements = allAnn.filter(ann => !ann.At || (profile && ann.At === profile.At));
       updateUnread(specificUnread, announcements);
     }, (error) => {
        // Only log if authenticated as rules require auth

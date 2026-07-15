@@ -160,7 +160,7 @@ export default function CbtSetupScreen() {
     async function fetchCourses() {
       if (!profile || !systemConfig) return;
       setLoading(true);
-      const semester = systemConfig.currentSemester || '1st';
+      const semester = (!systemConfig.currentSemester || systemConfig.currentSemester === 'none') ? '1st' : systemConfig.currentSemester;
 
       // Load local downloaded courses immediately for instant offline support
       let localPopulated = false;

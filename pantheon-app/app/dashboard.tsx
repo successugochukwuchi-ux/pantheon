@@ -225,21 +225,30 @@ function UpdateCard({ item, s, C }: { item: any; s: any; C: any }) {
 function UpdatesSection({ s, C }: { s: any; C: any }) {
   const [news, setNews] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const { profile } = useAuth();
 
   useEffect(() => {
-    const q = query(collection(db, 'news'), limit(5));
+    const q = query(collection(db, 'news'), limit(20));
     const unsubscribe = onSnapshot(q, (snapshot) => {
-      const newsData = snapshot.docs.map(doc => ({
+      let newsData = snapshot.docs.map(doc => ({
         id: doc.id,
         ...doc.data()
       }));
+
+      // Filter by university (At) matching profile
+      if (profile?.At) {
+        newsData = newsData.filter((item: any) => !item.At || item.At.toLowerCase() === profile.At.toLowerCase());
+      } else {
+        newsData = newsData.filter((item: any) => !item.At || item.At.toLowerCase() === 'futo');
+      }
+
       // Sort newest news first
       newsData.sort((a: any, b: any) => {
         const timeA = a.createdAt ? (a.createdAt.seconds ? a.createdAt.seconds * 1000 : new Date(a.createdAt).getTime()) : 0;
         const timeB = b.createdAt ? (b.createdAt.seconds ? b.createdAt.seconds * 1000 : new Date(b.createdAt).getTime()) : 0;
         return timeB - timeA;
       });
-      setNews(newsData);
+      setNews(newsData.slice(0, 5));
       setLoading(false);
     }, (error) => {
       console.error("Error fetching news updates:", error);
@@ -247,7 +256,7 @@ function UpdatesSection({ s, C }: { s: any; C: any }) {
     });
 
     return () => unsubscribe();
-  }, []);
+  }, [profile]);
 
   return (
     <View style={s.section}>

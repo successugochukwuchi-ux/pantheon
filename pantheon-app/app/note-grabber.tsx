@@ -210,7 +210,7 @@ export default function NoteGrabberScreen() {
     if (!profile || !systemConfig) return;
     setLoading(true);
     try {
-      const activeSemester = systemConfig.currentSemester || '1st';
+      const activeSemester = (!systemConfig.currentSemester || systemConfig.currentSemester === 'none') ? '1st' : systemConfig.currentSemester;
 
       if (isOffline) {
         const localCourses = getDownloadedCoursesLocal();
