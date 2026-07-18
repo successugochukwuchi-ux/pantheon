@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { 
   collection, 
   setDoc, 
@@ -14,6 +15,7 @@ import {
   addDoc
 } from 'firebase/firestore';
 import { db } from '../firebase';
+import { CloudinaryUpload } from '../components/CloudinaryUpload';
 import { useAuth } from '../contexts/AuthContext';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '../components/ui/card';
 import { Button } from '../components/ui/button';
@@ -46,7 +48,8 @@ import {
   History,
   Info,
   Briefcase,
-  AlertCircle
+  AlertCircle,
+  Trash2
 } from 'lucide-react';
 import { ColodgeLocation, ColodgeLodge, ColodgeRoom, ColodgeAgentApplication, ColodgeDeal, ColodgeEscrowAccount } from '../types';
 
@@ -60,7 +63,31 @@ interface ColodgeMessage {
 
 export default function CoLodge() {
   const { profile } = useAuth();
-  const [view, setView] = useState<'student_locations' | 'student_lodges' | 'student_rooms' | 'agent_dashboard' | 'become_agent'>('student_locations');
+  const [searchParams, setSearchParams] = useSearchParams();
+  const searchView = searchParams.get('view');
+
+  const [view, setView] = useState<'student_locations' | 'student_lodges' | 'student_rooms' | 'agent_dashboard' | 'become_agent'>(
+    (searchView as any) || 'student_locations'
+  );
+  
+  const [showWithdrawConfirm, setShowWithdrawConfirm] = useState(false);
+  const [withdrawAmount, setWithdrawAmount] = useState<string>('');
+
+  // Sync view state with URL query parameter
+  useEffect(() => {
+    if (searchView) {
+      if (['student_locations', 'student_lodges', 'student_rooms', 'agent_dashboard', 'become_agent'].includes(searchView)) {
+        setView(searchView as any);
+      }
+    } else {
+      setSearchParams({ view: 'student_locations' });
+    }
+  }, [searchView, setSearchParams]);
+
+  const handleSetView = (newView: 'student_locations' | 'student_lodges' | 'student_rooms' | 'agent_dashboard' | 'become_agent') => {
+    setView(newView);
+    setSearchParams({ view: newView });
+  };
   
   // Back navigation states
   const [selectedLocation, setSelectedLocation] = useState<ColodgeLocation | null>(null);
@@ -101,6 +128,10 @@ export default function CoLodge() {
 
   // Ref for auto-scroll chat
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
+
+  const isL4L5 = profile?.level === '4' || profile?.level === '5';
+  const visibleRooms = rooms.filter(r => isL4L5 || r.status !== 'rented');
+  const visibleAgentDeals = agentDeals.filter(d => !d.agentCleared);
 
   // Agent Creation form (when toggle is enabled)
   const [showAgentCreateLodge, setShowAgentCreateLodge] = useState(false);
@@ -235,7 +266,23 @@ export default function CoLodge() {
       setDealMessages(list.sort((a, b) => a.createdAt.localeCompare(b.createdAt)));
     });
     return unsub;
-  }, [activeDeal]);
+  }, [activeDeal?.id]);
+
+  // Keep activeDeal state synchronized with changes in studentDeals / agentDeals in real-time
+  useEffect(() => {
+    if (!activeDeal?.id) return;
+    const allDeals = [...studentDeals, ...agentDeals];
+    const updated = allDeals.find(d => d.id === activeDeal.id);
+    if (updated) {
+      if (
+        updated.status !== activeDeal.status || 
+        updated.disputeReason !== activeDeal.disputeReason ||
+        updated.agentFeePaid !== activeDeal.agentFeePaid
+      ) {
+        setActiveDeal(updated);
+      }
+    }
+  }, [studentDeals, agentDeals, activeDeal?.id, activeDeal?.status, activeDeal?.disputeReason, activeDeal?.agentFeePaid]);
 
   // Scroll to bottom of chat
   useEffect(() => {
@@ -320,6 +367,25 @@ export default function CoLodge() {
     }
   };
 
+  const handleClearInactiveChats = async () => {
+    const inactiveDeals = agentDeals.filter(d => (d.status === 'completed' || d.status === 'cancelled_refunded') && !d.agentCleared);
+    if (inactiveDeals.length === 0) {
+      toast.info("No inactive chats to clear.");
+      return;
+    }
+    if (!window.confirm(`Are you sure you want to clear ${inactiveDeals.length} inactive chats from your dashboard?`)) return;
+    try {
+      for (const deal of inactiveDeals) {
+        await updateDoc(doc(db, 'colodge_deals', deal.id), {
+          agentCleared: true
+        });
+      }
+      toast.success("Inactive chats cleared successfully!");
+    } catch (e: any) {
+      toast.error("Failed to clear inactive chats.");
+    }
+  };
+
   // AGENT WITHDRAW HANDLER
   const handleWithdrawal = async () => {
     const currentBalance = profile?.walletBalance || 0;
@@ -327,24 +393,46 @@ export default function CoLodge() {
       toast.error("No funds available in your balance.");
       return;
     }
+    const amountToWithdraw = Number(withdrawAmount);
+    if (isNaN(amountToWithdraw) || amountToWithdraw <= 0) {
+      toast.error("Please enter a valid amount to withdraw.");
+      return;
+    }
+    if (amountToWithdraw > currentBalance) {
+      toast.error("You cannot withdraw more than your current wallet balance.");
+      return;
+    }
     try {
-      // 1. Deduct balance on profile
+      // Generate a unique ticket code with 'WDL-' prefix
+      let ticketCode = "WDL-";
+      const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+      for (let i = 0; i < 6; i++) {
+        ticketCode += chars.charAt(Math.floor(Math.random() * chars.length));
+      }
+
+      // 1. Deduct balance on profile using increment(-amountToWithdraw)
       await updateDoc(doc(db, 'users', profile!.uid), {
-        walletBalance: 0
+        walletBalance: increment(-amountToWithdraw)
       });
 
       // 2. Create withdrawal request entry
       await addDoc(collection(db, 'colodge_withdrawal_requests'), {
+        ticketCode,
         agentId: profile!.uid,
-        agentName: profile!.agentGovernmentName || profile!.username || 'Agent',
-        amount: currentBalance,
-        bankAccount: profile!.agentBankAccount,
-        bankName: profile!.agentBankName,
+        agentName: profile!.username || 'Agent',
+        agentGovernmentName: profile!.agentGovernmentName || 'N/A',
+        agentPhone: profile!.mobileNumber || 'N/A',
+        amount: amountToWithdraw,
+        colearnCommission: amountToWithdraw * 0.1,
+        payoutAmount: amountToWithdraw * 0.9,
+        bankAccount: profile!.agentBankAccount || 'N/A',
+        bankName: profile!.agentBankName || 'N/A',
         status: 'pending',
-        createdAt: new Date().toISOString()
+        createdAt: new Date().toISOString(),
+        At: universityCode
       });
 
-      toast.success(`Withdrawal request of ₦${currentBalance.toLocaleString()} submitted successfully. Processed within 24 hours!`);
+      toast.success(`Withdrawal request ${ticketCode} of ₦${amountToWithdraw.toLocaleString()} submitted successfully. Processed within 24 hours!`);
     } catch (e: any) {
       toast.error(e.message || "Failed to process withdrawal.");
     }
@@ -627,6 +715,87 @@ export default function CoLodge() {
                 <Button type="submit" className="w-full">Activate My Agent Dashboard</Button>
               </CardFooter>
             </form>
+          </Card>
+        </div>
+      )}
+
+      {/* Withdrawal Confirmation Modal */}
+      {showWithdrawConfirm && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4">
+          <Card className="max-w-md w-full shadow-2xl border-stone-200 dark:border-stone-800 bg-white dark:bg-stone-900">
+            <CardHeader>
+              <CardTitle className="text-xl font-bold flex items-center gap-2 text-indigo-600 dark:text-indigo-400">
+                <AlertTriangle className="h-5 w-5 text-amber-500 animate-pulse" /> Confirm Withdrawal Request
+              </CardTitle>
+              <CardDescription>
+                Colearn charges a 10% administrative commission for facilitation and support services.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="space-y-1.5">
+                <Label htmlFor="withdraw-amount" className="text-xs font-semibold text-stone-600 dark:text-stone-300">Amount to Withdraw (₦)</Label>
+                <Input
+                  id="withdraw-amount"
+                  type="number"
+                  placeholder="Enter amount"
+                  min="1"
+                  max={profile?.walletBalance || 0}
+                  value={withdrawAmount}
+                  onChange={(e) => setWithdrawAmount(e.target.value)}
+                  className="font-mono text-lg font-bold"
+                />
+                {Number(withdrawAmount) > (profile?.walletBalance || 0) && (
+                  <p className="text-xs text-red-500 font-semibold">
+                    Amount exceeds your available balance of ₦{(profile?.walletBalance || 0).toLocaleString()}
+                  </p>
+                )}
+                {Number(withdrawAmount) <= 0 && withdrawAmount !== '' && (
+                  <p className="text-xs text-red-500 font-semibold">
+                    Amount must be greater than 0
+                  </p>
+                )}
+              </div>
+
+              <div className="rounded-lg bg-stone-50 dark:bg-stone-950 p-4 space-y-2 border">
+                <div className="flex justify-between text-sm text-stone-500 dark:text-stone-400">
+                  <span>Current Wallet Balance:</span>
+                  <span className="font-semibold text-stone-800 dark:text-stone-200">₦{(profile?.walletBalance || 0).toLocaleString()}</span>
+                </div>
+                <div className="flex justify-between text-sm text-red-500">
+                  <span>Colearn Commission (10%):</span>
+                  <span>-₦{(Math.max(0, Number(withdrawAmount || 0)) * 0.1).toLocaleString()}</span>
+                </div>
+                <hr className="border-stone-200 dark:border-stone-800" />
+                <div className="flex justify-between text-base font-bold text-stone-900 dark:text-stone-100">
+                  <span>Withdrawable Amount:</span>
+                  <span className="text-emerald-600 dark:text-emerald-400">₦{(Math.max(0, Number(withdrawAmount || 0)) * 0.9).toLocaleString()}</span>
+                </div>
+              </div>
+
+              <div className="space-y-1.5">
+                <p className="text-xs text-stone-500 dark:text-stone-400">
+                  Your funds will be sent to the banking details saved in your profile:
+                </p>
+                <div className="text-xs bg-stone-50 dark:bg-stone-950 p-3 rounded border font-mono text-stone-600 dark:text-stone-300">
+                  <div>Bank: {profile?.agentBankName || 'N/A'}</div>
+                  <div>Account: {profile?.agentBankAccount || 'N/A'}</div>
+                  <div>Name: {profile?.agentGovernmentName || 'N/A'}</div>
+                </div>
+              </div>
+            </CardContent>
+            <CardFooter className="flex justify-end gap-3">
+              <Button variant="outline" onClick={() => setShowWithdrawConfirm(false)}>Cancel</Button>
+              <Button 
+                onClick={() => {
+                  setShowWithdrawConfirm(false);
+                  handleWithdrawal();
+                }} 
+                disabled={!withdrawAmount || isNaN(Number(withdrawAmount)) || Number(withdrawAmount) <= 0 || Number(withdrawAmount) > (profile?.walletBalance || 0)}
+                className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold"
+              >
+                Confirm & Submit
+              </Button>
+            </CardFooter>
           </Card>
         </div>
       )}
@@ -1136,7 +1305,10 @@ export default function CoLodge() {
                     </div>
                   </CardHeader>
                   <CardFooter>
-                    <Button variant="secondary" className="w-full font-bold" onClick={handleWithdrawal} disabled={(profile?.walletBalance || 0) <= 0}>
+                    <Button variant="secondary" className="w-full font-bold" onClick={() => {
+                      setWithdrawAmount((profile?.walletBalance || 0).toString());
+                      setShowWithdrawConfirm(true);
+                    }} disabled={(profile?.walletBalance || 0) <= 0}>
                       Withdraw Earnings
                     </Button>
                   </CardFooter>
@@ -1171,17 +1343,29 @@ export default function CoLodge() {
                 {/* Active Deals / Chats sidebar */}
                 <Card className="border-stone-200 dark:border-stone-800 shadow-sm lg:col-span-1">
                   <CardHeader>
-                    <CardTitle className="text-lg flex items-center gap-2">
-                      <MessageSquare className="h-5 w-5 text-indigo-600" /> Active Chats
-                    </CardTitle>
+                    <div className="flex items-center justify-between">
+                      <CardTitle className="text-lg flex items-center gap-2">
+                        <MessageSquare className="h-5 w-5 text-indigo-600" /> Active Chats
+                      </CardTitle>
+                      {agentDeals.some(d => (d.status === 'completed' || d.status === 'cancelled_refunded') && !d.agentCleared) && (
+                        <Button 
+                          variant="ghost" 
+                          size="xs" 
+                          className="text-red-500 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-950/20 text-[11px] flex items-center gap-1 font-semibold h-7 px-2"
+                          onClick={handleClearInactiveChats}
+                        >
+                          <Trash2 className="h-3.5 w-3.5" /> Clear Inactive
+                        </Button>
+                      )}
+                    </div>
                     <CardDescription>Chat and finalise lodging deals with prospective students.</CardDescription>
                   </CardHeader>
                   <CardContent className="p-0">
-                    {agentDeals.length === 0 ? (
+                    {visibleAgentDeals.length === 0 ? (
                       <p className="p-6 text-center text-stone-400 text-sm">No active lodging chats.</p>
                     ) : (
                       <div className="divide-y max-h-[400px] overflow-y-auto">
-                        {agentDeals.map(deal => (
+                        {visibleAgentDeals.map(deal => (
                           <button 
                             key={deal.id} 
                             onClick={() => setActiveDeal(deal)}
@@ -1257,6 +1441,17 @@ export default function CoLodge() {
                               <Label>Gallery Image URLs (comma-separated)</Label>
                               <Input value={agentNewLodge.galleryInput} onChange={e => setAgentNewLodge(prev => ({ ...prev, galleryInput: e.target.value }))} placeholder="url1, url2" />
                             </div>
+                            <CloudinaryUpload
+                              label="Direct Upload Lodge Photos (appends to gallery)"
+                              acceptedTypes="image/*"
+                              onUploadSuccess={(url) => {
+                                setAgentNewLodge(prev => ({
+                                  ...prev,
+                                  galleryInput: prev.galleryInput ? `${prev.galleryInput}, ${url}` : url
+                                }));
+                                toast.success("Image uploaded and added to gallery!");
+                              }}
+                            />
                             <Button type="submit">Submit Lodge Registration</Button>
                           </form>
                         )}
@@ -1282,7 +1477,7 @@ export default function CoLodge() {
                                 <Input value={agentNewRoom.name} onChange={e => setAgentNewRoom(prev => ({ ...prev, name: e.target.value }))} placeholder="e.g. Block C Room 4" required />
                               </div>
                             </div>
-                            <div className="grid gap-4 sm:grid-cols-2">
+                            <div className="grid gap-4 sm:grid-cols-3">
                               <div className="space-y-1">
                                 <Label>Price (₦ / yr)</Label>
                                 <Input type="number" value={agentNewRoom.price} onChange={e => setAgentNewRoom(prev => ({ ...prev, price: e.target.value }))} placeholder="e.g. 150000" required />
@@ -1291,6 +1486,28 @@ export default function CoLodge() {
                                 <Label>Photo URL</Label>
                                 <Input value={agentNewRoom.photoUrl} onChange={e => setAgentNewRoom(prev => ({ ...prev, photoUrl: e.target.value }))} placeholder="https://..." />
                               </div>
+                              <div className="space-y-1">
+                                <Label>Video URL</Label>
+                                <Input value={agentNewRoom.videoUrl} onChange={e => setAgentNewRoom(prev => ({ ...prev, videoUrl: e.target.value }))} placeholder="https://..." />
+                              </div>
+                            </div>
+                            <div className="grid gap-4 sm:grid-cols-2">
+                              <CloudinaryUpload
+                                label="Upload Room Photo Directly"
+                                acceptedTypes="image/*"
+                                onUploadSuccess={(url) => {
+                                  setAgentNewRoom(prev => ({ ...prev, photoUrl: url }));
+                                  toast.success("Room photo uploaded successfully!");
+                                }}
+                              />
+                              <CloudinaryUpload
+                                label="Upload Room Video Directly"
+                                acceptedTypes="video/*"
+                                onUploadSuccess={(url) => {
+                                  setAgentNewRoom(prev => ({ ...prev, videoUrl: url }));
+                                  toast.success("Room video tour uploaded successfully!");
+                                }}
+                              />
                             </div>
                             <div className="space-y-1">
                               <Label>Description</Label>
@@ -1430,11 +1647,11 @@ export default function CoLodge() {
                   </div>
 
                   <h3 className="text-xl font-bold text-stone-800 dark:text-stone-200 font-sans tracking-tight">Available Rooms in {selectedLodge.name}</h3>
-                  {rooms.filter(r => r.lodgeId === selectedLodge.id).length === 0 ? (
+                  {visibleRooms.filter(r => r.lodgeId === selectedLodge.id).length === 0 ? (
                     <div className="text-center py-20 text-stone-400">No rooms listed in this lodge.</div>
                   ) : (
                     <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
-                      {rooms.filter(r => r.lodgeId === selectedLodge.id).map(room => {
+                      {visibleRooms.filter(r => r.lodgeId === selectedLodge.id).map(room => {
                         const isRentable = room.status === 'available';
                         const isMyTalk = room.status === 'in talks' && room.inTalksWith === profile?.uid;
                         

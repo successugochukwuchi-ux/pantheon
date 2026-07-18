@@ -67,6 +67,7 @@ import { MathJax } from 'better-react-mathjax';
 import AdminCredentials from '../components/AdminCredentials';
 import OverseerControl from '../components/OverseerControl';
 import AdminColodge from '../components/AdminColodge';
+import { CloudinaryUpload } from '../components/CloudinaryUpload';
 import ReactMarkdown from 'react-markdown';
 import remarkMath from 'remark-math';
 import rehypeKatex from 'rehype-katex';
@@ -2352,6 +2353,13 @@ export default function AdminPanel() {
                         placeholder="YouTube link or Drive file link" 
                         required 
                       />
+                      <div className="pt-2 border-t border-stone-200 dark:border-stone-800">
+                        <CloudinaryUpload 
+                          onUploadSuccess={(url) => setVideoUrl(url)}
+                          acceptedTypes="video/*"
+                          label="Or Upload Video to Cloudinary"
+                        />
+                      </div>
                     </div>
                   </div>
                 </CardContent>

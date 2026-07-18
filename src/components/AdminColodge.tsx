@@ -14,6 +14,7 @@ import {
   addDoc
 } from 'firebase/firestore';
 import { db } from '../firebase';
+import { CloudinaryUpload } from './CloudinaryUpload';
 import { useAuth } from '../contexts/AuthContext';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from './ui/card';
 import { Button } from './ui/button';
@@ -42,14 +43,42 @@ import {
   ToggleLeft,
   ToggleRight,
   Shield,
-  HelpCircle
+  HelpCircle,
+  Pencil,
+  X,
+  Info
 } from 'lucide-react';
 import { ColodgeLocation, ColodgeLodge, ColodgeRoom, ColodgeAgentApplication, ColodgeDeal, ColodgeEscrowAccount } from '../types';
 
 export default function AdminColodge() {
   const { profile } = useAuth();
-  const [activeTab, setActiveTab] = useState<'applications' | 'deals' | 'escrow' | 'banks' | 'infrastructure'>('applications');
+  const [activeTab, setActiveTab] = useState<'applications' | 'deals' | 'escrow' | 'banks' | 'infrastructure' | 'withdrawals'>('applications');
   
+  // Custom dialog state for confirmations (replacing window.confirm inside sandboxed iframe)
+  const [confirmConfig, setConfirmConfig] = useState<{
+    isOpen: boolean;
+    title: string;
+    message: string;
+    onConfirm: () => void;
+  }>({
+    isOpen: false,
+    title: '',
+    message: '',
+    onConfirm: () => {}
+  });
+
+  const requestConfirmation = (title: string, message: string, onConfirm: () => void) => {
+    setConfirmConfig({
+      isOpen: true,
+      title,
+      message,
+      onConfirm: () => {
+        onConfirm();
+        setConfirmConfig(prev => ({ ...prev, isOpen: false }));
+      }
+    });
+  };
+
   // System Config / Bank State
   const [banks, setBanks] = useState<string[]>([]);
   const [agentsCanAddLodges, setAgentsCanAddLodges] = useState(false);
@@ -59,10 +88,14 @@ export default function AdminColodge() {
   // Data States
   const [applications, setApplications] = useState<ColodgeAgentApplication[]>([]);
   const [deals, setDeals] = useState<ColodgeDeal[]>([]);
+  const [withdrawals, setWithdrawals] = useState<any[]>([]);
+  const [selectedWithdrawalForInfo, setSelectedWithdrawalForInfo] = useState<any | null>(null);
   const [escrowAccounts, setEscrowAccounts] = useState<ColodgeEscrowAccount[]>([]);
   const [locations, setLocations] = useState<ColodgeLocation[]>([]);
   const [lodges, setLodges] = useState<ColodgeLodge[]>([]);
   const [rooms, setRooms] = useState<ColodgeRoom[]>([]);
+  const [editingLodge, setEditingLodge] = useState<ColodgeLodge | null>(null);
+  const [editingRoom, setEditingRoom] = useState<ColodgeRoom | null>(null);
 
   // Form States (Infrastructure)
   const [newLocation, setNewLocation] = useState({ name: '', description: '', galleryInput: '', At: '' });
@@ -135,6 +168,12 @@ export default function AdminColodge() {
       setRooms(list.sort((a, b) => b.createdAt.localeCompare(a.createdAt)));
     });
 
+    const unsubWithdrawals = onSnapshot(collection(db, 'colodge_withdrawal_requests'), (snap) => {
+      const list: any[] = [];
+      snap.forEach(d => list.push({ id: d.id, ...d.data() }));
+      setWithdrawals(list.sort((a, b) => b.createdAt.localeCompare(a.createdAt)));
+    });
+
     return () => {
       unsubApps();
       unsubDeals();
@@ -142,6 +181,7 @@ export default function AdminColodge() {
       unsubLocs();
       unsubLodges();
       unsubRooms();
+      unsubWithdrawals();
     };
   }, []);
 
@@ -352,32 +392,137 @@ export default function AdminColodge() {
   };
 
   const handleDeleteLocation = async (id: string) => {
-    if (!window.confirm("Are you sure you want to delete this location? All lodges in this location will be orphaned.")) return;
-    try {
-      await deleteDoc(doc(db, 'colodge_locations', id));
-      toast.success("Location deleted.");
-    } catch (e: any) {
-      toast.error(e.message || "Failed to delete.");
-    }
+    requestConfirmation(
+      "Delete Location",
+      "Are you sure you want to delete this location? All lodges in this location will be orphaned.",
+      async () => {
+        try {
+          await deleteDoc(doc(db, 'colodge_locations', id));
+          toast.success("Location deleted.");
+        } catch (e: any) {
+          toast.error(e.message || "Failed to delete.");
+        }
+      }
+    );
   };
 
   const handleDeleteLodge = async (id: string) => {
-    if (!window.confirm("Are you sure you want to delete this lodge? Rooms in this lodge will be orphaned.")) return;
-    try {
-      await deleteDoc(doc(db, 'colodge_lodges', id));
-      toast.success("Lodge deleted.");
-    } catch (e: any) {
-      toast.error(e.message || "Failed to delete.");
-    }
+    requestConfirmation(
+      "Delete Lodge",
+      "Are you sure you want to delete this lodge? Rooms in this lodge will be orphaned.",
+      async () => {
+        try {
+          await deleteDoc(doc(db, 'colodge_lodges', id));
+          toast.success("Lodge deleted.");
+        } catch (e: any) {
+          toast.error(e.message || "Failed to delete.");
+        }
+      }
+    );
   };
 
   const handleDeleteRoom = async (id: string) => {
-    if (!window.confirm("Are you sure you want to delete this room?")) return;
+    requestConfirmation(
+      "Delete Room",
+      "Are you sure you want to delete this room?",
+      async () => {
+        try {
+          await deleteDoc(doc(db, 'colodge_rooms', id));
+          toast.success("Room deleted.");
+        } catch (e: any) {
+          toast.error(e.message || "Failed to delete.");
+        }
+      }
+    );
+  };
+
+  const handleReleaseRoomFromTalks = async (id: string) => {
+    requestConfirmation(
+      "Release Room",
+      "Are you sure you want to remove this room from 'in talks' mode and make it available?",
+      async () => {
+        try {
+          // 1. Update the room to available
+          await updateDoc(doc(db, 'colodge_rooms', id), {
+            status: 'available',
+            inTalksWith: null
+          });
+
+          // 2. Find and cancel any active deals for this room
+          const activeRoomDeals = deals.filter(d => d.roomId === id && d.status !== 'completed' && d.status !== 'cancelled_refunded');
+          for (const deal of activeRoomDeals) {
+            await updateDoc(doc(db, 'colodge_deals', deal.id), {
+              status: 'cancelled_refunded',
+              resolvedAt: new Date().toISOString(),
+              resolvedBy: profile?.email || 'Admin (Released)'
+            });
+          }
+
+          toast.success("Room is now available for renting and associated active deals have been cancelled.");
+        } catch (e: any) {
+          toast.error(e.message || "Failed to release room.");
+        }
+      }
+    );
+  };
+
+  const handleUpdateLodge = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingLodge) return;
     try {
-      await deleteDoc(doc(db, 'colodge_rooms', id));
-      toast.success("Room deleted.");
-    } catch (e: any) {
-      toast.error(e.message || "Failed to delete.");
+      await updateDoc(doc(db, 'colodge_lodges', editingLodge.id), {
+        name: editingLodge.name,
+        description: editingLodge.description,
+        locationId: editingLodge.locationId,
+        gallery: editingLodge.gallery || []
+      });
+      toast.success("Lodge listing updated successfully!");
+      setEditingLodge(null);
+    } catch (error: any) {
+      toast.error(error.message || "Failed to update lodge listing.");
+    }
+  };
+
+  const handleUpdateRoom = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingRoom) return;
+    try {
+      // If status is changed to 'available', we should also clear 'inTalksWith'
+      const updatedFields: any = {
+        name: editingRoom.name,
+        description: editingRoom.description,
+        price: Number(editingRoom.price),
+        status: editingRoom.status,
+        photoUrl: editingRoom.photoUrl,
+        videoUrl: editingRoom.videoUrl || ''
+      };
+
+      if (editingRoom.status === 'available') {
+        updatedFields.inTalksWith = null;
+      } else if (editingRoom.status === 'rented' && !editingRoom.rentedBy) {
+        updatedFields.inTalksWith = null;
+      }
+
+      await updateDoc(doc(db, 'colodge_rooms', editingRoom.id), {
+        ...updatedFields
+      });
+
+      // If we manually release/make available a room, let's also cancel any active deals associated with this room
+      if (editingRoom.status === 'available') {
+        const activeRoomDeals = deals.filter(d => d.roomId === editingRoom.id && d.status !== 'completed' && d.status !== 'cancelled_refunded');
+        for (const deal of activeRoomDeals) {
+          await updateDoc(doc(db, 'colodge_deals', deal.id), {
+            status: 'cancelled_refunded',
+            resolvedAt: new Date().toISOString(),
+            resolvedBy: profile?.email || 'Admin (Editor)'
+          });
+        }
+      }
+
+      toast.success("Room listing updated successfully!");
+      setEditingRoom(null);
+    } catch (error: any) {
+      toast.error(error.message || "Failed to update room listing.");
     }
   };
 
@@ -395,70 +540,127 @@ export default function AdminColodge() {
   };
 
   const handleResolveDisputeRefund = async (deal: ColodgeDeal) => {
-    if (!window.confirm("Are you sure you want to REFUND the student? This cancels the deal, returns the room to available, and gives no payout to the agent.")) return;
-    try {
-      // 1. Mark deal refunded
-      await updateDoc(doc(db, 'colodge_deals', deal.id), {
-        status: 'cancelled_refunded',
-        resolvedAt: new Date().toISOString(),
-        resolvedBy: profile?.email || 'Admin'
-      });
+    requestConfirmation(
+      "Refund Student",
+      "Are you sure you want to REFUND the student? This cancels the deal, returns the room to available, and gives no payout to the agent.",
+      async () => {
+        try {
+          // 1. Mark deal refunded
+          await updateDoc(doc(db, 'colodge_deals', deal.id), {
+            status: 'cancelled_refunded',
+            resolvedAt: new Date().toISOString(),
+            resolvedBy: profile?.email || 'Admin'
+          });
 
-      // 2. Free up the room
-      await updateDoc(doc(db, 'colodge_rooms', deal.roomId), {
-        status: 'available',
-        inTalksWith: null
-      });
+          // 2. Free up the room
+          await updateDoc(doc(db, 'colodge_rooms', deal.roomId), {
+            status: 'available',
+            inTalksWith: null
+          });
 
-      toast.success("Dispute resolved: Student refunded off-app. Room is available.");
-    } catch (e: any) {
-      toast.error(e.message || "Failed to resolve.");
-    }
+          toast.success("Dispute resolved: Student refunded off-app. Room is available.");
+        } catch (e: any) {
+          toast.error(e.message || "Failed to resolve.");
+        }
+      }
+    );
   };
 
   const handleResolveDisputeToAgent = async (deal: ColodgeDeal) => {
-    if (!window.confirm("Are you sure you want to release funds to the AGENT? 90% of the agent fee will be added to the agent's balance, 10% to Colearn revenue, and the room will be marked rented.")) return;
-    try {
-      const totalFee = deal.agentFeePaid;
-      const agentShare = totalFee * 0.9;
-      const colearnShare = totalFee * 0.1;
+    requestConfirmation(
+      "Release Payout to Agent",
+      "Are you sure you want to release funds to the AGENT? 90% of the agent fee will be added to the agent's balance, 10% to Colearn revenue, and the room will be marked rented.",
+      async () => {
+        try {
+          const totalFee = deal.agentFeePaid;
+          const agentShare = totalFee * 0.9;
+          const colearnShare = totalFee * 0.1;
 
-      // 1. Add share to agent's walletBalance
-      await updateDoc(doc(db, 'users', deal.agentId), {
-        walletBalance: increment(agentShare)
-      });
+          // 1. Add share to agent's walletBalance
+          await updateDoc(doc(db, 'users', deal.agentId), {
+            walletBalance: increment(agentShare)
+          });
 
-      // 2. Store Colearn Revenue report item
-      await addDoc(collection(db, 'colearn_revenue_reports'), {
-        dealId: deal.id,
-        roomId: deal.roomId,
-        agentId: deal.agentId,
-        agentName: deal.agentName,
-        totalAgentFee: totalFee,
-        agentEarnings: agentShare,
-        colearnCommission: colearnShare,
-        createdAt: new Date().toISOString(),
-        type: 'colodge_deal_dispute_resolved'
-      });
+          // 2. Store Colearn Revenue report item
+          await addDoc(collection(db, 'colearn_revenue_reports'), {
+            dealId: deal.id,
+            roomId: deal.roomId,
+            agentId: deal.agentId,
+            agentName: deal.agentName,
+            totalAgentFee: totalFee,
+            agentEarnings: agentShare,
+            colearnCommission: colearnShare,
+            createdAt: new Date().toISOString(),
+            type: 'colodge_deal_dispute_resolved'
+          });
 
-      // 3. Mark deal completed
-      await updateDoc(doc(db, 'colodge_deals', deal.id), {
-        status: 'completed',
-        resolvedAt: new Date().toISOString(),
-        resolvedBy: profile?.email || 'Admin'
-      });
+          // 3. Mark deal completed
+          await updateDoc(doc(db, 'colodge_deals', deal.id), {
+            status: 'completed',
+            resolvedAt: new Date().toISOString(),
+            resolvedBy: profile?.email || 'Admin'
+          });
 
-      // 4. Mark room as rented
-      await updateDoc(doc(db, 'colodge_rooms', deal.roomId), {
-        status: 'rented',
-        rentedBy: deal.userId,
-        inTalksWith: null
-      });
+          // 4. Mark room as rented
+          await updateDoc(doc(db, 'colodge_rooms', deal.roomId), {
+            status: 'rented',
+            rentedBy: deal.userId,
+            inTalksWith: null
+          });
 
-      toast.success(`Dispute resolved: Payout dispatched (₦${agentShare.toLocaleString()} to Agent, ₦${colearnShare.toLocaleString()} to Colearn). Room marked rented.`);
-    } catch (e: any) {
-      toast.error(e.message || "Failed to resolve.");
-    }
+          toast.success(`Dispute resolved: Payout dispatched (₦${agentShare.toLocaleString()} to Agent, ₦${colearnShare.toLocaleString()} to Colearn). Room marked rented.`);
+        } catch (e: any) {
+          toast.error(e.message || "Failed to resolve.");
+        }
+      }
+    );
+  };
+
+  const handleApproveWithdrawal = async (id: string) => {
+    requestConfirmation(
+      "Approve Withdrawal",
+      "Mark this withdrawal as approved and paid out?",
+      async () => {
+        try {
+          await updateDoc(doc(db, 'colodge_withdrawal_requests', id), {
+            status: 'approved',
+            processedAt: new Date().toISOString(),
+            processedBy: profile?.email || 'Admin'
+          });
+          toast.success("Withdrawal approved!");
+        } catch (e: any) {
+          console.error("Error approving withdrawal:", e);
+          toast.error(e.message || "Failed to approve withdrawal.");
+        }
+      }
+    );
+  };
+
+  const handleRejectWithdrawal = async (req: any) => {
+    requestConfirmation(
+      "Reject Withdrawal",
+      "Reject this withdrawal? The full amount will be refunded to the agent's wallet balance.",
+      async () => {
+        try {
+          // Return funds to agent wallet
+          await updateDoc(doc(db, 'users', req.agentId), {
+            walletBalance: increment(req.amount)
+          });
+
+          // Mark withdrawal request as rejected
+          await updateDoc(doc(db, 'colodge_withdrawal_requests', req.id), {
+            status: 'rejected',
+            processedAt: new Date().toISOString(),
+            processedBy: profile?.email || 'Admin'
+          });
+
+          toast.success("Withdrawal request rejected. Funds refunded to agent.");
+        } catch (e: any) {
+          console.error("Error rejecting withdrawal:", e);
+          toast.error(e.message || "Failed to reject withdrawal.");
+        }
+      }
+    );
   };
 
   return (
@@ -504,6 +706,9 @@ export default function AdminColodge() {
         </Button>
         <Button variant={activeTab === 'infrastructure' ? 'default' : 'ghost'} size="sm" onClick={() => setActiveTab('infrastructure')}>
           Lodges & Rooms
+        </Button>
+        <Button variant={activeTab === 'withdrawals' ? 'default' : 'ghost'} size="sm" onClick={() => setActiveTab('withdrawals')}>
+          Withdrawals ({withdrawals.filter(w => w.status === 'pending').length})
         </Button>
       </div>
 
@@ -842,6 +1047,17 @@ export default function AdminColodge() {
                     <Label>Gallery Image URLs (comma separated)</Label>
                     <Input value={newLodge.galleryInput} onChange={e => setNewLodge(prev => ({ ...prev, galleryInput: e.target.value }))} placeholder="url1, url2" />
                   </div>
+                  <CloudinaryUpload
+                    label="Direct Upload Lodge Photos (appends to gallery)"
+                    acceptedTypes="image/*"
+                    onUploadSuccess={(url) => {
+                      setNewLodge(prev => ({
+                        ...prev,
+                        galleryInput: prev.galleryInput ? `${prev.galleryInput}, ${url}` : url
+                      }));
+                      toast.success("Image uploaded and added to gallery!");
+                    }}
+                  />
                 </CardContent>
                 <CardFooter>
                   <Button type="submit" className="w-full">Create Lodge</Button>
@@ -880,13 +1096,33 @@ export default function AdminColodge() {
                     <Label>Description</Label>
                     <Textarea value={newRoom.description} onChange={e => setNewRoom(prev => ({ ...prev, description: e.target.value }))} placeholder="Water, tiled, kitchen setup details..." required />
                   </div>
-                  <div className="space-y-1">
-                    <Label>Room Photo URL (Limit 1)</Label>
-                    <Input value={newRoom.photoUrl} onChange={e => setNewRoom(prev => ({ ...prev, photoUrl: e.target.value }))} placeholder="https://..." />
+                  <div className="grid gap-4 sm:grid-cols-2">
+                    <div className="space-y-1">
+                      <Label>Room Photo URL (Limit 1)</Label>
+                      <Input value={newRoom.photoUrl} onChange={e => setNewRoom(prev => ({ ...prev, photoUrl: e.target.value }))} placeholder="https://..." />
+                    </div>
+                    <div className="space-y-1">
+                      <Label>Room Video URL (Limit 1)</Label>
+                      <Input value={newRoom.videoUrl} onChange={e => setNewRoom(prev => ({ ...prev, videoUrl: e.target.value }))} placeholder="https://..." />
+                    </div>
                   </div>
-                  <div className="space-y-1">
-                    <Label>Room Video URL (Limit 1)</Label>
-                    <Input value={newRoom.videoUrl} onChange={e => setNewRoom(prev => ({ ...prev, videoUrl: e.target.value }))} placeholder="https://..." />
+                  <div className="grid gap-4 sm:grid-cols-2">
+                    <CloudinaryUpload
+                      label="Upload Room Photo Directly"
+                      acceptedTypes="image/*"
+                      onUploadSuccess={(url) => {
+                        setNewRoom(prev => ({ ...prev, photoUrl: url }));
+                        toast.success("Room photo uploaded successfully!");
+                      }}
+                    />
+                    <CloudinaryUpload
+                      label="Upload Room Video Directly"
+                      acceptedTypes="video/*"
+                      onUploadSuccess={(url) => {
+                        setNewRoom(prev => ({ ...prev, videoUrl: url }));
+                        toast.success("Room video tour uploaded successfully!");
+                      }}
+                    />
                   </div>
                 </CardContent>
                 <CardFooter>
@@ -934,7 +1170,14 @@ export default function AdminColodge() {
                             <p className="font-bold text-sm text-stone-800 dark:text-stone-200">{lg.name}</p>
                             <p className="text-xs text-stone-500">Loc: {loc?.name || 'Unknown'} ({lg.At}) | Images: {lg.gallery?.length || 0}</p>
                           </div>
-                          <Button size="sm" variant="ghost" className="text-red-500" onClick={() => handleDeleteLodge(lg.id)}><Trash2 className="h-4 w-4" /></Button>
+                          <div className="flex items-center gap-1 shrink-0">
+                            <Button size="sm" variant="ghost" className="text-indigo-600 hover:text-indigo-700 dark:text-indigo-400" onClick={() => setEditingLodge(lg)}>
+                              <Pencil className="h-4 w-4" />
+                            </Button>
+                            <Button size="sm" variant="ghost" className="text-red-500" onClick={() => handleDeleteLodge(lg.id)}>
+                              <Trash2 className="h-4 w-4" />
+                            </Button>
+                          </div>
                         </div>
                       );
                     })}
@@ -956,11 +1199,30 @@ export default function AdminColodge() {
                             <p className="text-xs text-stone-500">Lodge: {ldg?.name || 'Unknown'} | Price: ₦{rm.price.toLocaleString()}/yr</p>
                             <p className="text-xs mt-1">Status: <Badge className={
                               rm.status === 'available' ? 'bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-950/40 dark:text-emerald-400' :
-                              rm.status === 'in talks' ? 'bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-950/40 dark:text-amber-400' :
+                              ((rm.status as string) === 'in talks' || (rm.status as string) === 'in_talks') ? 'bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-950/40 dark:text-amber-400' :
                               'bg-stone-100 text-stone-700 border-stone-200 dark:bg-stone-800 dark:text-stone-300'
-                            } variant="outline">{rm.status}</Badge></p>
+                            } variant="outline">{rm.status.replace(/_/g, ' ')}</Badge></p>
                           </div>
-                          <Button size="sm" variant="ghost" className="text-red-500" onClick={() => handleDeleteRoom(rm.id)}><Trash2 className="h-4 w-4" /></Button>
+                          <div className="flex flex-col items-end gap-1.5 shrink-0">
+                            <div className="flex items-center gap-1">
+                              <Button size="sm" variant="ghost" className="text-indigo-600 hover:text-indigo-700 dark:text-indigo-400" onClick={() => setEditingRoom(rm)}>
+                                <Pencil className="h-4 w-4" />
+                              </Button>
+                              <Button size="sm" variant="ghost" className="text-red-500" onClick={() => handleDeleteRoom(rm.id)}>
+                                <Trash2 className="h-4 w-4" />
+                              </Button>
+                            </div>
+                            {((rm.status as string) === 'in talks' || (rm.status as string) === 'in_talks') && (
+                              <Button
+                                size="xs"
+                                variant="outline"
+                                className="bg-amber-50 text-amber-700 hover:bg-amber-100 hover:text-amber-800 border-amber-200 dark:bg-amber-950/30 dark:text-amber-400 dark:border-amber-900/50 flex items-center gap-1 font-bold text-[11px]"
+                                onClick={() => handleReleaseRoomFromTalks(rm.id)}
+                              >
+                                <XCircle className="h-3 w-3" /> Release
+                              </Button>
+                            )}
+                          </div>
                         </div>
                       );
                     })}
@@ -968,6 +1230,552 @@ export default function AdminColodge() {
                 )}
               </div>
             </CardContent>
+          </Card>
+        </div>
+      )}
+
+      {/* 6. AGENT WITHDRAWALS */}
+      {activeTab === 'withdrawals' && (
+        <Card className="border-stone-200/80 dark:border-stone-800 shadow-sm">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <CreditCard className="h-5 w-5 text-indigo-600" /> Withdrawal Requests
+            </CardTitle>
+            <CardDescription>
+              Review and process withdrawal requests submitted by university agents. Ensure bank details are verified before dispersing payouts.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            {withdrawals.length === 0 ? (
+              <div className="text-center py-12 text-stone-400">No withdrawal requests found.</div>
+            ) : (
+              <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                {withdrawals.map(req => (
+                  <Card key={req.id} className="border border-stone-200 dark:border-stone-800 shadow-xs hover:shadow-md transition-shadow">
+                    <CardHeader className="pb-2">
+                      <div className="flex items-center justify-between">
+                        <Badge className="font-mono text-xs tracking-wider bg-indigo-50 text-indigo-700 dark:bg-indigo-950/40 dark:text-indigo-400 border border-indigo-200">
+                          {req.ticketCode || 'WDL-N/A'}
+                        </Badge>
+                        <Badge className={`text-xs ${
+                          req.status === 'pending' ? 'bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-950/40 dark:text-amber-400' :
+                          req.status === 'approved' ? 'bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-950/40 dark:text-emerald-400' :
+                          'bg-red-50 text-red-700 border-red-200 dark:bg-red-950/40 dark:text-red-400'
+                        }`} variant="outline">
+                          {req.status}
+                        </Badge>
+                      </div>
+                      <CardTitle className="text-lg mt-3 font-bold text-stone-800 dark:text-stone-200">
+                        ₦{req.amount?.toLocaleString()}
+                      </CardTitle>
+                      <CardDescription>
+                        by {req.agentGovernmentName || req.agentName}
+                      </CardDescription>
+                    </CardHeader>
+                    <CardContent className="pb-3 text-xs text-stone-500 space-y-1.5">
+                      <p>Bank: <span className="font-semibold text-stone-700 dark:text-stone-300">{req.bankName}</span></p>
+                      <p>Account: <span className="font-mono font-semibold text-stone-700 dark:text-stone-300">{req.bankAccount}</span></p>
+                      <p className="text-[10px] text-stone-400">Submitted: {new Date(req.createdAt).toLocaleString()}</p>
+                    </CardContent>
+                    <CardFooter className="flex justify-between gap-2 pt-0">
+                      <Button 
+                        size="sm" 
+                        variant="outline" 
+                        className="flex-1 flex items-center justify-center gap-1 text-xs"
+                        onClick={() => setSelectedWithdrawalForInfo(req)}
+                      >
+                        <Info className="h-3.5 w-3.5" /> See Info
+                      </Button>
+                      {req.status === 'pending' && (
+                        <div className="flex gap-1 flex-1">
+                          <Button 
+                            size="xs" 
+                            onClick={() => handleApproveWithdrawal(req.id)}
+                            className="bg-emerald-600 hover:bg-emerald-700 text-white flex-1 font-bold text-xs"
+                          >
+                            Approve
+                          </Button>
+                          <Button 
+                            size="xs" 
+                            variant="destructive" 
+                            onClick={() => handleRejectWithdrawal(req)}
+                            className="flex-1 font-bold text-xs"
+                          >
+                            Reject
+                          </Button>
+                        </div>
+                      )}
+                    </CardFooter>
+                  </Card>
+                ))}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Withdrawal See Info Modal Popup */}
+      {selectedWithdrawalForInfo && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4">
+          <Card className="max-w-md w-full shadow-2xl border-stone-200 dark:border-stone-800 bg-white dark:bg-stone-900">
+            <CardHeader className="pb-3 border-b border-stone-100 dark:border-stone-800 flex flex-row items-center justify-between">
+              <div>
+                <CardTitle className="text-xl font-bold text-indigo-600 dark:text-indigo-400 flex items-center gap-2">
+                  <CreditCard className="h-5 w-5" /> Payout Safe Check
+                </CardTitle>
+                <CardDescription>Double-check details before manual bank transfers to avoid errors.</CardDescription>
+              </div>
+              <Button size="sm" variant="ghost" className="h-8 w-8 p-0" onClick={() => setSelectedWithdrawalForInfo(null)}>
+                <X className="h-4 w-4" />
+              </Button>
+            </CardHeader>
+            <CardContent className="space-y-4 pt-4">
+              <div className="space-y-3">
+                <div className="p-3 bg-indigo-50/50 dark:bg-indigo-950/10 rounded-xl border border-indigo-100 dark:border-indigo-900/40">
+                  <span className="text-[10px] text-indigo-500 uppercase font-black tracking-widest">Withdrawal Ticket Code</span>
+                  <div className="flex items-center justify-between mt-0.5">
+                    <p className="font-mono text-lg font-black text-indigo-700 dark:text-indigo-400 tracking-wider">
+                      {selectedWithdrawalForInfo.ticketCode || 'WDL-N/A'}
+                    </p>
+                    <Button 
+                      size="xs" 
+                      variant="ghost" 
+                      onClick={() => {
+                        navigator.clipboard.writeText(selectedWithdrawalForInfo.ticketCode || '');
+                        toast.success("Ticket code copied!");
+                      }}
+                      className="text-indigo-600 h-6 px-1.5"
+                    >
+                      Copy
+                    </Button>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <span className="text-[10px] text-stone-400 uppercase font-bold">Withdrawal Time</span>
+                    <p className="text-sm font-semibold text-stone-800 dark:text-stone-200 mt-0.5">
+                      {new Date(selectedWithdrawalForInfo.createdAt).toLocaleTimeString()}
+                    </p>
+                  </div>
+                  <div>
+                    <span className="text-[10px] text-stone-400 uppercase font-bold">Withdrawal Date</span>
+                    <p className="text-sm font-semibold text-stone-800 dark:text-stone-200 mt-0.5">
+                      {new Date(selectedWithdrawalForInfo.createdAt).toLocaleDateString()}
+                    </p>
+                  </div>
+                </div>
+
+                <hr className="border-stone-100 dark:border-stone-800" />
+
+                <div className="space-y-2.5">
+                  <div>
+                    <span className="text-[10px] text-stone-400 uppercase font-bold">Agent Government Name</span>
+                    <p className="text-sm font-bold text-stone-900 dark:text-stone-100 bg-stone-50 dark:bg-stone-950 p-2 rounded border mt-0.5 select-all">
+                      {selectedWithdrawalForInfo.agentGovernmentName || 'N/A'}
+                    </p>
+                  </div>
+                  <div>
+                    <span className="text-[10px] text-stone-400 uppercase font-bold">Agent WhatsApp / Phone</span>
+                    <p className="text-sm font-semibold text-stone-800 dark:text-stone-200 mt-0.5 bg-stone-50 dark:bg-stone-950 p-2 rounded border select-all">
+                      {selectedWithdrawalForInfo.agentPhone || 'N/A'}
+                    </p>
+                  </div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <span className="text-[10px] text-stone-400 uppercase font-bold">Bank Name</span>
+                      <p className="text-sm font-semibold text-stone-800 dark:text-stone-200 mt-0.5 bg-stone-50 dark:bg-stone-950 p-2 rounded border">
+                        {selectedWithdrawalForInfo.bankName || 'N/A'}
+                      </p>
+                    </div>
+                    <div>
+                      <span className="text-[10px] text-stone-400 uppercase font-bold">Account Number</span>
+                      <p className="text-sm font-black font-mono text-stone-900 dark:text-stone-100 mt-0.5 bg-stone-50 dark:bg-stone-950 p-2 rounded border select-all tracking-widest text-emerald-600 dark:text-emerald-400">
+                        {selectedWithdrawalForInfo.bankAccount || 'N/A'}
+                      </p>
+                    </div>
+                  </div>
+                  <div>
+                    <span className="text-[10px] text-stone-400 uppercase font-bold">Payout Amount (90% after CoLearn 10% Share)</span>
+                    <p className="text-lg font-black text-emerald-600 dark:text-emerald-400 mt-0.5">
+                      ₦{(selectedWithdrawalForInfo.payoutAmount !== undefined ? selectedWithdrawalForInfo.payoutAmount : selectedWithdrawalForInfo.amount * 0.9)?.toLocaleString()}
+                    </p>
+                  </div>
+                </div>
+              </div>
+            </CardContent>
+            <CardFooter className="flex justify-end gap-2 border-t pt-3 mt-4 border-stone-100 dark:border-stone-800">
+              <Button onClick={() => setSelectedWithdrawalForInfo(null)} className="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold">
+                Done Check
+              </Button>
+            </CardFooter>
+          </Card>
+        </div>
+      )}
+
+      {/* Edit Lodge Modal */}
+      {editingLodge && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4 overflow-y-auto">
+          <Card className="max-w-2xl w-full shadow-2xl border-stone-200 dark:border-stone-800 bg-white dark:bg-stone-900 max-h-[90vh] overflow-y-auto">
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-3 border-b">
+              <div>
+                <CardTitle className="text-lg font-bold text-stone-900 dark:text-stone-100 flex items-center gap-2">
+                  <Building className="h-5 w-5 text-indigo-600" /> Edit Lodge Listing
+                </CardTitle>
+                <CardDescription>Review and modify the lodge details and image gallery.</CardDescription>
+              </div>
+              <Button size="icon-sm" variant="ghost" onClick={() => setEditingLodge(null)}>
+                <X className="h-4 w-4" />
+              </Button>
+            </CardHeader>
+            <form onSubmit={handleUpdateLodge}>
+              <CardContent className="space-y-4 pt-4">
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <div className="space-y-1">
+                    <Label htmlFor="edit-lodge-name">Lodge Name</Label>
+                    <Input 
+                      id="edit-lodge-name"
+                      required
+                      value={editingLodge.name} 
+                      onChange={e => setEditingLodge(prev => prev ? ({ ...prev, name: e.target.value }) : null)} 
+                      placeholder="E.g. Royal Heights Lodge" 
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <Label htmlFor="edit-lodge-location">Location & University</Label>
+                    <Select 
+                      value={editingLodge.locationId} 
+                      onValueChange={val => {
+                        const loc = locations.find(l => l.id === val);
+                        setEditingLodge(prev => prev ? ({ ...prev, locationId: val, At: loc?.At || '' }) : null);
+                      }}
+                    >
+                      <SelectTrigger id="edit-lodge-location">
+                        <SelectValue placeholder="Select location" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {locations.map(loc => (
+                          <SelectItem key={loc.id} value={loc.id}>{loc.name} ({loc.At})</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+
+                <div className="space-y-1">
+                  <Label htmlFor="edit-lodge-desc">Description</Label>
+                  <Textarea 
+                    id="edit-lodge-desc"
+                    required
+                    value={editingLodge.description} 
+                    onChange={e => setEditingLodge(prev => prev ? ({ ...prev, description: e.target.value }) : null)} 
+                    placeholder="Enter detailed descriptions, directions, features..." 
+                    rows={3}
+                  />
+                </div>
+
+                <div className="space-y-2 border-t pt-4">
+                  <div className="flex items-center justify-between">
+                    <Label className="text-sm font-semibold flex items-center gap-1.5 text-stone-800 dark:text-stone-200">
+                      <ImageIcon className="h-4 w-4 text-indigo-500" /> Lodge Image Gallery ({editingLodge.gallery?.length || 0})
+                    </Label>
+                    <span className="text-xs text-stone-400 font-medium">Add, remove or update the gallery</span>
+                  </div>
+
+                  {/* Cloudinary Gallery Upload */}
+                  <div className="grid gap-4 sm:grid-cols-2 border p-3 rounded-lg bg-stone-50/50 dark:bg-stone-900/30">
+                    <CloudinaryUpload
+                      label="Upload New Gallery Image Directly"
+                      acceptedTypes="image/*"
+                      onUploadSuccess={(url) => {
+                        setEditingLodge(prev => {
+                          if (!prev) return null;
+                          const currentGallery = prev.gallery || [];
+                          if (currentGallery.includes(url)) {
+                            toast.warning("This image is already in the gallery.");
+                            return prev;
+                          }
+                          toast.success("Image added to gallery!");
+                          return { ...prev, gallery: [...currentGallery, url] };
+                        });
+                      }}
+                    />
+                    <div className="space-y-1.5">
+                      <Label htmlFor="edit-lodge-gallery-manual">Or Add Image URL Manually</Label>
+                      <div className="flex gap-1.5">
+                        <Input 
+                          id="edit-lodge-gallery-manual"
+                          placeholder="https://..." 
+                          className="flex-1"
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') {
+                              e.preventDefault();
+                              const input = e.currentTarget;
+                              const url = input.value.trim();
+                              if (url) {
+                                setEditingLodge(prev => {
+                                  if (!prev) return null;
+                                  const currentGallery = prev.gallery || [];
+                                  if (currentGallery.includes(url)) {
+                                    toast.warning("This image is already in the gallery.");
+                                    return prev;
+                                  }
+                                  toast.success("URL added to gallery!");
+                                  input.value = '';
+                                  return { ...prev, gallery: [...currentGallery, url] };
+                                });
+                              }
+                            }
+                          }}
+                        />
+                        <Button 
+                          type="button" 
+                          size="sm"
+                          onClick={(e) => {
+                            const input = document.getElementById('edit-lodge-gallery-manual') as HTMLInputElement;
+                            const url = input?.value.trim();
+                            if (url) {
+                              setEditingLodge(prev => {
+                                if (!prev) return null;
+                                const currentGallery = prev.gallery || [];
+                                if (currentGallery.includes(url)) {
+                                  toast.warning("This image is already in the gallery.");
+                                  return prev;
+                                }
+                                toast.success("URL added to gallery!");
+                                if (input) input.value = '';
+                                return { ...prev, gallery: [...currentGallery, url] };
+                              });
+                            }
+                          }}
+                        >
+                          Add
+                        </Button>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Interactive Thumbnail Grid */}
+                  {(!editingLodge.gallery || editingLodge.gallery.length === 0) ? (
+                    <p className="text-stone-400 text-sm italic text-center py-4 border border-dashed rounded-lg">No images in gallery yet.</p>
+                  ) : (
+                    <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5 max-h-[220px] overflow-y-auto p-1.5 border rounded-lg bg-stone-50/20">
+                      {editingLodge.gallery.map((img, idx) => (
+                        <div key={idx} className="relative group/thumb border rounded-lg overflow-hidden bg-black/5 aspect-video flex items-center justify-center">
+                          <img src={img} alt={`Gallery item ${idx + 1}`} className="w-full h-full object-cover" onError={(e) => {
+                            (e.currentTarget as HTMLImageElement).src = 'https://images.unsplash.com/photo-1522708323590-d24dbb6b0267?auto=format&fit=crop&w=800&q=80';
+                          }} />
+                          <button 
+                            type="button"
+                            className="absolute inset-0 bg-black/60 opacity-0 group-hover/thumb:opacity-100 flex items-center justify-center text-white font-bold text-xs gap-1 transition-opacity"
+                            onClick={() => {
+                              setEditingLodge(prev => {
+                                if (!prev) return null;
+                                const currentGallery = prev.gallery || [];
+                                return { ...prev, gallery: currentGallery.filter((_, i) => i !== idx) };
+                              });
+                              toast.info("Image removed from gallery.");
+                            }}
+                          >
+                            <Trash2 className="h-4 w-4 text-red-400" /> Remove
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </CardContent>
+              <CardFooter className="flex justify-end gap-2 border-t pt-3">
+                <Button type="button" variant="outline" onClick={() => setEditingLodge(null)}>Cancel</Button>
+                <Button type="submit" className="bg-indigo-600 hover:bg-indigo-700 text-white font-semibold">Save Changes</Button>
+              </CardFooter>
+            </form>
+          </Card>
+        </div>
+      )}
+
+      {/* Edit Room Modal */}
+      {editingRoom && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4 overflow-y-auto">
+          <Card className="max-w-2xl w-full shadow-2xl border-stone-200 dark:border-stone-800 bg-white dark:bg-stone-900 max-h-[90vh] overflow-y-auto">
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-3 border-b">
+              <div>
+                <CardTitle className="text-lg font-bold text-stone-900 dark:text-stone-100 flex items-center gap-2">
+                  <Home className="h-5 w-5 text-indigo-600" /> Edit Room Listing
+                </CardTitle>
+                <CardDescription>Update the room status, price, and media attachments.</CardDescription>
+              </div>
+              <Button size="icon-sm" variant="ghost" onClick={() => setEditingRoom(null)}>
+                <X className="h-4 w-4" />
+              </Button>
+            </CardHeader>
+            <form onSubmit={handleUpdateRoom}>
+              <CardContent className="space-y-4 pt-4">
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <div className="space-y-1">
+                    <Label htmlFor="edit-room-name">Room Name / Label</Label>
+                    <Input 
+                      id="edit-room-name"
+                      required
+                      value={editingRoom.name} 
+                      onChange={e => setEditingRoom(prev => prev ? ({ ...prev, name: e.target.value }) : null)} 
+                      placeholder="E.g. Room A1 (Ground Floor)" 
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <Label htmlFor="edit-room-price">Price (₦ per Year)</Label>
+                    <div className="relative">
+                      <span className="absolute left-2.5 top-2.5 text-stone-400 text-sm">₦</span>
+                      <Input 
+                        id="edit-room-price"
+                        type="number"
+                        required
+                        className="pl-7"
+                        value={editingRoom.price} 
+                        onChange={e => setEditingRoom(prev => prev ? ({ ...prev, price: Number(e.target.value) || 0 }) : null)} 
+                        placeholder="E.g. 150000" 
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <div className="space-y-1">
+                    <Label htmlFor="edit-room-lodge">Parent Lodge</Label>
+                    <Select 
+                      value={editingRoom.lodgeId} 
+                      onValueChange={val => setEditingRoom(prev => prev ? ({ ...prev, lodgeId: val }) : null)}
+                    >
+                      <SelectTrigger id="edit-room-lodge">
+                        <SelectValue placeholder="Select parent lodge" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {lodges.map(l => (
+                          <SelectItem key={l.id} value={l.id}>{l.name}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-1">
+                    <Label htmlFor="edit-room-status">Availability Status</Label>
+                    <Select 
+                      value={((editingRoom.status as string) === 'in_talks') ? 'in talks' : editingRoom.status} 
+                      onValueChange={val => setEditingRoom(prev => prev ? ({ ...prev, status: val as any }) : null)}
+                    >
+                      <SelectTrigger id="edit-room-status">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="available">Available</SelectItem>
+                        <SelectItem value="in talks">In Talks</SelectItem>
+                        <SelectItem value="rented">Rented</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+
+                <div className="space-y-1">
+                  <Label htmlFor="edit-room-desc">Description</Label>
+                  <Textarea 
+                    id="edit-room-desc"
+                    required
+                    value={editingRoom.description} 
+                    onChange={e => setEditingRoom(prev => prev ? ({ ...prev, description: e.target.value }) : null)} 
+                    placeholder="E.g. Ensuite bathroom, well ventilated, security..." 
+                    rows={3}
+                  />
+                </div>
+
+                <div className="space-y-3 border-t pt-4">
+                  <h5 className="font-semibold text-sm text-stone-800 dark:text-stone-200">Room Media Attachments</h5>
+                  
+                  {/* Photo Attachment */}
+                  <div className="border p-3 rounded-lg space-y-3 bg-stone-50/50 dark:bg-stone-900/30">
+                    <div className="flex items-center justify-between">
+                      <Label className="font-medium text-xs flex items-center gap-1"><ImageIcon className="h-3.5 w-3.5 text-indigo-500" /> Room Photo URL</Label>
+                      {editingRoom.photoUrl && (
+                        <a href={editingRoom.photoUrl} target="_blank" rel="noopener noreferrer" className="text-[11px] text-indigo-600 hover:underline">View Current Photo</a>
+                      )}
+                    </div>
+                    <Input 
+                      value={editingRoom.photoUrl} 
+                      onChange={e => setEditingRoom(prev => prev ? ({ ...prev, photoUrl: e.target.value }) : null)} 
+                      placeholder="https://..." 
+                    />
+                    <CloudinaryUpload
+                      label="Upload New Photo Directly"
+                      acceptedTypes="image/*"
+                      onUploadSuccess={(url) => {
+                        setEditingRoom(prev => prev ? ({ ...prev, photoUrl: url }) : null);
+                        toast.success("New room photo uploaded successfully!");
+                      }}
+                    />
+                  </div>
+
+                  {/* Video Attachment */}
+                  <div className="border p-3 rounded-lg space-y-3 bg-stone-50/50 dark:bg-stone-900/30">
+                    <div className="flex items-center justify-between">
+                      <Label className="font-medium text-xs flex items-center gap-1"><Film className="h-3.5 w-3.5 text-indigo-500" /> Room Video URL (Limit 1)</Label>
+                      {editingRoom.videoUrl && (
+                        <a href={editingRoom.videoUrl} target="_blank" rel="noopener noreferrer" className="text-[11px] text-indigo-600 hover:underline">View Current Video</a>
+                      )}
+                    </div>
+                    <Input 
+                      value={editingRoom.videoUrl || ''} 
+                      onChange={e => setEditingRoom(prev => prev ? ({ ...prev, videoUrl: e.target.value }) : null)} 
+                      placeholder="https://..." 
+                    />
+                    <CloudinaryUpload
+                      label="Upload New Video Directly"
+                      acceptedTypes="video/*"
+                      onUploadSuccess={(url) => {
+                        setEditingRoom(prev => prev ? ({ ...prev, videoUrl: url }) : null);
+                        toast.success("New room video uploaded successfully!");
+                      }}
+                    />
+                  </div>
+                </div>
+              </CardContent>
+              <CardFooter className="flex justify-end gap-2 border-t pt-3">
+                <Button type="button" variant="outline" onClick={() => setEditingRoom(null)}>Cancel</Button>
+                <Button type="submit" className="bg-indigo-600 hover:bg-indigo-700 text-white font-semibold">Save Changes</Button>
+              </CardFooter>
+            </form>
+          </Card>
+        </div>
+      )}
+
+      {confirmConfig.isOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4 animate-in fade-in duration-200">
+          <Card className="max-w-md w-full shadow-2xl border-stone-200 dark:border-stone-800 bg-white dark:bg-stone-900 overflow-hidden">
+            <CardHeader className="bg-stone-50 dark:bg-stone-950/40 border-b border-stone-100 dark:border-stone-800/80 pb-3">
+              <div className="flex items-center gap-2.5 text-indigo-600 dark:text-indigo-400">
+                <AlertTriangle className="h-5 w-5 text-amber-500 animate-pulse" />
+                <CardTitle className="text-base font-black tracking-tight">{confirmConfig.title}</CardTitle>
+              </div>
+            </CardHeader>
+            <CardContent className="pt-4 pb-2">
+              <p className="text-sm text-stone-600 dark:text-stone-300 leading-relaxed font-medium">
+                {confirmConfig.message}
+              </p>
+            </CardContent>
+            <CardFooter className="flex justify-end gap-2 border-t border-stone-100 dark:border-stone-800/80 pt-3 pb-3">
+              <Button 
+                variant="outline" 
+                size="sm" 
+                className="font-semibold text-stone-600 hover:text-stone-800"
+                onClick={() => setConfirmConfig(prev => ({ ...prev, isOpen: false }))}
+              >
+                Cancel
+              </Button>
+              <Button 
+                className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold" 
+                size="sm" 
+                onClick={confirmConfig.onConfirm}
+              >
+                Confirm
+              </Button>
+            </CardFooter>
           </Card>
         </div>
       )}

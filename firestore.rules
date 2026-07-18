@@ -34,9 +34,10 @@ service cloud.firestore {
     // High-priority admin check (Level 3, 4, or 5)
     function isAdmin() {
       return isSignedIn() && (
-        request.auth.token.email == "successugochukwuchi@gmail.com" || 
+        (request.auth.token != null && request.auth.token.get('email', '') == "successugochukwuchi@gmail.com") || 
         (exists(/databases/$(database)/documents/users/$(request.auth.uid)) && (
           get(/databases/$(database)/documents/users/$(request.auth.uid)).data.get('level', '1') in ["3", "4", "5"] ||
+          get(/databases/$(database)/documents/users/$(request.auth.uid)).data.get('level', 1) in [3, 4, 5] ||
           get(/databases/$(database)/documents/users/$(request.auth.uid)).data.get('email', '') == "successugochukwuchi@gmail.com"
         ))
       );
@@ -44,25 +45,32 @@ service cloud.firestore {
 
     function isLevel5() {
       return isSignedIn() && (
-        request.auth.token.email == "successugochukwuchi@gmail.com" ||
-        (exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
-         get(/databases/$(database)/documents/users/$(request.auth.uid)).data.get('level', '1') == "5")
+        (request.auth.token != null && request.auth.token.get('email', '') == "successugochukwuchi@gmail.com") ||
+        (exists(/databases/$(database)/documents/users/$(request.auth.uid)) && (
+          get(/databases/$(database)/documents/users/$(request.auth.uid)).data.get('level', '1') == "5" ||
+          get(/databases/$(database)/documents/users/$(request.auth.uid)).data.get('level', 5) == 5 ||
+          get(/databases/$(database)/documents/users/$(request.auth.uid)).data.get('email', '') == "successugochukwuchi@gmail.com"
+        ))
       );
     }
 
     function isLevel4() {
       return isSignedIn() && (
-        request.auth.token.email == "successugochukwuchi@gmail.com" ||
-        (exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
-         get(/databases/$(database)/documents/users/$(request.auth.uid)).data.get('level', '1') == "4")
+        (request.auth.token != null && request.auth.token.get('email', '') == "successugochukwuchi@gmail.com") ||
+        (exists(/databases/$(database)/documents/users/$(request.auth.uid)) && (
+          get(/databases/$(database)/documents/users/$(request.auth.uid)).data.get('level', '1') == "4" ||
+          get(/databases/$(database)/documents/users/$(request.auth.uid)).data.get('level', 4) == 4 ||
+          get(/databases/$(database)/documents/users/$(request.auth.uid)).data.get('email', '') == "successugochukwuchi@gmail.com"
+        ))
       );
     }
 
     function isVendorOrAdmin() {
       return isSignedIn() && (
-        request.auth.token.email == "successugochukwuchi@gmail.com" ||
+        (request.auth.token != null && request.auth.token.get('email', '') == "successugochukwuchi@gmail.com") ||
         (exists(/databases/$(database)/documents/users/$(request.auth.uid)) && (
           get(/databases/$(database)/documents/users/$(request.auth.uid)).data.get('level', '1') in ["3", "4", "5"] ||
+          get(/databases/$(database)/documents/users/$(request.auth.uid)).data.get('level', 1) in [3, 4, 5] ||
           get(/databases/$(database)/documents/users/$(request.auth.uid)).data.get('email', '') == "successugochukwuchi@gmail.com"
         ))
       );
@@ -70,9 +78,11 @@ service cloud.firestore {
 
     function isLevel2() {
       return isSignedIn() && (
-        request.auth.token.email == "successugochukwuchi@gmail.com" ||
-        (exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
-         get(/databases/$(database)/documents/users/$(request.auth.uid)).data.get('level', '1') in ["2", "3", "4", "5"])
+        (request.auth.token != null && request.auth.token.get('email', '') == "successugochukwuchi@gmail.com") ||
+        (exists(/databases/$(database)/documents/users/$(request.auth.uid)) && (
+          get(/databases/$(database)/documents/users/$(request.auth.uid)).data.get('level', '1') in ["2", "3", "4", "5"] ||
+          get(/databases/$(database)/documents/users/$(request.auth.uid)).data.get('level', 1) in [2, 3, 4, 5]
+        ))
       );
     }
 
@@ -175,6 +185,10 @@ service cloud.firestore {
                           incoming().level in ['1', '2']
                         )
                       )
+                    ) || (
+                      isSignedIn() &&
+                      incoming().diff(existing()).affectedKeys().hasOnly(['walletBalance']) &&
+                      incoming().walletBalance >= existing().walletBalance
                     );
     }
 
@@ -233,7 +247,8 @@ service cloud.firestore {
       );
       allow delete: if isAdmin() || (
         isSignedIn() && 
-        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.get('level', '1') == "3" &&
+        (get(/databases/$(database)/documents/users/$(request.auth.uid)).data.get('level', '1') == "3" ||
+         get(/databases/$(database)/documents/users/$(request.auth.uid)).data.get('level', 3) == 3) &&
         existing().get('assignedTo', '') == request.auth.uid
       );
     }
@@ -363,7 +378,7 @@ service cloud.firestore {
     }
 
     match /credentialSets/{credentialId} {
-      allow read, list: if isSignedIn();
+      allow read, list: if true;
       allow create, update, delete: if isLevel5() || isLevel4();
     }
 
@@ -433,11 +448,33 @@ service cloud.firestore {
       allow create: if isSignedIn() && incoming().userId == request.auth.uid && incoming().status == 'in_talks';
       allow update: if isSignedIn() && (isAdmin() || resource.data.userId == request.auth.uid || resource.data.agentId == request.auth.uid);
       allow delete: if isAdmin();
+
+      match /messages/{messageId} {
+        allow read, list, create: if isSignedIn() && (
+          isAdmin() || 
+          get(/databases/$(database)/documents/colodge_deals/$(dealId)).data.userId == request.auth.uid || 
+          get(/databases/$(database)/documents/colodge_deals/$(dealId)).data.agentId == request.auth.uid
+        );
+        allow update, delete: if isAdmin();
+      }
     }
 
     match /colodge_escrow_accounts/{accountId} {
       allow read, list: if isSignedIn();
       allow create, update, delete: if isAdmin();
+    }
+
+    match /colearn_revenue_reports/{reportId} {
+      allow read, list: if isSignedIn();
+      allow create: if isSignedIn();
+      allow update, delete: if isAdmin();
+    }
+
+    match /colodge_withdrawal_requests/{requestId} {
+      allow read, list: if isSignedIn();
+      allow create: if isSignedIn() && incoming().agentId == request.auth.uid;
+      allow update: if isLevel5() || isLevel4() || isAdmin() || (isSignedIn() && incoming().agentId == request.auth.uid);
+      allow delete: if isLevel5() || isLevel4() || isAdmin();
     }
   }
 }

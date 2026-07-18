@@ -102,6 +102,7 @@ export interface ColodgeDeal {
   disputeReason?: string;
   resolvedAt?: string;
   resolvedBy?: string;
+  agentCleared?: boolean;
 }
 
 export interface ColodgeEscrowAccount {

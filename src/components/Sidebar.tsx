@@ -54,6 +54,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ onClose, isCollapsed = false, 
   const isAtLeastLevel2 = profile?.level === '2' || profile?.level === '3' || profile?.level === '4' || profile?.level === '5';
   const isAdmin = profile?.level === '3' || profile?.level === '4' || profile?.level === '5';
   const isAdminPath = location.pathname.startsWith('/administrator');
+  const isColodgePath = location.pathname.startsWith('/colodge');
 
   interface SidebarNavItem {
     name: string;
@@ -77,6 +78,16 @@ export const Sidebar: React.FC<SidebarProps> = ({ onClose, isCollapsed = false, 
     { name: 'Friends', path: '/friends', icon: UserPlus },
     { name: 'Compete', path: '/compete', icon: Trophy },
     { name: 'Referrals', path: '/referrals', icon: Users },
+  ];
+
+  const colodgeNavItems: SidebarNavItem[] = [
+    { name: 'Lodge Towns', path: '/colodge?view=student_locations', icon: Compass },
+    ...(profile?.colodge_agent ? [
+      { name: 'Agent Dashboard', path: '/colodge?view=agent_dashboard', icon: LayoutDashboard },
+    ] : [
+      { name: 'Become an Agent', path: '/colodge?view=become_agent', icon: Award }
+    ]),
+    { name: 'Back to Main Menu', path: '/dashboard', icon: ChevronRight }
   ];
 
   const adminNavItems: SidebarNavItem[] = [
@@ -130,6 +141,10 @@ export const Sidebar: React.FC<SidebarProps> = ({ onClose, isCollapsed = false, 
       if (profile?.level === '3') return level3AdminNavItems;
       return level2AdminNavItems;
     }
+
+    if (isColodgePath) {
+      return colodgeNavItems;
+    }
     
     return studentNavItems;
   };
@@ -154,7 +169,17 @@ export const Sidebar: React.FC<SidebarProps> = ({ onClose, isCollapsed = false, 
           )}
         >
           {isFluxMode ? <Zap className="fill-pink-500 h-5 w-5" /> : null}
-          {isCollapsed ? <span className="font-extrabold tracking-tighter text-sidebar-primary">C</span> : <>COLEARN {isFluxMode && <span className="text-white">FLUX</span>}</>}
+          {isCollapsed ? (
+            <span className="font-extrabold tracking-tighter text-sidebar-primary">C</span>
+          ) : (
+            <>
+              {isColodgePath ? (
+                <span className="text-sidebar-primary flex items-center gap-1">CO<span className="text-neutral-800 dark:text-neutral-200">LODGE</span></span>
+              ) : (
+                <>COLEARN {isFluxMode && <span className="text-white">FLUX</span>}</>
+              )}
+            </>
+          )}
         </Link>
         {!onClose && onToggleCollapse && (
           <Button 
@@ -190,11 +215,28 @@ export const Sidebar: React.FC<SidebarProps> = ({ onClose, isCollapsed = false, 
         <div className="py-2">
           {!isCollapsed && (
             <p className="px-3 text-xs font-semibold text-sidebar-foreground/50 uppercase tracking-wider mb-2">
-              {isFluxMode ? 'Flux Ecosystem' : 'Main Menu'}
+              {isFluxMode ? 'Flux Ecosystem' : isColodgePath ? 'CoLodge Menu' : 'Main Menu'}
             </p>
           )}
           {navItems.map((item) => {
-            const isActive = location.pathname === item.path;
+            const itemPathName = item.path.split('?')[0];
+            const itemQuery = item.path.split('?')[1];
+            const isPathActive = location.pathname === itemPathName;
+            
+            let isActive = false;
+            if (isPathActive) {
+              if (!itemQuery) {
+                // If this is the plain /colodge but we clicked it, check search params
+                if (itemPathName === '/colodge') {
+                  isActive = !location.search || location.search.includes('view=student_locations');
+                } else {
+                  isActive = true;
+                }
+              } else {
+                isActive = location.search.includes(itemQuery);
+              }
+            }
+
             return (
               <Link
                 key={item.path}

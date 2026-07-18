@@ -81,6 +81,7 @@ import { cn } from '../lib/utils';
 import { SafeMathRenderer, prepareMarkdownMath } from './SafeMathRenderer';
 import { magicNoteCreator } from '../services/aiService';
 import { VideoPlayer } from './VideoPlayer';
+import { CloudinaryUpload } from './CloudinaryUpload';
 import { toast } from 'sonner';
 import { doc, onSnapshot } from 'firebase/firestore';
 import { db } from '../firebase';
@@ -694,12 +695,22 @@ const SortableBlock = ({ block, onUpdate, onDelete, onFocus, isPreview }: Sortab
         )}
         {block.type === 'diagram' && (
           <div className="space-y-4">
-            <Input 
-              value={block.content} 
-              onChange={(e) => onUpdate(block.id, e.target.value)}
-              placeholder="Enter Image/Diagram URL"
-              className="bg-muted/50 border-none focus-visible:ring-0"
-            />
+            <div className="grid gap-4 md:grid-cols-2 items-end bg-muted/20 p-3 rounded-lg border border-border/40">
+              <div className="space-y-1.5">
+                <Label className="text-xs font-semibold text-muted-foreground">Image/Diagram URL</Label>
+                <Input 
+                  value={block.content} 
+                  onChange={(e) => onUpdate(block.id, e.target.value)}
+                  placeholder="Enter Image/Diagram URL"
+                  className="bg-muted/50 border-none focus-visible:ring-0"
+                />
+              </div>
+              <CloudinaryUpload 
+                onUploadSuccess={(url) => onUpdate(block.id, url)}
+                acceptedTypes="image/*"
+                label="Or Upload Diagram to Cloudinary"
+              />
+            </div>
             {block.content && (
               <div className="relative border-2 border-dashed border-muted-foreground/20 rounded-xl p-8 bg-muted/5 flex justify-center min-h-[200px]">
                     <Rnd
@@ -778,13 +789,23 @@ const SortableBlock = ({ block, onUpdate, onDelete, onFocus, isPreview }: Sortab
         )}
         {block.type === 'video' && (
           <div className="space-y-4">
-            <div className="flex items-center gap-2">
-              <Video className="h-4 w-4 text-pink-500" />
-              <Input 
-                value={block.content} 
-                onChange={(e) => onUpdate(block.id, e.target.value)}
-                placeholder="Enter Video URL (YouTube embed or direct link)"
-                className="bg-muted/50 border-none focus-visible:ring-0"
+            <div className="grid gap-4 md:grid-cols-2 items-end bg-muted/20 p-3 rounded-lg border border-border/40">
+              <div className="space-y-1.5">
+                <div className="flex items-center gap-2 mb-1">
+                  <Video className="h-4 w-4 text-pink-500" />
+                  <span className="text-xs font-semibold text-muted-foreground">Video URL (YouTube or direct link)</span>
+                </div>
+                <Input 
+                  value={block.content} 
+                  onChange={(e) => onUpdate(block.id, e.target.value)}
+                  placeholder="Enter Video URL (YouTube embed or direct link)"
+                  className="bg-muted/50 border-none focus-visible:ring-0"
+                />
+              </div>
+              <CloudinaryUpload 
+                onUploadSuccess={(url) => onUpdate(block.id, url)}
+                acceptedTypes="video/*"
+                label="Or Upload Video to Cloudinary"
               />
             </div>
             {block.content && (

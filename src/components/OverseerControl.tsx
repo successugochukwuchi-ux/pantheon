@@ -596,28 +596,31 @@ export default function OverseerControl() {
       // Sort chronological by timestamp
       detailedPins.sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
 
-      // Fetch CoLodge commissions for this university in the selected month
+      // Fetch CoLodge commissions from approved withdrawals for this university in the selected month
       let colodgeCommissionRevenue = 0;
       try {
-        const colodgeQ = query(collection(db, 'colearn_revenue_reports'), where('At', '==', revUni));
+        const colodgeQ = query(collection(db, 'colodge_withdrawal_requests'), where('At', '==', revUni));
         const colodgeSnap = await getDocs(colodgeQ);
-        const colodgeReports = colodgeSnap.docs.map(d => d.data() as any);
+        const colodgeWithdrawals = colodgeSnap.docs.map(d => d.data() as any);
 
-        const filteredColodgeReports = colodgeReports.filter(r => {
-          if (!r.createdAt) return false;
-          const dealDate = new Date(r.createdAt);
-          return dealDate >= startOfChosenMonth && dealDate <= endOfChosenMonth;
+        const filteredWithdrawals = colodgeWithdrawals.filter(w => {
+          if (w.status !== 'approved') return false;
+          const dateStr = w.processedAt || w.createdAt;
+          if (!dateStr) return false;
+          const wDate = new Date(dateStr);
+          return wDate >= startOfChosenMonth && wDate <= endOfChosenMonth;
         });
 
-        filteredColodgeReports.forEach(r => {
-          colodgeCommissionRevenue += (r.colearnCommission || 0);
+        filteredWithdrawals.forEach(w => {
+          const commission = w.colearnCommission !== undefined ? w.colearnCommission : (w.amount * 0.1);
+          colodgeCommissionRevenue += commission;
         });
 
         if (colodgeCommissionRevenue > 0) {
-          details.push(`CoLodge Commissions: NGN ${colodgeCommissionRevenue.toLocaleString()} (${filteredColodgeReports.length} Deals Completed)`);
+          details.push(`CoLodge Commissions (Approved Withdrawals): NGN ${colodgeCommissionRevenue.toLocaleString()} (${filteredWithdrawals.length} Payouts Processed)`);
         }
       } catch (colodgeErr) {
-        console.warn("Could not load colodge commissions for report, defaulting to 0:", colodgeErr);
+        console.warn("Could not load colodge commissions from withdrawals, defaulting to 0:", colodgeErr);
       }
 
       setCalculatedRevenue({
@@ -669,7 +672,7 @@ export default function OverseerControl() {
         ["Grand Total Revenue", `NGN ${calculatedRevenue.grandTotal.toLocaleString()}`],
         ["Standard PIN Income", `NGN ${calculatedRevenue.standardTotalRevenue.toLocaleString()}`, `${calculatedRevenue.standardTransferred + calculatedRevenue.standardUsedDirect} Pins`],
         ["PLUS PIN Income", `NGN ${calculatedRevenue.plusTotalRevenue.toLocaleString()}`, `${calculatedRevenue.plusTransferred + calculatedRevenue.plusUsedDirect} Pins`],
-        ["CoLodge Commissions", `NGN ${(calculatedRevenue.colodgeCommissionRevenue || 0).toLocaleString()}`, "10% commission on lodging deals"],
+        ["CoLodge Commissions", `NGN ${(calculatedRevenue.colodgeCommissionRevenue || 0).toLocaleString()}`, "10% commission on withdrawn agent fees"],
         [],
         ["BREAKDOWN COUNTS"],
         ["Standard Pins Transferred", calculatedRevenue.standardTransferred],
@@ -1418,7 +1421,7 @@ export default function OverseerControl() {
                   <span className="text-xs text-muted-foreground block">CoLodge Commission</span>
                   <span className="font-bold text-lg text-primary">₦{(calculatedRevenue.colodgeCommissionRevenue || 0).toLocaleString()}</span>
                   <p className="text-xs text-muted-foreground">
-                    10% share of completed lodging deals
+                    10% share of processed agent withdrawals
                   </p>
                 </div>
               </div>
