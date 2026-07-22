@@ -119,9 +119,24 @@ export function getDownloadedCoursesLocal(): any[] {
   const db = getDatabase();
   if (!db || !db.getAllSync) return [];
   try {
-    return db.getAllSync('SELECT * FROM courses WHERE isDownloaded = 1') || [];
+    const downloaded = db.getAllSync('SELECT * FROM courses WHERE isDownloaded = 1') || [];
+    if (downloaded.length > 0) return downloaded;
+    // Fallback: return all cached local courses if no course explicitly marked as downloaded
+    return db.getAllSync('SELECT * FROM courses') || [];
   } catch (e) {
     console.error('Error fetching downloaded courses:', e);
+    return [];
+  }
+}
+
+// Helper to get all local courses in SQLite regardless of isDownloaded flag
+export function getAllLocalCourses(): any[] {
+  const db = getDatabase();
+  if (!db || !db.getAllSync) return [];
+  try {
+    return db.getAllSync('SELECT * FROM courses') || [];
+  } catch (e) {
+    console.error('Error fetching all local courses:', e);
     return [];
   }
 }

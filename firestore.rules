@@ -160,15 +160,7 @@ service cloud.firestore {
              (data.get('theme', null) == null || data.theme is string) &&
              (data.get('photoURL', null) == null || data.photoURL is string) &&
              (data.get('currentSessionId', null) == null || data.currentSessionId is string) &&
-             (data.get('createdAt', null) == null || data.createdAt is string) &&
-             (data.get('colodge_agent', null) == null || data.colodge_agent is bool) &&
-             (data.get('agentFee', null) == null || data.agentFee is number) &&
-             (data.get('agentFeeHistory', null) == null || data.agentFeeHistory is list) &&
-             (data.get('walletBalance', null) == null || data.walletBalance is number) &&
-             (data.get('agentBankAccount', null) == null || data.agentBankAccount is string) &&
-             (data.get('agentBankName', null) == null || data.agentBankName is string) &&
-             (data.get('agentGovernmentName', null) == null || data.agentGovernmentName is string) &&
-             (data.get('agentTicketCode', null) == null || data.agentTicketCode is string);
+             (data.get('createdAt', null) == null || data.createdAt is string);
     }
 
     match /users/{userId} {
@@ -177,7 +169,7 @@ service cloud.firestore {
                       incoming().isActivated == (incoming().email == "successugochukwuchi@gmail.com");
       allow update: if isAdmin() || (
                       isOwner(userId) && (
-                        (incoming().diff(existing()).affectedKeys().hasOnly(['username', 'username_lower', 'theme', 'referredBy', 'mobileNumber', 'photoURL', 'currentSessionId', 'At', 'department', 'academicLevel', 'isOnboarded', 'agentFee', 'agentFeeHistory', 'walletBalance', 'colodge_agent', 'agentBankAccount', 'agentBankName', 'agentGovernmentName', 'agentTicketCode']) && isValidUser(incoming())) ||
+                        (incoming().diff(existing()).affectedKeys().hasOnly(['username', 'username_lower', 'theme', 'referredBy', 'mobileNumber', 'photoURL', 'currentSessionId', 'At', 'department', 'academicLevel', 'isOnboarded']) && isValidUser(incoming())) ||
                         (
                           incoming().diff(existing()).affectedKeys().hasOnly(['isActivated', 'activatedViaPromo', 'level', 'currentSessionId']) &&
                           existing().isActivated == false &&
@@ -185,10 +177,6 @@ service cloud.firestore {
                           incoming().level in ['1', '2']
                         )
                       )
-                    ) || (
-                      isSignedIn() &&
-                      incoming().diff(existing()).affectedKeys().hasOnly(['walletBalance']) &&
-                      incoming().walletBalance >= existing().walletBalance
                     );
     }
 
@@ -398,83 +386,10 @@ service cloud.firestore {
       }
     }
 
-    // ===============================================================
-    // CoLodge Security Rules
-    // ===============================================================
-
-    function isColodgeAgent() {
-      return isSignedIn() && 
-             exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
-             get(/databases/$(database)/documents/users/$(request.auth.uid)).data.get('colodge_agent', false) == true;
-    }
-
-    match /system/colodge {
-      allow read: if isSignedIn();
-      allow write: if isAdmin();
-    }
-
-    match /colodge_locations/{locationId} {
-      allow read, list: if isSignedIn();
-      allow create, update: if isAdmin() || (isColodgeAgent() && get(/databases/$(database)/documents/system/colodge).data.get('agentsCanAddLodges', false) == true);
-      allow delete: if isAdmin();
-    }
-
-    match /colodge_lodges/{lodgeId} {
-      allow read, list: if isSignedIn();
-      allow create, update: if isAdmin() || (isColodgeAgent() && get(/databases/$(database)/documents/system/colodge).data.get('agentsCanAddLodges', false) == true);
-      allow delete: if isAdmin();
-    }
-
-    match /colodge_rooms/{roomId} {
-      allow read, list: if isSignedIn();
-      allow create: if isAdmin() || (isColodgeAgent() && get(/databases/$(database)/documents/system/colodge).data.get('agentsCanAddLodges', false) == true);
-      allow update: if isAdmin() || 
-                    (isColodgeAgent() && get(/databases/$(database)/documents/system/colodge).data.get('agentsCanAddLodges', false) == true) || 
-                    (isSignedIn() && (
-                      incoming().diff(existing()).affectedKeys().hasOnly(['status', 'inTalksWith', 'rentedBy'])
-                    ));
-      allow delete: if isAdmin();
-    }
-
-    match /colodge_agent_applications/{uid} {
-      allow read: if isOwner(uid) || isAdmin();
-      allow list: if isAdmin();
-      allow create: if isOwner(uid) && incoming().status == 'pending';
-      allow update, delete: if isAdmin();
-    }
-
-    match /colodge_deals/{dealId} {
-      allow read, list: if isSignedIn() && (isAdmin() || resource.data.userId == request.auth.uid || resource.data.agentId == request.auth.uid);
-      allow create: if isSignedIn() && incoming().userId == request.auth.uid && incoming().status == 'in_talks';
-      allow update: if isSignedIn() && (isAdmin() || resource.data.userId == request.auth.uid || resource.data.agentId == request.auth.uid);
-      allow delete: if isAdmin();
-
-      match /messages/{messageId} {
-        allow read, list, create: if isSignedIn() && (
-          isAdmin() || 
-          get(/databases/$(database)/documents/colodge_deals/$(dealId)).data.userId == request.auth.uid || 
-          get(/databases/$(database)/documents/colodge_deals/$(dealId)).data.agentId == request.auth.uid
-        );
-        allow update, delete: if isAdmin();
-      }
-    }
-
-    match /colodge_escrow_accounts/{accountId} {
-      allow read, list: if isSignedIn();
-      allow create, update, delete: if isAdmin();
-    }
-
     match /colearn_revenue_reports/{reportId} {
       allow read, list: if isSignedIn();
       allow create: if isSignedIn();
       allow update, delete: if isAdmin();
-    }
-
-    match /colodge_withdrawal_requests/{requestId} {
-      allow read, list: if isSignedIn();
-      allow create: if isSignedIn() && incoming().agentId == request.auth.uid;
-      allow update: if isLevel5() || isLevel4() || isAdmin() || (isSignedIn() && incoming().agentId == request.auth.uid);
-      allow delete: if isLevel5() || isLevel4() || isAdmin();
     }
   }
 }

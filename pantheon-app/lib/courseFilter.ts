@@ -11,18 +11,22 @@ export async function getFilteredCoursesForStudent(
   applyLevelFilter = true,
   currentSemester?: string
 ): Promise<any[]> {
-  const isLevel4 = profile?.level === '4' || profile?.permissionLevel === '4';
-  const visibleCourses = allCourses.filter(course => isLevel4 || !(course.disabled === 1 || course.disabled === true));
+  const visibleCourses = allCourses.filter(course => !(course.disabled === 1 || course.disabled === true));
 
   if (!profile) return [];
 
-  // Level 3 (vendors) and Level 4 (admins) can see everything (Level 4 can see disabled too)
-  if (profile.level === '4' || profile.permissionLevel === '4') {
+  // Level 5 can see everything
+  if (profile.level === '5' || profile.permissionLevel === '5') {
     return allCourses;
   }
 
-  if (profile.level === '3' || profile.permissionLevel === '3') {
-    return visibleCourses;
+  // Level 4 can see all courses regardless of discipline as long as they match university
+  if (profile.level === '4' || profile.permissionLevel === '4') {
+    const userUni = (profile.At || 'futo').toLowerCase().trim();
+    return allCourses.filter(course => {
+      const courseUni = (course.At || 'futo').toLowerCase().trim();
+      return userUni === courseUni;
+    });
   }
 
   try {
@@ -36,9 +40,11 @@ export async function getFilteredCoursesForStudent(
       // Fallback to offline cache
       const cached = await AsyncStorage.getItem('colearn_disciplines_cache');
       if (cached) {
-        disciplines = JSON.parse(cached);
-      } else {
-        throw e; // Fallback to simple filtering if no cache exists
+        try {
+          disciplines = JSON.parse(cached);
+        } catch (parseErr) {
+          console.warn("Failed to parse disciplines cache:", parseErr);
+        }
       }
     }
 
@@ -107,7 +113,8 @@ export async function getFilteredCoursesForStudent(
         );
       } else {
         // Fallback when offline/cache-empty: allow direct department match or any course already downloaded
-        hasSharedDiscipline = isDirectDeptMatch || !!course.isDownloaded;
+        const isDownloaded = course.isDownloaded === 1 || course.isDownloaded === true || course.isDownloaded === '1';
+        hasSharedDiscipline = isDirectDeptMatch || isDownloaded;
       }
 
       if (!hasSharedDiscipline && !isDirectDeptMatch) {
@@ -137,7 +144,54 @@ export async function getFilteredCoursesForStudent(
     });
 
   } catch (error) {
-    console.error("Error filtering courses by discipline:", error);
-    return [];
+    console.error("Error filtering courses by discipline (falling back to simple matching):", error);
+    try {
+      const userDept = (profile.department || '').toLowerCase().trim();
+      const normalizeLvl = (lvl: string | number | undefined | null): string => {
+        if (!lvl) return '';
+        const s = String(lvl).toLowerCase().replace(/lvl|level/gi, '').trim();
+        const m = s.match(/\d+/);
+        return m ? m[0] : s;
+      };
+      const userLevelNorm = normalizeLvl(profile.academicLevel || profile.level || '100');
+      const normalizeSemester = (sem: string | undefined | null): string => {
+        if (!sem) return '';
+        const s = String(sem).toLowerCase().trim();
+        if (s.includes('1') || s.includes('first') || s.includes('harmattan')) return '1st';
+        if (s.includes('2') || s.includes('second') || s.includes('rain')) return '2nd';
+        return s;
+      };
+      const activeSemesterNorm = normalizeSemester(currentSemester || '1st');
+      const userUni = (profile.At || 'futo').toLowerCase().trim();
+
+      return visibleCourses.filter(course => {
+        const isDirectDeptMatch = course.department && course.department.toLowerCase().trim() === userDept;
+        const isDownloaded = course.isDownloaded === 1 || course.isDownloaded === true || course.isDownloaded === '1';
+        
+        if (!isDirectDeptMatch && !isDownloaded) {
+          return false;
+        }
+
+        const courseLevelNorm = normalizeLvl(course.level);
+        if (userLevelNorm !== courseLevelNorm) {
+          return false;
+        }
+
+        const courseSemesterNorm = normalizeSemester(course.semester);
+        if (courseSemesterNorm !== activeSemesterNorm) {
+          return false;
+        }
+
+        const courseUni = (course.At || 'futo').toLowerCase().trim();
+        if (userUni !== courseUni) {
+          return false;
+        }
+
+        return true;
+      });
+    } catch (fallbackErr) {
+      console.error("Critical failure in course filter fallback:", fallbackErr);
+      return [];
+    }
   }
 }

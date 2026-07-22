@@ -125,13 +125,11 @@ export default function CbtExamScreen() {
       
       // 1. Try local SQLite DB
       try {
-        if (isCourseDownloadedLocal(courseId)) {
-          const dbQs = getLocalQuestions(courseId);
-          if (dbQs && dbQs.length > 0) {
-            const shuffled = [...dbQs].sort(() => Math.random() - 0.5);
-            qList = shuffled.slice(0, numQ).map((q, i) => ({ ...q, num: i + 1 }));
-            console.log("[CbtExam] Questions loaded from local SQLite database:", qList.length);
-          }
+        const dbQs = getLocalQuestions(courseId);
+        if (dbQs && dbQs.length > 0) {
+          const shuffled = [...dbQs].sort(() => Math.random() - 0.5);
+          qList = shuffled.slice(0, numQ).map((q, i) => ({ ...q, num: i + 1 }));
+          console.log("[CbtExam] Questions loaded from local SQLite database:", qList.length);
         }
       } catch (err) {
         console.error("[CbtExam] Error loading local questions:", err);

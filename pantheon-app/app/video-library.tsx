@@ -111,7 +111,7 @@ export default function VideoLibraryScreen() {
     );
     getDocs(q).then(async (snapshot) => {
       const allCourses = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Course));
-      const filtered = await getFilteredCoursesForStudent(allCourses, profile, true);
+      const filtered = await getFilteredCoursesForStudent(allCourses, profile, true, activeSemester);
       filtered.sort((a, b) => (a.code || '').localeCompare(b.code || ''));
       setCourses(filtered);
       

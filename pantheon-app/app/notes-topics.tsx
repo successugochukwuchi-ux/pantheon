@@ -16,7 +16,7 @@ import { db, auth } from '../lib/firebase';
 import { useAuth } from '../context/AuthContext';
 import { F } from '../components/Theme';
 import { useTheme } from '../context/ThemeContext';
-import { isCourseDownloadedLocal, getLocalNotes, getDatabase } from '../lib/db';
+import { isCourseDownloadedLocal, getLocalNotes, getDatabase, saveNoteLocal } from '../lib/db';
 
 enum OperationType {
   CREATE = 'create',
@@ -110,12 +110,27 @@ export default function NotesTopicsScreen() {
       setLoading(true);
       
       try {
-        // Fetch Course and Notes either from local SQLite or Firestore
+        // Fetch Course and Notes from local SQLite first, fallback to Firestore if empty or offline
         let courseData: Course | null = null;
         let fetchedNotes: Note[] = [];
 
-        if (isCourseDownloadedLocal(courseId)) {
-          const localNotesData = getLocalNotes(courseId);
+        const localNotesData = getLocalNotes(courseId);
+        const ldb = getDatabase();
+        if (ldb && ldb.getFirstSync) {
+          const cRes = ldb.getFirstSync('SELECT * FROM courses WHERE id = ?', [courseId]) as any;
+          if (cRes) {
+            courseData = {
+              id: cRes.id,
+              code: cRes.code,
+              title: cRes.title,
+              semester: cRes.semester,
+              level: cRes.level,
+            } as Course;
+            setCourse(courseData);
+          }
+        }
+
+        if (localNotesData.length > 0) {
           fetchedNotes = localNotesData.map(n => ({
             id: n.id,
             title: n.title,
@@ -124,33 +139,16 @@ export default function NotesTopicsScreen() {
             order: n.order || 0,
             completed: false
           }));
-
-          const ldb = getDatabase();
-          if (ldb && ldb.getFirstSync) {
-            const cRes = ldb.getFirstSync('SELECT * FROM courses WHERE id = ?', [courseId]) as any;
-            if (cRes) {
-              courseData = {
-                id: cRes.id,
-                code: cRes.code,
-                title: cRes.title,
-                semester: cRes.semester,
-                level: cRes.level,
-              } as Course;
-            }
-          }
-          if (courseData) {
-            setCourse(courseData);
-          }
           console.log("[NotesTopics] Loaded from local SQLite database. Notes count:", fetchedNotes.length);
-        } else {
-          // Fetch Course from Firestore
-          const courseDoc = await getDoc(doc(db, 'courses', courseId));
-          if (courseDoc.exists()) {
-            courseData = { id: courseDoc.id, ...courseDoc.data() } as Course;
-            setCourse(courseData);
-            console.log("[NotesTopics] Course loaded from Firestore:", courseData.code);
-          } else {
-            console.warn("[NotesTopics] Course document not found on Firestore for ID:", courseId);
+        } else if (!isOffline) {
+          // Fetch Course from Firestore if not loaded locally
+          if (!courseData) {
+            const courseDoc = await getDoc(doc(db, 'courses', courseId));
+            if (courseDoc.exists()) {
+              courseData = { id: courseDoc.id, ...courseDoc.data() } as Course;
+              setCourse(courseData);
+              console.log("[NotesTopics] Course loaded from Firestore:", courseData.code);
+            }
           }
 
           // Fetch Notes from Firestore
@@ -159,11 +157,22 @@ export default function NotesTopicsScreen() {
             where('courseId', '==', courseId)
           );
           const snapshot = await getDocs(q);
-          fetchedNotes = snapshot.docs.map(doc => ({
-            id: doc.id,
-            ...doc.data(),
-            completed: false
-          })) as Note[];
+          fetchedNotes = snapshot.docs.map(doc => {
+            const data = doc.data();
+            const noteItem = {
+              id: doc.id,
+              courseId,
+              title: data.title || '',
+              content: data.content || '',
+              duration: data.duration || '10 mins',
+              tag: data.tag || 'CORE',
+              order: data.order || 0,
+              completed: false
+            };
+            // Cache in SQLite for future offline use
+            saveNoteLocal(noteItem);
+            return noteItem;
+          }) as Note[];
           console.log("[NotesTopics] Fetched notes from Firestore count:", fetchedNotes.length);
         }
 

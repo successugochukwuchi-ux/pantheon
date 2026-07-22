@@ -275,3 +275,13 @@ export function CalendarIcon({ color }: { color: string }) {
   );
 }
 
+export function LodgeIcon({ color }: { color: string }) {
+  return (
+    <View style={{ width: 22, height: 20, justifyContent: 'center', alignItems: 'center' }}>
+      <View style={{ width: 18, height: 16, borderWidth: 2, borderColor: color, borderRadius: 2 }} />
+      <View style={{ position: 'absolute', top: 3, width: 6, height: 4, borderWidth: 1.5, borderColor: color, borderRadius: 1 }} />
+      <View style={{ position: 'absolute', bottom: 0, width: 6, height: 6, backgroundColor: color }} />
+    </View>
+  );
+}
+

@@ -56,7 +56,6 @@ export default function RootLayout() {
         <Stack.Screen name="create-group" />
         <Stack.Screen name="add-members" />
         <Stack.Screen name="chat-room" />
-        <Stack.Screen name="note-grabber" />
         <Stack.Screen name="notifications" />
         <Stack.Screen name="chat-list" />
         <Stack.Screen name="course-discussion" />

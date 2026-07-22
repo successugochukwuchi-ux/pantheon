@@ -485,7 +485,7 @@ export default function TimetableScreen() {
 
     getDocs(coursesQuery).then(async (snapshot) => {
       const allFetched = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as any));
-      const relevant = await getFilteredCoursesForStudent(allFetched, profile, true);
+      const relevant = await getFilteredCoursesForStudent(allFetched, profile, true, semesterArg);
       setCourses(relevant);
     }).catch(err => {
       console.error("Error loading timetable courses:", err);

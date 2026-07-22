@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { Button, buttonVariants } from '../components/ui/button';
 import { cn } from '../lib/utils';
-import { BookOpen, Shield, Zap, Users, GraduationCap, ChevronRight, MessageCircle, History, LogIn, LayoutDashboard } from 'lucide-react';
+import { BookOpen, Shield, Zap, Users, GraduationCap, ChevronRight, MessageCircle, History, LogIn, LayoutDashboard, Smartphone, Download } from 'lucide-react';
 import { useTitle } from '../hooks/useTitle';
 import { useAuth } from '../contexts/AuthContext';
 import { SystemStatus } from '../components/SystemStatus';
@@ -24,6 +24,8 @@ export default function Landing() {
     window.open(`https://wa.me/${whatsappNumber}?text=${message}`, '_blank');
   };
 
+  const isAndroid = typeof navigator !== 'undefined' && /android/i.test(navigator.userAgent);
+
   return (
     <div className="flex flex-col min-h-screen">
       {/* Header */}
@@ -32,7 +34,18 @@ export default function Landing() {
           <Link to="/" className="flex items-center gap-2 font-bold text-2xl tracking-tighter text-primary">
             COLEARN
           </Link>
-          <nav className="flex items-center gap-4">
+          <nav className="flex items-center gap-3">
+            {isAndroid && (
+              <Link 
+                to="/download"
+                className={cn(buttonVariants({ variant: 'outline', size: 'sm' }), "rounded-full gap-2 border-indigo-500/40 text-indigo-600 dark:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-950/50 shadow-sm")}
+                title="Download Android App"
+              >
+                <Smartphone className="h-4 w-4 text-indigo-500" />
+                <span className="font-semibold text-xs sm:text-sm">Download App</span>
+              </Link>
+            )}
+
             {isAuthReady && user ? (
               <Link to="/dashboard" className={cn(buttonVariants({ size: 'sm' }), "rounded-full gap-2")}>
                 <LayoutDashboard className="h-4 w-4" />

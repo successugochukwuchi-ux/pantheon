@@ -8,7 +8,7 @@ import { Label } from './ui/label';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from './ui/card';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
 import { toast } from 'sonner';
-import { ShieldCheck, School, BookOpen, DollarSign, Calendar, TrendingUp, Key, Plus, List, Eye, FileDown } from 'lucide-react';
+import { ShieldCheck, School, BookOpen, DollarSign, Calendar, TrendingUp, Key, Plus, List, Eye, FileDown, Smartphone } from 'lucide-react';
 import { jsPDF } from 'jspdf';
 import * as XLSX from 'xlsx';
 
@@ -57,6 +57,11 @@ export default function OverseerControl() {
   const [priceLoading, setPriceLoading] = useState(false);
   const [priceHistory, setPriceHistory] = useState<PriceHistoryRecord[]>([]);
 
+  // Mobile App Download Link & Version states
+  const [appDownloadUrl, setAppDownloadUrl] = useState('https://colearn-app.com/download/colearn-v1.0.apk');
+  const [appVersion, setAppVersion] = useState('v1.0.4');
+  const [appDownloadLoading, setAppDownloadLoading] = useState(false);
+
   // Revenue states
   const [revUni, setRevUni] = useState('');
   const [revYear, setRevYear] = useState(new Date().getFullYear().toString());
@@ -103,6 +108,12 @@ export default function OverseerControl() {
         const data = configDoc.data();
         setStandardPrice(data.standardPrice ?? 1000);
         setPlusPrice(data.plusPrice ?? 2000);
+        if (data.appDownloadUrl) {
+          setAppDownloadUrl(data.appDownloadUrl);
+        }
+        if (data.appVersion) {
+          setAppVersion(data.appVersion);
+        }
       }
 
       // Fetch Price History
@@ -117,6 +128,30 @@ export default function OverseerControl() {
   useEffect(() => {
     fetchData();
   }, []);
+
+  const handleSaveAppDownloadUrl = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!appDownloadUrl.trim()) {
+      toast.error('Please enter a valid download URL');
+      return;
+    }
+    setAppDownloadLoading(true);
+    try {
+      const nowStr = new Date().toISOString();
+      await updateDoc(doc(db, 'system', 'config'), {
+        appDownloadUrl: appDownloadUrl.trim(),
+        appVersion: appVersion.trim() || 'v1.0.4',
+        updatedBy: user?.uid || 'overseer',
+        updatedAt: nowStr
+      });
+      toast.success('Mobile app download link and version updated successfully!');
+    } catch (err: any) {
+      console.error('Error saving app download URL:', err);
+      toast.error('Failed to update download configuration');
+    } finally {
+      setAppDownloadLoading(false);
+    }
+  };
 
   // 1. Elevate user to Level 4
   const handleElevate = async (e?: React.FormEvent) => {
@@ -1148,6 +1183,50 @@ export default function OverseerControl() {
               {migrating ? 'Migrating Database...' : "Migrate Courses & Notes to FUTO"}
             </Button>
           </div>
+        </CardContent>
+      </Card>
+
+      {/* Mobile App Download Link (Overseer Level 5) */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Smartphone className="h-5 w-5 text-indigo-500" />
+            Android Mobile App Download URL (Overseer Authority Only)
+          </CardTitle>
+          <CardDescription>
+            Set the APK download link for the CoLearn Android Mobile App. Pressing the "Download App" buttons across the website or visiting /download will download from this URL.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <form onSubmit={handleSaveAppDownloadUrl} className="space-y-4">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div className="md:col-span-2 space-y-2">
+                <Label htmlFor="appDownloadUrl">Mobile App APK Download URL</Label>
+                <Input 
+                  id="appDownloadUrl"
+                  type="url"
+                  placeholder="https://example.com/download/colearn-v1.0.apk"
+                  value={appDownloadUrl}
+                  onChange={(e) => setAppDownloadUrl(e.target.value)}
+                  required
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="appVersion">App Version</Label>
+                <Input 
+                  id="appVersion"
+                  type="text"
+                  placeholder="v1.0.4"
+                  value={appVersion}
+                  onChange={(e) => setAppVersion(e.target.value)}
+                  required
+                />
+              </div>
+            </div>
+            <Button type="submit" disabled={appDownloadLoading} className="bg-indigo-600 hover:bg-indigo-700">
+              {appDownloadLoading ? 'Saving...' : 'Update Download Link & Version'}
+            </Button>
+          </form>
         </CardContent>
       </Card>
 

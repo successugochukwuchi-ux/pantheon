@@ -66,7 +66,6 @@ import { useTitle } from '../hooks/useTitle';
 import { MathJax } from 'better-react-mathjax';
 import AdminCredentials from '../components/AdminCredentials';
 import OverseerControl from '../components/OverseerControl';
-import AdminColodge from '../components/AdminColodge';
 import { CloudinaryUpload } from '../components/CloudinaryUpload';
 import ReactMarkdown from 'react-markdown';
 import remarkMath from 'remark-math';
@@ -2259,7 +2258,6 @@ export default function AdminPanel() {
             <Button variant={location.pathname.includes('notifier') ? 'default' : 'ghost'} size="sm" onClick={() => navigate('/administrator/notifier')}>Notifier</Button>
             <Button variant={location.pathname.includes('credentials') ? 'default' : 'ghost'} size="sm" onClick={() => navigate('/administrator/credentials')}>Credentials</Button>
             <Button variant={location.pathname.includes('reports') ? 'default' : 'ghost'} size="sm" onClick={() => navigate('/administrator/reports')}>Reports</Button>
-            <Button variant={location.pathname.includes('colodge') ? 'default' : 'ghost'} size="sm" onClick={() => navigate('/administrator/colodge')}>CoLodge</Button>
             <Button variant={location.pathname.includes('manual') ? 'default' : 'ghost'} size="sm" onClick={() => navigate('/administrator/manual')}>Admin Manual</Button>
             <Button variant={location.pathname.includes('system') ? 'default' : 'ghost'} size="sm" onClick={() => navigate('/administrator/system')}>System</Button>
           </>
@@ -2275,7 +2273,6 @@ export default function AdminPanel() {
             ? <Navigate to="/administrator/pins" replace />
             : <AdminOverview courses={courses} notes={notes} questions={questions} unusedPins={unusedPins} usedPins={usedPins} stats={stats} />
         } />
-        <Route path="/colodge/*" element={<AdminColodge />} />
         <Route path="/manual" element={<AdminManual />} />
         <Route path="/discipline" element={<AdminDiscipline />} />
         <Route path="/credentials" element={<AdminCredentials />} />

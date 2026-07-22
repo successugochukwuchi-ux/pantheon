@@ -36,7 +36,7 @@ import PrivacyPolicy from './pages/PrivacyPolicy';
 import TermsOfService from './pages/TermsOfService';
 import StudyTimetable from './pages/StudyTimetable';
 import Onboarding from './pages/Onboarding';
-import CoLodge from './pages/CoLodge';
+import DownloadPage from './pages/Download';
 
 import { MaintenanceGuard } from './components/MaintenanceGuard';
 import Diagnostic from './pages/Diagnostic';
@@ -109,6 +109,7 @@ export default function App() {
                   <Routes>
                     {/* Public Routes */}
                     <Route path="/" element={<Landing />} />
+                    <Route path="/download" element={<DownloadPage />} />
                     <Route path="/login" element={<Login />} />
                     <Route path="/register" element={<Register />} />
                     <Route path="/privacy" element={<PrivacyPolicy />} />
@@ -213,14 +214,6 @@ export default function App() {
                       <ProtectedRoute requireActivation={false}>
                         <Layout>
                           <StudyTimetable />
-                        </Layout>
-                      </ProtectedRoute>
-                    } />
-
-                    <Route path="/colodge" element={
-                      <ProtectedRoute requireActivation={false}>
-                        <Layout>
-                          <CoLodge />
                         </Layout>
                       </ProtectedRoute>
                     } />

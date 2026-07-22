@@ -199,13 +199,6 @@ export default function SettingsScreen() {
           subtitle="App preferences, theme, and language"
           onPress={() => router.push('/general-settings')}
         />
-        <SettingRow
-          isDark
-          icon={<SparkleIcon />}
-          title="Note Grabber"
-          subtitle="Save notes and past questions for offline use"
-          onPress={() => router.push('/note-grabber')}
-        />
 
         <Text style={s.sectionLabel}>SUPPORT</Text>
         <SettingRow

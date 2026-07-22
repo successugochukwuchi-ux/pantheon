@@ -283,7 +283,7 @@ export default function DashboardScreen() {
   const { colors: C } = useTheme();
   const s = useMemo(() => createStyles(C), [C]);
   const [sidebarOpen, setSidebarOpen] = useState(false);
-  const { user, profile, loading } = useAuth();
+  const { user, profile, loading, isDownloadingCourses, downloadPercent, downloadStatus } = useAuth();
 
   useEffect(() => {
     if (!loading) {
@@ -304,6 +304,22 @@ export default function DashboardScreen() {
         s={s} 
         C={C} 
       />
+
+      {isDownloadingCourses && (
+        <View style={[s.downloadBanner, { backgroundColor: C.surface, borderBottomColor: C.border }]}>
+          <View style={s.downloadBannerTop}>
+            <Text style={[s.downloadBannerText, { color: C.ink }]} numberOfLines={1}>
+              {downloadStatus}
+            </Text>
+            <Text style={[s.downloadBannerPercent, { color: C.activeText || '#2ECC71' }]}>
+              {downloadPercent}%
+            </Text>
+          </View>
+          <View style={[s.progressBarBg, { backgroundColor: C.border }]}>
+            <View style={[s.progressBarFill, { width: `${downloadPercent}%`, backgroundColor: C.activeText || '#2ECC71' }]} />
+          </View>
+        </View>
+      )}
       
       <ScrollView
         style={s.scroll}
@@ -331,6 +347,39 @@ const createStyles = (C: any) => StyleSheet.create({
   root: { flex: 1, backgroundColor: C.bg },
   scroll: { flex: 1 },
   scrollContent: { paddingHorizontal: 16, paddingTop: 16, paddingBottom: 20 },
+
+  // Download Banner
+  downloadBanner: {
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderBottomWidth: 1,
+  },
+  downloadBannerTop: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 6,
+  },
+  downloadBannerText: {
+    fontFamily: F.medium,
+    fontSize: 12,
+    flex: 1,
+    marginRight: 10,
+  },
+  downloadBannerPercent: {
+    fontFamily: F.bold,
+    fontSize: 12,
+  },
+  progressBarBg: {
+    height: 4,
+    borderRadius: 2,
+    overflow: 'hidden',
+    width: '100%',
+  },
+  progressBarFill: {
+    height: '100%',
+    borderRadius: 2,
+  },
 
   // TopBar
   topBar: {

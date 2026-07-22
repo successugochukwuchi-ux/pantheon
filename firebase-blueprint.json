@@ -5,514 +5,1059 @@
       "description": "Question related to a video link in a note",
       "type": "object",
       "properties": {
-        "noteId": { "type": "string" },
-        "text": { "type": "string" },
-        "correctAnswer": { "type": "string" },
-        "incorrectAnswers": { "type": "array", "items": { "type": "string" } },
-        "createdAt": { "type": "string", "format": "date-time" }
+        "noteId": {
+          "type": "string"
+        },
+        "text": {
+          "type": "string"
+        },
+        "correctAnswer": {
+          "type": "string"
+        },
+        "incorrectAnswers": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        }
       },
-      "required": ["noteId", "text", "correctAnswer", "incorrectAnswers", "createdAt"]
+      "required": [
+        "noteId",
+        "text",
+        "correctAnswer",
+        "incorrectAnswers",
+        "createdAt"
+      ]
     },
     "Announcement": {
       "title": "Announcement",
       "description": "System-wide or filtered announcement",
       "type": "object",
       "properties": {
-        "title": { "type": "string" },
-        "message": { "type": "string" },
-        "type": { "type": "string", "enum": ["news", "material", "system", "announcement"] },
-        "targetType": { "type": "string", "enum": ["all", "level", "uid", "academicLevel", "department", "level_dept"] },
-        "targetValue": { "type": "string" },
-        "createdAt": { "type": "string", "format": "date-time" },
-        "authorId": { "type": "string" }
+        "title": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        },
+        "type": {
+          "type": "string",
+          "enum": [
+            "news",
+            "material",
+            "system",
+            "announcement"
+          ]
+        },
+        "targetType": {
+          "type": "string",
+          "enum": [
+            "all",
+            "level",
+            "uid",
+            "academicLevel",
+            "department",
+            "level_dept"
+          ]
+        },
+        "targetValue": {
+          "type": "string"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "authorId": {
+          "type": "string"
+        }
       },
-      "required": ["title", "message", "type", "targetType", "targetValue", "createdAt", "authorId"]
+      "required": [
+        "title",
+        "message",
+        "type",
+        "targetType",
+        "targetValue",
+        "createdAt",
+        "authorId"
+      ]
     },
     "UserProfile": {
       "title": "UserProfile",
       "description": "User profile information",
       "type": "object",
       "properties": {
-        "uid": { "type": "string" },
-        "studentId": { "type": "string" },
-        "email": { "type": "string", "format": "email" },
-        "username": { "type": "string" },
-        "level": { "type": "string", "enum": ["1", "1+", "2", "3", "4"] },
-        "isActivated": { "type": "boolean" },
-        "isBanned": { "type": "boolean" },
-        "banReason": { "type": "string" },
-        "referralCount": { "type": "number" },
-        "referredBy": { "type": "string" },
-        "theme": { "type": "string" },
-        "createdAt": { "type": "string", "format": "date-time" }
+        "uid": {
+          "type": "string"
+        },
+        "studentId": {
+          "type": "string"
+        },
+        "email": {
+          "type": "string",
+          "format": "email"
+        },
+        "username": {
+          "type": "string"
+        },
+        "level": {
+          "type": "string",
+          "enum": [
+            "1",
+            "1+",
+            "2",
+            "3",
+            "4"
+          ]
+        },
+        "isActivated": {
+          "type": "boolean"
+        },
+        "isBanned": {
+          "type": "boolean"
+        },
+        "banReason": {
+          "type": "string"
+        },
+        "referralCount": {
+          "type": "number"
+        },
+        "referredBy": {
+          "type": "string"
+        },
+        "theme": {
+          "type": "string"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        }
       },
-      "required": ["uid", "email", "username", "level", "isActivated"]
+      "required": [
+        "uid",
+        "email",
+        "username",
+        "level",
+        "isActivated"
+      ]
     },
     "Course": {
       "title": "Course",
       "description": "Academic course information",
       "type": "object",
       "properties": {
-        "code": { "type": "string" },
-        "title": { "type": "string" },
-        "semester": { "type": "string", "enum": ["1st", "2nd"] },
-        "level": { "type": "string" },
-        "createdAt": { "type": "string", "format": "date-time" }
+        "code": {
+          "type": "string"
+        },
+        "title": {
+          "type": "string"
+        },
+        "semester": {
+          "type": "string",
+          "enum": [
+            "1st",
+            "2nd"
+          ]
+        },
+        "level": {
+          "type": "string"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        }
       },
-      "required": ["code", "title", "semester", "level"]
+      "required": [
+        "code",
+        "title",
+        "semester",
+        "level"
+      ]
     },
     "NewsItem": {
       "title": "NewsItem",
       "description": "News update for the dashboard",
       "type": "object",
       "properties": {
-        "title": { "type": "string" },
-        "content": { "type": "string" },
-        "createdAt": { "type": "string", "format": "date-time" }
+        "title": {
+          "type": "string"
+        },
+        "content": {
+          "type": "string"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        }
       },
-      "required": ["title", "content", "createdAt"]
+      "required": [
+        "title",
+        "content",
+        "createdAt"
+      ]
     },
     "ActivationCode": {
       "title": "ActivationCode",
       "description": "Code used to activate a user account",
       "type": "object",
       "properties": {
-        "code": { "type": "string" },
-        "isUsed": { "type": "boolean" },
-        "usedBy": { "type": "string" },
-        "usedByStudentId": { "type": "string" },
-        "usedAt": { "type": "string", "format": "date-time" },
-        "createdBy": { "type": "string" },
-        "createdAt": { "type": "string", "format": "date-time" }
+        "code": {
+          "type": "string"
+        },
+        "isUsed": {
+          "type": "boolean"
+        },
+        "usedBy": {
+          "type": "string"
+        },
+        "usedByStudentId": {
+          "type": "string"
+        },
+        "usedAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "createdBy": {
+          "type": "string"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        }
       },
-      "required": ["code", "isUsed", "createdBy", "createdAt"]
-    },
-    "VerificationRequest": {
-      "title": "VerificationRequest",
-      "description": "Request for admin verification after using a level 2 pin",
-      "type": "object",
-      "properties": {
-        "uid": { "type": "string" },
-        "code": { "type": "string" },
-        "timestamp": { "type": "string", "format": "date-time" },
-        "status": { "type": "string", "enum": ["pending", "approved", "rejected"] }
-      },
-      "required": ["uid", "code", "timestamp", "status"]
-    },
-    "SystemConfig": {
-      "title": "SystemConfig",
-      "description": "Global system configuration",
-      "type": "object",
-      "properties": {
-        "currentSemester": { "type": "string", "enum": ["1st", "2nd", "none"] },
-        "maintenanceMode": { "type": "boolean" },
-        "fluxEnabled": { "type": "boolean" },
-        "updatedBy": { "type": "string" },
-        "updatedAt": { "type": "string", "format": "date-time" },
-        "standardPrice": { "type": "number" },
-        "plusPrice": { "type": "number" },
-        "activeSeasonId": { "type": "string" },
-        "activeSeasonName": { "type": "string" }
-      },
-      "required": ["currentSemester", "maintenanceMode", "updatedBy", "updatedAt"]
-    },
-    "SeasonLeaderboardEntry": {
-      "title": "SeasonLeaderboardEntry",
-      "description": "User ranking statistics within a season",
-      "type": "object",
-      "properties": {
-        "userId": { "type": "string" },
-        "username": { "type": "string" },
-        "photoURL": { "type": "string" },
-        "favoriteCourse": { "type": "string" },
-        "stars": { "type": "number" },
-        "updatedAt": { "type": "string", "format": "date-time" }
-      },
-      "required": ["userId", "username", "favoriteCourse", "stars", "updatedAt"]
-    },
-    "CompeteMatch": {
-      "title": "CompeteMatch",
-      "description": "Active or static matchup for CoLearn Compete",
-      "type": "object",
-      "properties": {
-        "courseId": { "type": "string" },
-        "courseCode": { "type": "string" },
-        "type": { "type": "string", "enum": ["quick_match", "custom_room"] },
-        "status": { "type": "string", "enum": ["waiting", "active", "completed"] },
-        "creatorId": { "type": "string" },
-        "creatorUsername": { "type": "string" },
-        "creatorPhotoURL": { "type": "string" },
-        "opponentId": { "type": "string" },
-        "opponentUsername": { "type": "string" },
-        "opponentPhotoURL": { "type": "string" },
-        "roomCode": { "type": "string" },
-        "duration": { "type": "number" },
-        "creatorPoints": { "type": "number" },
-        "opponentPoints": { "type": "number" },
-        "winnerId": { "type": "string" },
-        "createdAt": { "type": "string", "format": "date-time" }
-      },
-      "required": ["courseId", "courseCode", "type", "status", "creatorId", "creatorUsername", "createdAt"]
-    },
-    "PromoConfig": {
-      "title": "PromoConfig",
-      "description": "Configuration for promo mode activations",
-      "type": "object",
-      "properties": {
-        "isActive": { "type": "boolean" },
-        "quota": { "type": "number" },
-        "count": { "type": "number" },
-        "updatedAt": { "type": "string", "format": "date-time" },
-        "updatedBy": { "type": "string" }
-      },
-      "required": ["isActive", "quota", "count", "updatedAt", "updatedBy"]
+      "required": [
+        "code",
+        "isUsed",
+        "createdBy",
+        "createdAt"
+      ]
     },
     "VerificationRequest": {
       "title": "VerificationRequest",
       "description": "Request for account verification from Level 2 admin activation",
       "type": "object",
       "properties": {
-        "uid": { "type": "string" },
-        "code": { "type": "string" },
-        "status": { "type": "string", "enum": ["pending", "approved", "rejected"] },
-        "timestamp": { "type": "string", "format": "date-time" },
-        "studentId": { "type": "string" },
-        "username": { "type": "string" }
+        "uid": {
+          "type": "string"
+        },
+        "code": {
+          "type": "string"
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "pending",
+            "approved",
+            "rejected"
+          ]
+        },
+        "timestamp": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "studentId": {
+          "type": "string"
+        },
+        "username": {
+          "type": "string"
+        }
       },
-      "required": ["uid", "code", "status", "timestamp"]
+      "required": [
+        "uid",
+        "code",
+        "status",
+        "timestamp"
+      ]
+    },
+    "SystemConfig": {
+      "title": "SystemConfig",
+      "description": "Global system configuration",
+      "type": "object",
+      "properties": {
+        "currentSemester": {
+          "type": "string",
+          "enum": [
+            "1st",
+            "2nd",
+            "none"
+          ]
+        },
+        "maintenanceMode": {
+          "type": "boolean"
+        },
+        "fluxEnabled": {
+          "type": "boolean"
+        },
+        "updatedBy": {
+          "type": "string"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "standardPrice": {
+          "type": "number"
+        },
+        "plusPrice": {
+          "type": "number"
+        },
+        "activeSeasonId": {
+          "type": "string"
+        },
+        "activeSeasonName": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "currentSemester",
+        "maintenanceMode",
+        "updatedBy",
+        "updatedAt"
+      ]
+    },
+    "SeasonLeaderboardEntry": {
+      "title": "SeasonLeaderboardEntry",
+      "description": "User ranking statistics within a season",
+      "type": "object",
+      "properties": {
+        "userId": {
+          "type": "string"
+        },
+        "username": {
+          "type": "string"
+        },
+        "photoURL": {
+          "type": "string"
+        },
+        "favoriteCourse": {
+          "type": "string"
+        },
+        "stars": {
+          "type": "number"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "userId",
+        "username",
+        "favoriteCourse",
+        "stars",
+        "updatedAt"
+      ]
+    },
+    "CompeteMatch": {
+      "title": "CompeteMatch",
+      "description": "Active or static matchup for CoLearn Compete",
+      "type": "object",
+      "properties": {
+        "courseId": {
+          "type": "string"
+        },
+        "courseCode": {
+          "type": "string"
+        },
+        "type": {
+          "type": "string",
+          "enum": [
+            "quick_match",
+            "custom_room"
+          ]
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "waiting",
+            "active",
+            "completed"
+          ]
+        },
+        "creatorId": {
+          "type": "string"
+        },
+        "creatorUsername": {
+          "type": "string"
+        },
+        "creatorPhotoURL": {
+          "type": "string"
+        },
+        "opponentId": {
+          "type": "string"
+        },
+        "opponentUsername": {
+          "type": "string"
+        },
+        "opponentPhotoURL": {
+          "type": "string"
+        },
+        "roomCode": {
+          "type": "string"
+        },
+        "duration": {
+          "type": "number"
+        },
+        "creatorPoints": {
+          "type": "number"
+        },
+        "opponentPoints": {
+          "type": "number"
+        },
+        "winnerId": {
+          "type": "string"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "courseId",
+        "courseCode",
+        "type",
+        "status",
+        "creatorId",
+        "creatorUsername",
+        "createdAt"
+      ]
+    },
+    "PromoConfig": {
+      "title": "PromoConfig",
+      "description": "Configuration for promo mode activations",
+      "type": "object",
+      "properties": {
+        "isActive": {
+          "type": "boolean"
+        },
+        "quota": {
+          "type": "number"
+        },
+        "count": {
+          "type": "number"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updatedBy": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "isActive",
+        "quota",
+        "count",
+        "updatedAt",
+        "updatedBy"
+      ]
     },
     "Note": {
       "title": "Note",
       "description": "Academic note content (lecture, past question, etc.)",
       "type": "object",
       "properties": {
-        "courseId": { "type": "string" },
-        "title": { "type": "string" },
-        "content": { "type": "string" },
-        "type": { "type": "string", "enum": ["lecture", "past_question", "cbt"] },
-        "authorId": { "type": "string" },
-        "createdAt": { "type": "string", "format": "date-time" },
-        "updatedAt": { "type": "string", "format": "date-time" }
+        "courseId": {
+          "type": "string"
+        },
+        "title": {
+          "type": "string"
+        },
+        "content": {
+          "type": "string"
+        },
+        "type": {
+          "type": "string",
+          "enum": [
+            "lecture",
+            "past_question",
+            "cbt"
+          ]
+        },
+        "authorId": {
+          "type": "string"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
       },
-      "required": ["courseId", "title", "content", "type", "authorId", "createdAt"]
+      "required": [
+        "courseId",
+        "title",
+        "content",
+        "type",
+        "authorId",
+        "createdAt"
+      ]
     },
     "QuestionSheet": {
       "title": "QuestionSheet",
       "description": "A collection of questions for a specific course, level, year and semester",
       "type": "object",
       "properties": {
-        "courseId": { "type": "string" },
-        "semester": { "type": "string", "enum": ["1st", "2nd"] },
-        "academicLevel": { "type": "string" },
-        "year": { "type": "string" },
-        "isAvailable": { "type": "boolean" },
-        "createdAt": { "type": "string", "format": "date-time" },
-        "authorId": { "type": "string" }
+        "courseId": {
+          "type": "string"
+        },
+        "semester": {
+          "type": "string",
+          "enum": [
+            "1st",
+            "2nd"
+          ]
+        },
+        "academicLevel": {
+          "type": "string"
+        },
+        "year": {
+          "type": "string"
+        },
+        "isAvailable": {
+          "type": "boolean"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "authorId": {
+          "type": "string"
+        }
       },
-      "required": ["courseId", "semester", "academicLevel", "year", "isAvailable", "createdAt", "authorId"]
+      "required": [
+        "courseId",
+        "semester",
+        "academicLevel",
+        "year",
+        "isAvailable",
+        "createdAt",
+        "authorId"
+      ]
     },
     "Question": {
       "title": "Question",
       "description": "CBT/Past Question",
       "type": "object",
       "properties": {
-        "sheetId": { "type": "string" },
-        "courseId": { "type": "string" },
-        "text": { "type": "string" },
-        "correctAnswer": { "type": "string" },
-        "incorrectAnswers": { "type": "array", "items": { "type": "string" } },
-        "explanation": { "type": "string" },
-        "order": { "type": "number" },
-        "authorId": { "type": "string" },
-        "createdAt": { "type": "string", "format": "date-time" }
+        "sheetId": {
+          "type": "string"
+        },
+        "courseId": {
+          "type": "string"
+        },
+        "text": {
+          "type": "string"
+        },
+        "correctAnswer": {
+          "type": "string"
+        },
+        "incorrectAnswers": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "explanation": {
+          "type": "string"
+        },
+        "order": {
+          "type": "number"
+        },
+        "authorId": {
+          "type": "string"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        }
       },
-      "required": ["sheetId", "courseId", "text", "correctAnswer", "incorrectAnswers", "order", "authorId", "createdAt"]
+      "required": [
+        "sheetId",
+        "courseId",
+        "text",
+        "correctAnswer",
+        "incorrectAnswers",
+        "order",
+        "authorId",
+        "createdAt"
+      ]
     },
     "CBTSession": {
       "title": "CBTSession",
       "description": "User CBT attempt session",
       "type": "object",
       "properties": {
-        "userId": { "type": "string" },
-        "courseId": { "type": "string" },
-        "score": { "type": "number" },
-        "totalQuestions": { "type": "number" },
-        "timeSpent": { "type": "number" },
-        "isTimed": { "type": "boolean" },
-        "duration": { "type": "number" },
-        "completedAt": { "type": "string", "format": "date-time" }
+        "userId": {
+          "type": "string"
+        },
+        "courseId": {
+          "type": "string"
+        },
+        "score": {
+          "type": "number"
+        },
+        "totalQuestions": {
+          "type": "number"
+        },
+        "timeSpent": {
+          "type": "number"
+        },
+        "isTimed": {
+          "type": "boolean"
+        },
+        "duration": {
+          "type": "number"
+        },
+        "completedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
       },
-      "required": ["userId", "courseId", "score", "totalQuestions", "completedAt"]
+      "required": [
+        "userId",
+        "courseId",
+        "score",
+        "totalQuestions",
+        "completedAt"
+      ]
     },
     "Notification": {
       "title": "Notification",
       "description": "User notification",
       "type": "object",
       "properties": {
-        "userId": { "type": "string" },
-        "title": { "type": "string" },
-        "message": { "type": "string" },
-        "type": { "type": "string", "enum": ["news", "verification", "material", "system"] },
-        "isRead": { "type": "boolean" },
-        "link": { "type": "string" },
-        "createdAt": { "type": "string", "format": "date-time" }
+        "userId": {
+          "type": "string"
+        },
+        "title": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        },
+        "type": {
+          "type": "string",
+          "enum": [
+            "news",
+            "verification",
+            "material",
+            "system"
+          ]
+        },
+        "isRead": {
+          "type": "boolean"
+        },
+        "link": {
+          "type": "string"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        }
       },
-      "required": ["userId", "title", "message", "type", "isRead", "createdAt"]
+      "required": [
+        "userId",
+        "title",
+        "message",
+        "type",
+        "isRead",
+        "createdAt"
+      ]
     },
     "DiscussionMessage": {
       "title": "DiscussionMessage",
       "description": "Message in a course discussion board",
       "type": "object",
       "properties": {
-        "courseId": { "type": "string" },
-        "userId": { "type": "string" },
-        "username": { "type": "string" },
-        "userLevel": { "type": "string" },
-        "text": { "type": "string" },
-        "referencedNoteId": { "type": "string" },
-        "createdAt": { "type": "string", "format": "date-time" }
+        "courseId": {
+          "type": "string"
+        },
+        "userId": {
+          "type": "string"
+        },
+        "username": {
+          "type": "string"
+        },
+        "userLevel": {
+          "type": "string"
+        },
+        "text": {
+          "type": "string"
+        },
+        "referencedNoteId": {
+          "type": "string"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        }
       },
-      "required": ["courseId", "userId", "username", "text", "createdAt"]
+      "required": [
+        "courseId",
+        "userId",
+        "username",
+        "text",
+        "createdAt"
+      ]
     },
     "ChatRoom": {
       "title": "ChatRoom",
       "description": "Room for direct or group messages",
       "type": "object",
       "properties": {
-        "type": { "type": "string", "enum": ["dm", "group"] },
-        "uids": { "type": "array", "items": { "type": "string" } },
-        "name": { "type": "string" },
-        "lastMessage": { "type": "string" },
-        "lastUpdatedAt": { "type": "string", "format": "date-time" },
-        "createdAt": { "type": "string", "format": "date-time" }
+        "type": {
+          "type": "string",
+          "enum": [
+            "dm",
+            "group"
+          ]
+        },
+        "uids": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "name": {
+          "type": "string"
+        },
+        "lastMessage": {
+          "type": "string"
+        },
+        "lastUpdatedAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        }
       },
-      "required": ["type", "uids", "createdAt", "lastUpdatedAt"]
+      "required": [
+        "type",
+        "uids",
+        "createdAt",
+        "lastUpdatedAt"
+      ]
     },
     "ChatMessage": {
       "title": "ChatMessage",
       "description": "Message in a chat room",
       "type": "object",
       "properties": {
-        "senderUid": { "type": "string" },
-        "senderName": { "type": "string" },
-        "text": { "type": "string" },
-        "referencedNoteId": { "type": "string" },
-        "createdAt": { "type": "string", "format": "date-time" }
+        "senderUid": {
+          "type": "string"
+        },
+        "senderName": {
+          "type": "string"
+        },
+        "text": {
+          "type": "string"
+        },
+        "referencedNoteId": {
+          "type": "string"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        }
       },
-      "required": ["senderUid", "senderName", "text", "createdAt"]
+      "required": [
+        "senderUid",
+        "senderName",
+        "text",
+        "createdAt"
+      ]
     },
     "FriendRequest": {
       "title": "FriendRequest",
       "description": "Request to become friends",
       "type": "object",
       "properties": {
-        "fromUid": { "type": "string" },
-        "fromName": { "type": "string" },
-        "fromPhoto": { "type": "string" },
-        "toUid": { "type": "string" },
-        "status": { "type": "string", "enum": ["pending", "accepted", "rejected"] },
-        "createdAt": { "type": "string", "format": "date-time" }
+        "fromUid": {
+          "type": "string"
+        },
+        "fromName": {
+          "type": "string"
+        },
+        "fromPhoto": {
+          "type": "string"
+        },
+        "toUid": {
+          "type": "string"
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "pending",
+            "accepted",
+            "rejected"
+          ]
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        }
       },
-      "required": ["fromUid", "toUid", "status", "createdAt"]
+      "required": [
+        "fromUid",
+        "toUid",
+        "status",
+        "createdAt"
+      ]
     },
     "Friendship": {
       "title": "Friendship",
       "description": "Established friendship between two users",
       "type": "object",
       "properties": {
-        "uids": { "type": "array", "items": { "type": "string" } },
-        "createdAt": { "type": "string", "format": "date-time" }
+        "uids": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        }
       },
-      "required": ["uids", "createdAt"]
+      "required": [
+        "uids",
+        "createdAt"
+      ]
     },
     "UserProgress": {
       "title": "UserProgress",
       "description": "Tracks student progress on a note or course",
       "type": "object",
       "properties": {
-        "uid": { "type": "string" },
-        "targetId": { "type": "string" },
-        "type": { "type": "string", "enum": ["note", "course"] },
-        "percentage": { "type": "number" },
-        "completed": { "type": "boolean" },
-        "updatedAt": { "type": "string", "format": "date-time" }
+        "uid": {
+          "type": "string"
+        },
+        "targetId": {
+          "type": "string"
+        },
+        "type": {
+          "type": "string",
+          "enum": [
+            "note",
+            "course"
+          ]
+        },
+        "percentage": {
+          "type": "number"
+        },
+        "completed": {
+          "type": "boolean"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
       },
-      "required": ["uid", "targetId", "type", "percentage", "updatedAt"]
+      "required": [
+        "uid",
+        "targetId",
+        "type",
+        "percentage",
+        "updatedAt"
+      ]
     },
     "FluxTrack": {
       "title": "FluxTrack",
       "description": "A learning track in the FLUX ecosystem",
       "type": "object",
       "properties": {
-        "title": { "type": "string" },
-        "description": { "type": "string" },
-        "category": { "type": "string" },
-        "icon": { "type": "string" },
-        "bannerImage": { "type": "string" },
-        "difficulty": { "type": "string", "enum": ["Beginner", "Intermediate", "Advanced", "Elite"] },
-        "enrolledCount": { "type": "number" },
-        "completedCount": { "type": "number" },
-        "estimatedHours": { "type": "number" },
-        "steps": { 
-          "type": "array", 
-          "items": { 
+        "title": {
+          "type": "string"
+        },
+        "description": {
+          "type": "string"
+        },
+        "category": {
+          "type": "string"
+        },
+        "icon": {
+          "type": "string"
+        },
+        "bannerImage": {
+          "type": "string"
+        },
+        "difficulty": {
+          "type": "string",
+          "enum": [
+            "Beginner",
+            "Intermediate",
+            "Advanced",
+            "Elite"
+          ]
+        },
+        "enrolledCount": {
+          "type": "number"
+        },
+        "completedCount": {
+          "type": "number"
+        },
+        "estimatedHours": {
+          "type": "number"
+        },
+        "steps": {
+          "type": "array",
+          "items": {
             "type": "object",
             "properties": {
-              "id": { "type": "string" },
-              "title": { "type": "string" },
-              "content": { "type": "string" }
+              "id": {
+                "type": "string"
+              },
+              "title": {
+                "type": "string"
+              },
+              "content": {
+                "type": "string"
+              }
             }
-          } 
+          }
         },
-        "createdAt": { "type": "string", "format": "date-time" },
-        "authorId": { "type": "string" }
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "authorId": {
+          "type": "string"
+        }
       },
-      "required": ["title", "description", "category", "difficulty", "createdAt", "authorId"]
+      "required": [
+        "title",
+        "description",
+        "category",
+        "difficulty",
+        "createdAt",
+        "authorId"
+      ]
     },
     "FluxEnrollment": {
       "title": "FluxEnrollment",
       "description": "A user's enrollment in a FLUX track",
       "type": "object",
       "properties": {
-        "userId": { "type": "string" },
-        "trackId": { "type": "string" },
-        "status": { "type": "string", "enum": ["enrolled", "completed"] },
-        "enrolledAt": { "type": "string", "format": "date-time" },
-        "completedAt": { "type": "string", "format": "date-time" },
-        "progress": { "type": "number" }
+        "userId": {
+          "type": "string"
+        },
+        "trackId": {
+          "type": "string"
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "enrolled",
+            "completed"
+          ]
+        },
+        "enrolledAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "completedAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "progress": {
+          "type": "number"
+        }
       },
-      "required": ["userId", "trackId", "status", "enrolledAt"]
+      "required": [
+        "userId",
+        "trackId",
+        "status",
+        "enrolledAt"
+      ]
     },
     "Timetable": {
       "title": "Timetable",
       "description": "User customized study timetable",
       "type": "object",
       "properties": {
-        "userId": { "type": "string" },
-        "grid": { "type": "object" },
-        "updatedAt": { "type": "string", "format": "date-time" }
+        "userId": {
+          "type": "string"
+        },
+        "grid": {
+          "type": "object"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
       },
-      "required": ["userId", "grid", "updatedAt"]
+      "required": [
+        "userId",
+        "grid",
+        "updatedAt"
+      ]
     },
     "RecommendedTimetable": {
       "title": "RecommendedTimetable",
       "description": "Recommended template timetable created by administrators",
       "type": "object",
       "properties": {
-        "level": { "type": "string" },
-        "department": { "type": "string" },
-        "grid": { "type": "object" },
-        "updatedBy": { "type": "string" },
-        "updatedAt": { "type": "string", "format": "date-time" }
+        "level": {
+          "type": "string"
+        },
+        "department": {
+          "type": "string"
+        },
+        "grid": {
+          "type": "object"
+        },
+        "updatedBy": {
+          "type": "string"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
       },
-      "required": ["level", "department", "grid", "updatedBy", "updatedAt"]
+      "required": [
+        "level",
+        "department",
+        "grid",
+        "updatedBy",
+        "updatedAt"
+      ]
     },
     "Discipline": {
       "title": "Discipline",
       "description": "CCMAS curriculum discipline containing departments and course lock configurations",
       "type": "object",
       "properties": {
-        "name": { "type": "string" },
-        "departments": { "type": "array", "items": { "type": "string" } },
-        "courses": { 
+        "name": {
+          "type": "string"
+        },
+        "departments": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "courses": {
           "type": "object"
         },
-        "createdAt": { "type": "string", "format": "date-time" }
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        }
       },
-      "required": ["name", "departments", "createdAt"]
-    },
-    "ColodgeLocation": {
-      "title": "ColodgeLocation",
-      "description": "Nearby town or city to the university for student lodging",
-      "type": "object",
-      "properties": {
-        "name": { "type": "string" },
-        "description": { "type": "string" },
-        "gallery": { "type": "array", "items": { "type": "string" } },
-        "At": { "type": "string" },
-        "createdAt": { "type": "string", "format": "date-time" }
-      },
-      "required": ["name", "description", "gallery", "At", "createdAt"]
-    },
-    "ColodgeLodge": {
-      "title": "ColodgeLodge",
-      "description": "Lodge inside a ColodgeLocation",
-      "type": "object",
-      "properties": {
-        "locationId": { "type": "string" },
-        "name": { "type": "string" },
-        "description": { "type": "string" },
-        "gallery": { "type": "array", "items": { "type": "string" } },
-        "At": { "type": "string" },
-        "createdAt": { "type": "string", "format": "date-time" }
-      },
-      "required": ["locationId", "name", "description", "gallery", "At", "createdAt"]
-    },
-    "ColodgeRoom": {
-      "title": "ColodgeRoom",
-      "description": "A single rentable room inside a ColodgeLodge",
-      "type": "object",
-      "properties": {
-        "lodgeId": { "type": "string" },
-        "name": { "type": "string" },
-        "description": { "type": "string" },
-        "photoUrl": { "type": "string" },
-        "videoUrl": { "type": "string" },
-        "price": { "type": "number" },
-        "status": { "type": "string", "enum": ["available", "in talks", "rented"] },
-        "inTalksWith": { "type": "string" },
-        "rentedBy": { "type": "string" },
-        "createdAt": { "type": "string", "format": "date-time" }
-      },
-      "required": ["lodgeId", "name", "description", "photoUrl", "videoUrl", "price", "status", "createdAt"]
-    },
-    "ColodgeAgentApplication": {
-      "title": "ColodgeAgentApplication",
-      "description": "Application to become a Colodge Agent",
-      "type": "object",
-      "properties": {
-        "uid": { "type": "string" },
-        "governmentName": { "type": "string" },
-        "bankAccount": { "type": "string" },
-        "bankName": { "type": "string" },
-        "ticketCode": { "type": "string" },
-        "status": { "type": "string", "enum": ["pending", "approved", "rejected"] },
-        "createdAt": { "type": "string", "format": "date-time" }
-      },
-      "required": ["uid", "governmentName", "bankAccount", "bankName", "ticketCode", "status", "createdAt"]
-    },
-    "ColodgeDeal": {
-      "title": "ColodgeDeal",
-      "description": "Lodging transaction process between user and agent",
-      "type": "object",
-      "properties": {
-        "roomId": { "type": "string" },
-        "roomName": { "type": "string" },
-        "lodgeId": { "type": "string" },
-        "lodgeName": { "type": "string" },
-        "locationId": { "type": "string" },
-        "userId": { "type": "string" },
-        "username": { "type": "string" },
-        "userEmail": { "type": "string" },
-        "agentId": { "type": "string" },
-        "agentName": { "type": "string" },
-        "agentFeePaid": { "type": "number" },
-        "status": { "type": "string" },
-        "createdAt": { "type": "string", "format": "date-time" }
-      },
-      "required": ["roomId", "roomName", "lodgeId", "lodgeName", "locationId", "userId", "username", "userEmail", "agentId", "agentName", "agentFeePaid", "status", "createdAt"]
-    },
-    "ColodgeEscrowAccount": {
-      "title": "ColodgeEscrowAccount",
-      "description": "Bank account used for CoLodge escrow payments",
-      "type": "object",
-      "properties": {
-        "accountNumber": { "type": "string" },
-        "bankName": { "type": "string" },
-        "isActive": { "type": "boolean" },
-        "createdAt": { "type": "string", "format": "date-time" }
-      },
-      "required": ["accountNumber", "bankName", "isActive", "createdAt"]
+      "required": [
+        "name",
+        "departments",
+        "createdAt"
+      ]
     }
   },
   "firestore": {
@@ -543,34 +1088,6 @@
     "/system/promo": {
       "schema": "PromoConfig",
       "description": "Promo mode configuration"
-    },
-    "/system/colodge": {
-      "schema": "object",
-      "description": "Colodge configurations (banks, toggles, etc)"
-    },
-    "/colodge_locations/{locationId}": {
-      "schema": "ColodgeLocation",
-      "description": "Nearby towns or cities to the university"
-    },
-    "/colodge_lodges/{lodgeId}": {
-      "schema": "ColodgeLodge",
-      "description": "Lodges within locations"
-    },
-    "/colodge_rooms/{roomId}": {
-      "schema": "ColodgeRoom",
-      "description": "Rooms inside lodges"
-    },
-    "/colodge_agent_applications/{uid}": {
-      "schema": "ColodgeAgentApplication",
-      "description": "Agent applications under review or history"
-    },
-    "/colodge_deals/{dealId}": {
-      "schema": "ColodgeDeal",
-      "description": "Deals and payments between users and agents"
-    },
-    "/colodge_escrow_accounts/{accountId}": {
-      "schema": "ColodgeEscrowAccount",
-      "description": "Escrow bank accounts managed by admin"
     },
     "/notes/{noteId}": {
       "schema": "Note",

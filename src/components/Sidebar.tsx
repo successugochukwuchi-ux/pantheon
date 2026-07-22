@@ -27,7 +27,9 @@ import {
   Compass,
   Star,
   Calendar,
-  Home
+  Home,
+  Smartphone,
+  Download
 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { useFlux } from '../contexts/FluxContext';
@@ -47,14 +49,14 @@ interface SidebarProps {
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({ onClose, isCollapsed = false, onToggleCollapse, unreadCount = 0 }) => {
-  const { profile, user } = useAuth();
+  const { profile, user, systemConfig } = useAuth();
   const { isFluxMode, setFluxMode } = useFlux();
   const location = useLocation();
 
+  const isAndroid = typeof navigator !== 'undefined' && /android/i.test(navigator.userAgent);
   const isAtLeastLevel2 = profile?.level === '2' || profile?.level === '3' || profile?.level === '4' || profile?.level === '5';
   const isAdmin = profile?.level === '3' || profile?.level === '4' || profile?.level === '5';
   const isAdminPath = location.pathname.startsWith('/administrator');
-  const isColodgePath = location.pathname.startsWith('/colodge');
 
   interface SidebarNavItem {
     name: string;
@@ -66,7 +68,6 @@ export const Sidebar: React.FC<SidebarProps> = ({ onClose, isCollapsed = false, 
   const studentNavItems: SidebarNavItem[] = [
     { name: 'Dashboard', path: '/dashboard', icon: LayoutDashboard },
     { name: 'Study Timetable', path: '/timetable', icon: Calendar },
-    { name: 'CoLodge', path: '/colodge', icon: Home },
     { name: 'Notifications', path: '/notifications', icon: Bell, badge: unreadCount > 0 ? unreadCount : undefined },
     { name: 'Video Library', path: '/video-library', icon: PlayCircle },
     { name: 'Lecture Notes', path: '/notes?type=lecture', icon: BookOpen },
@@ -78,16 +79,6 @@ export const Sidebar: React.FC<SidebarProps> = ({ onClose, isCollapsed = false, 
     { name: 'Friends', path: '/friends', icon: UserPlus },
     { name: 'Compete', path: '/compete', icon: Trophy },
     { name: 'Referrals', path: '/referrals', icon: Users },
-  ];
-
-  const colodgeNavItems: SidebarNavItem[] = [
-    { name: 'Lodge Towns', path: '/colodge?view=student_locations', icon: Compass },
-    ...(profile?.colodge_agent ? [
-      { name: 'Agent Dashboard', path: '/colodge?view=agent_dashboard', icon: LayoutDashboard },
-    ] : [
-      { name: 'Become an Agent', path: '/colodge?view=become_agent', icon: Award }
-    ]),
-    { name: 'Back to Main Menu', path: '/dashboard', icon: ChevronRight }
   ];
 
   const adminNavItems: SidebarNavItem[] = [
@@ -141,10 +132,6 @@ export const Sidebar: React.FC<SidebarProps> = ({ onClose, isCollapsed = false, 
       if (profile?.level === '3') return level3AdminNavItems;
       return level2AdminNavItems;
     }
-
-    if (isColodgePath) {
-      return colodgeNavItems;
-    }
     
     return studentNavItems;
   };
@@ -172,13 +159,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ onClose, isCollapsed = false, 
           {isCollapsed ? (
             <span className="font-extrabold tracking-tighter text-sidebar-primary">C</span>
           ) : (
-            <>
-              {isColodgePath ? (
-                <span className="text-sidebar-primary flex items-center gap-1">CO<span className="text-neutral-800 dark:text-neutral-200">LODGE</span></span>
-              ) : (
-                <>COLEARN {isFluxMode && <span className="text-white">FLUX</span>}</>
-              )}
-            </>
+            <>COLEARN {isFluxMode && <span className="text-white">FLUX</span>}</>
           )}
         </Link>
         {!onClose && onToggleCollapse && (
@@ -205,6 +186,31 @@ export const Sidebar: React.FC<SidebarProps> = ({ onClose, isCollapsed = false, 
         </div>
       )}
 
+      {isAndroid && !isCollapsed && !isFluxMode && (
+        <div className="px-6 mb-3">
+          <Link
+            to="/download"
+            className="w-full flex items-center justify-center gap-2 px-3 py-2 rounded-xl bg-gradient-to-r from-indigo-600 via-indigo-500 to-purple-600 hover:from-indigo-500 hover:to-purple-500 text-white font-semibold text-xs shadow-md transition-all duration-200 transform active:scale-95 group"
+            title="Download Mobile App"
+          >
+            <Smartphone className="h-4 w-4 text-indigo-200 group-hover:scale-110 transition-transform" />
+            <span className="truncate">Download App</span>
+          </Link>
+        </div>
+      )}
+
+      {isAndroid && isCollapsed && !isFluxMode && (
+        <div className="px-2 mb-3 flex justify-center">
+          <Link
+            to="/download"
+            className="p-2 rounded-xl bg-indigo-600 text-white hover:bg-indigo-500 shadow-md transition-transform active:scale-95 flex items-center justify-center"
+            title="Download Android App"
+          >
+            <Smartphone className="h-4 w-4" />
+          </Link>
+        </div>
+      )}
+
       {!isCollapsed && !isFluxMode && (
         <div className="px-6 mb-4">
           <SystemStatus />
@@ -215,7 +221,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ onClose, isCollapsed = false, 
         <div className="py-2">
           {!isCollapsed && (
             <p className="px-3 text-xs font-semibold text-sidebar-foreground/50 uppercase tracking-wider mb-2">
-              {isFluxMode ? 'Flux Ecosystem' : isColodgePath ? 'CoLodge Menu' : 'Main Menu'}
+              {isFluxMode ? 'Flux Ecosystem' : 'Main Menu'}
             </p>
           )}
           {navItems.map((item) => {
@@ -226,12 +232,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ onClose, isCollapsed = false, 
             let isActive = false;
             if (isPathActive) {
               if (!itemQuery) {
-                // If this is the plain /colodge but we clicked it, check search params
-                if (itemPathName === '/colodge') {
-                  isActive = !location.search || location.search.includes('view=student_locations');
-                } else {
-                  isActive = true;
-                }
+                isActive = true;
               } else {
                 isActive = location.search.includes(itemQuery);
               }
