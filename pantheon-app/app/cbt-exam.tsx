@@ -125,11 +125,13 @@ export default function CbtExamScreen() {
       
       // 1. Try local SQLite DB
       try {
-        const dbQs = getLocalQuestions(courseId);
-        if (dbQs && dbQs.length > 0) {
-          const shuffled = [...dbQs].sort(() => Math.random() - 0.5);
-          qList = shuffled.slice(0, numQ).map((q, i) => ({ ...q, num: i + 1 }));
-          console.log("[CbtExam] Questions loaded from local SQLite database:", qList.length);
+        if (isCourseDownloadedLocal(courseId)) {
+          const dbQs = getLocalQuestions(courseId);
+          if (dbQs && dbQs.length > 0) {
+            const shuffled = [...dbQs].sort(() => Math.random() - 0.5);
+            qList = shuffled.slice(0, numQ).map((q, i) => ({ ...q, num: i + 1 }));
+            console.log("[CbtExam] Questions loaded from local SQLite database:", qList.length);
+          }
         }
       } catch (err) {
         console.error("[CbtExam] Error loading local questions:", err);
@@ -407,18 +409,14 @@ export default function CbtExamScreen() {
 
           {/* Submit */}
           <TouchableOpacity
-            style={[s.submitBtn, { backgroundColor: C.ink }, answered < questions.length && [s.submitBtnDisabled, { backgroundColor: C.border }]]}
+            style={[s.submitBtn, { backgroundColor: C.ink }]}
             onPress={() => handleSubmit(false)}
-            disabled={answered < questions.length}
             activeOpacity={0.88}
           >
-            <Text style={[s.submitBtnText, { color: C.bg }, answered < questions.length && [s.submitBtnTextDisabled, { color: C.inkLight }]]}>
+            <Text style={[s.submitBtnText, { color: C.bg }]}>
               SUBMIT ASSESSMENT
             </Text>
           </TouchableOpacity>
-          {answered < questions.length && (
-            <Text style={[s.submitHint, { color: C.inkLight }]}>ONLY ENABLED WHEN 100% COMPLETE</Text>
-          )}
         </View>
 
         {/* Study mode banner */}

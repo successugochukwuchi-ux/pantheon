@@ -119,24 +119,13 @@ export function getDownloadedCoursesLocal(): any[] {
   const db = getDatabase();
   if (!db || !db.getAllSync) return [];
   try {
-    const downloaded = db.getAllSync('SELECT * FROM courses WHERE isDownloaded = 1') || [];
-    if (downloaded.length > 0) return downloaded;
-    // Fallback: return all cached local courses if no course explicitly marked as downloaded
-    return db.getAllSync('SELECT * FROM courses') || [];
+    const courses = db.getAllSync('SELECT * FROM courses WHERE isDownloaded = 1') || [];
+    return courses.map((c: any) => ({
+      ...c,
+      isDownloaded: c.isDownloaded === 1 || c.isDownloaded === true
+    }));
   } catch (e) {
     console.error('Error fetching downloaded courses:', e);
-    return [];
-  }
-}
-
-// Helper to get all local courses in SQLite regardless of isDownloaded flag
-export function getAllLocalCourses(): any[] {
-  const db = getDatabase();
-  if (!db || !db.getAllSync) return [];
-  try {
-    return db.getAllSync('SELECT * FROM courses') || [];
-  } catch (e) {
-    console.error('Error fetching all local courses:', e);
     return [];
   }
 }
@@ -258,7 +247,7 @@ export function saveQuestionLocal(q: any) {
       db.runSync(
         `INSERT OR REPLACE INTO questions (id, courseId, q, options, answer, sheetId) 
          VALUES (?, ?, ?, ?, ?, ?)`,
-        [parsed.id, parsed.courseId || q.courseId || '', parsed.q, optionsJSON, parsed.answer, parsed.sheetId]
+        [parsed.id || '', parsed.courseId || q.courseId || '', parsed.q || '', optionsJSON || '[]', parsed.answer || 0, parsed.sheetId || '']
       );
     }
   } catch (e) {
@@ -275,7 +264,7 @@ export function saveQuestionSheetLocal(sheet: any) {
       db.runSync(
         `INSERT OR REPLACE INTO question_sheets (id, courseId, year, semester, academicLevel) 
          VALUES (?, ?, ?, ?, ?)`,
-        [sheet.id, sheet.courseId, sheet.year || '', sheet.semester || '', sheet.academicLevel || '']
+        [sheet.id || '', sheet.courseId || '', sheet.year || '', sheet.semester || '', sheet.academicLevel || '']
       );
     }
   } catch (e) {

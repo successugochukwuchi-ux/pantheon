@@ -174,7 +174,7 @@ export function Sidebar({ isOpen, onClose }: SidebarProps) {
 }
 
 const s = StyleSheet.create({
-  sidebarOverlay: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(0,0,0,0.4)' },
+  sidebarOverlay: { ...StyleSheet.absoluteFill, backgroundColor: 'rgba(0,0,0,0.4)' },
   sidebar: { 
     position: 'absolute', 
     top: 0, 

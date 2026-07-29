@@ -175,9 +175,10 @@ export default function CbtSetupScreen() {
             level: c.level || '',
             department: c.department || '',
             disabled: c.disabled,
+            isDownloaded: true,
             label: `⭐ ${c.code} — ${c.title}`
           }));
-          const filteredLocal = await getFilteredCoursesForStudent(mappedLocal, profile, true, semester);
+          const filteredLocal = await getFilteredCoursesForStudent(mappedLocal, profile, true);
           if (filteredLocal.length > 0) {
             setCourses(filteredLocal);
             setSelectedCourse(filteredLocal[0].id);
@@ -211,7 +212,7 @@ export default function CbtSetupScreen() {
           };
         }) as any[];
         
-        const fetched = await getFilteredCoursesForStudent(fetchedRaw, profile, true, semester);
+        const fetched = await getFilteredCoursesForStudent(fetchedRaw, profile, true);
 
         const userDept = (profile.department || '').toLowerCase();
         const userLevel = (profile.academicLevel || '100').replace('LVL', '');

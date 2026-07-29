@@ -146,38 +146,18 @@ export default function PastQuestionsScreen() {
           return false;
         };
 
-        // Attempt SQLite local load first as default
-        const localCourses = getDownloadedCoursesLocal().filter(lc => isSameSemester(lc.semester || '', activeSemester));
-        if (localCourses.length > 0) {
-          const filteredLocal = await getFilteredCoursesForStudent(
-            localCourses.map(c => ({ ...c, isDownloaded: true })),
-            profile,
-            true,
-            activeSemester
-          );
-          if (filteredLocal.length > 0) {
-            setCourses(filteredLocal);
-            setLoading(false);
-          }
-        }
-
-        if (isOffline) {
-          setIsOfflineMode(true);
-          setLoading(false);
-          return;
-        }
-
-        // Attempt firebase stream if online
+        // Attempt firebase stream first
         if (db) {
           const qCourses = query(collection(db, 'courses'), where('semester', '==', activeSemester));
           const snap = await getDocs(qCourses);
           let fbCourses = snap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Course));
           
           // Enrich with local downloaded status
-          const downloadedIds = new Set(localCourses.map(c => c.id));
+          const localDownloaded = getDownloadedCoursesLocal().filter(lc => isSameSemester(lc.semester || '', activeSemester));
+          const downloadedIds = new Set(localDownloaded.map(c => c.id));
           
           // Double safeguard: append any local downloaded courses that are not returned online
-          localCourses.forEach(lc => {
+          localDownloaded.forEach(lc => {
             if (!fbCourses.some(fc => fc.id === lc.id)) {
               fbCourses.push({
                 id: lc.id,
@@ -193,9 +173,14 @@ export default function PastQuestionsScreen() {
           // Extra safety local filter
           fbCourses = fbCourses.filter(fc => isSameSemester(fc.semester || '', activeSemester));
 
-          fbCourses = await getFilteredCoursesForStudent(fbCourses, profile, true, activeSemester);
+          const enrichedBeforeFilter = fbCourses.map(c => ({
+            ...c,
+            isDownloaded: downloadedIds.has(c.id)
+          }));
 
-          const enriched = fbCourses.map(c => ({
+          const filtered = await getFilteredCoursesForStudent(enrichedBeforeFilter, profile, true);
+
+          const enriched = filtered.map(c => ({
             ...c,
             isDownloaded: downloadedIds.has(c.id)
           })).sort((a, b) => a.code.localeCompare(b.code));
@@ -243,17 +228,8 @@ export default function PastQuestionsScreen() {
     async function loadSheets() {
       setLoading(true);
       try {
-        // SQLite first
-        const offlineSheets = getLocalQuestionSheets(selectedCourseId);
-        if (offlineSheets.length > 0) {
-          offlineSheets.sort((a, b) => b.year.localeCompare(a.year));
-          setSheets(offlineSheets);
-          setLoading(false);
-          if (isOfflineMode) return;
-        }
-
         if (!isOfflineMode && db) {
-          // Fetch from Firestore if local SQLite had no sheets or to check updates
+          // Fetch from Firestore
           const qSheets = query(
             collection(db, 'questionSheets'), 
             where('courseId', '==', selectedCourseId),
@@ -262,13 +238,26 @@ export default function PastQuestionsScreen() {
           const snap = await getDocs(qSheets);
           let fbSheets = snap.docs.map(doc => ({ id: doc.id, ...doc.data() } as QuestionSheet));
           
-          if (fbSheets.length > 0) {
-            fbSheets.sort((a, b) => b.year.localeCompare(a.year));
-            setSheets(fbSheets);
+          // Fallback to local SQLite sheets if Firestore has no sheets but course is downloaded offline
+          if (fbSheets.length === 0) {
+            const offlineSheets = getLocalQuestionSheets(selectedCourseId);
+            if (offlineSheets.length > 0) {
+              fbSheets = offlineSheets;
+              console.log('PastQuestions screen: Loaded sheets from local SQLite because Firestore was empty.');
+            }
           }
+
+          fbSheets.sort((a, b) => b.year.localeCompare(a.year));
+          setSheets(fbSheets);
+        } else {
+          // Fetch from local SQLite relational question_sheets database table
+          const offlineSheets = getLocalQuestionSheets(selectedCourseId);
+          offlineSheets.sort((a, b) => b.year.localeCompare(a.year));
+          setSheets(offlineSheets);
         }
       } catch (err) {
         console.log('Offline question sheets loading fallback', err);
+        // Fallback to SQLite
         const offlineSheets = getLocalQuestionSheets(selectedCourseId);
         offlineSheets.sort((a, b) => b.year.localeCompare(a.year));
         setSheets(offlineSheets);
@@ -283,29 +272,15 @@ export default function PastQuestionsScreen() {
   const handleStartExam = async (sheet: QuestionSheet) => {
     setLoading(true);
     try {
-      // 1. Try SQLite questions first
-      const offlineQs = getLocalQuestions(sheet.courseId).filter(q => q.sheetId === sheet.id);
-      const finalLocalQs = offlineQs.length > 0 ? offlineQs : getLocalQuestions(sheet.courseId);
-
-      if (finalLocalQs.length > 0) {
-        setQuestions(finalLocalQs);
-        setSelectedSheet(sheet);
-        setExamStarted(true);
-        setCurrentIndex(0);
-        setUserAnswers({});
-        setShowFeedback({});
-        setLoading(false);
-        console.log('PastQuestions screen: Loaded questions directly from local SQLite.');
-        return;
-      }
-
       if (!isOfflineMode && db) {
-        // Fetch from Firestore if no local questions
+        // Fetch from Firestore
         const qQuestions = query(collection(db, 'questions'), where('sheetId', '==', sheet.id));
         const snap = await getDocs(qQuestions);
         const fbQuestions = snap.docs.map(doc => {
           const data = doc.data();
           
+          // Re-align Firestore parameters with relational SQLite parameter standard inside mobile components
+          // Web format might use correctAnswer (string) + incorrectAnswers (string array). Let's pack them:
           let optsArray: string[] = [];
           let correctIdx = 0;
           if (data.correctAnswer && data.incorrectAnswers) {
@@ -327,20 +302,46 @@ export default function PastQuestionsScreen() {
           } as Question;
         });
 
-        if (fbQuestions.length === 0) {
-          Alert.alert('Empty', 'No questions uploaded for this exam year yet.');
-          setLoading(false);
-          return;
+        let finalFbQuestions = fbQuestions;
+        if (finalFbQuestions.length === 0) {
+          // Dynamic Local Fallback Check
+          const offlineQs = getLocalQuestions(sheet.courseId).filter(q => q.sheetId === sheet.id);
+          const finalQs = offlineQs.length > 0 ? offlineQs : getLocalQuestions(sheet.courseId);
+          if (finalQs.length > 0) {
+            finalFbQuestions = finalQs;
+            console.log('PastQuestions screen: Loaded questions from local SQLite because Firestore was empty.');
+          } else {
+            Alert.alert('Empty', 'No questions uploaded for this exam year yet.');
+            setLoading(false);
+            return;
+          }
         }
 
-        setQuestions(fbQuestions);
+        setQuestions(finalFbQuestions);
         setSelectedSheet(sheet);
         setExamStarted(true);
         setCurrentIndex(0);
         setUserAnswers({});
         setShowFeedback({});
       } else {
-        Alert.alert('Offline', 'No offline questions found for this exam year.');
+        // Load from local indexed relational SQLite table
+        const offlineQs = getLocalQuestions(sheet.courseId).filter(q => q.sheetId === sheet.id);
+        
+        // Robust fallback: if they saved questions before sheetId was introduced, just show what is available for this course:
+        const finalQs = offlineQs.length > 0 ? offlineQs : getLocalQuestions(sheet.courseId);
+
+        if (finalQs.length === 0) {
+          Alert.alert('Offline Limit', 'No offline questions saved for this year. Open Note Grabber to sync this course offline.');
+          setLoading(false);
+          return;
+        }
+
+        setQuestions(finalQs);
+        setSelectedSheet(sheet);
+        setExamStarted(true);
+        setCurrentIndex(0);
+        setUserAnswers({});
+        setShowFeedback({});
       }
     } catch (err: any) {
       console.log('Error launching past question cbt exam engine:', err);

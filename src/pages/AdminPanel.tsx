@@ -62,6 +62,7 @@ import { Routes, Route, useNavigate, useLocation, Navigate } from 'react-router-
 import { NoteBuilder } from '../components/NoteBuilder';
 import AdminReports from './AdminReports';
 import AdminDiscipline from '../components/AdminDiscipline';
+import AdminDevices from '../components/AdminDevices';
 import { useTitle } from '../hooks/useTitle';
 import { MathJax } from 'better-react-mathjax';
 import AdminCredentials from '../components/AdminCredentials';
@@ -205,6 +206,7 @@ export default function AdminPanel() {
     semester: '1st', 
     level: '100',
     department: 'general',
+    units: 3,
     disabled: false
   });
   const [courseToEdit, setCourseToEdit] = useState<Course | null>(null);
@@ -214,6 +216,7 @@ export default function AdminPanel() {
     semester: '1st', 
     level: '100',
     department: 'general',
+    units: 3,
     disabled: false
   });
   const [courseToDelete, setCourseToDelete] = useState<string | null>(null);
@@ -769,8 +772,12 @@ export default function AdminPanel() {
     e.preventDefault();
     setLoading(true);
     try {
+      const parsedUnits = Number(newCourse.units);
+      const unitsValue = !isNaN(parsedUnits) && parsedUnits > 0 ? parsedUnits : 3;
+
       const docRef = await addDoc(collection(db, 'courses'), {
         ...newCourse,
+        units: unitsValue,
         department: newCourse.department || null,
         disabled: newCourse.disabled || false,
         At: profile?.At || 'futo',
@@ -788,6 +795,7 @@ export default function AdminPanel() {
         semester: newCourse.semester as '1st' | '2nd',
         level: newCourse.level,
         department: newCourse.department || undefined,
+        units: unitsValue,
         disabled: newCourse.disabled || false,
         At: profile?.At || 'futo',
         createdAt: new Date().toISOString()
@@ -795,7 +803,7 @@ export default function AdminPanel() {
       setCourses(prev => [...prev, createdCourse].sort((a, b) => safeCompareStrings(a.code, b.code)));
 
       toast.success('Course created successfully');
-      setNewCourse({ code: '', title: '', semester: '1st', level: '100', department: 'general', disabled: false });
+      setNewCourse({ code: '', title: '', semester: '1st', level: '100', department: 'general', units: 3, disabled: false });
     } catch (error: any) {
       toast.error(error.message);
     } finally {
@@ -808,8 +816,12 @@ export default function AdminPanel() {
     if (!courseToEdit) return;
     setLoading(true);
     try {
+      const parsedUnits = Number(editCourse.units);
+      const unitsValue = !isNaN(parsedUnits) && parsedUnits > 0 ? parsedUnits : 3;
+
       await updateDoc(doc(db, 'courses', courseToEdit.id), {
         ...editCourse,
+        units: unitsValue,
         updatedAt: new Date().toISOString()
       });
       
@@ -817,6 +829,7 @@ export default function AdminPanel() {
       setCourses(prev => prev.map(c => c.id === courseToEdit.id ? { 
         ...c, 
         ...editCourse, 
+        units: unitsValue,
         department: editCourse.department === 'general' ? undefined : editCourse.department 
       } as Course : c));
 
@@ -2257,6 +2270,7 @@ export default function AdminPanel() {
             <Button variant={location.pathname.includes('videos') ? 'default' : 'ghost'} size="sm" onClick={() => navigate('/administrator/videos')}>Video Library</Button>
             <Button variant={location.pathname.includes('notifier') ? 'default' : 'ghost'} size="sm" onClick={() => navigate('/administrator/notifier')}>Notifier</Button>
             <Button variant={location.pathname.includes('credentials') ? 'default' : 'ghost'} size="sm" onClick={() => navigate('/administrator/credentials')}>Credentials</Button>
+            <Button variant={location.pathname.includes('devices') ? 'default' : 'ghost'} size="sm" onClick={() => navigate('/administrator/devices')}>Devices</Button>
             <Button variant={location.pathname.includes('reports') ? 'default' : 'ghost'} size="sm" onClick={() => navigate('/administrator/reports')}>Reports</Button>
             <Button variant={location.pathname.includes('manual') ? 'default' : 'ghost'} size="sm" onClick={() => navigate('/administrator/manual')}>Admin Manual</Button>
             <Button variant={location.pathname.includes('system') ? 'default' : 'ghost'} size="sm" onClick={() => navigate('/administrator/system')}>System</Button>
@@ -2276,6 +2290,7 @@ export default function AdminPanel() {
         <Route path="/manual" element={<AdminManual />} />
         <Route path="/discipline" element={<AdminDiscipline />} />
         <Route path="/credentials" element={<AdminCredentials />} />
+        <Route path="/devices" element={isLevel4 ? <AdminDevices /> : <Navigate to="/administrator" replace />} />
         <Route path="/overseer" element={isLevel5 ? <OverseerControl /> : <Navigate to="/administrator" replace />} />
         <Route path="/videos" element={
           <div className="space-y-6">
@@ -2821,6 +2836,18 @@ export default function AdminPanel() {
                       </SelectContent>
                     </Select>
                   </div>
+                  <div className="space-y-2">
+                    <Label>Course Units (Credit Load)</Label>
+                    <Input 
+                      type="number" 
+                      min={1} 
+                      max={12} 
+                      value={newCourse.units} 
+                      onChange={(e) => setNewCourse({...newCourse, units: Number(e.target.value)})} 
+                      placeholder="e.g., 3" 
+                      required 
+                    />
+                  </div>
                   {profile?.level === '4' && (
                     <div className="flex items-center space-x-2 md:col-span-2 pt-2">
                       <input 
@@ -2869,6 +2896,7 @@ export default function AdminPanel() {
                             semester: course.semester,
                             level: course.level,
                             department: course.department || 'general',
+                            units: course.units ?? 3,
                             disabled: !!course.disabled
                           });
                         }} disabled={loading}>
@@ -2883,6 +2911,7 @@ export default function AdminPanel() {
                       <div className="flex flex-wrap gap-2">
                         <Badge variant="outline" className="text-[10px]">{course.level} Level</Badge>
                         <Badge variant="outline" className="text-[10px]">{course.semester} Sem</Badge>
+                        <Badge variant="outline" className="text-[10px] bg-primary/5 text-primary border-primary/20">{course.units ?? 3} Units</Badge>
                         {course.department && course.department !== 'general' && (
                           <Badge variant="secondary" className="text-[10px] truncate max-w-[120px]">{course.department}</Badge>
                         )}
@@ -2940,6 +2969,18 @@ export default function AdminPanel() {
                           ))}
                         </SelectContent>
                       </Select>
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Course Units (Credit Load)</Label>
+                      <Input 
+                        type="number" 
+                        min={1} 
+                        max={12} 
+                        value={editCourse.units} 
+                        onChange={(e) => setEditCourse({...editCourse, units: Number(e.target.value)})} 
+                        placeholder="e.g., 3" 
+                        required 
+                      />
                     </div>
                     {profile?.level === '4' && (
                       <div className="flex items-center space-x-2 pt-2">

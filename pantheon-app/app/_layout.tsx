@@ -8,6 +8,7 @@ import { View } from 'react-native';
 
 import { AuthProvider } from '../context/AuthContext';
 import { ThemeProvider } from '../context/ThemeContext';
+import { AutoDownloader } from '../components/AutoDownloader';
 import { initDatabase } from '../lib/db';
 
 SplashScreen.preventAutoHideAsync().catch(() => {});
@@ -34,6 +35,7 @@ export default function RootLayout() {
   return (
     <AuthProvider>
       <ThemeProvider>
+        <AutoDownloader />
         <StatusBar style="auto" />
         <Stack screenOptions={{ headerShown: false }}>
         <Stack.Screen name="index" />

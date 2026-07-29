@@ -152,7 +152,7 @@ export default function NotesScreen() {
     const semester = (!systemConfig.currentSemester || systemConfig.currentSemester === 'none') ? '1st' : systemConfig.currentSemester;
 
     const loadAndFilter = async (list: any[], callback: (res: any[]) => void) => {
-      const filtered = await getFilteredCoursesForStudent(list, profile, true, semester);
+      const filtered = await getFilteredCoursesForStudent(list, profile, true);
       const mapped = filtered.map(c => ({
         id: c.id,
         code: c.code || '',
@@ -165,28 +165,33 @@ export default function NotesScreen() {
       callback(mapped);
     };
 
-    let hasLocalData = false;
+    if (isOffline) {
+      try {
+        const localCourses = getDownloadedCoursesLocal();
+        loadAndFilter(localCourses, (filteredLocal) => {
+          setCourses(filteredLocal);
+        }).finally(() => setLoading(false));
+      } catch (err) {
+        console.log('Error loading offline courses:', err);
+        setLoading(false);
+      }
+      return;
+    }
+
+    // Immediate offline/local sync fallback
     try {
       const localCourses = getDownloadedCoursesLocal();
       if (localCourses && localCourses.length > 0) {
         loadAndFilter(localCourses, (filteredLocal) => {
-          if (filteredLocal && filteredLocal.length > 0) {
-            setCourses(filteredLocal);
-            hasLocalData = true;
-            setLoading(false);
-          }
+          setCourses(filteredLocal);
+          setLoading(false);
         });
       }
     } catch (err) {
-      console.log('Error reading local SQLite courses:', err);
+      console.log('Offline/SQLite courses loading skipped:', err);
     }
 
-    if (isOffline) {
-      setLoading(false);
-      return;
-    }
-
-    // Fetch online to populate if empty or to sync updates in background
+    // 1. Fetch all courses for the semester (Match Web Dashboard/Notes logic)
     const q = query(
       collection(db, 'courses'),
       where('semester', '==', semester)
@@ -200,7 +205,7 @@ export default function NotesScreen() {
           ...doc.data()
         })) as Course[];
 
-        // Fetch Progress
+        // 2. Fetch or Listen to Progress (Match Web Dashboard logic)
         const progQ = query(
           collection(db, 'progress'),
           where('uid', '==', profile.uid),
@@ -214,16 +219,16 @@ export default function NotesScreen() {
           if (data.targetId) progMap[data.targetId] = data.percentage || 0;
         });
 
-        // Filter and merge progress
+        // 3. Filter and merge progress
         loadAndFilter(allFetched, (filtered) => {
           const withProgress = filtered.map(c => ({
             ...c,
             progress: progMap[c.id] || 0
           }));
 
+          // Sort by code
           const sorted = withProgress.sort((a, b) => a.code.localeCompare(b.code));
 
-          // If no local data was previously loaded or if new courses/progress were updated
           setCourses(sorted);
           setLoading(false);
         });
@@ -234,7 +239,7 @@ export default function NotesScreen() {
     };
 
     fetchCoursesAndProgress();
-  }, [profile, systemConfig, isOffline]);
+  }, [profile, systemConfig]);
 
   const filteredCourses = useMemo(() => {
     return courses.filter(c => 

@@ -1,12 +1,14 @@
+const LOCAL_ACTIVE_SESSION_ID = Math.random().toString(36).substring(2, 15);
 import React, { createContext, useContext, useEffect, useState } from 'react';
 import { onAuthStateChanged, User, signOut } from 'firebase/auth';
 import { doc, onSnapshot, updateDoc, collection, query, where, getDocs, getDoc, orderBy, limit } from 'firebase/firestore';
-import { Alert, AppState } from 'react-native';
+import { Alert, AppState, Platform } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Notifications from 'expo-notifications';
 import { auth, db } from '../lib/firebase';
-import { saveCoursesFromServer, clearUserProfileLocal, clearAllCoursesLocal, isCourseDownloadedLocal, saveCourseLocal, saveNoteLocal, saveQuestionLocal, saveQuestionSheetLocal } from '../lib/db';
+import { saveCoursesFromServer, clearUserProfileLocal, clearAllCoursesLocal } from '../lib/db';
 import { getFilteredCoursesForStudent } from '../lib/courseFilter';
+import { getDeviceUUID } from '../lib/device';
 
 Notifications.setNotificationHandler({
   handleNotification: async () => ({
@@ -35,6 +37,7 @@ interface UserProfile {
   isBanned?: boolean;
   banReason?: string;
   At?: string;
+  currentSessionId?: string;
 }
 
 interface SystemConfig {
@@ -56,9 +59,6 @@ interface AuthContextType {
   loading: boolean;
   isOffline: boolean;
   logout: () => Promise<void>;
-  downloadStatus: string;
-  downloadPercent: number;
-  isDownloadingCourses: boolean;
 }
 
 const AuthContext = createContext<AuthContextType>({
@@ -69,9 +69,6 @@ const AuthContext = createContext<AuthContextType>({
   loading: true,
   isOffline: false,
   logout: async () => {},
-  downloadStatus: '',
-  downloadPercent: 0,
-  isDownloadingCourses: false,
 });
 
 export const useAuth = () => useContext(AuthContext);
@@ -85,10 +82,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [isOffline, setIsOffline] = useState(false);
   const [prevSemester, setPrevSemester] = useState<string | null>(null);
   const [prevAcademicLevel, setPrevAcademicLevel] = useState<string | null>(null);
-
-  const [downloadStatus, setDownloadStatus] = useState<string>('');
-  const [downloadPercent, setDownloadPercent] = useState<number>(0);
-  const [isDownloadingCourses, setIsDownloadingCourses] = useState<boolean>(false);
 
   useEffect(() => {
     if (systemConfig) {
@@ -110,6 +103,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         console.log(`[Academic Level Change] Academic level changed from ${prevAcademicLevel} to ${profile.academicLevel}. Clearing local downloaded SQLite courses...`);
         try {
           clearAllCoursesLocal();
+          AsyncStorage.removeItem('colearn_last_downloaded_uid').catch(() => {});
         } catch (e) {
           console.error("Failed to clear local courses on academic level switch:", e);
         }
@@ -173,20 +167,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           }
         } else {
           try {
-            const lastUid = await AsyncStorage.getItem('colearn_last_uid');
-            if (lastUid && lastUid !== u.uid) {
-              console.log(`[User Switch] User changed from ${lastUid} to ${u.uid}. Clearing local database...`);
-              try {
-                clearAllCoursesLocal();
-              } catch (e) {
-                console.error("Failed to clear local courses on user switch:", e);
-              }
-            }
-            await AsyncStorage.setItem('colearn_last_uid', u.uid);
-          } catch (e) {
-            console.error("Error handling user switch database migration:", e);
-          }
-          try {
             const cachedProfile = await AsyncStorage.getItem('colearn_profile');
             if (cachedProfile) {
               setLoading(false);
@@ -215,29 +195,74 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
     if (user) {
       const setupProfileAndSession = async () => {
-        let activeSessionId = '';
-        try {
-          activeSessionId = await AsyncStorage.getItem('colearn_session_id') || '';
-          if (!activeSessionId) {
-            activeSessionId = Math.random().toString(36).substring(2, 15);
-            await AsyncStorage.setItem('colearn_session_id', activeSessionId);
-          }
-        } catch (e) {
-          activeSessionId = Math.random().toString(36).substring(2, 15);
-        }
+        const activeSessionId = LOCAL_ACTIVE_SESSION_ID;
 
         // Just write the session to doc initially if we are active
         await updateDoc(doc(db, 'users', user.uid), {
           currentSessionId: activeSessionId
         }).catch(err => console.log('Init session ID error (ignoring offline):', err));
 
-        unsubscribeProfile = onSnapshot(doc(db, 'users', user.uid), (snapshot) => {
+        // Get the device UUID
+        const deviceId = await getDeviceUUID();
+
+        // Get the current semester
+        let currentSemester = '1st';
+        try {
+          const configSnap = await getDoc(doc(db, 'system', 'config'));
+          if (configSnap.exists()) {
+            currentSemester = configSnap.data().currentSemester || '1st';
+          }
+        } catch (e) {}
+
+        let isFirstLoad = true;
+        unsubscribeProfile = onSnapshot(doc(db, 'users', user.uid), async (snapshot) => {
           if (snapshot.exists()) {
             const data = snapshot.data();
 
+            // Device limit check
+            let devices = data.devices || [];
+            // Keep only devices for the current semester (automatically clears previous semester devices)
+            const currentDevices = devices.filter((d: any) => d.semester === currentSemester);
+            
+            const deviceExists = currentDevices.find((d: any) => d.id === deviceId);
+            
+            if (!deviceExists) {
+              if (!isFirstLoad) {
+                setProfile(null);
+                signOut(auth).catch(err => console.log('Sign out error:', err));
+                Alert.alert(
+                  "Device Disconnected",
+                  "Your device has been forcefully disconnected by an administrator."
+                );
+                return;
+              }
+
+              if (currentDevices.length >= 2) {
+                setProfile(null);
+                signOut(auth).catch(err => console.log('Sign out error:', err));
+                Alert.alert(
+                  "Device Limit Reached",
+                  `This account has reached the maximum number of devices (2) for the current semester. Please contact an admin for ${data.At || 'futo'} for further assistance.`
+                );
+                return;
+              } else {
+                // Register this device
+                const newDevice = {
+                  id: deviceId,
+                  semester: currentSemester,
+                  os: Platform.OS,
+                  addedAt: new Date().toISOString()
+                };
+                currentDevices.push(newDevice);
+                await updateDoc(doc(db, 'users', user.uid), { devices: currentDevices }).catch(() => {});
+              }
+            } else if (devices.length !== currentDevices.length) {
+              // Cleanup old devices silently
+              await updateDoc(doc(db, 'users', user.uid), { devices: currentDevices }).catch(() => {});
+            }
+
             if (activeSessionId && data.currentSessionId && data.currentSessionId !== activeSessionId) {
               setProfile(null);
-              AsyncStorage.removeItem('colearn_session_id').catch(() => {});
               signOut(auth).catch(err => console.log('Sign out error:', err));
               Alert.alert(
                 "Logged Out",
@@ -274,6 +299,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             }
 
             setProfile(normalizedProfile);
+            isFirstLoad = false;
             AsyncStorage.setItem('colearn_profile', JSON.stringify(normalizedProfile)).catch(() => {});
           } else {
             setProfile(null);
@@ -296,11 +322,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const subscription = AppState.addEventListener('change', async (nextAppState) => {
       if (nextAppState === 'active' && user && isSubscribed) {
         try {
-          const activeSessionId = await AsyncStorage.getItem('colearn_session_id');
+          const activeSessionId = LOCAL_ACTIVE_SESSION_ID;
           if (activeSessionId && profile) {
             if (profile.currentSessionId && profile.currentSessionId !== activeSessionId) {
               setProfile(null);
-              await AsyncStorage.removeItem('colearn_session_id').catch(() => {});
               await signOut(auth).catch(() => {});
               Alert.alert(
                 "Logged Out",
@@ -323,13 +348,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   // Keep track of connection status periodically
   useEffect(() => {
     async function verifyConnection() {
-      if (typeof navigator !== 'undefined' && navigator.onLine !== undefined) {
-        setIsOffline(!navigator.onLine);
-        return;
-      }
-
-      // If navigator.onLine is not available (e.g. React Native/Native platform), we assume online
-      // and only mark as offline if we explicitly fail to ping a reliable server.
+      // Always ping google to ensure accurate offline status, even if navigator.onLine is true
+      // Sometimes navigator.onLine is true but actual internet is unavailable
       try {
         const controller = new AbortController();
         const id = setTimeout(() => controller.abort(), 3000);
@@ -341,58 +361,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         clearTimeout(id);
         setIsOffline(false);
       } catch (err) {
-        // Default to false (online) on Native/Sandbox to prevent false offline states
-        setIsOffline(false);
+        setIsOffline(true);
       }
     }
 
     verifyConnection();
-    const interval = setInterval(verifyConnection, 10000);
+    const interval = setInterval(verifyConnection, 5000);
     return () => clearInterval(interval);
   }, []);
-
-async function processDiagramsForOffline(content: string): Promise<string> {
-  if (!content) return content;
-  try {
-    const blocks = JSON.parse(content);
-    if (!Array.isArray(blocks)) return content;
-
-    const processedBlocks = await Promise.all(
-      blocks.map(async (block: any) => {
-        if (block.type === 'diagram' && block.content && block.content.startsWith('http')) {
-          try {
-            console.log('Downloading diagram for offline storage:', block.content);
-            const response = await fetch(block.content);
-            const blob = await response.blob();
-            
-            const base64Data = await new Promise<string>((resolve, reject) => {
-              const reader = new FileReader();
-              reader.onloadend = () => {
-                resolve(reader.result as string);
-              };
-              reader.onerror = reject;
-              reader.readAsDataURL(blob);
-            });
-            
-            return {
-              ...block,
-              content: base64Data,
-            };
-          } catch (err) {
-            console.error('Failed to convert diagram to base64 for offline study:', err);
-            return block;
-          }
-        }
-        return block;
-      })
-    );
-
-    return JSON.stringify(processedBlocks);
-  } catch (e) {
-    console.warn('Skipping diagram conversion for invalid JSON content:', e);
-    return content;
-  }
-}
 
   // Sync recommended courses to SQLite when logged in and online
   useEffect(() => {
@@ -401,19 +377,6 @@ async function processDiagramsForOffline(content: string): Promise<string> {
     const syncCourses = async () => {
       try {
         const activeSemester = systemConfig.currentSemester || '1st';
-        
-        // If the semester ends (currentSemester is 'none' or there's no active semester),
-        // the app should delete all course data and wait for a new semester from firebase
-        if (activeSemester === 'none') {
-          console.log('[Auto-Sync] Semester ended. Clearing all local courses.');
-          try {
-            clearAllCoursesLocal();
-          } catch (e) {
-            console.error("Failed to clear local courses on semester end:", e);
-          }
-          return;
-        }
-
         const q = query(
           collection(db, 'courses'),
           where('semester', '==', activeSemester)
@@ -425,110 +388,13 @@ async function processDiagramsForOffline(content: string): Promise<string> {
         })) as any[];
 
         saveCoursesFromServer(allFetched);
-
-        // Filter the courses based on user profile and department/discipline criteria
-        const filteredCourses = await getFilteredCoursesForStudent(allFetched, profile, true, activeSemester);
-
-        // If the user is activated, download all their matching courses (notes, questions, sheets) for offline use!
-        if (profile.isActivated) {
-          const coursesToDownload = filteredCourses.filter(c => !isCourseDownloadedLocal(c.id));
-          if (coursesToDownload.length > 0) {
-            setIsDownloadingCourses(true);
-            setDownloadPercent(0);
-            setDownloadStatus(`Preparing download for ${coursesToDownload.length} courses...`);
-
-            let downloadedCount = 0;
-            const total = coursesToDownload.length;
-
-            for (const course of coursesToDownload) {
-              console.log(`[Auto-Sync] Auto-downloading course: ${course.code}`);
-              try {
-                const currentProgressBase = (downloadedCount / total) * 100;
-                const nextProgressBase = ((downloadedCount + 1) / total) * 100;
-
-                setDownloadStatus(`Downloading notes for ${course.code}...`);
-                setDownloadPercent(Math.round(currentProgressBase + (nextProgressBase - currentProgressBase) * 0.1));
-
-                // Fetch and save notes
-                const notesQ = query(collection(db, 'notes'), where('courseId', '==', course.id));
-                const notesSnap = await getDocs(notesQ);
-
-                setDownloadPercent(Math.round(currentProgressBase + (nextProgressBase - currentProgressBase) * 0.3));
-                setDownloadStatus(`Downloading CBT questions for ${course.code}...`);
-                
-                // Fetch and save questions
-                const qQ = query(collection(db, 'questions'), where('courseId', '==', course.id));
-                const qSnap = await getDocs(qQ);
-                
-                setDownloadPercent(Math.round(currentProgressBase + (nextProgressBase - currentProgressBase) * 0.5));
-                setDownloadStatus(`Downloading CBT exam sheets for ${course.code}...`);
-
-                // Fetch and save sheets
-                const sheetsQ = query(collection(db, 'questionSheets'), where('courseId', '==', course.id));
-                const sheetsSnap = await getDocs(sheetsQ);
-
-                setDownloadPercent(Math.round(currentProgressBase + (nextProgressBase - currentProgressBase) * 0.6));
-                setDownloadStatus(`Saving files for ${course.code}...`);
-
-                // Save Course metadata as downloaded (isDownloaded = 1)
-                saveCourseLocal(course);
-
-                // Save sheets
-                sheetsSnap.docs.forEach(d => {
-                  saveQuestionSheetLocal({ id: d.id, ...d.data() });
-                });
-
-                // Save notes
-                let noteIndex = 0;
-                for (const doc of notesSnap.docs) {
-                  const noteData = doc.data();
-                  let content = noteData.content || '';
-                  setDownloadStatus(`Processing diagrams for ${course.code} (note ${noteIndex + 1}/${notesSnap.docs.length})...`);
-                  try {
-                    content = await processDiagramsForOffline(content);
-                  } catch (err) {
-                    console.error('Error preprocessing diagrams for local index:', err);
-                  }
-                  saveNoteLocal({
-                    id: doc.id,
-                    courseId: course.id,
-                    title: noteData.title || '',
-                    content,
-                    order: noteData.order || 0,
-                    duration: noteData.duration || '',
-                    tag: noteData.tag || 'CORE'
-                  });
-                  noteIndex++;
-                }
-
-                // Save questions
-                qSnap.docs.forEach(d => {
-                  saveQuestionLocal({ id: d.id, courseId: course.id, ...d.data() });
-                });
-
-                downloadedCount++;
-                setDownloadPercent(Math.round((downloadedCount / total) * 100));
-                console.log(`[Auto-Sync] Course ${course.code} fully downloaded for offline study.`);
-              } catch (err) {
-                console.error(`[Auto-Sync] Error downloading course ${course.code}:`, err);
-              }
-            }
-
-            setDownloadPercent(100);
-            setDownloadStatus('All courses downloaded successfully!');
-            setTimeout(() => {
-              setIsDownloadingCourses(false);
-              setDownloadStatus('');
-            }, 3000);
-          }
-        }
       } catch (err) {
-        console.log('[Background Auto-Sync] Course synchronization skipped:', err);
+        console.log('[Background Auto-Sync] Course synchronization skipped (offline):', err);
       }
     };
 
     syncCourses();
-  }, [profile?.uid, profile?.isActivated, profile?.department, profile?.academicLevel, systemConfig?.currentSemester, isOffline]);
+  }, [profile, systemConfig, isOffline]);
 
   // Real-time Background Notification Dispatcher
   useEffect(() => {
@@ -828,9 +694,11 @@ async function processDiagramsForOffline(content: string): Promise<string> {
       await AsyncStorage.removeItem('colearn_profile').catch(() => {});
       await AsyncStorage.removeItem('colearn_system_config').catch(() => {});
       await AsyncStorage.removeItem('colearn_promo_config').catch(() => {});
-      await AsyncStorage.removeItem('colearn_session_id').catch(() => {});
+      await AsyncStorage.removeItem('colearn_last_downloaded_uid').catch(() => {});
+      await AsyncStorage.removeItem('colearn_last_downloaded_semester').catch(() => {});
       try {
         clearUserProfileLocal();
+        clearAllCoursesLocal();
       } catch (e) {
         console.log('Error clearing local user profile:', e);
       }
@@ -842,18 +710,7 @@ async function processDiagramsForOffline(content: string): Promise<string> {
   };
 
   return (
-    <AuthContext.Provider value={{ 
-      user, 
-      profile, 
-      systemConfig, 
-      promoConfig, 
-      loading, 
-      isOffline, 
-      logout,
-      downloadStatus,
-      downloadPercent,
-      isDownloadingCourses
-    }}>
+    <AuthContext.Provider value={{ user, profile, systemConfig, promoConfig, loading, isOffline, logout }}>
       {children}
     </AuthContext.Provider>
   );

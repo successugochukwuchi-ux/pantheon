@@ -160,6 +160,7 @@ service cloud.firestore {
              (data.get('theme', null) == null || data.theme is string) &&
              (data.get('photoURL', null) == null || data.photoURL is string) &&
              (data.get('currentSessionId', null) == null || data.currentSessionId is string) &&
+             (data.get('devices', null) == null || data.devices is list) &&
              (data.get('createdAt', null) == null || data.createdAt is string);
     }
 
@@ -169,7 +170,7 @@ service cloud.firestore {
                       incoming().isActivated == (incoming().email == "successugochukwuchi@gmail.com");
       allow update: if isAdmin() || (
                       isOwner(userId) && (
-                        (incoming().diff(existing()).affectedKeys().hasOnly(['username', 'username_lower', 'theme', 'referredBy', 'mobileNumber', 'photoURL', 'currentSessionId', 'At', 'department', 'academicLevel', 'isOnboarded']) && isValidUser(incoming())) ||
+                        (incoming().diff(existing()).affectedKeys().hasOnly(['username', 'username_lower', 'theme', 'referredBy', 'mobileNumber', 'photoURL', 'currentSessionId', 'At', 'department', 'academicLevel', 'isOnboarded', 'devices']) && isValidUser(incoming())) ||
                         (
                           incoming().diff(existing()).affectedKeys().hasOnly(['isActivated', 'activatedViaPromo', 'level', 'currentSessionId']) &&
                           existing().isActivated == false &&

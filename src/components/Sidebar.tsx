@@ -27,9 +27,7 @@ import {
   Compass,
   Star,
   Calendar,
-  Home,
-  Smartphone,
-  Download
+  Home
 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { useFlux } from '../contexts/FluxContext';
@@ -49,11 +47,10 @@ interface SidebarProps {
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({ onClose, isCollapsed = false, onToggleCollapse, unreadCount = 0 }) => {
-  const { profile, user, systemConfig } = useAuth();
+  const { profile, user } = useAuth();
   const { isFluxMode, setFluxMode } = useFlux();
   const location = useLocation();
 
-  const isAndroid = typeof navigator !== 'undefined' && /android/i.test(navigator.userAgent);
   const isAtLeastLevel2 = profile?.level === '2' || profile?.level === '3' || profile?.level === '4' || profile?.level === '5';
   const isAdmin = profile?.level === '3' || profile?.level === '4' || profile?.level === '5';
   const isAdminPath = location.pathname.startsWith('/administrator');
@@ -183,31 +180,6 @@ export const Sidebar: React.FC<SidebarProps> = ({ onClose, isCollapsed = false, 
       {isCollapsed && !isFluxMode && (
         <div className="px-2 mb-4 flex justify-center">
           <div className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse" title="System Online" />
-        </div>
-      )}
-
-      {isAndroid && !isCollapsed && !isFluxMode && (
-        <div className="px-6 mb-3">
-          <Link
-            to="/download"
-            className="w-full flex items-center justify-center gap-2 px-3 py-2 rounded-xl bg-gradient-to-r from-indigo-600 via-indigo-500 to-purple-600 hover:from-indigo-500 hover:to-purple-500 text-white font-semibold text-xs shadow-md transition-all duration-200 transform active:scale-95 group"
-            title="Download Mobile App"
-          >
-            <Smartphone className="h-4 w-4 text-indigo-200 group-hover:scale-110 transition-transform" />
-            <span className="truncate">Download App</span>
-          </Link>
-        </div>
-      )}
-
-      {isAndroid && isCollapsed && !isFluxMode && (
-        <div className="px-2 mb-3 flex justify-center">
-          <Link
-            to="/download"
-            className="p-2 rounded-xl bg-indigo-600 text-white hover:bg-indigo-500 shadow-md transition-transform active:scale-95 flex items-center justify-center"
-            title="Download Android App"
-          >
-            <Smartphone className="h-4 w-4" />
-          </Link>
         </div>
       )}
 

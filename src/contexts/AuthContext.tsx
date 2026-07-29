@@ -1,9 +1,11 @@
+const LOCAL_ACTIVE_SESSION_ID = Math.random().toString(36).substring(2, 15);
 import React, { createContext, useContext, useEffect, useState, useMemo } from 'react';
 import { onAuthStateChanged, User, signOut as firebaseSignOut } from 'firebase/auth';
 import { doc, onSnapshot, updateDoc, setDoc, getDoc } from 'firebase/firestore';
 import { auth, db, handleFirestoreError, OperationType } from '../firebase';
 import { toast } from 'sonner';
 import { UserProfile, SystemConfig, PromoConfig, Semester } from '../types';
+import { getDeviceUUID } from '../lib/device';
 
 interface AuthContextType {
   user: User | null;
@@ -69,7 +71,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       if (!firebaseUser) {
         setProfile(null);
         setLoading(false);
-        sessionStorage.removeItem('colearn_session_id');
       }
     });
 
@@ -142,89 +143,120 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   useEffect(() => {
     if (user) {
-      const path = `users/${user.uid}`;
-      const unsubscribeProfile = onSnapshot(doc(db, 'users', user.uid), (snapshot) => {
-        if (snapshot.exists()) {
-          const data = snapshot.data() as UserProfile;
-          
-          // Single-device system logic
-          let activeSessionId = sessionStorage.getItem('colearn_session_id');
-          if (!activeSessionId) {
-            activeSessionId = Math.random().toString(36).substring(2, 15);
-            sessionStorage.setItem('colearn_session_id', activeSessionId);
-            updateDoc(doc(db, 'users', user.uid), {
-              currentSessionId: activeSessionId
-            }).catch(err => console.error("Error setting session ID:", err));
-          } else if (data.currentSessionId && data.currentSessionId !== activeSessionId) {
-            setProfile(null);
-            sessionStorage.removeItem('colearn_session_id');
-            firebaseSignOut(auth).catch(err => console.error("Signout error:", err));
-            toast.error("Logged out: Your account is open on another device.");
-            return;
-          } else if (!data.currentSessionId) {
-            updateDoc(doc(db, 'users', user.uid), {
-              currentSessionId: activeSessionId
-            }).catch(err => console.error("Error restoring session ID:", err));
-          }
+      const initSessionAndDevice = async () => {
+        let activeSessionId = LOCAL_ACTIVE_SESSION_ID;
+          await updateDoc(doc(db, 'users', user.uid), {
+            currentSessionId: activeSessionId
+          }).catch(err => console.error("Error setting session ID:", err));
 
-          setProfile(data);
-
-          // Auto-promote bootstrap admin
-          if (user.email === 'successugochukwuchi@gmail.com' && data.level === '1') {
-            console.log("Promoting admin...");
-            updateDoc(doc(db, 'users', user.uid), {
-              level: '4',
-              isActivated: true
-            }).then(() => console.log("Admin promoted successfully"))
-              .catch(err => {
-                console.error("Failed to promote admin:", err);
-              });
-          }
-        } else {
-          setProfile(null);
-          // Auto-create bootstrap admin profile if missing
-          if (user.email === 'successugochukwuchi@gmail.com') {
-            const studentId = Math.floor(10000000000 + Math.random() * 90000000000).toString();
-            const adminData = {
-              uid: user.uid,
-              studentId: studentId,
-              email: user.email,
-              username: 'Admin',
-              level: '4',
-              isActivated: true,
-              referralCount: 0,
-              theme: 'light',
-              createdAt: new Date().toISOString()
-            };
-            
-            console.log("Attempting to create admin profile...");
-            setDoc(doc(db, 'users', user.uid), adminData)
-              .then(() => console.log("Admin profile created successfully"))
-              .catch(err => {
-                console.error("Failed to create admin profile:", err);
-              });
-          }
+        const deviceId = await getDeviceUUID();
+        
+        let currentSemester = '1st';
+        if (systemConfig?.currentSemester) {
+          currentSemester = systemConfig.currentSemester;
         }
-        setLoading(false);
-      }, (error) => {
-        setLoading(false);
-        handleFirestoreError(error, OperationType.GET, path);
-      });
 
-      return () => unsubscribeProfile();
+        const path = `users/${user.uid}`;
+        let isFirstLoad = true;
+        const unsubscribeProfile = onSnapshot(doc(db, 'users', user.uid), async (snapshot) => {
+          if (snapshot.exists()) {
+            const data = snapshot.data() as UserProfile;
+            
+            // Device limit check
+            let devices = data.devices || [];
+            const currentDevices = devices.filter((d: any) => d.semester === currentSemester);
+            
+            const deviceExists = currentDevices.find((d: any) => d.id === deviceId);
+            
+            if (!deviceExists) {
+              if (!isFirstLoad) {
+                setProfile(null);
+                firebaseSignOut(auth).catch(err => console.error("Signout error:", err));
+                toast.error("Your device has been forcefully disconnected by an administrator.");
+                return;
+              }
+
+              if (currentDevices.length >= 2) {
+                setProfile(null);
+                firebaseSignOut(auth).catch(err => console.error("Signout error:", err));
+                toast.error(`Device Limit Reached: Your account has reached the max of 2 devices for the current semester. Contact an admin for ${data.At || 'futo'} to resolve this.`);
+                return;
+              } else {
+                const newDevice = {
+                  id: deviceId,
+                  semester: currentSemester,
+                  os: 'web',
+                  addedAt: new Date().toISOString()
+                };
+                currentDevices.push(newDevice);
+                await updateDoc(doc(db, 'users', user.uid), { devices: currentDevices }).catch(() => {});
+              }
+            } else if (devices.length !== currentDevices.length) {
+              await updateDoc(doc(db, 'users', user.uid), { devices: currentDevices }).catch(() => {});
+            }
+
+            if (data.currentSessionId && data.currentSessionId !== activeSessionId) {
+              setProfile(null);
+              firebaseSignOut(auth).catch(err => console.error("Signout error:", err));
+              toast.error("Logged out: Your account is open on another device.");
+              return;
+            } else if (!data.currentSessionId) {
+              updateDoc(doc(db, 'users', user.uid), {
+                currentSessionId: activeSessionId
+              }).catch(err => console.error("Error restoring session ID:", err));
+            }
+
+            setProfile(data);
+            isFirstLoad = false;
+
+            if (user.email === 'successugochukwuchi@gmail.com' && data.level === '1') {
+              updateDoc(doc(db, 'users', user.uid), {
+                level: '4',
+                isActivated: true
+              }).catch(err => console.error("Failed to promote admin:", err));
+            }
+          } else {
+            setProfile(null);
+            if (user.email === 'successugochukwuchi@gmail.com') {
+              const studentId = Math.floor(10000000000 + Math.random() * 90000000000).toString();
+              const adminData = {
+                uid: user.uid,
+                studentId: studentId,
+                email: user.email,
+                username: 'Admin',
+                level: '4',
+                isActivated: true,
+                referralCount: 0,
+                theme: 'light',
+                createdAt: new Date().toISOString()
+              };
+              setDoc(doc(db, 'users', user.uid), adminData).catch(err => console.error("Failed to create admin profile:", err));
+            }
+          }
+          setLoading(false);
+        }, (error) => {
+          setLoading(false);
+          handleFirestoreError(error, OperationType.GET, path);
+        });
+        return unsubscribeProfile;
+      };
+
+      const unsubPromise = initSessionAndDevice();
+      return () => {
+        unsubPromise.then(unsub => unsub?.());
+      };
     }
-  }, [user, retryCount]);
+  }, [user, systemConfig, retryCount]);
 
   // Active session lock validation on visibility change (for web app) using local state to avoid database reads
   useEffect(() => {
     const handleVisibilityChange = async () => {
       if (document.visibilityState === 'visible' && user) {
         try {
-          const activeSessionId = sessionStorage.getItem('colearn_session_id');
+          const activeSessionId = LOCAL_ACTIVE_SESSION_ID;
           if (activeSessionId && profile) {
             if (profile.currentSessionId && profile.currentSessionId !== activeSessionId) {
               setProfile(null);
-              sessionStorage.removeItem('colearn_session_id');
               await firebaseSignOut(auth);
               toast.error("Logged out: Your account is open on another device.");
             }

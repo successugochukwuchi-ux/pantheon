@@ -131,8 +131,7 @@ export default function CompeteScreen() {
         if (systemConfig && systemConfig.currentSemester !== 'none') {
           semFiltered = list.filter((c) => c.semester === systemConfig.currentSemester);
         }
-        const semester = systemConfig?.currentSemester || '1st';
-        const filtered = await getFilteredCoursesForStudent(semFiltered, profile, true, semester);
+        const filtered = await getFilteredCoursesForStudent(semFiltered, profile, true);
         setCourses(filtered);
         setLoadingCourses(false);
       })

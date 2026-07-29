@@ -19,6 +19,7 @@ export interface UserProfile {
   theme?: string;
   photoURL?: string;
   currentSessionId?: string;
+  devices?: Array<{ id: string; semester: string; os?: string; addedAt: string }>;
   createdAt: string;
   At?: string; // University ID/code
   isOnboarded?: boolean;
@@ -39,6 +40,7 @@ export interface Course {
   semester: '1st' | '2nd';
   level: string;
   department?: string; // If null/empty, it's a General Course
+  units?: number; // Course units/credit units
   disabled?: boolean;
   createdAt: string;
   At?: string; // University ID/code
