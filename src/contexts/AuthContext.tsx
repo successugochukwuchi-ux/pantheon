@@ -144,11 +144,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   useEffect(() => {
     if (user) {
       const initSessionAndDevice = async () => {
-        let activeSessionId = LOCAL_ACTIVE_SESSION_ID;
-          await updateDoc(doc(db, 'users', user.uid), {
-            currentSessionId: activeSessionId
-          }).catch(err => console.error("Error setting session ID:", err));
-
         const deviceId = await getDeviceUUID();
         
         let currentSemester = '1st';
@@ -195,17 +190,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
               await updateDoc(doc(db, 'users', user.uid), { devices: currentDevices }).catch(() => {});
             }
 
-            if (data.currentSessionId && data.currentSessionId !== activeSessionId) {
-              setProfile(null);
-              firebaseSignOut(auth).catch(err => console.error("Signout error:", err));
-              toast.error("Logged out: Your account is open on another device.");
-              return;
-            } else if (!data.currentSessionId) {
-              updateDoc(doc(db, 'users', user.uid), {
-                currentSessionId: activeSessionId
-              }).catch(err => console.error("Error restoring session ID:", err));
-            }
-
             setProfile(data);
             isFirstLoad = false;
 
@@ -248,30 +232,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   }, [user, systemConfig, retryCount]);
 
-  // Active session lock validation on visibility change (for web app) using local state to avoid database reads
-  useEffect(() => {
-    const handleVisibilityChange = async () => {
-      if (document.visibilityState === 'visible' && user) {
-        try {
-          const activeSessionId = LOCAL_ACTIVE_SESSION_ID;
-          if (activeSessionId && profile) {
-            if (profile.currentSessionId && profile.currentSessionId !== activeSessionId) {
-              setProfile(null);
-              await firebaseSignOut(auth);
-              toast.error("Logged out: Your account is open on another device.");
-            }
-          }
-        } catch (err) {
-          console.error("Error verifying active session on visibility change:", err);
-        }
-      }
-    };
 
-    document.addEventListener('visibilitychange', handleVisibilityChange);
-    return () => {
-      document.removeEventListener('visibilitychange', handleVisibilityChange);
-    };
-  }, [user, profile]);
 
   const [uniSemester, setUniSemester] = useState<Semester | null>(null);
 

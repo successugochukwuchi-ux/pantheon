@@ -195,13 +195,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
     if (user) {
       const setupProfileAndSession = async () => {
-        const activeSessionId = LOCAL_ACTIVE_SESSION_ID;
-
-        // Just write the session to doc initially if we are active
-        await updateDoc(doc(db, 'users', user.uid), {
-          currentSessionId: activeSessionId
-        }).catch(err => console.log('Init session ID error (ignoring offline):', err));
-
         // Get the device UUID
         const deviceId = await getDeviceUUID();
 
@@ -261,15 +254,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
               await updateDoc(doc(db, 'users', user.uid), { devices: currentDevices }).catch(() => {});
             }
 
-            if (activeSessionId && data.currentSessionId && data.currentSessionId !== activeSessionId) {
-              setProfile(null);
-              signOut(auth).catch(err => console.log('Sign out error:', err));
-              Alert.alert(
-                "Logged Out",
-                "Your account is open on another device or browser session."
-              );
-              return;
-            }
+            // Removed old session ID checks to allow two devices to stay online
             
             const normalizedProfile: UserProfile = {
               uid: user.uid,
@@ -316,34 +301,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     return () => unsubscribeProfile();
   }, [user]);
 
-  // Verify session lock on App State foreground change using local state to avoid database reads
-  useEffect(() => {
-    let isSubscribed = true;
-    const subscription = AppState.addEventListener('change', async (nextAppState) => {
-      if (nextAppState === 'active' && user && isSubscribed) {
-        try {
-          const activeSessionId = LOCAL_ACTIVE_SESSION_ID;
-          if (activeSessionId && profile) {
-            if (profile.currentSessionId && profile.currentSessionId !== activeSessionId) {
-              setProfile(null);
-              await signOut(auth).catch(() => {});
-              Alert.alert(
-                "Logged Out",
-                "Your account is open on another device or browser session."
-              );
-            }
-          }
-        } catch (err) {
-          console.error("Session re-verification on resume error:", err);
-        }
-      }
-    });
 
-    return () => {
-      isSubscribed = false;
-      subscription.remove();
-    };
-  }, [user, profile]);
 
   // Keep track of connection status periodically
   useEffect(() => {
