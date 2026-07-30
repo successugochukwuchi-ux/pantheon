@@ -101,15 +101,28 @@ import {
 const RECOMMENDED_MODELS = {
   groq: {
     chat: 'llama-3.3-70b-versatile',
-    magicNote: 'llama-3.2-11b-vision-instruct'
+    magicNote: 'llama-3.2-11b-vision-instruct',
+    baseUrl: 'https://api.groq.com/openai/v1'
   },
   gemini: {
     chat: 'gemini-2.0-flash-lite',
-    magicNote: 'gemini-2.0-flash-lite'
+    magicNote: 'gemini-2.0-flash-lite',
+    baseUrl: ''
   },
   openrouter: {
     chat: 'google/gemini-2.0-flash-001',
-    magicNote: 'google/gemini-2.0-flash-001'
+    magicNote: 'google/gemini-2.0-flash-001',
+    baseUrl: 'https://openrouter.ai/api/v1'
+  },
+  openai: {
+    chat: 'gpt-4o-mini',
+    magicNote: 'gpt-4o-mini',
+    baseUrl: 'https://api.openai.com/v1'
+  },
+  custom: {
+    chat: 'gpt-4o-mini',
+    magicNote: 'gpt-4o-mini',
+    baseUrl: 'https://api.openai.com/v1'
   }
 };
 
@@ -362,7 +375,8 @@ export default function AdminPanel() {
   // AI Configuration State
   const [hermesConfig, setHermesConfig] = useState<AIConfig | null>(null);
   const [editAI, setEditAI] = useState({
-    provider: 'groq' as 'groq' | 'openrouter' | 'gemini',
+    provider: 'groq' as 'groq' | 'openrouter' | 'gemini' | 'openai' | 'custom',
+    baseUrl: 'https://api.groq.com/openai/v1',
     model: 'llama-3.3-70b-versatile',
     apiKey: '',
     isActive: true
@@ -462,6 +476,7 @@ export default function AdminPanel() {
           setHermesConfig(data);
           setEditAI({
             provider: data.provider || 'groq',
+            baseUrl: data.baseUrl || (data.provider === 'openrouter' ? 'https://openrouter.ai/api/v1' : data.provider === 'openai' ? 'https://api.openai.com/v1' : data.provider === 'groq' ? 'https://api.groq.com/openai/v1' : 'https://api.openai.com/v1'),
             model: data.model || '',
             apiKey: data.apiKey || '',
             isActive: data.isActive ?? true
@@ -476,7 +491,7 @@ export default function AdminPanel() {
           const data = snapshot.data() as AIConfig;
           setMagicNoteConfig(data);
           setEditMagicNote({
-            provider: data.provider || 'groq',
+            provider: (data.provider === 'openai' || data.provider === 'custom' ? 'groq' : data.provider) || 'groq',
             model: data.model || '',
             apiKey: data.apiKey || '',
             isActive: data.isActive ?? true
@@ -1521,8 +1536,13 @@ export default function AdminPanel() {
     setLoading(true);
     try {
       const sanitizedKey = editAI.apiKey.toString().replace(/\s+/g, '').replace(/['"]/g, '').replace(/[\u200B-\u200D\uFEFF]/g, '');
+      let formattedBaseUrl = editAI.baseUrl ? editAI.baseUrl.trim().replace(/\/+$/, '') : '';
+      if (formattedBaseUrl.endsWith('/chat/completions')) {
+        formattedBaseUrl = formattedBaseUrl.replace(/\/chat\/completions$/, '');
+      }
       await setDoc(doc(db, 'system', 'hermes'), {
         ...editAI,
+        baseUrl: formattedBaseUrl,
         apiKey: sanitizedKey,
         updatedBy: user.uid,
         updatedAt: new Date().toISOString()
@@ -4832,11 +4852,12 @@ export default function AdminPanel() {
                           <Label className="text-xs">API Provider</Label>
                           <Select 
                             value={editAI.provider} 
-                            onValueChange={(v: 'groq' | 'openrouter' | 'gemini') => {
+                            onValueChange={(v: 'groq' | 'openrouter' | 'gemini' | 'openai' | 'custom') => {
                               setEditAI(prev => ({ 
                                 ...prev, 
                                 provider: v,
-                                model: RECOMMENDED_MODELS[v].chat
+                                model: RECOMMENDED_MODELS[v].chat,
+                                baseUrl: RECOMMENDED_MODELS[v].baseUrl
                               }));
                             }}
                           >
@@ -4844,11 +4865,24 @@ export default function AdminPanel() {
                               <SelectValue placeholder="Select Provider" />
                             </SelectTrigger>
                             <SelectContent>
-                              <SelectItem value="groq">Groq (Recommended — Fast & Free ✓)</SelectItem>
+                              <SelectItem value="groq">Groq (Fast & Free ✓)</SelectItem>
                               <SelectItem value="gemini">Google Gemini (Native — Free ✓)</SelectItem>
                               <SelectItem value="openrouter">OpenRouter (Pro Models)</SelectItem>
+                              <SelectItem value="openai">OpenAI (Official Endpoint)</SelectItem>
+                              <SelectItem value="custom">Custom OpenAI-Compatible API</SelectItem>
                             </SelectContent>
                           </Select>
+                        </div>
+
+                        <div className="space-y-1.5">
+                          <Label className="text-xs">Base URL (OpenAI-Compatible API)</Label>
+                          <Input 
+                            value={editAI.baseUrl || ''} 
+                            onChange={(e) => setEditAI(prev => ({ ...prev, baseUrl: e.target.value }))}
+                            placeholder="e.g. https://api.openai.com/v1"
+                            className="h-9 text-xs"
+                          />
+                          <p className="text-[10px] text-muted-foreground">Base URL should end in /v1. Platform automatically appends /chat/completions.</p>
                         </div>
 
                         <div className="space-y-1.5">

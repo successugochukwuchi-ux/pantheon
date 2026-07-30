@@ -18,13 +18,17 @@ interface NoteRendererProps {
   bgOverride?: string;
   paddingOverride?: string;
   inkOverride?: string;
+  onFocusBlock?: (type: 'math' | 'diagram', content: string) => void;
+  scrollableMath?: boolean;
 }
 
 export function NoteRenderer({ 
   content,
   bgOverride,
   paddingOverride,
-  inkOverride
+  inkOverride,
+  onFocusBlock,
+  scrollableMath = false
 }: NoteRendererProps) {
   const { colors: C } = useTheme();
   const [webViewHeight, setWebViewHeight] = useState(500);
@@ -55,7 +59,8 @@ export function NoteRenderer({
             .replace(/>/g, '&gt;');
           return `<div class="block-text markdown-body">${escapedContent}</div>`;
         case 'math':
-          return `<div class="block-math">$$${block.content.replace(/^\$\$?/, '').replace(/\$\$?$/, '')}$$</div>`;
+          const escapedMath = block.content.replace(/^\$\$?/, '').replace(/\$\$?$/, '').replace(/\\/g, '\\\\').replace(/"/g, '\\"').replace(/'/g, "\\'");
+          return `<div class="block-math" onclick="window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'focus', blockType: 'math', content: '${escapedMath}' }))">$$${block.content.replace(/^\$\$?/, '').replace(/\$\$?$/, '')}$$</div>`;
         case 'table':
           try {
             const data = JSON.parse(block.content);
@@ -78,7 +83,8 @@ export function NoteRenderer({
           const listType = block.type === 'bullet-list' ? 'ul' : 'ol';
           return `<div class="block-list"><${listType}>${items.map(i => `<li>${i.replace(/^[\*\-\+\d\.]+\s+/, '')}</li>`).join('')}</${listType}></div>`;
         case 'diagram':
-          return `<div class="block-diagram">
+          const escapedDiagram = block.content.replace(/\\/g, '\\\\').replace(/"/g, '\\"').replace(/'/g, "\\'");
+          return `<div class="block-diagram" onclick="window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'focus', blockType: 'diagram', content: '${escapedDiagram}' }))">
             <img src="${block.content}" style="transform: scaleX(${block.settings?.flipX ? -1 : 1}) scaleY(${block.settings?.flipY ? -1 : 1});" />
             ${block.settings?.caption ? `<p class="caption">${block.settings.caption}</p>` : ''}
           </div>`;
@@ -160,35 +166,45 @@ export function NoteRenderer({
               border-radius: 12px; 
               margin: 28px 0; 
               text-align: center;
-              overflow-x: auto;
-              -webkit-overflow-scrolling: touch;
+              overflow-x: ${scrollableMath ? 'auto' : 'hidden'} !important;
               font-size: 16px;
+              cursor: pointer;
+              max-width: 100% !important;
+              box-sizing: border-box !important;
+              ${scrollableMath ? '-webkit-overflow-scrolling: touch !important;' : ''}
             }
             /* Hide scrollbars on scrollable components for elegant rendering */
             .block-math::-webkit-scrollbar,
             .block-table::-webkit-scrollbar,
             mjx-container::-webkit-scrollbar {
-              display: none !important;
+              display: ${scrollableMath ? 'auto' : 'none'} !important;
             }
             .block-math,
             .block-table,
             mjx-container {
-              -ms-overflow-style: none !important;
-              scrollbar-width: none !important;
+              -ms-overflow-style: ${scrollableMath ? 'auto' : 'none'} !important;
+              scrollbar-width: ${scrollableMath ? 'auto' : 'none'} !important;
             }
-            /* Allow beautiful horizontal scroll on math elements */
+            /* Shrink math elements to fit mobile devices perfectly without scrolling unless scrollableMath is true */
             mjx-container {
-              max-width: 100% !important;
-              overflow-x: auto !important;
+              max-width: ${scrollableMath ? 'none' : '100%'} !important;
+              overflow-x: ${scrollableMath ? 'visible' : 'hidden'} !important;
               overflow-y: hidden !important;
-              -webkit-overflow-scrolling: touch !important;
               display: inline-block;
               vertical-align: middle;
+              white-space: ${scrollableMath ? 'nowrap' : 'normal'} !important;
+              box-sizing: border-box !important;
+            }
+            mjx-container svg {
+              max-width: ${scrollableMath ? 'none' : '100%'} !important;
+              height: auto !important;
             }
             mjx-container[display="true"] {
               display: block !important;
               margin: 1em 0 !important;
               text-align: center;
+              max-width: ${scrollableMath ? 'none' : '100%'} !important;
+              overflow-x: ${scrollableMath ? 'visible' : 'hidden'} !important;
             }
             .block-table { overflow-x: auto; -webkit-overflow-scrolling: touch; margin: 28px 0; border: 1px solid ${C.border}; border-radius: 12px; }
             table { width: 100%; border-collapse: collapse; font-size: 14px; }
@@ -539,7 +555,7 @@ export function NoteRenderer({
         </body>
       </html>
     `;
-  }, [blocks, C, bgOverride, paddingOverride, inkOverride]);
+  }, [blocks, C, bgOverride, paddingOverride, inkOverride, scrollableMath]);
 
   return (
     <View style={[s.container, { height: webViewHeight }]}>
@@ -547,12 +563,15 @@ export function NoteRenderer({
         originWhitelist={['*']}
         source={{ html: htmlContent }}
         style={{ backgroundColor: 'transparent' }}
-        scrollEnabled={false}
+        scrollEnabled={scrollableMath}
         onMessage={(event) => {
           try {
             const data = JSON.parse(event.nativeEvent.data);
             if (data.height) {
               setWebViewHeight(data.height + 45);
+            }
+            if (data.type === 'focus' && onFocusBlock) {
+              onFocusBlock(data.blockType, data.content);
             }
           } catch(e) {}
         }}

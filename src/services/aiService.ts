@@ -243,112 +243,33 @@ ${fileData.data}`
 }
 
 export async function chatWithHermes(messages: ChatMessage[], noteContent: string, config?: AIConfig) {
-  const provider = config?.provider || 'groq';
-  let model = config?.model;
-  
-  if (!model) {
-    model = provider === 'groq' ? 'llama-3.3-70b-versatile' : provider === 'gemini' ? 'gemini-2.0-flash-lite' : 'google/gemini-2.0-flash-001';
-  }
-  
-  // Clean model ID for Groq
-  if (provider === 'groq' && model.includes('/')) {
-    const parts = model.split('/');
-    model = parts[parts.length - 1]; 
-  }
-
-  const rawKey = config?.apiKey || (provider === 'groq' ? GROQ_API_KEY : OPENROUTER_API_KEY);
-  // Extreme trim: removes ALL whitespace, surrounding quotes, and invisible characters
-  const apiKey = rawKey?.toString().replace(/\s+/g, '').replace(/['"]/g, '').replace(/[\u200B-\u200D\uFEFF]/g, '');
-
-  if (!apiKey) {
-    throw new Error(`${provider === 'gemini' ? 'Google Gemini' : provider === 'groq' ? 'Groq' : 'OpenRouter'} Chat AI is not configured. Please set an API Key in the Admin Panel > Level 4 > Hermes Chat configuration.`);
-  }
-
-  const systemPrompt: ChatMessage = {
-    role: 'system',
-    content: `You are Hermes, a helpful academic assistant. 
-    STRATEGIC DIRECTIVES:
-    1. Answer strictly based on the provided NOTE CONTENT.
-    2. If a question is unrelated to the notes, politely decline.
-    3. Use LaTeX for ALL mathematical formulas or scientific notations (e.g., $E=mc^2$ or \\frac{a}{b}).
-    4. Keep responses concise and focused to ensure fast response times.
-    
-    NOTE CONTENT:
-    ${noteContent}
-    `
-  };
-
-  // ─── GOOGLE GEMINI (Direct) ──────────────────────────────────────────────────
-  if (provider === 'gemini') {
-    const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
-    
-    // Convert OpenAI-style system role to Gemini format
-    const body = {
-      contents: [
-        {
-          role: 'user',
-          parts: [{ text: `SYSTEM INSTRUCTIONS:\n${systemPrompt.content}\n\nUSER QUESTION: ${messages[messages.length - 1].content}` }]
-        }
-      ]
-    };
-
-    const response = await fetch(geminiUrl, {
+  try {
+    const response = await fetch('/api/hermes/chat', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        messages,
+        noteContent,
+        config,
+      }),
     });
 
     if (!response.ok) {
-      const errData = await response.json();
-      throw new Error(errData?.error?.message || `Gemini API error (${response.status})`);
+      const errData = await response.json().catch(() => ({}));
+      const errMsg = errData?.error || `Proxy server error (${response.status})`;
+      throw new Error(errMsg);
     }
 
     const data = await response.json();
-    return data?.candidates?.[0]?.content?.parts?.[0]?.text || "I'm sorry, I couldn't generate a response.";
+    if (!data?.content) {
+      throw new Error("Invalid response format received from proxy server.");
+    }
+
+    return data.content as string;
+  } catch (err: any) {
+    console.error("Failed to talk to Hermes via server proxy:", err);
+    throw new Error(err.message || "Failed to connect to Hermes.");
   }
-
-  // ─── GROQ / OPENROUTER ──────────────────────────────────────────────────────
-  const baseUrl = provider === 'groq' 
-    ? 'https://api.groq.com/openai/v1/chat/completions' 
-    : 'https://openrouter.ai/api/v1/chat/completions';
-
-  const headers: Record<string, string> = {
-    'Authorization': `Bearer ${apiKey}`,
-    'Content-Type': 'application/json',
-  };
-
-  if (provider === 'openrouter') {
-    headers['HTTP-Referer'] = window.location.origin;
-    headers['X-Title'] = 'Hermes Academic Assistant';
-  }
-
-  const response = await fetch(baseUrl, {
-    method: 'POST',
-    headers,
-    body: JSON.stringify({
-      model: model,
-      messages: [systemPrompt, ...messages],
-    }),
-  });
-
-  if (!response.ok) {
-    const errData = await response.json();
-    
-    // Robust error parsing for Groq's potentially nested structure
-    const errInfo = errData.error?.error || errData.error || errData;
-    const errMsg = errInfo.message || `Failed to connect to Hermes via ${provider}`;
-    const errCode = errInfo.code || 'unknown';
-    
-    console.error("Hermes Chat Error Details:", {
-      status: response.status,
-      code: errCode,
-      error: errData,
-      maskedKey: getMaskedKey(apiKey),
-      provider
-    });
-    throw new Error(`${errMsg} | Code: ${errCode} | Provider: ${provider.toUpperCase()} | Model: ${model} | Key: ${getMaskedKey(apiKey)}`);
-  }
-
-  const data = await response.json();
-  return data.choices[0].message.content as string;
 }

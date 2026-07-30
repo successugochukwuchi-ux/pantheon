@@ -228,7 +228,8 @@ export interface PromoConfig {
 }
 
 export interface AIConfig {
-  provider: 'openrouter' | 'groq' | 'gemini';
+  provider: 'openrouter' | 'groq' | 'gemini' | 'openai' | 'custom';
+  baseUrl?: string;
   model: string;
   apiKey: string;
   isActive: boolean;

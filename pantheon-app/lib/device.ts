@@ -1,7 +1,14 @@
 import { Platform } from 'react-native';
 import * as SecureStore from 'expo-secure-store';
 import * as Application from 'expo-application';
-import { v4 as uuidv4 } from 'uuid';
+
+function generateSimpleUUID(): string {
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+    const r = Math.random() * 16 | 0;
+    const v = c === 'x' ? r : (r & 0x3 | 0x8);
+    return v.toString(16);
+  });
+}
 
 export async function getDeviceUUID(): Promise<string> {
   if (Platform.OS === 'web') {
@@ -23,13 +30,13 @@ async function getMobileDeviceUUID(): Promise<string> {
         nativeId = await Application.getIosIdForVendorAsync() || '';
       }
       
-      uuid = nativeId ? `${nativeId}-${uuidv4()}` : uuidv4();
+      uuid = nativeId ? `${nativeId}-${generateSimpleUUID()}` : generateSimpleUUID();
       await SecureStore.setItemAsync(STORE_KEY, uuid);
     }
     return uuid;
   } catch (e) {
     console.error('Failed to get mobile device UUID:', e);
-    return 'fallback-' + uuidv4();
+    return 'fallback-' + generateSimpleUUID();
   }
 }
 
@@ -41,10 +48,10 @@ async function getWebDeviceUUID(): Promise<string> {
       const fpPromise = import('@fingerprintjs/fingerprintjs').then(FingerprintJS => FingerprintJS.load());
       const fp = await fpPromise;
       const result = await fp.get();
-      storedUuid = `${result.visitorId}-${uuidv4()}`;
+      storedUuid = `${result.visitorId}-${generateSimpleUUID()}`;
     } catch (e) {
       console.error('Failed to get web fingerprint:', e);
-      storedUuid = uuidv4();
+      storedUuid = generateSimpleUUID();
     }
     await setIndexedDBItem(STORE_KEY, storedUuid);
   }

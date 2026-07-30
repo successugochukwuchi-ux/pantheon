@@ -588,10 +588,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
             // Notify if NOT the sender themselves
             if (data.userId && data.userId !== profile.uid) {
-              showLocalNotify(
-                `Study Group Board: ${data.username || "Student"}`,
-                data.text || "New interaction posted!"
-              );
+              // User requested: "no more notifications from study groups or course discussions"
+              // showLocalNotify(
+              //   `Study Group Board: ${data.username || "Student"}`,
+              //   data.text || "New interaction posted!"
+              // );
             }
           }
         });

@@ -21,6 +21,7 @@ import { SafeMathRenderer, prepareMarkdownMath } from '../components/SafeMathRen
 import { NoteProgressTracker } from '../components/NoteProgressTracker';
 import { ScientificCalculator } from '../components/ScientificCalculator';
 import { AIAssistant } from '../components/AIAssistant';
+import { TextToSpeechReader } from '../components/TextToSpeechReader';
 import { useSearchParams, useNavigate } from 'react-router-dom';
 import { useTitle } from '../hooks/useTitle';
 import { toast } from 'sonner';
@@ -193,6 +194,8 @@ export default function StudyMaterials() {
           <Button variant="ghost" onClick={() => setSelectedNote(null)} className="gap-2">
             <ArrowLeft className="h-4 w-4" /> Back to {typeLabels[type]}
           </Button>
+
+          <TextToSpeechReader noteContent={selectedNote.content} noteTitle={selectedNote.title} />
 
           <Card className="border-primary/20 shadow-xl overflow-hidden">
             <div className="h-2 bg-primary/10 w-full" />

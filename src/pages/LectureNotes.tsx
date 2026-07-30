@@ -22,6 +22,7 @@ import { NoteProgressTracker } from '../components/NoteProgressTracker';
 import { ScientificCalculator } from '../components/ScientificCalculator';
 import { AIAssistant } from '../components/AIAssistant';
 import { VideoPlayer } from '../components/VideoPlayer';
+import { TextToSpeechReader } from '../components/TextToSpeechReader';
 
 import { getFilteredCoursesForStudent } from '../lib/courseFilter';
 
@@ -101,9 +102,13 @@ export default function LectureNotes() {
         <ScientificCalculator />
         
         <div className="space-y-6 max-w-4xl mx-auto px-4 py-6">
-          <Button variant="ghost" onClick={() => setSelectedNote(null)} className="gap-2">
-            <ArrowLeft className="h-4 w-4" /> Back to Notes
-          </Button>
+          <div className="flex items-center justify-between">
+            <Button variant="ghost" onClick={() => setSelectedNote(null)} className="gap-2">
+              <ArrowLeft className="h-4 w-4" /> Back to Notes
+            </Button>
+          </div>
+
+          <TextToSpeechReader noteContent={selectedNote.content} noteTitle={selectedNote.title} />
           
           <Card className="border-primary/20 shadow-xl overflow-hidden">
             <div className="h-2 bg-primary/10 w-full" />

@@ -205,7 +205,7 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
                   onClick={() => navigate(`/profile/${user.uid}`)}
                 >
                   <Avatar className="h-8 w-8">
-                    <AvatarImage src={user.photoURL || `https://api.dicebear.com/7.x/avataaars/svg?seed=${user.uid}`} alt={profile?.username || user.email || ''} />
+                    <AvatarImage src={profile?.photoURL || user.photoURL || `https://api.dicebear.com/7.x/avataaars/svg?seed=${user.uid}`} alt={profile?.username || user.email || ''} />
                     <AvatarFallback>{(profile?.username || user.email || 'U')[0].toUpperCase()}</AvatarFallback>
                   </Avatar>
                 </Button>

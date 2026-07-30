@@ -10,7 +10,7 @@ import { Label } from '../components/ui/label';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '../components/ui/card';
 import { Avatar, AvatarFallback, AvatarImage } from '../components/ui/avatar';
 import { toast } from 'sonner';
-import { Check, Moon, Sun, Palette, Droplets, TreePine, Eye, EyeOff, Settings as SettingsIcon, User, Copy } from 'lucide-react';
+import { Check, Moon, Sun, Palette, Droplets, TreePine, Eye, EyeOff, Settings as SettingsIcon, User, Copy, Upload, Loader2, Camera, Trash2, Sparkles, CheckCircle2, AlertCircle } from 'lucide-react';
 import { useTitle } from '../hooks/useTitle';
 
 export default function Settings() {
@@ -38,6 +38,136 @@ export default function Settings() {
 
   const [avatarStyle, setAvatarStyle] = useState('avataaars');
 
+  // Profile upload and state synchronization
+  const [currentPhotoURL, setCurrentPhotoURL] = useState(profile?.photoURL || user?.photoURL || '');
+  const [avatarSource, setAvatarSource] = useState<'dicebear' | 'custom'>(
+    profile?.photoURL?.includes('cloudinary') || (profile?.photoURL && !profile.photoURL.includes('dicebear.com'))
+      ? 'custom'
+      : 'dicebear'
+  );
+  const [uploading, setUploading] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState(0);
+  const [dragActive, setDragActive] = useState(false);
+  const [uploadError, setUploadError] = useState<string | null>(null);
+  const [hasInitialized, setHasInitialized] = useState(false);
+
+  React.useEffect(() => {
+    if (profile && !hasInitialized) {
+      setUsername(profile.username || '');
+      
+      const photo = profile.photoURL || user?.photoURL || '';
+      setCurrentPhotoURL(photo);
+      
+      const isCurrentlyDicebear = photo.includes('dicebear.com') || !photo;
+      const source = (photo.includes('cloudinary') || (photo && !isCurrentlyDicebear)) ? 'custom' : 'dicebear';
+      setAvatarSource(source);
+
+      if (isCurrentlyDicebear && photo) {
+        const style = photo.split('/7.x/')[1]?.split('/')[0];
+        if (style) setAvatarStyle(style);
+        
+        const seed = photo.split('seed=')[1]?.split('&')[0];
+        if (seed) setAvatarSeed(seed);
+      }
+      setHasInitialized(true);
+    }
+  }, [profile, user, hasInitialized]);
+
+  const handleDrag = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (e.type === "dragenter" || e.type === "dragover") {
+      setDragActive(true);
+    } else if (e.type === "dragleave") {
+      setDragActive(false);
+    }
+  };
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setDragActive(false);
+    if (e.dataTransfer.files && e.dataTransfer.files[0]) {
+      handleUploadFile(e.dataTransfer.files[0]);
+    }
+  };
+
+  const handleFileInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files && e.target.files[0]) {
+      handleUploadFile(e.target.files[0]);
+    }
+  };
+
+  const handleUploadFile = async (file: File) => {
+    if (!file) return;
+    
+    // Validation
+    if (!file.type.startsWith('image/')) {
+      toast.error('Please upload an image file (JPEG, PNG, WEBP, etc.)');
+      return;
+    }
+    
+    if (file.size > 5 * 1024 * 1024) {
+      toast.error('Image size must be less than 5MB');
+      return;
+    }
+
+    setUploading(true);
+    setUploadProgress(0);
+    setUploadError(null);
+
+    try {
+      const formData = new FormData();
+      formData.append('file', file);
+      formData.append('upload_preset', 'colodge_unsigned');
+      formData.append('folder', 'colodge_listings');
+
+      const xhr = new XMLHttpRequest();
+      xhr.open('POST', 'https://api.cloudinary.com/v1_1/lfrjrbtz/upload', true);
+
+      xhr.upload.onprogress = (event) => {
+        if (event.lengthComputable) {
+          const percent = Math.round((event.loaded / event.total) * 100);
+          setUploadProgress(percent);
+        }
+      };
+
+      xhr.onload = async () => {
+        if (xhr.status >= 200 && xhr.status < 300) {
+          const response = JSON.parse(xhr.responseText);
+          const secureUrl = response.secure_url;
+          setCurrentPhotoURL(secureUrl);
+          setAvatarSource('custom');
+          setUploading(false);
+          toast.success('Photo uploaded successfully! Save your profile to apply.');
+        } else {
+          let errorMsg = 'Upload failed';
+          try {
+            const resp = JSON.parse(xhr.responseText);
+            if (resp.error?.message) {
+              errorMsg = resp.error.message;
+            }
+          } catch (e) {}
+          setUploadError(errorMsg);
+          setUploading(false);
+          toast.error(errorMsg);
+        }
+      };
+
+      xhr.onerror = () => {
+        setUploadError('Network error occurred during upload.');
+        setUploading(false);
+        toast.error('Network error during upload.');
+      };
+
+      xhr.send(formData);
+    } catch (err: any) {
+      setUploadError(err.message || 'An unexpected error occurred.');
+      setUploading(false);
+      toast.error(err.message || 'Upload failed');
+    }
+  };
+
   const handleUpdateProfile = async (e: React.FormEvent) => {
     e.preventDefault();
     const cleanUsername = username.trim().replace(/[^a-zA-Z0-9_]/g, '');
@@ -50,7 +180,16 @@ export default function Settings() {
     setLoading(true);
     try {
       if (user) {
-        const photoURL = `https://api.dicebear.com/7.x/${avatarStyle}/svg?seed=${avatarSeed}`;
+        const photoURL = avatarSource === 'custom' 
+          ? currentPhotoURL 
+          : `https://api.dicebear.com/7.x/${avatarStyle}/svg?seed=${avatarSeed}`;
+        
+        if (!photoURL) {
+          toast.error('Please upload a photo or generate an avatar first');
+          setLoading(false);
+          return;
+        }
+
         await updateProfile(user, { photoURL });
         await updateDoc(doc(db, 'users', user.uid), {
           username: cleanUsername,
@@ -116,53 +255,195 @@ export default function Settings() {
           <form onSubmit={handleUpdateProfile}>
             <CardContent className="space-y-6">
               <div className="flex flex-col md:flex-row gap-8 items-start">
-                <div className="flex flex-col items-center gap-4">
-                  <Avatar className="h-24 w-24 border-4 border-muted">
-                    <AvatarImage src={`https://api.dicebear.com/7.x/${avatarStyle}/svg?seed=${avatarSeed}`} />
-                    <AvatarFallback>{username[0]?.toUpperCase() || 'U'}</AvatarFallback>
-                  </Avatar>
-                  <div className="flex flex-col gap-2 w-full">
-                    <Label className="text-center">Avatar Seed</Label>
-                    <Input 
-                      value={avatarSeed} 
-                      onChange={(e) => setAvatarSeed(e.target.value)}
-                      placeholder="Enter any text..."
-                      className="text-center"
-                    />
+                {/* Left Column: Avatar Preview and Tab Selector */}
+                <div className="flex flex-col items-center gap-4 shrink-0 w-full md:w-auto">
+                  <div className="relative group rounded-full overflow-hidden border-4 border-muted shadow-md h-28 w-28 bg-muted flex items-center justify-center shrink-0">
+                    <Avatar className="h-full w-full">
+                      <AvatarImage 
+                        src={avatarSource === 'custom' && currentPhotoURL ? currentPhotoURL : `https://api.dicebear.com/7.x/${avatarStyle}/svg?seed=${avatarSeed}`} 
+                        alt="Profile Preview"
+                        className="object-cover"
+                      />
+                      <AvatarFallback>{username[0]?.toUpperCase() || 'U'}</AvatarFallback>
+                    </Avatar>
+                    <label 
+                      htmlFor="avatar-file-input" 
+                      className="absolute inset-0 bg-black/45 flex flex-col items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity duration-200 cursor-pointer text-white"
+                    >
+                      <Camera className="h-5 w-5 mb-0.5" />
+                      <span className="text-[10px] font-semibold">Upload Photo</span>
+                    </label>
+                  </div>
+                  
+                  {/* Source Toggle Bar */}
+                  <div className="flex p-0.5 bg-stone-100 dark:bg-stone-900 border rounded-lg w-full max-w-[200px]">
+                    <button
+                      type="button"
+                      onClick={() => setAvatarSource('custom')}
+                      className={`flex-1 flex items-center justify-center gap-1.5 py-1 text-[11px] font-semibold rounded-md transition-all duration-200 ${
+                        avatarSource === 'custom'
+                          ? 'bg-background text-foreground shadow-sm'
+                          : 'text-muted-foreground hover:text-foreground'
+                      }`}
+                    >
+                      <Camera className="h-3 w-3" />
+                      <span>Upload</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setAvatarSource('dicebear')}
+                      className={`flex-1 flex items-center justify-center gap-1.5 py-1 text-[11px] font-semibold rounded-md transition-all duration-200 ${
+                        avatarSource === 'dicebear'
+                          ? 'bg-background text-foreground shadow-sm'
+                          : 'text-muted-foreground hover:text-foreground'
+                      }`}
+                    >
+                      <Sparkles className="h-3 w-3" />
+                      <span>AI Avatar</span>
+                    </button>
                   </div>
                 </div>
 
+                {/* Right Column: Fields and Options */}
                 <div className="flex-1 space-y-4 w-full">
-                  <div className="space-y-2">
-                    <Label htmlFor="username">Username</Label>
-                    <Input 
-                      id="username" 
-                      value={username} 
-                      onChange={(e) => setUsername(e.target.value)} 
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label>Email</Label>
-                    <Input value={user?.email || ''} disabled className="bg-muted" />
-                  </div>
-                  
-                  <div className="space-y-2">
-                    <Label>Avatar Style</Label>
-                    <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
-                      {avatars.map(style => (
-                        <Button 
-                          key={style}
-                          type="button"
-                          variant={avatarStyle === style ? 'default' : 'outline'}
-                          size="sm"
-                          className="text-[10px] h-8 px-1"
-                          onClick={() => setAvatarStyle(style)}
-                        >
-                          {style.replace('-', ' ')}
-                        </Button>
-                      ))}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <Label htmlFor="username">Username</Label>
+                      <Input 
+                        id="username" 
+                        value={username} 
+                        onChange={(e) => setUsername(e.target.value)} 
+                        className="font-sans"
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Email Address</Label>
+                      <Input value={user?.email || ''} disabled className="bg-muted font-sans" />
                     </div>
                   </div>
+                  
+                  {/* Option Content block */}
+                  {avatarSource === 'dicebear' ? (
+                    <div className="space-y-4 pt-2 border-t border-muted animate-in fade-in slide-in-from-top-1 duration-200">
+                      <div className="space-y-2">
+                        <Label htmlFor="avatarSeed">Avatar Seed</Label>
+                        <Input 
+                          id="avatarSeed"
+                          value={avatarSeed} 
+                          onChange={(e) => setAvatarSeed(e.target.value)}
+                          placeholder="Enter any text to generate unique avatars..."
+                        />
+                      </div>
+                      
+                      <div className="space-y-2">
+                        <Label>Avatar Style</Label>
+                        <div className="grid grid-cols-2 sm:grid-cols-5 gap-1.5">
+                          {avatars.map(style => (
+                            <Button 
+                              key={style}
+                              type="button"
+                              variant={avatarStyle === style ? 'default' : 'outline'}
+                              size="sm"
+                              className="text-[10px] h-8 px-1 truncate capitalize"
+                              onClick={() => setAvatarStyle(style)}
+                            >
+                              {style.replace('-', ' ')}
+                            </Button>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="space-y-4 pt-2 border-t border-muted animate-in fade-in slide-in-from-top-1 duration-200">
+                      <Label>Custom Profile Image</Label>
+                      
+                      <div
+                        onDragEnter={handleDrag}
+                        onDragOver={handleDrag}
+                        onDragLeave={handleDrag}
+                        onDrop={handleDrop}
+                        className={`relative border-2 border-dashed rounded-xl p-5 transition-all duration-300 flex flex-col items-center justify-center text-center ${
+                          dragActive
+                            ? 'border-primary bg-primary/5'
+                            : 'border-muted-foreground/20 hover:border-muted-foreground/40 bg-muted/5'
+                        }`}
+                      >
+                        <input
+                          type="file"
+                          id="avatar-file-input"
+                          accept="image/*"
+                          onChange={handleFileInputChange}
+                          disabled={uploading}
+                          className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10 disabled:cursor-not-allowed"
+                        />
+                        
+                        <div className="p-2.5 bg-background border rounded-full shadow-sm mb-2.5 text-muted-foreground">
+                          {uploading ? (
+                            <Loader2 className="h-5 w-5 animate-spin text-primary" />
+                          ) : (
+                            <Upload className="h-5 w-5" />
+                          )}
+                        </div>
+
+                        <div className="space-y-1">
+                          <p className="text-xs font-semibold">
+                            {uploading ? `Uploading image... (${uploadProgress}%)` : 'Drag & drop image or click to choose'}
+                          </p>
+                          <p className="text-[10px] text-muted-foreground">
+                            Accepts JPEG, PNG, WEBP, GIF up to 5MB
+                          </p>
+                        </div>
+
+                        {uploading && (
+                          <div className="w-full max-w-[240px] mt-3">
+                            <div className="w-full bg-muted rounded-full h-1 overflow-hidden">
+                              <div
+                                className="bg-primary h-1 rounded-full transition-all duration-300"
+                                style={{ width: `${uploadProgress}%` }}
+                              />
+                            </div>
+                          </div>
+                        )}
+                      </div>
+
+                      {uploadError && (
+                        <div className="flex items-center gap-2 text-xs text-destructive bg-destructive/10 p-2.5 rounded-lg border border-destructive/20">
+                          <AlertCircle className="h-3.5 w-3.5 shrink-0" />
+                          <span>{uploadError}</span>
+                        </div>
+                      )}
+
+                      {currentPhotoURL && !currentPhotoURL.includes('dicebear') && (
+                        <div className="flex items-center justify-between p-2.5 bg-emerald-50 dark:bg-emerald-950/10 rounded-xl border border-emerald-100 dark:border-emerald-950/20 animate-in fade-in duration-300">
+                          <div className="flex items-center gap-2">
+                            <div className="h-9 w-9 rounded-full border overflow-hidden shrink-0 bg-background">
+                              <img src={currentPhotoURL} alt="Profile preview" className="h-full w-full object-cover" referrerPolicy="no-referrer" />
+                            </div>
+                            <div className="text-left">
+                              <p className="text-[11px] font-semibold text-emerald-800 dark:text-emerald-400 flex items-center gap-1">
+                                <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500 shrink-0" />
+                                Custom Picture Active
+                              </p>
+                              <p className="text-[10px] text-emerald-600/80 dark:text-emerald-400/80">Save profile changes to finalize</p>
+                            </div>
+                          </div>
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            className="text-muted-foreground hover:text-destructive h-7 px-2 text-[10px]"
+                            onClick={() => {
+                              setCurrentPhotoURL('');
+                              setAvatarSource('dicebear');
+                            }}
+                          >
+                            <Trash2 className="h-3 w-3 mr-1" />
+                            Remove
+                          </Button>
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </div>
               </div>
             </CardContent>

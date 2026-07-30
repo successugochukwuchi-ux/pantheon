@@ -17,6 +17,10 @@
     "expo-status-bar": "~2.0.0",
     "expo-router": "~4.0.0",
     "expo-splash-screen": "~0.29.13",
+    "expo-secure-store": "~14.0.1",
+    "expo-application": "~6.0.2",
+    "uuid": "^9.0.1",
+    "@fingerprintjs/fingerprintjs": "^4.2.1",
     "react": "18.3.1",
     "react-native": "0.76.5",
     "react-native-safe-area-context": "4.12.0",
@@ -31,12 +35,14 @@
     "@react-native-async-storage/async-storage": "1.23.1",
     "expo-sqlite": "~15.0.3",
     "expo-notifications": "~0.29.1",
+    "expo-speech": "~13.0.0",
     "expo-alarm-kit": "*",
     "expo-alarm-module": "*"
   },
   "devDependencies": {
     "@babel/core": "^7.24.0",
     "@types/react": "~18.3.12",
+    "@types/uuid": "^9.0.8",
     "@expo/fingerprint": "0.10.1",
     "typescript": "^5.3.0"
   },

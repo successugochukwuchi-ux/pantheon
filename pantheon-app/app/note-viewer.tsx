@@ -11,6 +11,7 @@ import {
   Modal,
   TextInput,
   ActivityIndicator,
+  Image,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useLocalSearchParams } from 'expo-router';
@@ -31,6 +32,8 @@ import { NoteRenderer } from '../components/NoteRenderer';
 import { F } from '../components/Theme';
 import { useTheme } from '../context/ThemeContext';
 import { getDatabase, isCourseDownloadedLocal, getLocalNotes, getLocalCourse } from '../lib/db';
+import * as Speech from 'expo-speech';
+import { WebView } from 'react-native-webview';
 
 enum OperationType {
   CREATE = 'create',
@@ -71,7 +74,8 @@ interface ChatMessage {
 }
 
 interface AIConfig {
-  provider: 'gemini' | 'groq' | 'openrouter';
+  provider: 'gemini' | 'groq' | 'openrouter' | 'openai' | 'custom';
+  baseUrl?: string;
   apiKey: string;
   model?: string;
   isActive?: boolean;
@@ -82,7 +86,7 @@ async function chatWithHermesMobile(messages: ChatMessage[], noteContent: string
   let model = config?.model;
   
   if (!model) {
-    model = provider === 'groq' ? 'llama-3.3-70b-versatile' : provider === 'gemini' ? 'gemini-2.0-flash-lite' : 'google/gemini-2.0-flash-001';
+    model = provider === 'groq' ? 'llama-3.3-70b-versatile' : provider === 'gemini' ? 'gemini-2.0-flash-lite' : provider === 'openrouter' ? 'google/gemini-2.0-flash-001' : 'gpt-4o-mini';
   }
   
   // Clean model ID for Groq
@@ -95,34 +99,59 @@ async function chatWithHermesMobile(messages: ChatMessage[], noteContent: string
   // Extreme trim: removes ALL whitespace, surrounding quotes, and invisible characters
   const apiKey = rawKey.toString().replace(/\s+/g, '').replace(/['"]/g, '').replace(/[\u200B-\u200D\uFEFF]/g, '');
 
-  if (!apiKey) {
-    throw new Error(`${provider === 'gemini' ? 'Google Gemini' : provider === 'groq' ? 'Groq' : 'OpenRouter'} Chat AI is not configured. Please set an API Key in the Admin Panel > Level 4 > Hermes Chat configuration.`);
-  }
+  // 1. Truncate note content to prevent model context limits
+  const maxNoteLength = 15000;
+  const truncatedNote = (noteContent || '').length > maxNoteLength
+    ? noteContent.substring(0, maxNoteLength) + "\n\n[Study Note content truncated to fit system context window limitations...]"
+    : (noteContent || '');
+
+  // 2. Slice messages history to keep context footprint small
+  const maxHistoryCount = 8;
+  const slicedMessages = (messages || []).length > maxHistoryCount
+    ? messages.slice(-maxHistoryCount)
+    : (messages || []);
 
   const systemPrompt: ChatMessage = {
     role: 'system',
-    content: `You are Hermes, a helpful academic assistant. 
-    STRATEGIC DIRECTIVES:
-    1. Answer strictly based on the provided NOTE CONTENT.
-    2. If a question is unrelated to the notes, politely decline.
-    3. Use LaTeX for ALL mathematical formulas or scientific notations (e.g., $E=mc^2$ or \\frac{a}{b}).
-    4. Keep responses concise and focused to ensure fast response times.
-    
-    NOTE CONTENT:
-    ${noteContent}
-    `
+    content: `You are Hermes, a hyper-focused academic assistant designed to help the user query their study notes.
+
+CRITICAL REFUSAL MANDATES:
+1. You can ONLY answer questions that can be directly and objectively answered using the provided "STUDY NOTE CONTENT" below.
+2. If the user's latest question is NOT fully and directly addressed in the provided STUDY NOTE CONTENT, or if they ask general knowledge questions, language translation questions, programming questions, or questions about yourself (who you are, your model, etc.), you MUST decline.
+3. In such cases of off-topic or unanswerable queries, you MUST respond EXACTLY with the following sentence and nothing else:
+"I can only assist you with questions directly related to this note."
+4. Do NOT translate languages, do NOT answer in French unless the study note is explicitly about the French language, and do NOT make up information.
+5. Use LaTeX for ALL mathematical formulas or scientific notations (e.g., $E=mc^2$ or \\frac{a}{b}).
+6. Keep all answers highly concise, factual, and strictly relevant.
+
+STUDY NOTE CONTENT:
+${truncatedNote}
+`
   };
 
+  // Determine base URL
+  let rawBaseUrl = config?.baseUrl ? config.baseUrl.trim().replace(/\/+$/, '') : '';
+
+  if (!rawBaseUrl) {
+    if (provider === 'groq') rawBaseUrl = 'https://api.groq.com/openai/v1';
+    else if (provider === 'openrouter') rawBaseUrl = 'https://openrouter.ai/api/v1';
+    else if (provider === 'openai' || provider === 'custom') rawBaseUrl = 'https://api.openai.com/v1';
+  }
+
   // ─── GOOGLE GEMINI (Direct) ──────────────────────────────────────────────────
-  if (provider === 'gemini') {
+  if (provider === 'gemini' && !rawBaseUrl) {
+    if (!apiKey) {
+      throw new Error('Google Gemini Chat AI is not configured. Please set an API Key in the Admin Panel.');
+    }
     const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
     
     // Convert OpenAI-style system role to Gemini format
+    const latestUserMsg = slicedMessages.length > 0 ? slicedMessages[slicedMessages.length - 1].content : '';
     const body = {
       contents: [
         {
           role: 'user',
-          parts: [{ text: `SYSTEM INSTRUCTIONS:\n${systemPrompt.content}\n\nUSER QUESTION: ${messages[messages.length - 1].content}` }]
+          parts: [{ text: `SYSTEM INSTRUCTIONS:\n${systemPrompt.content}\n\nUSER QUESTION: ${latestUserMsg}` }]
         }
       ]
     };
@@ -142,34 +171,46 @@ async function chatWithHermesMobile(messages: ChatMessage[], noteContent: string
     return data?.candidates?.[0]?.content?.parts?.[0]?.text || "I'm sorry, I couldn't generate a response.";
   }
 
-  // ─── GROQ / OPENROUTER ──────────────────────────────────────────────────────
-  const baseUrl = provider === 'groq' 
-    ? 'https://api.groq.com/openai/v1/chat/completions' 
-    : 'https://openrouter.ai/api/v1/chat/completions';
+  // ─── OPENAI-COMPATIBLE ENDPOINT (Groq, OpenRouter, OpenAI, Custom, etc.) ──────
+  if (rawBaseUrl.endsWith('/chat/completions')) {
+    rawBaseUrl = rawBaseUrl.replace(/\/chat\/completions$/, '');
+  }
+  const finalEndpoint = `${rawBaseUrl}/chat/completions`;
 
   const headers: Record<string, string> = {
-    'Authorization': `Bearer ${apiKey}`,
     'Content-Type': 'application/json',
   };
 
-  const response = await fetch(baseUrl, {
+  if (apiKey) {
+    headers['Authorization'] = `Bearer ${apiKey}`;
+  }
+
+  if (provider === 'openrouter') {
+    headers['X-Title'] = 'Hermes Academic Assistant';
+  }
+
+  const response = await fetch(finalEndpoint, {
     method: 'POST',
     headers,
     body: JSON.stringify({
       model: model,
-      messages: [systemPrompt, ...messages],
+      messages: [systemPrompt, ...slicedMessages],
     }),
   });
 
   if (!response.ok) {
-    const errData = await response.json();
+    const errData = await response.json().catch(() => ({}));
     const errInfo = errData.error?.error || errData.error || errData;
     const errMsg = errInfo.message || `Failed to connect to Hermes via ${provider}`;
-    const errCode = errInfo.code || 'unknown';
-    throw new Error(`${errMsg} | Code: ${errCode} | Provider: ${provider.toUpperCase()} | Model: ${model}`);
+    const errCode = errInfo.code || response.status;
+    throw new Error(`${errMsg} | Code: ${errCode} | Provider: ${provider.toUpperCase()} | Model: ${model} | Endpoint: ${finalEndpoint}`);
   }
 
   const data = await response.json();
+  if (!data?.choices?.[0]?.message?.content) {
+    throw new Error("Unexpected response structure from AI provider.");
+  }
+
   return data.choices[0].message.content as string;
 }
 
@@ -205,12 +246,18 @@ export default function NoteViewerScreen() {
   const [aiConfig, setAiConfig] = useState<AIConfig | null>(null);
   const [hermesLoading, setHermesLoading] = useState(false);
 
+  // Text-To-Speech states
+  const [speechIsPlaying, setSpeechIsPlaying] = useState(false);
+  const [speechIsPaused, setSpeechIsPaused] = useState(false);
+
   // Calculator states
   const [calcOpen, setCalcOpen] = useState(false);
   const [calcExpr, setCalcExpr] = useState('');
   const [calcResult, setCalcResult] = useState<string | null>(null);
   const [calcError, setCalcError] = useState<string | null>(null);
   const [calcAngleMode, setCalcAngleMode] = useState<'DEG' | 'RAD'>('DEG');
+
+  const [focusedBlock, setFocusedBlock] = useState<{ type: 'math' | 'diagram'; content: string } | null>(null);
 
   const [note, setNote] = useState<Note | null>(null);
   const [courseCode, setCourseCode] = useState('');
@@ -528,6 +575,341 @@ export default function NoteViewerScreen() {
     }
   };
 
+  // Text-To-Speech Clean Up effect
+  useEffect(() => {
+    return () => {
+      try {
+        if (typeof window !== 'undefined' && window.speechSynthesis) {
+          window.speechSynthesis.cancel();
+        }
+      } catch (e) {
+        console.log(e);
+      }
+    };
+  }, []);
+
+  const convertLatexToSpeakable = (text: string): string => {
+    if (!text) return '';
+    // Convert standard inline and block LaTeX ($...$ or $$...$$) into phonetically clean English
+    return text.replace(/\$\$?([\s\S]+?)\$\$?/g, (_, formula) => {
+      let speakable = formula.trim();
+
+      // 1. Pre-processing: remove formatting tags and bracket controls
+      speakable = speakable.replace(/\\left/g, '').replace(/\\right/g, '');
+      speakable = speakable.replace(/\\mathrm/g, '');
+      speakable = speakable.replace(/\\text\s*\{([^}]+)\}/g, ' $1 ');
+      speakable = speakable.replace(/\\mathrm\s*\{([^}]+)\}/g, ' $1 ');
+
+      // 2. Trigonometric and common mathematical functions
+      speakable = speakable.replace(/\\sin\b/g, ' sine of, ');
+      speakable = speakable.replace(/\\cos\b/g, ' cosine of, ');
+      speakable = speakable.replace(/\\tan\b/g, ' tangent of, ');
+      speakable = speakable.replace(/\\ln\b/g, ' natural log of, ');
+      speakable = speakable.replace(/\\log\b/g, ' log of, ');
+
+      // 3. Vector / Arrow markers
+      speakable = speakable.replace(/\\vec\{(\w)\}/g, ' vector, $1, ');
+      speakable = speakable.replace(/\\bar\{(\w)\}/g, ' $1 bar, ');
+      speakable = speakable.replace(/\\hat\{(\w)\}/g, ' $1 hat, ');
+
+      // 4. Limits
+      speakable = speakable.replace(/\\lim_\{([^\}]+)\s*\\to\s*([^}]+)\}/g, ' limit as $1, approaches $2, ');
+      speakable = speakable.replace(/\\lim_\{([^\}]+)\}/g, ' limit as $1, ');
+
+      // 5. Summations (Sum from lower to upper of ...)
+      speakable = speakable.replace(/\\sum_\{([^\}]+)\}\^\{([^\}]+)\}/g, ' sum from $1, to $2, of, ');
+      speakable = speakable.replace(/\\sum_\{([^\}]+)\}\^(\w)/g, ' sum from $1, to $2, of, ');
+      speakable = speakable.replace(/\\sum\b/g, ' sum ');
+
+      // 6. Integrals (Integral from lower to upper of ...)
+      speakable = speakable.replace(/\\int_\{([^\}]+)\}\^\{([^\}]+)\}/g, ' integral from $1, to $2, of, ');
+      speakable = speakable.replace(/\\int_\{([^\}]+)\}\^(\w)/g, ' integral from $1, to $2, of, ');
+      speakable = speakable.replace(/\\int\b/g, ' integral ');
+
+      // 7. Fractions (handle derivatives first: \frac{dy}{dx} -> derivative of y with respect to x)
+      speakable = speakable.replace(/\\frac\{d(\w)\}\{d(\w)\}/g, ' derivative of $1, with respect to $2, ');
+      speakable = speakable.replace(/\\frac\{\\partial\s*(\w)\}\{\\partial\s*(\w)\}/g, ' partial derivative of $1, with respect to $2, ');
+      
+      let prev;
+      do {
+        prev = speakable;
+        speakable = speakable.replace(/\\frac\s*\{([^}]+)\}\s*\{([^}]+)\}/g, ' ($1, divided by, $2) ');
+      } while (speakable !== prev);
+
+      // 8. Superscripts / powers (avoiding collision with sum/integral limits already parsed)
+      speakable = speakable.replace(/(\w+)\^2\b/g, '$1, squared, ');
+      speakable = speakable.replace(/(\w+)\^3\b/g, '$1, cubed, ');
+      speakable = speakable.replace(/\{?([^}^^]+)\}?\^\{([^}]+)\}/g, '$1, to the power of, $2, ');
+      speakable = speakable.replace(/\{?([^}^^]+)\}?\^(\w)/g, '$1, to the power of, $2, ');
+
+      // 9. Square roots
+      speakable = speakable.replace(/\\sqrt\s*\{([^}]+)\}/g, ' the square root of, $1, ');
+      speakable = speakable.replace(/\\sqrt\s*(\w)/g, ' the square root of, $1, ');
+
+      // 10. Greek Letters conversion
+      const greekLetters: Record<string, string> = {
+        '\\alpha': 'alpha',
+        '\\beta': 'beta',
+        '\\gamma': 'gamma',
+        '\\delta': 'delta',
+        '\\epsilon': 'epsilon',
+        '\\zeta': 'zeta',
+        '\\eta': 'eta',
+        '\\theta': 'theta',
+        '\\iota': 'iota',
+        '\\kappa': 'kappa',
+        '\\lambda': 'lambda',
+        '\\mu': 'mu',
+        '\\nu': 'nu',
+        '\\xi': 'xi',
+        '\\pi': 'pi',
+        '\\rho': 'rho',
+        '\\sigma': 'sigma',
+        '\\tau': 'tau',
+        '\\upsilon': 'upsilon',
+        '\\phi': 'phi',
+        '\\chi': 'chi',
+        '\\psi': 'psi',
+        '\\omega': 'omega',
+        '\\Delta': 'delta',
+        '\\Sigma': 'sigma',
+        '\\Omega': 'omega',
+      };
+
+      Object.entries(greekLetters).forEach(([latex, spoken]) => {
+        const escaped = latex.replace(/\\/g, '\\\\');
+        const regex = new RegExp(escaped, 'g');
+        speakable = speakable.replace(regex, ` ${spoken} `);
+      });
+
+      // 11. Subscripts: v_initial -> v initial, v_{i} -> v i
+      speakable = speakable.replace(/(\w+)_\{([^}]+)\}/g, '$1 sub $2');
+      speakable = speakable.replace(/(\w+)_(\w)/g, '$1 sub $2');
+
+      // 12. Math Operators & Relations
+      speakable = speakable.replace(/\\infty/g, ' infinity ');
+      speakable = speakable.replace(/\\partial/g, ' partial derivative ');
+      speakable = speakable.replace(/\\times/g, ' times ');
+      speakable = speakable.replace(/\\cdot/g, ' times ');
+      speakable = speakable.replace(/\\div/g, ' divided by ');
+      speakable = speakable.replace(/\\pm/g, ' plus or minus ');
+      speakable = speakable.replace(/\\approx/g, ' approximately equals ');
+      speakable = speakable.replace(/\\le/g, ' is less than or equal to ');
+      speakable = speakable.replace(/\\ge/g, ' is greater than or equal to ');
+      speakable = speakable.replace(/\\neq/g, ' is not equal to ');
+      speakable = speakable.replace(/\\to/g, ' approaches ');
+      speakable = speakable.replace(/\\(dots|ldots|cdots)/g, ', and so on, ');
+      speakable = speakable.replace(/=/g, ', equals, ');
+      speakable = speakable.replace(/\+/g, ' plus ');
+      speakable = speakable.replace(/-/g, ' minus ');
+      
+      // Clean up leftover symbols, parenthesis and curly braces
+      speakable = speakable.replace(/[{}]/g, ' ');
+      speakable = speakable.replace(/\\/g, ' ');
+      speakable = speakable.replace(/\s+/g, ' ').trim();
+
+      return ` ${speakable} `;
+    });
+  };
+
+  const handleToggleSpeakNote = async () => {
+    try {
+      // Clean text extraction from blocks
+      let cleanText = '';
+      try {
+        const blocks = JSON.parse(note?.content || '');
+        if (Array.isArray(blocks)) {
+          const rawText = blocks
+            .map((b: any) => {
+              if (b.type === 'h1' || b.type === 'h2' || b.type === 'text') {
+                return b.content || '';
+              }
+              if (b.type === 'math' && b.content) {
+                const cleaned = b.content.trim();
+                if (cleaned.startsWith('$')) return cleaned;
+                return `$$${cleaned}$$`;
+              }
+              if (b.type === 'table' && b.content) {
+                try {
+                  const rows = JSON.parse(b.content);
+                  return "Table content: " + rows.map((r: string[]) => r.join(', ')).join('. ');
+                } catch {
+                  return '';
+                }
+              }
+              return '';
+            })
+            .filter(Boolean)
+            .join('. ');
+          
+          cleanText = convertLatexToSpeakable(rawText);
+        } else {
+          cleanText = convertLatexToSpeakable(note?.content || '');
+        }
+      } catch {
+        const rawText = (note?.content || '')
+          .replace(/#+\s+/g, '')
+          .replace(/\*\*|__/g, '')
+          .replace(/\*|_/g, '')
+          .trim();
+        
+        cleanText = convertLatexToSpeakable(rawText);
+      }
+
+      if (!cleanText) {
+        alert('No readable text content found in this note.');
+        return;
+      }
+
+      // 1. Prefer Expo Speech natively on mobile devices
+      let nativeTtsSucceeded = false;
+      try {
+        if (Speech && typeof Speech.isSpeakingAsync === 'function') {
+          if (speechIsPlaying) {
+            // Since expo-speech does not support pause/resume natively on all devices,
+            // we stop the playback on mobile to avoid any errors/crashes.
+            await Speech.stop();
+            setSpeechIsPlaying(false);
+            setSpeechIsPaused(false);
+            return;
+          }
+
+          const isSpeaking = await Speech.isSpeakingAsync();
+          if (isSpeaking) {
+            await Speech.stop();
+          }
+
+          setSpeechIsPlaying(true);
+          setSpeechIsPaused(false);
+
+          Speech.speak(cleanText, {
+            language: 'en',
+            rate: 0.9,
+            onStart: () => {
+              setSpeechIsPlaying(true);
+              setSpeechIsPaused(false);
+            },
+            onDone: () => {
+              setSpeechIsPlaying(false);
+              setSpeechIsPaused(false);
+            },
+            onStopped: () => {
+              setSpeechIsPlaying(false);
+              setSpeechIsPaused(false);
+            },
+            onError: (err) => {
+              console.warn("Expo Speech error:", err);
+              setSpeechIsPlaying(false);
+              setSpeechIsPaused(false);
+            }
+          });
+
+          nativeTtsSucceeded = true;
+        }
+      } catch (nativeErr) {
+        console.log("Native Expo Speech not available or failed, using web speech fallback:", nativeErr);
+      }
+
+      if (nativeTtsSucceeded) return;
+
+      // 2. Fallback to Web Speech Synthesis for browser/developer web previews
+      if (typeof window !== 'undefined' && window.speechSynthesis) {
+        const synth = window.speechSynthesis;
+        
+        if (speechIsPlaying) {
+          if (speechIsPaused) {
+            synth.resume();
+            setSpeechIsPaused(false);
+          } else {
+            synth.pause();
+            setSpeechIsPaused(true);
+          }
+          return;
+        }
+
+        const utterance = new SpeechSynthesisUtterance(cleanText);
+        utterance.rate = 0.9;
+        
+        const voices = synth.getVoices();
+        const defaultVoice = voices.find(v => v.lang.startsWith('en') && v.name.includes('Google')) ||
+                             voices.find(v => v.lang.startsWith('en')) ||
+                             voices[0];
+        if (defaultVoice) utterance.voice = defaultVoice;
+
+        utterance.onstart = () => {
+          setSpeechIsPlaying(true);
+          setSpeechIsPaused(false);
+        };
+        utterance.onend = () => {
+          setSpeechIsPlaying(false);
+          setSpeechIsPaused(false);
+        };
+        utterance.onerror = () => {
+          setSpeechIsPlaying(false);
+          setSpeechIsPaused(false);
+        };
+
+        synth.speak(utterance);
+      } else {
+        alert("Audio speech synthesis is not supported on this device/browser.");
+      }
+    } catch (e) {
+      console.error("Speech Synthesis failed:", e);
+    }
+  };
+
+  const handleStopSpeaking = async () => {
+    try {
+      // Stop native expo-speech
+      try {
+        await Speech.stop();
+      } catch (err) {}
+
+      // Stop web speech fallback
+      if (typeof window !== 'undefined' && window.speechSynthesis) {
+        window.speechSynthesis.cancel();
+      }
+      
+      setSpeechIsPlaying(false);
+      setSpeechIsPaused(false);
+    } catch (e) {
+      console.log(e);
+    }
+  };
+
+  const sanitizeHermesError = (rawMessage: string) => {
+    let errorCode = "UNKNOWN";
+    let cleanMsg = rawMessage || "Failed to generate response";
+
+    // Try to parse status code
+    const codeMatch = cleanMsg.match(/(?:Code|status):\s*(\d+)/i);
+    if (codeMatch) {
+      errorCode = codeMatch[1];
+    }
+
+    // If there are segments separated by '|' or similar, keep only the first segment which is the human-friendly message
+    if (cleanMsg.includes('|')) {
+      cleanMsg = cleanMsg.split('|')[0].trim();
+    }
+
+    // Remove potential sensitive keywords (case-insensitive)
+    const blacklist = [
+      /groq/gi, /openrouter/gi, /openai/gi, /gemini/gi, /claude/gi, /google/gi,
+      /gpt-[a-zA-Z0-9.-]+/gi, /llama[a-zA-Z0-9.-]*/gi, /mixtral/gi, /deepseek/gi,
+      /https?:\/\/\S+/gi, /\/\S+completions/gi, /endpoint:\s*\S+/gi, /provider:\s*\S+/gi,
+      /model:\s*\S+/gi
+    ];
+
+    for (const pattern of blacklist) {
+      cleanMsg = cleanMsg.replace(pattern, '').trim();
+    }
+
+    // Clean trailing spaces, punctuation or extra dividers
+    cleanMsg = cleanMsg.replace(/\s*[|:-]+\s*$/g, '').trim() || "An unexpected network error occurred.";
+
+    return `Error Code: ${errorCode}\nError Message: ${cleanMsg}\n\nPlease inform an administrator about this issue.`;
+  };
+
   const handleSendHermes = async () => {
     if (!hermesMsg.trim() || hermesLoading) return;
 
@@ -547,7 +929,8 @@ export default function NoteViewerScreen() {
       setHermesChat(prev => [...prev, { role: 'assistant', content: botResponse }]);
     } catch (err: any) {
       console.error('Hermes AI Chat Error:', err);
-      setHermesChat(prev => [...prev, { role: 'assistant', content: `Error: ${err.message || 'Failed to generate response'}` }]);
+      const sanitizedErrorMsg = sanitizeHermesError(err.message);
+      setHermesChat(prev => [...prev, { role: 'assistant', content: sanitizedErrorMsg }]);
     } finally {
       setHermesLoading(false);
     }
@@ -874,8 +1257,80 @@ export default function NoteViewerScreen() {
             <Text style={[s.dateText, { color: C.inkLight }]}>{note.date || 'LATEST UPDATE'}</Text>
           </View>
 
+          {/* Audio Reader Widget (Text-To-Speech) */}
+          <View style={{
+            backgroundColor: C.surface,
+            borderColor: C.border,
+            borderWidth: 1,
+            borderRadius: 14,
+            padding: 16,
+            marginVertical: 18,
+          }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1, marginRight: 8 }}>
+                <View style={{
+                  width: 36,
+                  height: 36,
+                  borderRadius: 18,
+                  backgroundColor: speechIsPlaying && !speechIsPaused ? C.activeText + '15' : C.border,
+                  justifyContent: 'center',
+                  alignItems: 'center',
+                  marginRight: 12
+                }}>
+                  <Text style={{ fontSize: 16, color: speechIsPlaying && !speechIsPaused ? C.activeText : C.ink }}>🔊</Text>
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={{ fontFamily: F.bold, fontSize: 13, color: C.ink }}>Audio Study Assistant</Text>
+                  <Text style={{ fontFamily: F.medium, fontSize: 11, color: C.inkLight, marginTop: 1 }} numberOfLines={1}>
+                    {speechIsPlaying ? (speechIsPaused ? 'Playback paused' : 'Reading study guide...') : 'Listen to this complete note'}
+                  </Text>
+                </View>
+              </View>
+
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                <TouchableOpacity
+                  onPress={handleToggleSpeakNote}
+                  activeOpacity={0.85}
+                  style={{
+                    backgroundColor: speechIsPlaying && !speechIsPaused ? C.border : C.ink,
+                    paddingHorizontal: 12,
+                    paddingVertical: 7,
+                    borderRadius: 8,
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                    gap: 6
+                  }}
+                >
+                  <Text style={{ fontSize: 10, color: speechIsPlaying && !speechIsPaused ? C.ink : C.bg }}>
+                    {speechIsPlaying ? (speechIsPaused ? '▶' : '❚❚') : '▶'}
+                  </Text>
+                  <Text style={{ fontFamily: F.bold, fontSize: 11, color: speechIsPlaying && !speechIsPaused ? C.ink : C.bg }}>
+                    {speechIsPlaying ? (speechIsPaused ? 'Resume' : 'Pause') : 'Listen'}
+                  </Text>
+                </TouchableOpacity>
+
+                {speechIsPlaying && (
+                  <TouchableOpacity
+                    onPress={handleStopSpeaking}
+                    activeOpacity={0.85}
+                    style={{
+                      backgroundColor: '#ef444415',
+                      paddingHorizontal: 10,
+                      paddingVertical: 7,
+                      borderRadius: 8,
+                      borderWidth: 1,
+                      borderColor: '#ef444430'
+                    }}
+                  >
+                    <Text style={{ fontFamily: F.bold, fontSize: 11, color: '#ef4444' }}>Stop</Text>
+                  </TouchableOpacity>
+                )}
+              </View>
+            </View>
+          </View>
+
           {/* Note content rendered with NoteRenderer (WebView) */}
-          <NoteRenderer content={note.content} />
+          <NoteRenderer content={note.content} onFocusBlock={(type, content) => setFocusedBlock({ type, content })} />
 
           {/* Summary */}
           {note.summary && (
@@ -943,6 +1398,80 @@ export default function NoteViewerScreen() {
           <CalculatorIcon color={C.bg} />
         </TouchableOpacity>
       </View>
+
+      {/* Tap-to-Focus Zoom Modal for Formulas and Diagrams */}
+      {focusedBlock && (
+        <Modal visible={true} transparent={true} animationType="fade" onRequestClose={() => setFocusedBlock(null)}>
+          <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.85)', justifyContent: 'center', alignItems: 'center', padding: 20 }}>
+            <View style={{ width: '100%', maxWidth: 450, backgroundColor: C.bg, borderRadius: 24, padding: 24, overflow: 'hidden' }}>
+              <Text style={{ fontFamily: F.bold, fontSize: 16, color: C.ink, marginBottom: 16, textAlign: 'center' }}>
+                {focusedBlock.type === 'math' ? 'Detailed Math Formula' : 'Diagram Zoom'}
+              </Text>
+              
+              {focusedBlock.type === 'math' ? (
+                <View style={{ maxHeight: 320, minHeight: 120, width: '100%' }}>
+                  <NoteRenderer 
+                    content={JSON.stringify([{ id: 'focus_math', type: 'math', content: focusedBlock.content }])} 
+                    bgOverride={C.surface}
+                    paddingOverride="20px"
+                    scrollableMath={true}
+                  />
+                </View>
+              ) : (
+                <View style={{ width: '100%', height: 350, borderRadius: 12, overflow: 'hidden', backgroundColor: '#000' }}>
+                  <WebView
+                    originWhitelist={['*']}
+                    source={{ html: `
+                      <!DOCTYPE html>
+                      <html>
+                        <head>
+                          <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0, user-scalable=yes">
+                          <style>
+                            html, body {
+                              margin: 0;
+                              padding: 0;
+                              width: 100%;
+                              height: 100%;
+                              background-color: #000;
+                              display: flex;
+                              justify-content: center;
+                              align-items: center;
+                              overflow: auto;
+                              -webkit-overflow-scrolling: touch;
+                            }
+                            img {
+                              max-width: 100%;
+                              max-height: 100%;
+                              object-fit: contain;
+                            }
+                          </style>
+                        </head>
+                        <body>
+                          <img src="${focusedBlock.content}" />
+                        </body>
+                      </html>
+                    ` }}
+                    style={{ flex: 1, backgroundColor: '#000' }}
+                    scrollEnabled={true}
+                    scalesPageToFit={true}
+                    pinchGestureEnabled={true}
+                    minimumZoomScale={1.0}
+                    maximumZoomScale={5.0}
+                  />
+                </View>
+              )}
+              
+              <TouchableOpacity 
+                onPress={() => setFocusedBlock(null)}
+                style={{ marginTop: 24, backgroundColor: C.ink, height: 48, borderRadius: 12, justifyContent: 'center', alignItems: 'center' }}
+                activeOpacity={0.85}
+              >
+                <Text style={{ fontFamily: F.bold, fontSize: 14, color: C.bg }}>CLOSE VIEW</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </Modal>
+      )}
 
       <Toolbar visible={toolbarVisible} onClose={() => setToolbarVisible(false)} s={s} C={C} />
     </SafeAreaView>
