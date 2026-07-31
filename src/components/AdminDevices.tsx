@@ -114,7 +114,9 @@ export default function AdminDevices() {
                             <Smartphone className="h-5 w-5" />
                           </div>
                           <div>
-                            <p className="text-sm font-medium">Device {idx + 1} ({device.os || 'Unknown'})</p>
+                            <p className="text-sm font-medium">
+                              {device.name ? device.name : `Device ${idx + 1}`} ({device.os || 'Unknown'})
+                            </p>
                             <p className="text-xs text-muted-foreground">
                               Semester: {device.semester} • Added: {new Date(device.addedAt).toLocaleDateString()}
                             </p>

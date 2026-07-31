@@ -5,7 +5,7 @@ import { doc, onSnapshot, updateDoc, setDoc, getDoc } from 'firebase/firestore';
 import { auth, db, handleFirestoreError, OperationType } from '../firebase';
 import { toast } from 'sonner';
 import { UserProfile, SystemConfig, PromoConfig, Semester } from '../types';
-import { getDeviceUUID } from '../lib/device';
+import { getDeviceUUID, getUserDeviceUUID, generateNewDeviceUUID, getWebDeviceName } from '../lib/device';
 
 interface AuthContextType {
   user: User | null;
@@ -142,56 +142,91 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   }, []);
 
   useEffect(() => {
-    if (user) {
+    let unsubscribeProfile: () => void = () => {};
+
+    if (user && systemConfig) {
       const initSessionAndDevice = async () => {
-        const deviceId = await getDeviceUUID();
-        
         let currentSemester = '1st';
         if (systemConfig?.currentSemester) {
           currentSemester = systemConfig.currentSemester;
         }
 
+        // Fetch user document once to verify device slot before starting listener
+        let userSnap;
+        try {
+          userSnap = await getDoc(doc(db, 'users', user.uid));
+        } catch (e) {
+          console.error("Failed to fetch user doc for device verification:", e);
+        }
+
+        const userData = userSnap?.exists() ? userSnap.data() : {};
+        let devices = userData.devices || [];
+        const currentDevices = devices.filter((d: any) => d.semester === currentSemester);
+
+        let deviceId = await getUserDeviceUUID(user.uid);
+        const deviceName = getWebDeviceName();
+
+        if (deviceId) {
+          const matched = currentDevices.find((d: any) => d.id === deviceId);
+          if (!matched) {
+            if (currentDevices.length >= 2) {
+              setProfile(null);
+              firebaseSignOut(auth).catch(() => {});
+              toast.error(`Device Limit Reached: Your account has reached the max of 2 devices for the current semester (${currentSemester}). Contact an admin for ${userData.At || 'futo'} to resolve this.`);
+              return;
+            } else {
+              const newDevice = {
+                id: deviceId,
+                name: deviceName,
+                semester: currentSemester,
+                os: 'web',
+                addedAt: new Date().toISOString()
+              };
+              currentDevices.push(newDevice);
+              await updateDoc(doc(db, 'users', user.uid), { devices: currentDevices }).catch(() => {});
+            }
+          } else if (matched.name !== deviceName) {
+            matched.name = deviceName;
+            await updateDoc(doc(db, 'users', user.uid), { devices: currentDevices }).catch(() => {});
+          }
+        } else {
+          if (currentDevices.length >= 2) {
+            setProfile(null);
+            firebaseSignOut(auth).catch(() => {});
+            toast.error(`Device Limit Reached: Your account has reached the max of 2 devices for the current semester (${currentSemester}). Contact an admin for ${userData.At || 'futo'} to resolve this.`);
+            return;
+          } else {
+            deviceId = await generateNewDeviceUUID(user.uid);
+            const newDevice = {
+              id: deviceId,
+              name: deviceName,
+              semester: currentSemester,
+              os: 'web',
+              addedAt: new Date().toISOString()
+            };
+            currentDevices.push(newDevice);
+            await updateDoc(doc(db, 'users', user.uid), { devices: currentDevices }).catch(() => {});
+          }
+        }
+
         const path = `users/${user.uid}`;
-        let isFirstLoad = true;
-        const unsubscribeProfile = onSnapshot(doc(db, 'users', user.uid), async (snapshot) => {
+        const activeDeviceId = deviceId;
+
+        unsubscribeProfile = onSnapshot(doc(db, 'users', user.uid), async (snapshot) => {
           if (snapshot.exists()) {
             const data = snapshot.data() as UserProfile;
+            const liveDevices = (data.devices || []).filter((d: any) => d.semester === currentSemester);
             
-            // Device limit check
-            let devices = data.devices || [];
-            const currentDevices = devices.filter((d: any) => d.semester === currentSemester);
-            
-            const deviceExists = currentDevices.find((d: any) => d.id === deviceId);
-            
-            if (!deviceExists) {
-              if (!isFirstLoad) {
-                setProfile(null);
-                firebaseSignOut(auth).catch(err => console.error("Signout error:", err));
-                toast.error("Your device has been forcefully disconnected by an administrator.");
-                return;
-              }
+            const stillRegistered = liveDevices.some((d: any) => d.id === activeDeviceId);
 
-              if (currentDevices.length >= 2) {
-                setProfile(null);
-                firebaseSignOut(auth).catch(err => console.error("Signout error:", err));
-                toast.error(`Device Limit Reached: Your account has reached the max of 2 devices for the current semester. Contact an admin for ${data.At || 'futo'} to resolve this.`);
-                return;
-              } else {
-                const newDevice = {
-                  id: deviceId,
-                  semester: currentSemester,
-                  os: 'web',
-                  addedAt: new Date().toISOString()
-                };
-                currentDevices.push(newDevice);
-                await updateDoc(doc(db, 'users', user.uid), { devices: currentDevices }).catch(() => {});
-              }
-            } else if (devices.length !== currentDevices.length) {
-              await updateDoc(doc(db, 'users', user.uid), { devices: currentDevices }).catch(() => {});
+            if (!stillRegistered) {
+              setProfile(null);
+              firebaseSignOut(auth).catch(err => console.error("Signout error:", err));
+              toast.error("Your device has been forcefully disconnected by an administrator.");
+              return;
             }
 
             setProfile(data);
-            isFirstLoad = false;
 
             if (user.email === 'successugochukwuchi@gmail.com' && data.level === '1') {
               updateDoc(doc(db, 'users', user.uid), {

@@ -1,6 +1,9 @@
 import { Platform } from 'react-native';
 import * as SecureStore from 'expo-secure-store';
 import * as Application from 'expo-application';
+import * as Device from 'expo-device';
+
+const STORE_KEY = 'colearn_user_device_map';
 
 function generateSimpleUUID(): string {
   return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
@@ -10,92 +13,93 @@ function generateSimpleUUID(): string {
   });
 }
 
-export async function getDeviceUUID(): Promise<string> {
-  if (Platform.OS === 'web') {
-    return await getWebDeviceUUID();
-  } else {
-    return await getMobileDeviceUUID();
-  }
+export async function getUserDeviceUUID(userId: string): Promise<string | null> {
+  const map = await getDeviceMap();
+  return map[userId] || null;
 }
 
-async function getMobileDeviceUUID(): Promise<string> {
-  const STORE_KEY = 'colearn_device_uuid';
+export async function getDeviceUUID(userId?: string): Promise<string> {
+  if (userId) {
+    const existing = await getUserDeviceUUID(userId);
+    if (existing) return existing;
+    return generateNewDeviceUUID(userId);
+  }
+  const map = await getDeviceMap();
+  const keys = Object.keys(map);
+  if (keys.length > 0) return map[keys[0]];
+  return 'mobile_device_' + generateSimpleUUID().substring(0, 8);
+}
+
+export async function setUserDeviceUUID(userId: string, uuid: string): Promise<void> {
+  const map = await getDeviceMap();
+  map[userId] = uuid;
+  await saveDeviceMap(map);
+}
+
+export async function generateNewDeviceUUID(userId: string): Promise<string> {
+  let nativeId = '';
   try {
-    let uuid = await SecureStore.getItemAsync(STORE_KEY);
-    if (!uuid) {
-      let nativeId = '';
-      if (Platform.OS === 'android') {
-        nativeId = Application.getAndroidId() || '';
-      } else if (Platform.OS === 'ios') {
-        nativeId = await Application.getIosIdForVendorAsync() || '';
-      }
-      
-      uuid = nativeId ? `${nativeId}-${generateSimpleUUID()}` : generateSimpleUUID();
-      await SecureStore.setItemAsync(STORE_KEY, uuid);
+    if (Platform.OS === 'android') {
+      nativeId = Application.getAndroidId() || '';
+    } else if (Platform.OS === 'ios') {
+      nativeId = await Application.getIosIdForVendorAsync() || '';
     }
-    return uuid;
   } catch (e) {
-    console.error('Failed to get mobile device UUID:', e);
-    return 'fallback-' + generateSimpleUUID();
+    console.error('Failed to get native device ID:', e);
   }
+
+  const raw = `${nativeId}-${userId}-${Date.now()}-${generateSimpleUUID()}`;
+  let hash = 0;
+  for (let i = 0; i < raw.length; i++) {
+    const char = raw.charCodeAt(i);
+    hash = ((hash << 5) - hash) + char;
+    hash |= 0;
+  }
+  const hashHex = Math.abs(hash).toString(16).padStart(8, '0');
+  const uuid = `dev-${hashHex}-${generateSimpleUUID().substring(0, 8)}`;
+
+  await setUserDeviceUUID(userId, uuid);
+  return uuid;
 }
 
-async function getWebDeviceUUID(): Promise<string> {
-  const STORE_KEY = 'colearn_device_uuid';
-  let storedUuid = await getIndexedDBItem(STORE_KEY);
-  if (!storedUuid) {
-    try {
-      const fpPromise = import('@fingerprintjs/fingerprintjs').then(FingerprintJS => FingerprintJS.load());
-      const fp = await fpPromise;
-      const result = await fp.get();
-      storedUuid = `${result.visitorId}-${generateSimpleUUID()}`;
-    } catch (e) {
-      console.error('Failed to get web fingerprint:', e);
-      storedUuid = generateSimpleUUID();
+export function getMobileDeviceName(): string {
+  try {
+    if (Platform.OS === 'web') {
+      return 'Web Browser';
     }
-    await setIndexedDBItem(STORE_KEY, storedUuid);
-  }
-  return storedUuid as string;
-}
-
-async function getIndexedDBItem(key: string): Promise<string | null> {
-  if (typeof window === 'undefined' || !window.indexedDB) return null;
-  return new Promise((resolve) => {
-    const request = indexedDB.open('ColearnDeviceDB', 1);
-    request.onupgradeneeded = (e: any) => {
-      e.target.result.createObjectStore('deviceStore');
-    };
-    request.onsuccess = (e: any) => {
-      const db = e.target.result;
-      if (!db.objectStoreNames.contains('deviceStore')) {
-        resolve(null);
-        return;
+    const brand = Device.brand || '';
+    const model = Device.modelName || Device.deviceName || '';
+    
+    if (brand && model) {
+      if (model.toLowerCase().includes(brand.toLowerCase())) {
+        return model;
       }
-      const transaction = db.transaction('deviceStore', 'readonly');
-      const store = transaction.objectStore('deviceStore');
-      const getRequest = store.get(key);
-      getRequest.onsuccess = () => resolve(getRequest.result || null);
-      getRequest.onerror = () => resolve(null);
-    };
-    request.onerror = () => resolve(null);
-  });
+      return `${brand} ${model}`;
+    }
+    if (model) return model;
+    if (brand) return `${brand} Device`;
+    return Platform.OS === 'ios' ? 'Apple iPhone' : 'Android Device';
+  } catch (e) {
+    return Platform.OS === 'ios' ? 'Apple iPhone' : 'Android Device';
+  }
 }
 
-async function setIndexedDBItem(key: string, value: string): Promise<void> {
-  if (typeof window === 'undefined' || !window.indexedDB) return;
-  return new Promise((resolve, reject) => {
-    const request = indexedDB.open('ColearnDeviceDB', 1);
-    request.onupgradeneeded = (e: any) => {
-      e.target.result.createObjectStore('deviceStore');
-    };
-    request.onsuccess = (e: any) => {
-      const db = e.target.result;
-      const transaction = db.transaction('deviceStore', 'readwrite');
-      const store = transaction.objectStore('deviceStore');
-      const putRequest = store.put(value, key);
-      putRequest.onsuccess = () => resolve();
-      putRequest.onerror = () => reject(putRequest.error);
-    };
-    request.onerror = () => reject(request.error);
-  });
+async function getDeviceMap(): Promise<Record<string, string>> {
+  try {
+    const raw = await SecureStore.getItemAsync(STORE_KEY);
+    if (raw) {
+      return JSON.parse(raw);
+    }
+  } catch (e) {
+    console.error('Error reading device map from SecureStore:', e);
+  }
+  return {};
+}
+
+async function saveDeviceMap(map: Record<string, string>): Promise<void> {
+  try {
+    await SecureStore.setItemAsync(STORE_KEY, JSON.stringify(map));
+  } catch (e) {
+    console.error('Error saving device map to SecureStore:', e);
+  }
 }

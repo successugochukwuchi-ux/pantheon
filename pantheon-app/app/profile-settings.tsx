@@ -18,6 +18,52 @@ import { useTheme } from '../context/ThemeContext';
 import { useAuth } from '../context/AuthContext';
 import { db } from '../lib/firebase';
 import { doc, updateDoc } from 'firebase/firestore';
+import * as ImagePicker from 'expo-image-picker';
+import { getDefaultVoice, setDefaultVoice, speakText, stopSpeech, MICROSOFT_VOICES } from '../lib/ttsService';
+
+// ── Icons ────────────────────────────────────────────────────────────────────
+
+function CameraIcon({ color }: { color: string }) {
+  return (
+    <View style={{ width: 18, height: 18, justifyContent: 'center', alignItems: 'center' }}>
+      <View style={{ width: 14, height: 10, borderWidth: 1.5, borderColor: color, borderRadius: 2, marginTop: 2 }} />
+      <View style={{ position: 'absolute', top: 5, width: 4, height: 4, borderRadius: 2, borderWidth: 1, borderColor: color }} />
+      <View style={{ position: 'absolute', top: 3.5, right: 3.5, width: 1.5, height: 1.5, borderRadius: 0.75, backgroundColor: color }} />
+      <View style={{ position: 'absolute', top: 1, width: 4, height: 1.5, backgroundColor: color }} />
+    </View>
+  );
+}
+
+function SparklesIcon({ color }: { color: string }) {
+  return (
+    <View style={{ width: 18, height: 18, justifyContent: 'center', alignItems: 'center' }}>
+      <View style={{ position: 'absolute', top: 2, left: 3, width: 3, height: 3, borderRadius: 1.5, backgroundColor: color }} />
+      <View style={{ position: 'absolute', width: 6, height: 6, borderRadius: 3, backgroundColor: color }} />
+      <View style={{ position: 'absolute', bottom: 2, right: 3, width: 4, height: 4, borderRadius: 2, backgroundColor: color }} />
+    </View>
+  );
+}
+
+function UploadIcon({ color }: { color: string }) {
+  return (
+    <View style={{ width: 24, height: 24, justifyContent: 'center', alignItems: 'center' }}>
+      <View style={{ width: 2, height: 10, backgroundColor: color, marginTop: -2 }} />
+      <View style={{ position: 'absolute', top: 6, left: 8, width: 6, height: 1.5, backgroundColor: color, transform: [{ rotate: '45deg' }] }} />
+      <View style={{ position: 'absolute', top: 6, right: 8, width: 6, height: 1.5, backgroundColor: color, transform: [{ rotate: '-45deg' }] }} />
+      <View style={{ position: 'absolute', bottom: 5, width: 12, height: 1.5, backgroundColor: color }} />
+    </View>
+  );
+}
+
+function TrashIcon({ color }: { color: string }) {
+  return (
+    <View style={{ width: 16, height: 16, justifyContent: 'center', alignItems: 'center' }}>
+      <View style={{ width: 12, height: 1.5, backgroundColor: color, borderRadius: 1 }} />
+      <View style={{ width: 4, height: 1.5, backgroundColor: color, marginTop: -3 }} />
+      <View style={{ width: 10, height: 9, borderWidth: 1.2, borderColor: color, borderBottomLeftRadius: 2, borderBottomRightRadius: 2, marginTop: 1 }} />
+    </View>
+  );
+}
 
 // ── Icons ────────────────────────────────────────────────────────────────────
 
@@ -70,27 +116,116 @@ export default function ProfileSettingsScreen() {
   const [hideAchievements, setHideAchievements] = useState(false);
   const [loading, setLoading] = useState(false);
 
+  // Voice TTS settings
+  const [selectedVoice, setSelectedVoice] = useState('en-US-AriaNeural');
+  const [testingVoice, setTestingVoice] = useState(false);
+
+  useEffect(() => {
+    getDefaultVoice().then((v) => setSelectedVoice(v));
+  }, []);
+
+  // Custom photo upload state
+  const [avatarSource, setAvatarSource] = useState<'dicebear' | 'custom'>('dicebear');
+  const [customPhotoURL, setCustomPhotoURL] = useState('');
+  const [uploading, setUploading] = useState(false);
+
   useEffect(() => {
     if (profile) {
       setUsername(profile.username || '');
       setMobileNumber(profile.mobileNumber || '');
       setSeed(profile.uid || '');
-      // Try to extract style and seed from existing photoURL if possible
-      if (profile.photoURL) {
-        const match = profile.photoURL.match(/\/7\.x\/([^/]+)\/svg\?seed=([^&]+)/);
-        if (match) {
-          setStyle(match[1]);
-          setSeed(match[2]);
+      
+      const photo = profile.photoURL || '';
+      if (photo) {
+        const isDicebear = photo.includes('dicebear.com');
+        if (isDicebear) {
+          setAvatarSource('dicebear');
+          const match = photo.match(/\/7\.x\/([^/]+)\/(svg|png)\?seed=([^&]+)/);
+          if (match) {
+            setStyle(match[1]);
+            setSeed(match[3]);
+          }
+        } else {
+          setAvatarSource('custom');
+          setCustomPhotoURL(photo);
         }
       }
     }
   }, [profile]);
 
+  const handlePickAndUpload = async () => {
+    try {
+      const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (status !== 'granted') {
+        Alert.alert('Permission Denied', 'We need access to your photos to upload a profile picture.');
+        return;
+      }
+
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        allowsEditing: true,
+        aspect: [1, 1],
+        quality: 0.8,
+      });
+
+      if (result.canceled || !result.assets || result.assets.length === 0) {
+        return;
+      }
+
+      const uri = result.assets[0].uri;
+      setUploading(true);
+
+      const fileType = uri.split('.').pop() || 'jpg';
+      const formData = new FormData();
+      formData.append('file', {
+        uri: uri,
+        name: `photo.${fileType}`,
+        type: `image/${fileType}`,
+      } as any);
+      formData.append('upload_preset', 'colodge_unsigned');
+      formData.append('folder', 'colodge_listings');
+
+      const response = await fetch('https://api.cloudinary.com/v1_1/lfrjrbtz/upload', {
+        method: 'POST',
+        body: formData,
+        headers: {
+          'Content-Type': 'multipart/form-data',
+        },
+      });
+
+      if (!response.ok) {
+        throw new Error('Upload server returned an error');
+      }
+
+      const data = await response.json();
+      if (data.secure_url) {
+        setCustomPhotoURL(data.secure_url);
+        setAvatarSource('custom');
+        Alert.alert('Success', 'Profile picture uploaded! Tap "Save Changes" below to complete.');
+      } else {
+        throw new Error('No secure URL returned from server');
+      }
+    } catch (error: any) {
+      console.error('Upload error:', error);
+      Alert.alert('Upload Failed', error.message || 'An error occurred during image upload');
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  const handleRemoveCustomPhoto = () => {
+    setCustomPhotoURL('');
+    setAvatarSource('dicebear');
+  };
+
   const handleSave = async () => {
     if (!user) return;
     setLoading(true);
     try {
-      const photoURL = `https://api.dicebear.com/7.x/${style}/svg?seed=${seed}`;
+      const photoURL = avatarSource === 'custom' && customPhotoURL
+        ? customPhotoURL
+        : `https://api.dicebear.com/7.x/${style}/svg?seed=${seed}`;
+
       await updateDoc(doc(db, 'users', user.uid), {
         username,
         mobileNumber,
@@ -122,39 +257,93 @@ export default function ProfileSettingsScreen() {
         <View style={s.card}>
           <View style={s.avatarContainer}>
              <Image 
-               source={{ uri: `https://api.dicebear.com/7.x/${style}/png?seed=${seed}` }} 
+               source={{ uri: avatarSource === 'custom' && customPhotoURL ? customPhotoURL : `https://api.dicebear.com/7.x/${style}/png?seed=${seed}` }} 
                style={s.avatar} 
              />
           </View>
 
-          <Text style={s.label}>CHOOSE STYLE</Text>
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} style={s.styleBox}>
-            {AVATAR_STYLES.map((s_item) => (
-              <TouchableOpacity 
-                key={s_item.id} 
-                style={[s.styleBtn, style === s_item.id && s.styleBtnActive]}
-                onPress={() => setStyle(s_item.id)}
-              >
-                <Text style={[s.styleBtnText, style === s_item.id && s.styleBtnTextActive]}>{s_item.label}</Text>
-              </TouchableOpacity>
-            ))}
-          </ScrollView>
-          
-          <Text style={s.label}>AVATAR SEED</Text>
-
-          <View style={s.seedInputRow}>
-            <TextInput
-              style={s.seedInput}
-              value={seed}
-              onChangeText={setSeed}
-              placeholder="e.g. unique_seed"
-              placeholderTextColor={C.inkLight}
-            />
-            <TouchableOpacity style={s.doneBtn} onPress={handleSave} disabled={loading}>
-              {loading ? <ActivityIndicator color={C.bg} size="small" /> : <CheckIcon color={C.bg} />}
+          {/* Toggle buttons */}
+          <View style={s.sourceToggleContainer}>
+            <TouchableOpacity
+              style={[s.sourceToggleBtn, avatarSource === 'custom' && s.sourceToggleBtnActive]}
+              onPress={() => setAvatarSource('custom')}
+            >
+              <CameraIcon color={avatarSource === 'custom' ? C.ink : C.inkLight} />
+              <Text style={[s.sourceToggleText, avatarSource === 'custom' && s.sourceToggleTextActive]}>Upload</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[s.sourceToggleBtn, avatarSource === 'dicebear' && s.sourceToggleBtnActive]}
+              onPress={() => setAvatarSource('dicebear')}
+            >
+              <SparklesIcon color={avatarSource === 'dicebear' ? C.ink : C.inkLight} />
+              <Text style={[s.sourceToggleText, avatarSource === 'dicebear' && s.sourceToggleTextActive]}>AI Avatar</Text>
             </TouchableOpacity>
           </View>
-          <Text style={s.helperText}>Seeds are unique keys for your generated profile icon.</Text>
+
+          {avatarSource === 'custom' ? (
+            <View>
+              {customPhotoURL ? (
+                <View style={s.activeBanner}>
+                  <View style={{ flex: 1, paddingRight: 10 }}>
+                    <Text style={s.activeBannerTitle}>✓ Custom Photo Active</Text>
+                    <Text style={s.activeBannerSubtitle}>Tap "Save Changes" below to finalize your profile.</Text>
+                  </View>
+                  <TouchableOpacity style={s.removeBtn} onPress={handleRemoveCustomPhoto}>
+                    <TrashIcon color={C.ink} />
+                    <Text style={s.removeBtnText}>Remove</Text>
+                  </TouchableOpacity>
+                </View>
+              ) : (
+                <TouchableOpacity 
+                  style={[s.uploadBox, uploading && s.uploadBoxActive]} 
+                  onPress={handlePickAndUpload}
+                  disabled={uploading}
+                >
+                  <View style={s.uploadIconCircle}>
+                    {uploading ? (
+                      <ActivityIndicator color={C.ink} size="small" />
+                    ) : (
+                      <UploadIcon color={C.inkMid} />
+                    )}
+                  </View>
+                  <Text style={s.uploadBoxTitle}>
+                    {uploading ? 'Uploading picture...' : 'Choose Profile Picture'}
+                  </Text>
+                  <Text style={s.uploadBoxSubtitle}>
+                    Supports JPEG, PNG, WEBP files
+                  </Text>
+                </TouchableOpacity>
+              )}
+            </View>
+          ) : (
+            <View>
+              <Text style={s.label}>CHOOSE STYLE</Text>
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} style={s.styleBox}>
+                {AVATAR_STYLES.map((s_item) => (
+                  <TouchableOpacity 
+                    key={s_item.id} 
+                    style={[s.styleBtn, style === s_item.id && s.styleBtnActive]}
+                    onPress={() => setStyle(s_item.id)}
+                  >
+                    <Text style={[s.styleBtnText, style === s_item.id && s.styleBtnTextActive]}>{s_item.label}</Text>
+                  </TouchableOpacity>
+                ))}
+              </ScrollView>
+              
+              <Text style={s.label}>AVATAR SEED</Text>
+
+              <View style={s.seedInputRow}>
+                <TextInput
+                  style={s.seedInput}
+                  value={seed}
+                  onChangeText={setSeed}
+                  placeholder="e.g. unique_seed"
+                  placeholderTextColor={C.inkLight}
+                />
+              </View>
+              <Text style={s.helperText}>Seeds are unique keys for your generated profile icon.</Text>
+            </View>
+          )}
         </View>
 
         {/* Username Section */}
@@ -182,6 +371,93 @@ export default function ProfileSettingsScreen() {
             />
             <EditIcon color={C.inkMid} />
           </View>
+        </View>
+
+        {/* Natural Voice TTS Section */}
+        <View style={s.card}>
+          <Text style={s.label}>READALOUD NATURAL VOICE (MICROSOFT TTS)</Text>
+          <Text style={{ fontFamily: F.regular, fontSize: 13, color: C.inkMid, marginBottom: 12 }}>
+            Choose your preferred Microsoft natural voice for reading study notes aloud. Stored locally on this device.
+          </Text>
+
+          <View style={{ gap: 8, marginBottom: 16 }}>
+            {MICROSOFT_VOICES.map((v) => {
+              const isSelected = selectedVoice === v.id;
+              return (
+                <TouchableOpacity
+                  key={v.id}
+                  style={{
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                    justify: 'space-between',
+                    padding: 12,
+                    borderRadius: 14,
+                    borderWidth: 1,
+                    borderColor: isSelected ? (C.activeText || '#27AE60') : C.border,
+                    backgroundColor: isSelected ? (C.activeBg || 'rgba(39,174,96,0.08)') : C.surface,
+                  }}
+                  onPress={async () => {
+                    setSelectedVoice(v.id);
+                    await setDefaultVoice(v.id);
+                  }}
+                  activeOpacity={0.7}
+                >
+                  <View style={{ flex: 1 }}>
+                    <Text style={{ fontFamily: F.bold, fontSize: 14, color: isSelected ? (C.activeText || '#27AE60') : C.ink }}>
+                      {v.name}
+                    </Text>
+                    <Text style={{ fontFamily: F.regular, fontSize: 12, color: C.inkMid }}>
+                      Language: {v.lang} • Gender: {v.gender}
+                    </Text>
+                  </View>
+                  {isSelected && (
+                    <View style={{ width: 22, height: 22, borderRadius: 11, backgroundColor: C.activeText || '#27AE60', justifyContent: 'center', alignItems: 'center' }}>
+                      <CheckIcon color="#FFF" />
+                    </View>
+                  )}
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+
+          <TouchableOpacity
+            style={{
+              paddingVertical: 10,
+              paddingHorizontal: 16,
+              borderRadius: 12,
+              backgroundColor: C.border,
+              alignItems: 'center',
+              flexDirection: 'row',
+              justifyContent: 'center',
+              gap: 8,
+            }}
+            onPress={async () => {
+              if (testingVoice) {
+                await stopSpeech();
+                setTestingVoice(false);
+              } else {
+                setTestingVoice(true);
+                await speakText(
+                  "Hello! This is a preview of your default Microsoft natural reading voice for Colearn study notes.",
+                  {
+                    voiceId: selectedVoice,
+                    onDone: () => setTestingVoice(false),
+                    onError: () => setTestingVoice(false),
+                  }
+                );
+              }
+            }}
+            activeOpacity={0.8}
+          >
+            {testingVoice ? (
+              <ActivityIndicator size="small" color={C.ink} />
+            ) : (
+              <SparklesIcon color={C.ink} />
+            )}
+            <Text style={{ fontFamily: F.bold, fontSize: 13, color: C.ink }}>
+              {testingVoice ? 'Playing Preview...' : 'Test Selected Voice'}
+            </Text>
+          </TouchableOpacity>
         </View>
 
         {/* Privacy Section */}
@@ -409,5 +685,121 @@ const createStyles = (C: any) => StyleSheet.create({
     color: C.inkLight,
     textAlign: 'center',
     letterSpacing: 0.5,
+  },
+  sourceToggleContainer: {
+    flexDirection: 'row',
+    padding: 3,
+    backgroundColor: C.bgAlt || '#F4F4F5',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: C.border,
+    marginBottom: 20,
+    width: '100%',
+    maxWidth: 240,
+    alignSelf: 'center',
+  },
+  sourceToggleBtn: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    paddingVertical: 8,
+    borderRadius: 8,
+  },
+  sourceToggleBtnActive: {
+    backgroundColor: C.surface,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.1,
+    shadowRadius: 2,
+    elevation: 2,
+  },
+  sourceToggleText: {
+    fontFamily: F.bold,
+    fontSize: 12,
+    color: C.inkLight,
+  },
+  sourceToggleTextActive: {
+    color: C.ink,
+  },
+  uploadBox: {
+    borderWidth: 2,
+    borderStyle: 'dashed',
+    borderColor: C.border,
+    borderRadius: 16,
+    padding: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: C.bgAlt || '#FAFAFA',
+    minHeight: 120,
+    marginBottom: 16,
+  },
+  uploadBoxActive: {
+    borderColor: C.ink,
+    backgroundColor: C.surface,
+  },
+  uploadIconCircle: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: C.surface,
+    borderWidth: 1,
+    borderColor: C.border,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 8,
+  },
+  uploadBoxTitle: {
+    fontFamily: F.bold,
+    fontSize: 13,
+    color: C.ink,
+    marginBottom: 4,
+    textAlign: 'center',
+  },
+  uploadBoxSubtitle: {
+    fontFamily: F.medium,
+    fontSize: 11,
+    color: C.inkLight,
+    textAlign: 'center',
+  },
+  activeBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    padding: 12,
+    borderRadius: 16,
+    borderWidth: 1,
+    backgroundColor: '#E6F4EA',
+    borderColor: '#A3E4D7',
+    marginTop: 12,
+    width: '100%',
+  },
+  activeBannerTitle: {
+    fontFamily: F.bold,
+    fontSize: 12,
+    color: '#196F3D',
+  },
+  activeBannerSubtitle: {
+    fontFamily: F.medium,
+    fontSize: 10,
+    color: '#229954',
+    marginTop: 2,
+  },
+  removeBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingVertical: 6,
+    paddingHorizontal: 10,
+    borderRadius: 8,
+    backgroundColor: C.surface,
+    borderWidth: 1,
+    borderColor: C.border,
+  },
+  removeBtnText: {
+    fontFamily: F.bold,
+    fontSize: 11,
+    color: C.inkMid,
   },
 });

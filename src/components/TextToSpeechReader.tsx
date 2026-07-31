@@ -5,6 +5,7 @@ import { Card, CardContent } from './ui/card';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
 import { Slider } from './ui/slider';
 import { Badge } from './ui/badge';
+import { speakText, stopSpeech, getDefaultVoice, setDefaultVoice, MICROSOFT_VOICES } from '../lib/ttsService';
 
 interface TextToSpeechReaderProps {
   noteContent: string;
@@ -236,123 +237,50 @@ export function TextToSpeechReader({ noteContent, noteTitle }: TextToSpeechReade
     }
   }, [noteContent]);
 
-  // Load and subscribe to speechSynthesis voices
+  // Load default voice setting
   useEffect(() => {
-    if (typeof window !== 'undefined' && window.speechSynthesis) {
-      synthRef.current = window.speechSynthesis;
-      
-      const updateVoices = () => {
-        const availableVoices = window.speechSynthesis.getVoices();
-        
-        // Filter to English voices or default voice
-        let filtered = availableVoices.filter(v => v.lang.startsWith('en') || v.default);
-        
-        // If no English voices, fallback to all native voices
-        if (filtered.length === 0) {
-          filtered = availableVoices;
-        }
-
-        // Sort them: Natural first, then Standard English, then others
-        const sorted = [...filtered].sort((a, b) => {
-          const labelA = getVoiceLabel(a);
-          const labelB = getVoiceLabel(b);
-          const isA_Natural = labelA.includes('[Natural]');
-          const isB_Natural = labelB.includes('[Natural]');
-          
-          if (isA_Natural && !isB_Natural) return -1;
-          if (!isA_Natural && isB_Natural) return 1;
-          return labelA.localeCompare(labelB);
-        });
-
-        setVoices(sorted);
-        
-        // Prefer standard/Natural English voices as default selection
-        const defaultVoice = sorted.find(v => v.name.includes('Google') && v.lang.startsWith('en')) ||
-                             sorted.find(v => v.name.includes('Natural') && v.lang.startsWith('en')) ||
-                             sorted.find(v => v.name.includes('Premium') && v.lang.startsWith('en')) ||
-                             sorted.find(v => v.name.includes('Samantha') && v.lang.startsWith('en')) ||
-                             sorted.find(v => v.lang.startsWith('en')) ||
-                             sorted[0];
-        
-        if (defaultVoice) {
-          setSelectedVoice(defaultVoice.name);
-        }
-      };
-
-      updateVoices();
-      window.speechSynthesis.onvoiceschanged = updateVoices;
-    }
-
-    return () => {
-      if (synthRef.current) {
-        synthRef.current.cancel();
-      }
-    };
+    getDefaultVoice().then((v) => {
+      setSelectedVoice(v);
+    });
   }, []);
 
-  const startSpeaking = () => {
-    if (!synthRef.current || !cleanTextRef.current) return;
+  const startSpeaking = async () => {
+    if (!cleanTextRef.current) return;
 
-    // Cancel anything currently playing
-    synthRef.current.cancel();
+    stopSpeech();
+    setIsPlaying(true);
+    setIsPaused(false);
+    setReadingProgress(0);
 
-    // Create a new utterance
-    const utterance = new SpeechSynthesisUtterance(cleanTextRef.current);
-    
-    // Find selected voice
-    if (selectedVoice) {
-      const voiceObj = voices.find(v => v.name === selectedVoice);
-      if (voiceObj) utterance.voice = voiceObj;
-    }
-
-    utterance.rate = rate;
-
-    utterance.onstart = () => {
-      setIsPlaying(true);
-      setIsPaused(false);
-      setReadingProgress(0);
-    };
-
-    utterance.onend = () => {
-      setIsPlaying(false);
-      setIsPaused(false);
-      setReadingProgress(100);
-    };
-
-    utterance.onerror = (e) => {
-      console.error('Speech synthesis error:', e);
-      setIsPlaying(false);
-      setIsPaused(false);
-    };
-
-    // Tracks approximate speech progress using character index
-    utterance.onboundary = (event) => {
-      if (event.name === 'word' && cleanTextRef.current.length > 0) {
-        const charIndex = event.charIndex;
-        const progress = Math.min(100, Math.round((charIndex / cleanTextRef.current.length) * 100));
-        setReadingProgress(progress);
+    await speakText(cleanTextRef.current, {
+      voiceId: selectedVoice,
+      onStart: () => {
+        setIsPlaying(true);
+        setIsPaused(false);
+      },
+      onDone: () => {
+        setIsPlaying(false);
+        setIsPaused(false);
+        setReadingProgress(100);
+      },
+      onError: (err) => {
+        console.error('TTS playback error:', err);
+        setIsPlaying(false);
+        setIsPaused(false);
       }
-    };
-
-    utteranceRef.current = utterance;
-    synthRef.current.speak(utterance);
+    });
   };
 
   const togglePause = () => {
-    if (!synthRef.current) return;
-
-    if (isPaused) {
-      synthRef.current.resume();
-      setIsPaused(false);
+    if (isPlaying) {
+      handleStopSpeaking();
     } else {
-      synthRef.current.pause();
-      setIsPaused(true);
+      startSpeaking();
     }
   };
 
-  const stopSpeaking = () => {
-    if (!synthRef.current) return;
-    synthRef.current.cancel();
+  const handleStopSpeaking = () => {
+    stopSpeech();
     setIsPlaying(false);
     setIsPaused(false);
     setReadingProgress(0);
@@ -408,7 +336,7 @@ export function TextToSpeechReader({ noteContent, noteTitle }: TextToSpeechReade
                   <span className="text-xs font-medium">{isPaused ? 'Resume' : 'Pause'}</span>
                 </Button>
                 <Button 
-                  onClick={stopSpeaking} 
+                  onClick={handleStopSpeaking} 
                   variant="destructive"
                   size="sm" 
                   className="h-8.5 rounded-lg gap-1.5 px-3"
@@ -452,15 +380,18 @@ export function TextToSpeechReader({ noteContent, noteTitle }: TextToSpeechReade
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
               {/* Voice selector */}
               <div className="space-y-1.5 flex-1">
-                <span className="text-[11px] font-medium text-muted-foreground">Reading Voice</span>
-                <Select value={selectedVoice} onValueChange={setSelectedVoice}>
+                <span className="text-[11px] font-medium text-muted-foreground">Microsoft Natural Voice</span>
+                <Select value={selectedVoice} onValueChange={(val) => {
+                  setSelectedVoice(val);
+                  setDefaultVoice(val);
+                }}>
                   <SelectTrigger className="h-9 text-xs bg-background border border-border/70 hover:border-border transition-colors shadow-none rounded-lg">
                     <SelectValue placeholder="Select a voice" />
                   </SelectTrigger>
                   <SelectContent className="max-h-60 rounded-xl border border-border/80 shadow-lg">
-                    {voices.map((voice) => (
-                      <SelectItem key={voice.name} value={voice.name} className="text-xs py-2 rounded-md cursor-pointer transition-colors focus:bg-accent/80">
-                        {getVoiceLabel(voice)}
+                    {MICROSOFT_VOICES.map((v) => (
+                      <SelectItem key={v.id} value={v.id} className="text-xs py-2 rounded-md cursor-pointer transition-colors focus:bg-accent/80">
+                        {v.name}
                       </SelectItem>
                     ))}
                   </SelectContent>

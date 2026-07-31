@@ -8,7 +8,7 @@ import * as Notifications from 'expo-notifications';
 import { auth, db } from '../lib/firebase';
 import { saveCoursesFromServer, clearUserProfileLocal, clearAllCoursesLocal } from '../lib/db';
 import { getFilteredCoursesForStudent } from '../lib/courseFilter';
-import { getDeviceUUID } from '../lib/device';
+import { getDeviceUUID, getUserDeviceUUID, generateNewDeviceUUID, getMobileDeviceName } from '../lib/device';
 
 Notifications.setNotificationHandler({
   handleNotification: async () => ({
@@ -195,10 +195,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
     if (user) {
       const setupProfileAndSession = async () => {
-        // Get the device UUID
-        const deviceId = await getDeviceUUID();
-
-        // Get the current semester
+        // Get current semester
         let currentSemester = '1st';
         try {
           const configSnap = await getDoc(doc(db, 'system', 'config'));
@@ -207,51 +204,91 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           }
         } catch (e) {}
 
-        let isFirstLoad = true;
+        // Fetch user document once to verify device slot before starting listener
+        let userSnap;
+        try {
+          userSnap = await getDoc(doc(db, 'users', user.uid));
+        } catch (e) {
+          console.error("Failed to fetch user doc for device verification:", e);
+        }
+
+        const userData = userSnap?.exists() ? userSnap.data() : {};
+        let devices = userData.devices || [];
+        const currentDevices = devices.filter((d: any) => d.semester === currentSemester);
+
+        let deviceId = await getUserDeviceUUID(user.uid);
+        const deviceName = getMobileDeviceName();
+
+        if (deviceId) {
+          // Device has stored UUID for this user account
+          const matched = currentDevices.find((d: any) => d.id === deviceId);
+          if (!matched) {
+            if (currentDevices.length >= 2) {
+              setProfile(null);
+              signOut(auth).catch(() => {});
+              Alert.alert(
+                "Device Limit Reached",
+                `This account has reached the maximum number of devices (2) for the current semester. Please contact an admin for ${userData.At || 'futo'} for further assistance.`
+              );
+              return;
+            } else {
+              // Re-register device
+              const newDevice = {
+                id: deviceId,
+                name: deviceName,
+                semester: currentSemester,
+                os: Platform.OS,
+                addedAt: new Date().toISOString()
+              };
+              currentDevices.push(newDevice);
+              await updateDoc(doc(db, 'users', user.uid), { devices: currentDevices }).catch(() => {});
+            }
+          } else if (matched.name !== deviceName) {
+            matched.name = deviceName;
+            await updateDoc(doc(db, 'users', user.uid), { devices: currentDevices }).catch(() => {});
+          }
+        } else {
+          // First time on this device for this user account
+          if (currentDevices.length >= 2) {
+            setProfile(null);
+            signOut(auth).catch(() => {});
+            Alert.alert(
+              "Device Limit Reached",
+              `This account has reached the maximum number of devices (2) for the current semester. Please contact an admin for ${userData.At || 'futo'} for further assistance.`
+            );
+            return;
+          } else {
+            deviceId = await generateNewDeviceUUID(user.uid);
+            const newDevice = {
+              id: deviceId,
+              name: deviceName,
+              semester: currentSemester,
+              os: Platform.OS,
+              addedAt: new Date().toISOString()
+            };
+            currentDevices.push(newDevice);
+            await updateDoc(doc(db, 'users', user.uid), { devices: currentDevices }).catch(() => {});
+          }
+        }
+
+        const activeDeviceId = deviceId;
+
         unsubscribeProfile = onSnapshot(doc(db, 'users', user.uid), async (snapshot) => {
           if (snapshot.exists()) {
             const data = snapshot.data();
-
-            // Device limit check
-            let devices = data.devices || [];
-            // Keep only devices for the current semester (automatically clears previous semester devices)
-            const currentDevices = devices.filter((d: any) => d.semester === currentSemester);
+            const liveDevices = (data.devices || []).filter((d: any) => d.semester === currentSemester);
             
-            const deviceExists = currentDevices.find((d: any) => d.id === deviceId);
-            
-            if (!deviceExists) {
-              if (!isFirstLoad) {
-                setProfile(null);
-                signOut(auth).catch(err => console.log('Sign out error:', err));
-                Alert.alert(
-                  "Device Disconnected",
-                  "Your device has been forcefully disconnected by an administrator."
-                );
-                return;
-              }
+            // Disconnect ONLY if activeDeviceId was explicitly removed from liveDevices
+            const stillRegistered = liveDevices.some((d: any) => d.id === activeDeviceId);
 
-              if (currentDevices.length >= 2) {
-                setProfile(null);
-                signOut(auth).catch(err => console.log('Sign out error:', err));
-                Alert.alert(
-                  "Device Limit Reached",
-                  `This account has reached the maximum number of devices (2) for the current semester. Please contact an admin for ${data.At || 'futo'} for further assistance.`
-                );
-                return;
-              } else {
-                // Register this device
-                const newDevice = {
-                  id: deviceId,
-                  semester: currentSemester,
-                  os: Platform.OS,
-                  addedAt: new Date().toISOString()
-                };
-                currentDevices.push(newDevice);
-                await updateDoc(doc(db, 'users', user.uid), { devices: currentDevices }).catch(() => {});
-              }
-            } else if (devices.length !== currentDevices.length) {
-              // Cleanup old devices silently
-              await updateDoc(doc(db, 'users', user.uid), { devices: currentDevices }).catch(() => {});
+            if (!stillRegistered) {
+              setProfile(null);
+              signOut(auth).catch(err => console.log('Sign out error:', err));
+              Alert.alert(
+                "Device Disconnected",
+                "Your device has been forcefully disconnected by an administrator."
+              );
+              return;
             }
 
             // Removed old session ID checks to allow two devices to stay online

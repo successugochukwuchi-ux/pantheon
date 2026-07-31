@@ -1,6 +1,7 @@
 import express from "express";
 import path from "path";
 import { createServer as createViteServer } from "vite";
+import { generateEdgeTTS, MICROSOFT_VOICES } from "./src/lib/edge-tts";
 
 async function startServer() {
   const app = express();
@@ -33,6 +34,51 @@ async function startServer() {
   // API routes FIRST
   app.get("/api/health", (req, res) => {
     res.json({ status: "ok" });
+  });
+
+  // Microsoft Edge TTS endpoints
+  app.get("/api/tts/voices", (req, res) => {
+    res.json({ voices: MICROSOFT_VOICES });
+  });
+
+  app.get("/api/tts", async (req, res) => {
+    try {
+      const { text, voice, rate } = req.query || {};
+      if (!text || typeof text !== 'string') {
+        return res.status(400).json({ error: 'Text parameter is required' });
+      }
+
+      const mp3Buffer = await generateEdgeTTS({
+        text,
+        voice: typeof voice === 'string' ? voice : undefined,
+        rate: typeof rate === 'string' ? rate : undefined
+      });
+      res.setHeader('Content-Type', 'audio/mpeg');
+      res.setHeader('Content-Length', mp3Buffer.length);
+      res.setHeader('Cache-Control', 'public, max-age=86400');
+      return res.send(mp3Buffer);
+    } catch (err: any) {
+      console.error('TTS GET endpoint error:', err);
+      return res.status(500).json({ error: err?.message || 'Failed to generate TTS audio' });
+    }
+  });
+
+  app.post("/api/tts", async (req, res) => {
+    try {
+      const { text, voice, rate } = req.body || {};
+      if (!text || typeof text !== 'string') {
+        return res.status(400).json({ error: 'Text parameter is required' });
+      }
+
+      const mp3Buffer = await generateEdgeTTS({ text, voice, rate });
+      res.setHeader('Content-Type', 'audio/mpeg');
+      res.setHeader('Content-Length', mp3Buffer.length);
+      res.setHeader('Cache-Control', 'public, max-age=86400');
+      return res.send(mp3Buffer);
+    } catch (err: any) {
+      console.error('TTS endpoint error:', err);
+      return res.status(500).json({ error: err?.message || 'Failed to generate TTS audio' });
+    }
   });
 
   app.post("/api/hermes/chat", async (req, res) => {

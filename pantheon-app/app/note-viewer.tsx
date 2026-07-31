@@ -32,6 +32,7 @@ import { NoteRenderer } from '../components/NoteRenderer';
 import { F } from '../components/Theme';
 import { useTheme } from '../context/ThemeContext';
 import { getDatabase, isCourseDownloadedLocal, getLocalNotes, getLocalCourse } from '../lib/db';
+import { speakText, stopSpeech } from '../lib/ttsService';
 import * as Speech from 'expo-speech';
 import { WebView } from 'react-native-webview';
 
@@ -761,98 +762,31 @@ export default function NoteViewerScreen() {
         return;
       }
 
-      // 1. Prefer Expo Speech natively on mobile devices
-      let nativeTtsSucceeded = false;
-      try {
-        if (Speech && typeof Speech.isSpeakingAsync === 'function') {
-          if (speechIsPlaying) {
-            // Since expo-speech does not support pause/resume natively on all devices,
-            // we stop the playback on mobile to avoid any errors/crashes.
-            await Speech.stop();
-            setSpeechIsPlaying(false);
-            setSpeechIsPaused(false);
-            return;
-          }
-
-          const isSpeaking = await Speech.isSpeakingAsync();
-          if (isSpeaking) {
-            await Speech.stop();
-          }
-
-          setSpeechIsPlaying(true);
-          setSpeechIsPaused(false);
-
-          Speech.speak(cleanText, {
-            language: 'en',
-            rate: 0.9,
-            onStart: () => {
-              setSpeechIsPlaying(true);
-              setSpeechIsPaused(false);
-            },
-            onDone: () => {
-              setSpeechIsPlaying(false);
-              setSpeechIsPaused(false);
-            },
-            onStopped: () => {
-              setSpeechIsPlaying(false);
-              setSpeechIsPaused(false);
-            },
-            onError: (err) => {
-              console.warn("Expo Speech error:", err);
-              setSpeechIsPlaying(false);
-              setSpeechIsPaused(false);
-            }
-          });
-
-          nativeTtsSucceeded = true;
-        }
-      } catch (nativeErr) {
-        console.log("Native Expo Speech not available or failed, using web speech fallback:", nativeErr);
+      if (speechIsPlaying) {
+        await stopSpeech();
+        setSpeechIsPlaying(false);
+        setSpeechIsPaused(false);
+        return;
       }
 
-      if (nativeTtsSucceeded) return;
+      setSpeechIsPlaying(true);
+      setSpeechIsPaused(false);
 
-      // 2. Fallback to Web Speech Synthesis for browser/developer web previews
-      if (typeof window !== 'undefined' && window.speechSynthesis) {
-        const synth = window.speechSynthesis;
-        
-        if (speechIsPlaying) {
-          if (speechIsPaused) {
-            synth.resume();
-            setSpeechIsPaused(false);
-          } else {
-            synth.pause();
-            setSpeechIsPaused(true);
-          }
-          return;
-        }
-
-        const utterance = new SpeechSynthesisUtterance(cleanText);
-        utterance.rate = 0.9;
-        
-        const voices = synth.getVoices();
-        const defaultVoice = voices.find(v => v.lang.startsWith('en') && v.name.includes('Google')) ||
-                             voices.find(v => v.lang.startsWith('en')) ||
-                             voices[0];
-        if (defaultVoice) utterance.voice = defaultVoice;
-
-        utterance.onstart = () => {
+      await speakText(cleanText, {
+        onStart: () => {
           setSpeechIsPlaying(true);
           setSpeechIsPaused(false);
-        };
-        utterance.onend = () => {
+        },
+        onDone: () => {
           setSpeechIsPlaying(false);
           setSpeechIsPaused(false);
-        };
-        utterance.onerror = () => {
+        },
+        onError: (err) => {
+          console.warn("TTS Playback Error:", err);
           setSpeechIsPlaying(false);
           setSpeechIsPaused(false);
-        };
-
-        synth.speak(utterance);
-      } else {
-        alert("Audio speech synthesis is not supported on this device/browser.");
-      }
+        }
+      });
     } catch (e) {
       console.error("Speech Synthesis failed:", e);
     }
@@ -860,16 +794,7 @@ export default function NoteViewerScreen() {
 
   const handleStopSpeaking = async () => {
     try {
-      // Stop native expo-speech
-      try {
-        await Speech.stop();
-      } catch (err) {}
-
-      // Stop web speech fallback
-      if (typeof window !== 'undefined' && window.speechSynthesis) {
-        window.speechSynthesis.cancel();
-      }
-      
+      await stopSpeech();
       setSpeechIsPlaying(false);
       setSpeechIsPaused(false);
     } catch (e) {
