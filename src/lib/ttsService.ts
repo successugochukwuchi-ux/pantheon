@@ -17,6 +17,7 @@ export const MICROSOFT_VOICES: TTSVoice[] = [
 
 const VOICE_STORE_KEY = 'colearn_default_voice';
 let activeAudio: HTMLAudioElement | null = null;
+let currentAbortController: AbortController | null = null;
 
 export async function getDefaultVoice(): Promise<string> {
   if (typeof window === 'undefined') return 'en-US-AriaNeural';
@@ -32,6 +33,10 @@ export async function setDefaultVoice(voiceId: string): Promise<void> {
 }
 
 export function stopSpeech(): void {
+  if (currentAbortController) {
+    currentAbortController.abort();
+    currentAbortController = null;
+  }
   if (activeAudio) {
     activeAudio.pause();
     activeAudio.currentTime = 0;
@@ -42,82 +47,124 @@ export function stopSpeech(): void {
   }
 }
 
+export function pauseSpeech(): void {
+  if (activeAudio && !activeAudio.paused) {
+    activeAudio.pause();
+  }
+}
+
+export function resumeSpeech(): void {
+  if (activeAudio && activeAudio.paused) {
+    activeAudio.play().catch((err) => console.error('Resume playback error:', err));
+  }
+}
+
+export function isSpeechPaused(): boolean {
+  return activeAudio ? activeAudio.paused : false;
+}
+
+export interface SpeakOptions {
+  voiceId?: string;
+  rate?: string;
+  onPreparing?: (progressPercent: number) => void;
+  onStart?: () => void;
+  onPlaybackProgress?: (playbackPercent: number) => void;
+  onDone?: () => void;
+  onError?: (err: any) => void;
+}
+
 export async function speakText(
   text: string,
-  options?: {
-    voiceId?: string;
-    onStart?: () => void;
-    onDone?: () => void;
-    onError?: (err: any) => void;
-  }
+  options?: SpeakOptions
 ): Promise<void> {
   stopSpeech();
 
   const voice = options?.voiceId || (await getDefaultVoice());
+  const abortController = new AbortController();
+  currentAbortController = abortController;
 
   try {
-    options?.onStart?.();
+    options?.onPreparing?.(0);
 
     const response = await fetch('/api/tts', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ text, voice }),
+      body: JSON.stringify({ text, voice, rate: options?.rate }),
+      signal: abortController.signal,
     });
 
-    if (response.ok) {
-      const blob = await response.blob();
-      const audioUrl = URL.createObjectURL(blob);
-      const audio = new Audio(audioUrl);
-      activeAudio = audio;
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}));
+      throw new Error(errorData.error || `Server responded with status ${response.status}`);
+    }
 
-      audio.onended = () => {
-        URL.revokeObjectURL(audioUrl);
-        activeAudio = null;
-        options?.onDone?.();
-      };
+    const chunks: Uint8Array[] = [];
+    let receivedBytes = 0;
+    const textLength = text.length;
+    // Estimate total audio bytes (~450 bytes per character of text for 48kbps MP3)
+    const estimatedTotalBytes = Math.max(6000, textLength * 450);
 
-      audio.onerror = (err) => {
-        URL.revokeObjectURL(audioUrl);
-        activeAudio = null;
-        fallbackWebSpeech(text, options);
-      };
+    if (response.body) {
+      const reader = response.body.getReader();
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        if (value) {
+          chunks.push(value);
+          receivedBytes += value.length;
+          const prepPercent = Math.min(98, Math.round((receivedBytes / estimatedTotalBytes) * 100));
+          options?.onPreparing?.(prepPercent);
+        }
+      }
+    } else {
+      const arrayBuffer = await response.arrayBuffer();
+      chunks.push(new Uint8Array(arrayBuffer));
+    }
 
-      await audio.play();
+    if (abortController.signal.aborted) return;
+
+    options?.onPreparing?.(100);
+
+    const blob = new Blob(chunks, { type: 'audio/mpeg' });
+    const audioUrl = URL.createObjectURL(blob);
+    const audio = new Audio(audioUrl);
+    activeAudio = audio;
+
+    audio.onplay = () => {
+      options?.onStart?.();
+    };
+
+    audio.ontimeupdate = () => {
+      if (audio.duration && !isNaN(audio.duration)) {
+        const pct = Math.min(100, Math.round((audio.currentTime / audio.duration) * 100));
+        options?.onPlaybackProgress?.(pct);
+      }
+    };
+
+    audio.onended = () => {
+      URL.revokeObjectURL(audioUrl);
+      activeAudio = null;
+      options?.onDone?.();
+    };
+
+    audio.onerror = (err) => {
+      console.error('HTMLAudioElement playback error:', err);
+      URL.revokeObjectURL(audioUrl);
+      activeAudio = null;
+      options?.onError?.(err);
+    };
+
+    await audio.play();
+  } catch (err: any) {
+    if (err.name === 'AbortError') {
       return;
     }
-  } catch (err) {
-    console.log('Online TTS failed, falling back to Web Speech Synthesis:', err);
-  }
-
-  fallbackWebSpeech(text, options);
-}
-
-function fallbackWebSpeech(
-  text: string,
-  options?: {
-    onStart?: () => void;
-    onDone?: () => void;
-    onError?: (err: any) => void;
-  }
-) {
-  if (typeof window !== 'undefined' && window.speechSynthesis) {
-    const synth = window.speechSynthesis;
-    const utterance = new SpeechSynthesisUtterance(text);
-    utterance.rate = 0.9;
-
-    const voices = synth.getVoices();
-    const defaultVoice = voices.find(v => v.lang.startsWith('en') && v.name.includes('Google')) ||
-                         voices.find(v => v.lang.startsWith('en')) ||
-                         voices[0];
-    if (defaultVoice) utterance.voice = defaultVoice;
-
-    utterance.onstart = () => options?.onStart?.();
-    utterance.onend = () => options?.onDone?.();
-    utterance.onerror = (err) => options?.onError?.(err);
-
-    synth.speak(utterance);
-  } else {
-    options?.onError?.(new Error('Speech synthesis not supported on this browser'));
+    console.error('Online TTS failed:', err);
+    options?.onError?.(err);
+  } finally {
+    if (currentAbortController === abortController) {
+      currentAbortController = null;
+    }
   }
 }
 

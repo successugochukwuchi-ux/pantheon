@@ -1,11 +1,11 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Play, Pause, Square, Volume2, Settings2, Sparkles } from 'lucide-react';
+import { Play, Pause, Square, Volume2, Settings2, Sparkles, Loader2 } from 'lucide-react';
 import { Button } from './ui/button';
 import { Card, CardContent } from './ui/card';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
 import { Slider } from './ui/slider';
 import { Badge } from './ui/badge';
-import { speakText, stopSpeech, getDefaultVoice, setDefaultVoice, MICROSOFT_VOICES } from '../lib/ttsService';
+import { speakText, stopSpeech, pauseSpeech, resumeSpeech, getDefaultVoice, setDefaultVoice, MICROSOFT_VOICES } from '../lib/ttsService';
 
 interface TextToSpeechReaderProps {
   noteContent: string;
@@ -181,16 +181,15 @@ export function getVoiceLabel(voice: SpeechSynthesisVoice): string {
 }
 
 export function TextToSpeechReader({ noteContent, noteTitle }: TextToSpeechReaderProps) {
+  const [isPreparing, setIsPreparing] = useState(false);
+  const [preparingProgress, setPreparingProgress] = useState(0);
   const [isPlaying, setIsPlaying] = useState(false);
   const [isPaused, setIsPaused] = useState(false);
-  const [rate, setRate] = useState<number>(0.9);
-  const [voices, setVoices] = useState<SpeechSynthesisVoice[]>([]);
-  const [selectedVoice, setSelectedVoice] = useState<string>('');
+  const [rate, setRate] = useState<number>(1.0);
+  const [selectedVoice, setSelectedVoice] = useState<string>('en-US-AriaNeural');
   const [showSettings, setShowSettings] = useState(false);
   const [readingProgress, setReadingProgress] = useState(0);
 
-  const synthRef = useRef<SpeechSynthesis | null>(null);
-  const utteranceRef = useRef<SpeechSynthesisUtterance | null>(null);
   const cleanTextRef = useRef<string>('');
 
   // Extract clean speakable text from Note blocks
@@ -198,36 +197,61 @@ export function TextToSpeechReader({ noteContent, noteTitle }: TextToSpeechReade
     try {
       const blocks = JSON.parse(noteContent);
       if (Array.isArray(blocks)) {
-        const rawFullText = blocks
+        const rawFullTextParts = blocks
           .map((b: any) => {
-            if (b.type === 'h1' || b.type === 'h2' || b.type === 'text') {
+            if (!b) return '';
+            const type = b.type || '';
+            if (type === 'h1' || type === 'h2' || type === 'h3' || type === 'h4' || type === 'text' || type === 'paragraph' || type === 'callout' || type === 'quote') {
               return b.content || '';
             }
-            if (b.type === 'math' && b.content) {
+            if (type === 'math' && b.content) {
               const cleaned = b.content.trim();
               if (cleaned.startsWith('$')) return cleaned;
               return `$$${cleaned}$$`;
             }
-            if (b.type === 'table' && b.content) {
+            if (type === 'table' && b.content) {
               try {
-                const rows = JSON.parse(b.content);
-                return "Table content: " + rows.map((r: string[]) => r.join(', ')).join('. ');
+                const rows = typeof b.content === 'string' ? JSON.parse(b.content) : b.content;
+                if (Array.isArray(rows)) {
+                  return "Table content: " + rows.map((r: any) => Array.isArray(r) ? r.join(', ') : String(r)).join('. ');
+                }
+              } catch {
+                return b.content || '';
+              }
+            }
+            if (type === 'diagram' || type === 'image') {
+              return '';
+            }
+            if (type === 'bullet-list' || type === 'numbered-list' || type === 'list') {
+              return b.content || '';
+            }
+            if (type === 'question' && b.content) {
+              try {
+                const q = typeof b.content === 'string' ? JSON.parse(b.content) : b.content;
+                return `Question: ${q.question || ''}. Correct answer: ${q.correct || ''}.`;
               } catch {
                 return '';
               }
             }
+            if (typeof b.content === 'string' && !b.content.startsWith('http') && !b.content.startsWith('data:')) {
+              return b.content;
+            }
             return '';
           })
-          .filter(Boolean)
-          .join('. ');
+          .filter(Boolean);
 
-        cleanTextRef.current = convertLatexToSpeakable(rawFullText);
+        let joined = rawFullTextParts.join('. ');
+        if (!joined.trim()) {
+          joined = `${noteTitle || 'Study Note'}.`;
+        }
+        cleanTextRef.current = convertLatexToSpeakable(joined);
       } else {
-        cleanTextRef.current = convertLatexToSpeakable(noteContent);
+        cleanTextRef.current = convertLatexToSpeakable(noteContent || noteTitle);
       }
     } catch {
       // Fallback for markdown notes
-      const strippedMarkdown = noteContent
+      const strippedMarkdown = (noteContent || noteTitle)
+        .replace(/!\[.*?\]\(.*?\)/g, '') // strip markdown images
         .replace(/#+\s+/g, '') // strip headings
         .replace(/\*\*|__/g, '') // strip bold
         .replace(/\*|_/g, '') // strip italics
@@ -235,7 +259,7 @@ export function TextToSpeechReader({ noteContent, noteTitle }: TextToSpeechReade
       
       cleanTextRef.current = convertLatexToSpeakable(strippedMarkdown);
     }
-  }, [noteContent]);
+  }, [noteContent, noteTitle]);
 
   // Load default voice setting
   useEffect(() => {
@@ -248,23 +272,39 @@ export function TextToSpeechReader({ noteContent, noteTitle }: TextToSpeechReade
     if (!cleanTextRef.current) return;
 
     stopSpeech();
-    setIsPlaying(true);
+    setIsPreparing(true);
+    setPreparingProgress(0);
+    setIsPlaying(false);
     setIsPaused(false);
     setReadingProgress(0);
 
+    const rateDelta = Math.round((rate - 1.0) * 100);
+    const rateStr = rateDelta >= 0 ? `+${rateDelta}%` : `${rateDelta}%`;
+
     await speakText(cleanTextRef.current, {
       voiceId: selectedVoice,
+      rate: rateStr,
+      onPreparing: (prepPct) => {
+        setIsPreparing(true);
+        setPreparingProgress(prepPct);
+      },
       onStart: () => {
+        setIsPreparing(false);
         setIsPlaying(true);
         setIsPaused(false);
       },
+      onPlaybackProgress: (playPct) => {
+        setReadingProgress(playPct);
+      },
       onDone: () => {
+        setIsPreparing(false);
         setIsPlaying(false);
         setIsPaused(false);
         setReadingProgress(100);
       },
       onError: (err) => {
         console.error('TTS playback error:', err);
+        setIsPreparing(false);
         setIsPlaying(false);
         setIsPaused(false);
       }
@@ -273,6 +313,14 @@ export function TextToSpeechReader({ noteContent, noteTitle }: TextToSpeechReade
 
   const togglePause = () => {
     if (isPlaying) {
+      if (isPaused) {
+        resumeSpeech();
+        setIsPaused(false);
+      } else {
+        pauseSpeech();
+        setIsPaused(true);
+      }
+    } else if (isPreparing) {
       handleStopSpeaking();
     } else {
       startSpeaking();
@@ -281,22 +329,12 @@ export function TextToSpeechReader({ noteContent, noteTitle }: TextToSpeechReade
 
   const handleStopSpeaking = () => {
     stopSpeech();
+    setIsPreparing(false);
     setIsPlaying(false);
     setIsPaused(false);
     setReadingProgress(0);
+    setPreparingProgress(0);
   };
-
-  // Dynamically update voice rate if changed mid-speech
-  useEffect(() => {
-    if (isPlaying && !isPaused) {
-      // Re-trigger from current speech state requires restarting with Web Speech API
-      // so we let the rate apply for the next phrase or pause/play cycle.
-    }
-  }, [rate]);
-
-  if (!voices.length) {
-    return null; // Don't show anything if browser doesn't support TTS
-  }
 
   return (
     <Card className="border border-primary/20 bg-card/60 backdrop-blur-md shadow-md rounded-xl overflow-hidden transition-all duration-300">
@@ -309,13 +347,13 @@ export function TextToSpeechReader({ noteContent, noteTitle }: TextToSpeechReade
             <div>
               <h4 className="text-sm font-semibold tracking-tight">Audio Note Reader</h4>
               <p className="text-[11px] text-muted-foreground flex items-center gap-1">
-                <Sparkles className="h-3 w-3 text-amber-500" /> Free, native offline Text-to-Speech
+                <Sparkles className="h-3 w-3 text-amber-500" /> Free, natural Edge Text-to-Speech
               </p>
             </div>
           </div>
 
           <div className="flex items-center gap-2 w-full sm:w-auto justify-end">
-            {!isPlaying ? (
+            {!isPlaying && !isPreparing ? (
               <Button 
                 onClick={startSpeaking} 
                 size="sm" 
@@ -324,6 +362,27 @@ export function TextToSpeechReader({ noteContent, noteTitle }: TextToSpeechReade
                 <Play className="h-3.5 w-3.5 fill-current" />
                 <span className="text-xs font-medium">Listen Note</span>
               </Button>
+            ) : isPreparing ? (
+              <div className="flex items-center gap-1.5">
+                <Button 
+                  disabled
+                  variant="secondary"
+                  size="sm" 
+                  className="h-8.5 rounded-lg gap-1.5 px-3 bg-primary/10 text-primary border border-primary/20"
+                >
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  <span className="text-xs font-medium">Preparing {preparingProgress}%</span>
+                </Button>
+                <Button 
+                  onClick={handleStopSpeaking} 
+                  variant="destructive"
+                  size="sm" 
+                  className="h-8.5 rounded-lg gap-1.5 px-3"
+                >
+                  <Square className="h-3.5 w-3.5 fill-current" />
+                  <span className="text-xs font-medium">Cancel</span>
+                </Button>
+              </div>
             ) : (
               <div className="flex items-center gap-1.5">
                 <Button 
@@ -358,7 +417,26 @@ export function TextToSpeechReader({ noteContent, noteTitle }: TextToSpeechReade
           </div>
         </div>
 
-        {/* Progress Bar */}
+        {/* Preparing Progress Banner */}
+        {isPreparing && (
+          <div className="w-full space-y-1.5 p-2.5 bg-primary/5 border border-primary/20 rounded-xl animate-in fade-in duration-200">
+            <div className="flex justify-between items-center text-xs font-medium text-primary">
+              <span className="flex items-center gap-1.5">
+                <Loader2 className="h-3.5 w-3.5 animate-spin text-primary" />
+                <span>Preparing high-quality voiceover...</span>
+              </span>
+              <span className="font-mono text-[11px] font-semibold">{preparingProgress}%</span>
+            </div>
+            <div className="h-1.5 w-full bg-primary/10 rounded-full overflow-hidden">
+              <div 
+                className="h-full bg-primary transition-all duration-200 ease-out rounded-full"
+                style={{ width: `${preparingProgress}%` }}
+              />
+            </div>
+          </div>
+        )}
+
+        {/* Playback Reading Progress Bar */}
         {isPlaying && (
           <div className="w-full space-y-1">
             <div className="h-1.5 w-full bg-muted rounded-full overflow-hidden">
@@ -385,8 +463,10 @@ export function TextToSpeechReader({ noteContent, noteTitle }: TextToSpeechReade
                   setSelectedVoice(val);
                   setDefaultVoice(val);
                 }}>
-                  <SelectTrigger className="h-9 text-xs bg-background border border-border/70 hover:border-border transition-colors shadow-none rounded-lg">
-                    <SelectValue placeholder="Select a voice" />
+                  <SelectTrigger className="h-9 text-xs bg-background border border-border/70 hover:border-border transition-colors shadow-none rounded-lg w-full flex justify-between items-center pr-3">
+                    <span className="flex-1 text-left truncate">
+                      {MICROSOFT_VOICES.find((v) => v.id === selectedVoice)?.name || "Select a voice"}
+                    </span>
                   </SelectTrigger>
                   <SelectContent className="max-h-60 rounded-xl border border-border/80 shadow-lg">
                     {MICROSOFT_VOICES.map((v) => (

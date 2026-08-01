@@ -6,6 +6,7 @@ import {
   ActivityIndicator,
   Animated,
   Dimensions,
+  TouchableOpacity,
 } from 'react-native';
 import { useAuth } from '../context/AuthContext';
 import { useTheme } from '../context/ThemeContext';
@@ -81,6 +82,7 @@ export function AutoDownloader() {
   const { colors: C } = useTheme();
   
   const [downloading, setDownloading] = useState(false);
+  const [isMinimized, setIsMinimized] = useState(false);
   const [downloadPercent, setDownloadPercent] = useState(0);
   const [downloadStatus, setDownloadStatus] = useState('');
   const [courseName, setCourseName] = useState('');
@@ -137,31 +139,44 @@ export function AutoDownloader() {
           await AsyncStorage.setItem('colearn_last_downloaded_uid', user.uid);
           await AsyncStorage.setItem('colearn_last_downloaded_semester', systemConfig.currentSemester);
           setDownloading(false);
+          setIsMinimized(false);
           downloadingRef.current = false;
           return;
         }
 
-        let currentCourseIndex = 0;
-        for (const course of toDownload) {
-          currentCourseIndex++;
-          setCourseName(`[${currentCourseIndex}/${toDownload.length}] ${course.code}`);
-          setDownloadPercent(0);
+        const totalCourses = toDownload.length;
+        for (let idx = 0; idx < totalCourses; idx++) {
+          const course = toDownload[idx];
+          setCourseName(`[${idx + 1}/${totalCourses}] ${course.code}`);
+          
+          const updateGlobalProgress = (courseStepPercent: number) => {
+            const overallPercent = Math.min(
+              100,
+              Math.max(
+                0,
+                Math.round(((idx + (courseStepPercent / 100)) / totalCourses) * 100)
+              )
+            );
+            setDownloadPercent(overallPercent);
+          };
+
+          updateGlobalProgress(0);
           setDownloadStatus('Connecting to server...');
 
           // 1. Download snapshots
           const notesQ = query(collection(db, 'notes'), where('courseId', '==', course.id));
           const notesSnap = await getDocs(notesQ);
-          setDownloadPercent(15);
+          updateGlobalProgress(15);
           setDownloadStatus('Fetching questions sheets...');
 
           const qQ = query(collection(db, 'questions'), where('courseId', '==', course.id));
           const qSnap = await getDocs(qQ);
-          setDownloadPercent(25);
+          updateGlobalProgress(25);
           setDownloadStatus('Fetching questions...');
 
           const sheetsQ = query(collection(db, 'questionSheets'), where('courseId', '==', course.id));
           const sheetsSnap = await getDocs(sheetsQ);
-          setDownloadPercent(35);
+          updateGlobalProgress(35);
           setDownloadStatus(`Saving course metadata...`);
 
           // 3. Save to local SQLite relational schema
@@ -171,16 +186,12 @@ export function AutoDownloader() {
           const totalQuestions = qSnap.docs.length;
           const totalSheets = sheetsSnap.docs.length;
 
-          const updateProgress = (completedStepWeightPercent: number) => {
-            setDownloadPercent(Math.round(completedStepWeightPercent));
-          };
-
           // Save question sheets (weight from 35% to 45%)
           setDownloadStatus('Saving exam schedules...');
-          sheetsSnap.docs.forEach((doc, idx) => {
+          sheetsSnap.docs.forEach((doc, sIdx) => {
             saveQuestionSheetLocal({ id: doc.id, courseId: course.id, ...doc.data() });
-            const p = 35 + ((idx + 1) / (totalSheets || 1)) * 10;
-            updateProgress(p);
+            const p = 35 + ((sIdx + 1) / (totalSheets || 1)) * 10;
+            updateGlobalProgress(p);
           });
 
           // Save each note after ensuring its internal diagrams are downloaded offline (weight from 45% to 85%)
@@ -206,15 +217,15 @@ export function AutoDownloader() {
             });
 
             const p = 45 + ((i + 1) / (totalNotes || 1)) * 40;
-            updateProgress(p);
+            updateGlobalProgress(p);
           }
 
           // Save questions (weight from 85% to 98%)
           setDownloadStatus('Saving CBT offline materials...');
-          qSnap.docs.forEach((doc, idx) => {
+          qSnap.docs.forEach((doc, qIdx) => {
             saveQuestionLocal({ id: doc.id, courseId: course.id, ...doc.data() });
-            const p = 85 + ((idx + 1) / (totalQuestions || 1)) * 13;
-            updateProgress(p);
+            const p = 85 + ((qIdx + 1) / (totalQuestions || 1)) * 13;
+            updateGlobalProgress(p);
           });
         }
 
@@ -222,11 +233,13 @@ export function AutoDownloader() {
         await AsyncStorage.setItem('colearn_last_downloaded_uid', user.uid);
         await AsyncStorage.setItem('colearn_last_downloaded_semester', systemConfig.currentSemester);
         setDownloading(false);
+        setIsMinimized(false);
         downloadingRef.current = false;
 
       } catch (e) {
         console.error('Error in auto downloader:', e);
         setDownloading(false);
+        setIsMinimized(false);
         downloadingRef.current = false;
       }
     };
@@ -236,18 +249,39 @@ export function AutoDownloader() {
 
   if (!downloading) return null;
 
+  if (isMinimized) {
+    return (
+      <TouchableOpacity
+        style={[styles.minimizedPill, { backgroundColor: C.ink }]}
+        onPress={() => setIsMinimized(false)}
+        activeOpacity={0.8}
+      >
+        <ActivityIndicator size="small" color={C.surface} style={{ marginRight: 8 }} />
+        <Text style={[styles.minimizedText, { color: C.surface }]}>Syncing {downloadPercent}%</Text>
+      </TouchableOpacity>
+    );
+  }
+
   return (
     <View style={[styles.overlay, { backgroundColor: 'rgba(0,0,0,0.7)' }]}>
-      <View style={[styles.modal, { backgroundColor: C.bg }]}>
-        <ActivityIndicator size="large" color={C.primary} style={{ marginBottom: 16 }} />
+      <View style={[styles.modal, { backgroundColor: C.surface }]}>
+        <ActivityIndicator size="large" color={C.ink} style={{ marginBottom: 16 }} />
         <Text style={[styles.title, { color: C.ink }]}>Syncing Courses</Text>
-        <Text style={[styles.subtitle, { color: C.dim }]}>{courseName}</Text>
-        <Text style={[styles.status, { color: C.dim }]}>{downloadStatus}</Text>
+        <Text style={[styles.subtitle, { color: C.inkMid }]}>{courseName}</Text>
+        <Text style={[styles.status, { color: C.inkLight }]}>{downloadStatus}</Text>
         
         <View style={[styles.progressTrack, { backgroundColor: C.border }]}>
-          <Animated.View style={[styles.progressFill, { backgroundColor: C.primary, width: `${downloadPercent}%` }]} />
+          <View style={[styles.progressFill, { backgroundColor: C.ink, width: `${downloadPercent}%` }]} />
         </View>
-        <Text style={[styles.percent, { color: C.primary }]}>{downloadPercent}%</Text>
+        <Text style={[styles.percent, { color: C.ink }]}>{downloadPercent}%</Text>
+
+        <TouchableOpacity
+          style={[styles.hideButton, { backgroundColor: C.bgAlt }]}
+          onPress={() => setIsMinimized(true)}
+          activeOpacity={0.8}
+        >
+          <Text style={[styles.hideButtonText, { color: C.ink }]}>Hide to Background</Text>
+        </TouchableOpacity>
       </View>
     </View>
   );
@@ -299,6 +333,40 @@ const styles = StyleSheet.create({
     height: '100%',
   },
   percent: {
+    fontFamily: 'DMSans_700Bold',
+    fontSize: 14,
+  },
+  minimizedPill: {
+    position: 'absolute',
+    bottom: 90,
+    right: 16,
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 10,
+    paddingHorizontal: 16,
+    borderRadius: 24,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.15,
+    shadowRadius: 6,
+    elevation: 6,
+    zIndex: 9999,
+  },
+  minimizedText: {
+    color: '#FFF',
+    fontFamily: 'DMSans_700Bold',
+    fontSize: 13,
+  },
+  hideButton: {
+    marginTop: 16,
+    paddingVertical: 10,
+    paddingHorizontal: 20,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+    width: '100%',
+  },
+  hideButtonText: {
     fontFamily: 'DMSans_700Bold',
     fontSize: 14,
   },

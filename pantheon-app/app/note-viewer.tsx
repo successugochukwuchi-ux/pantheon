@@ -32,7 +32,7 @@ import { NoteRenderer } from '../components/NoteRenderer';
 import { F } from '../components/Theme';
 import { useTheme } from '../context/ThemeContext';
 import { getDatabase, isCourseDownloadedLocal, getLocalNotes, getLocalCourse } from '../lib/db';
-import { speakText, stopSpeech } from '../lib/ttsService';
+import { speakText, stopSpeech, pauseSpeech, resumeSpeech } from '../lib/ttsService';
 import * as Speech from 'expo-speech';
 import { WebView } from 'react-native-webview';
 
@@ -248,6 +248,8 @@ export default function NoteViewerScreen() {
   const [hermesLoading, setHermesLoading] = useState(false);
 
   // Text-To-Speech states
+  const [speechIsPreparing, setSpeechIsPreparing] = useState(false);
+  const [speechPrepProgress, setSpeechPrepProgress] = useState(0);
   const [speechIsPlaying, setSpeechIsPlaying] = useState(false);
   const [speechIsPaused, setSpeechIsPaused] = useState(false);
 
@@ -715,40 +717,85 @@ export default function NoteViewerScreen() {
 
   const handleToggleSpeakNote = async () => {
     try {
+      if (speechIsPlaying) {
+        if (speechIsPaused) {
+          await resumeSpeech();
+          setSpeechIsPaused(false);
+        } else {
+          await pauseSpeech();
+          setSpeechIsPaused(true);
+        }
+        return;
+      }
+
+      if (speechIsPreparing) {
+        await stopSpeech();
+        setSpeechIsPreparing(false);
+        setSpeechIsPlaying(false);
+        setSpeechIsPaused(false);
+        setSpeechPrepProgress(0);
+        return;
+      }
+
       // Clean text extraction from blocks
       let cleanText = '';
       try {
         const blocks = JSON.parse(note?.content || '');
         if (Array.isArray(blocks)) {
-          const rawText = blocks
+          const rawTextParts = blocks
             .map((b: any) => {
-              if (b.type === 'h1' || b.type === 'h2' || b.type === 'text') {
+              if (!b) return '';
+              const type = b.type || '';
+              if (type === 'h1' || type === 'h2' || type === 'h3' || type === 'h4' || type === 'text' || type === 'paragraph' || type === 'callout' || type === 'quote') {
                 return b.content || '';
               }
-              if (b.type === 'math' && b.content) {
+              if (type === 'math' && b.content) {
                 const cleaned = b.content.trim();
                 if (cleaned.startsWith('$')) return cleaned;
                 return `$$${cleaned}$$`;
               }
-              if (b.type === 'table' && b.content) {
+              if (type === 'table' && b.content) {
                 try {
-                  const rows = JSON.parse(b.content);
-                  return "Table content: " + rows.map((r: string[]) => r.join(', ')).join('. ');
+                  const rows = typeof b.content === 'string' ? JSON.parse(b.content) : b.content;
+                  if (Array.isArray(rows)) {
+                    return "Table content: " + rows.map((r: any) => Array.isArray(r) ? r.join(', ') : String(r)).join('. ');
+                  }
+                } catch {
+                  return b.content || '';
+                }
+              }
+              if (type === 'diagram' || type === 'image') {
+                return '';
+              }
+              if (type === 'bullet-list' || type === 'numbered-list' || type === 'list') {
+                return b.content || '';
+              }
+              if (type === 'question' && b.content) {
+                try {
+                  const q = typeof b.content === 'string' ? JSON.parse(b.content) : b.content;
+                  return `Question: ${q.question || ''}. Correct answer: ${q.correct || ''}.`;
                 } catch {
                   return '';
                 }
               }
+              if (typeof b.content === 'string' && !b.content.startsWith('http') && !b.content.startsWith('data:')) {
+                return b.content;
+              }
               return '';
             })
-            .filter(Boolean)
-            .join('. ');
-          
-          cleanText = convertLatexToSpeakable(rawText);
+            .filter(Boolean);
+
+          let joined = rawTextParts.join('. ');
+          if (!joined.trim()) {
+            joined = `${note?.title || 'Study Note'}. ${note?.summary || ''}`;
+          }
+          cleanText = convertLatexToSpeakable(joined);
         } else {
-          cleanText = convertLatexToSpeakable(note?.content || '');
+          cleanText = convertLatexToSpeakable(note?.content || note?.title || '');
         }
       } catch {
-        const rawText = (note?.content || '')
+        const rawText = (note?.content || note?.title || '')
+          .replace(/!\[.*?\]\(.*?\)/g, '') // strip markdown images
           .replace(/#+\s+/g, '')
           .replace(/\*\*|__/g, '')
           .replace(/\*|_/g, '')
@@ -757,32 +804,34 @@ export default function NoteViewerScreen() {
         cleanText = convertLatexToSpeakable(rawText);
       }
 
-      if (!cleanText) {
-        alert('No readable text content found in this note.');
-        return;
+      if (!cleanText || !cleanText.trim()) {
+        cleanText = `${note?.title || 'Lecture Note'}.`;
       }
 
-      if (speechIsPlaying) {
-        await stopSpeech();
-        setSpeechIsPlaying(false);
-        setSpeechIsPaused(false);
-        return;
-      }
-
-      setSpeechIsPlaying(true);
+      setSpeechIsPreparing(true);
+      setSpeechPrepProgress(0);
+      setSpeechIsPlaying(false);
       setSpeechIsPaused(false);
 
       await speakText(cleanText, {
+        onPreparing: (progress) => {
+          setSpeechIsPreparing(true);
+          setSpeechPrepProgress(progress);
+        },
         onStart: () => {
+          setSpeechIsPreparing(false);
           setSpeechIsPlaying(true);
           setSpeechIsPaused(false);
         },
         onDone: () => {
+          setSpeechIsPreparing(false);
           setSpeechIsPlaying(false);
           setSpeechIsPaused(false);
+          setSpeechPrepProgress(100);
         },
         onError: (err) => {
           console.warn("TTS Playback Error:", err);
+          setSpeechIsPreparing(false);
           setSpeechIsPlaying(false);
           setSpeechIsPaused(false);
         }
@@ -795,8 +844,10 @@ export default function NoteViewerScreen() {
   const handleStopSpeaking = async () => {
     try {
       await stopSpeech();
+      setSpeechIsPreparing(false);
       setSpeechIsPlaying(false);
       setSpeechIsPaused(false);
+      setSpeechPrepProgress(0);
     } catch (e) {
       console.log(e);
     }
@@ -1207,7 +1258,11 @@ export default function NoteViewerScreen() {
                 <View style={{ flex: 1 }}>
                   <Text style={{ fontFamily: F.bold, fontSize: 13, color: C.ink }}>Audio Study Assistant</Text>
                   <Text style={{ fontFamily: F.medium, fontSize: 11, color: C.inkLight, marginTop: 1 }} numberOfLines={1}>
-                    {speechIsPlaying ? (speechIsPaused ? 'Playback paused' : 'Reading study guide...') : 'Listen to this complete note'}
+                    {speechIsPreparing
+                      ? `Preparing voiceover (${speechPrepProgress}%)...`
+                      : speechIsPlaying
+                      ? (speechIsPaused ? 'Playback paused' : 'Reading study guide...')
+                      : 'Listen to this complete note'}
                   </Text>
                 </View>
               </View>
@@ -1217,7 +1272,7 @@ export default function NoteViewerScreen() {
                   onPress={handleToggleSpeakNote}
                   activeOpacity={0.85}
                   style={{
-                    backgroundColor: speechIsPlaying && !speechIsPaused ? C.border : C.ink,
+                    backgroundColor: speechIsPreparing ? C.activeText + '20' : (speechIsPlaying && !speechIsPaused ? C.border : C.ink),
                     paddingHorizontal: 12,
                     paddingVertical: 7,
                     borderRadius: 8,
@@ -1226,15 +1281,15 @@ export default function NoteViewerScreen() {
                     gap: 6
                   }}
                 >
-                  <Text style={{ fontSize: 10, color: speechIsPlaying && !speechIsPaused ? C.ink : C.bg }}>
-                    {speechIsPlaying ? (speechIsPaused ? '▶' : '❚❚') : '▶'}
+                  <Text style={{ fontSize: 10, color: speechIsPreparing ? C.activeText : (speechIsPlaying && !speechIsPaused ? C.ink : C.bg) }}>
+                    {speechIsPreparing ? '⏳' : (speechIsPlaying ? (speechIsPaused ? '▶' : '❚❚') : '▶')}
                   </Text>
-                  <Text style={{ fontFamily: F.bold, fontSize: 11, color: speechIsPlaying && !speechIsPaused ? C.ink : C.bg }}>
-                    {speechIsPlaying ? (speechIsPaused ? 'Resume' : 'Pause') : 'Listen'}
+                  <Text style={{ fontFamily: F.bold, fontSize: 11, color: speechIsPreparing ? C.activeText : (speechIsPlaying && !speechIsPaused ? C.ink : C.bg) }}>
+                    {speechIsPreparing ? `Preparing ${speechPrepProgress}%` : (speechIsPlaying ? (speechIsPaused ? 'Resume' : 'Pause') : 'Listen')}
                   </Text>
                 </TouchableOpacity>
 
-                {speechIsPlaying && (
+                {(speechIsPlaying || speechIsPreparing) && (
                   <TouchableOpacity
                     onPress={handleStopSpeaking}
                     activeOpacity={0.85}

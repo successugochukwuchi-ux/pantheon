@@ -1,7 +1,10 @@
+import dotenv from "dotenv";
+dotenv.config();
+
 import express from "express";
 import path from "path";
 import { createServer as createViteServer } from "vite";
-import { generateEdgeTTS, MICROSOFT_VOICES } from "./src/lib/edge-tts";
+import { generateEdgeTTS, streamEdgeTTS, MICROSOFT_VOICES } from "./src/lib/edge-tts";
 
 async function startServer() {
   const app = express();
@@ -48,18 +51,28 @@ async function startServer() {
         return res.status(400).json({ error: 'Text parameter is required' });
       }
 
-      const mp3Buffer = await generateEdgeTTS({
-        text,
-        voice: typeof voice === 'string' ? voice : undefined,
-        rate: typeof rate === 'string' ? rate : undefined
-      });
       res.setHeader('Content-Type', 'audio/mpeg');
-      res.setHeader('Content-Length', mp3Buffer.length);
       res.setHeader('Cache-Control', 'public, max-age=86400');
-      return res.send(mp3Buffer);
+      res.setHeader('X-Text-Length', String(text.length));
+
+      await streamEdgeTTS(
+        {
+          text,
+          voice: typeof voice === 'string' ? voice : undefined,
+          rate: typeof rate === 'string' ? rate : undefined,
+        },
+        (chunk) => {
+          res.write(chunk);
+        }
+      );
+
+      return res.end();
     } catch (err: any) {
       console.error('TTS GET endpoint error:', err);
-      return res.status(500).json({ error: err?.message || 'Failed to generate TTS audio' });
+      if (!res.headersSent) {
+        return res.status(500).json({ error: err?.message || 'Failed to generate TTS audio' });
+      }
+      return res.end();
     }
   });
 
@@ -70,14 +83,24 @@ async function startServer() {
         return res.status(400).json({ error: 'Text parameter is required' });
       }
 
-      const mp3Buffer = await generateEdgeTTS({ text, voice, rate });
       res.setHeader('Content-Type', 'audio/mpeg');
-      res.setHeader('Content-Length', mp3Buffer.length);
       res.setHeader('Cache-Control', 'public, max-age=86400');
-      return res.send(mp3Buffer);
+      res.setHeader('X-Text-Length', String(text.length));
+
+      await streamEdgeTTS(
+        { text, voice, rate },
+        (chunk) => {
+          res.write(chunk);
+        }
+      );
+
+      return res.end();
     } catch (err: any) {
       console.error('TTS endpoint error:', err);
-      return res.status(500).json({ error: err?.message || 'Failed to generate TTS audio' });
+      if (!res.headersSent) {
+        return res.status(500).json({ error: err?.message || 'Failed to generate TTS audio' });
+      }
+      return res.end();
     }
   });
 

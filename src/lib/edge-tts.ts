@@ -1,3 +1,4 @@
+import { Communicate } from 'edge-tts-universal';
 import crypto from 'crypto';
 
 export interface TTSOptions {
@@ -16,92 +17,107 @@ export const MICROSOFT_VOICES = [
   { id: 'en-NG-AbeoNeural', name: 'Abeo (Nigeria Male - Natural)', lang: 'en-NG', gender: 'Male' },
 ];
 
-export async function generateEdgeTTS(options: TTSOptions): Promise<Buffer> {
-  const voice = options.voice || 'en-US-AriaNeural';
-  const rate = options.rate || '0%';
-  const text = options.text.trim();
+// In-memory TTS audio cache: Key -> Buffer
+const ttsAudioCache = new Map<string, Buffer>();
+const MAX_CACHE_SIZE = 120;
 
+function getCacheKey(text: string, voice: string, rate: string): string {
+  const hash = crypto.createHash('md5').update(text).digest('hex');
+  return `${voice}_${rate}_${hash}`;
+}
+
+/**
+ * Standardizes rate format to strictly match /^[+-]\d+%$/ expected by edge-tts-universal.
+ */
+function formatRate(rate?: string): string {
+  if (!rate) return '+0%';
+  const trimmed = rate.trim();
+  if (trimmed === 'default' || trimmed === '0%' || trimmed === '0') {
+    return '+0%';
+  }
+  if (/^[+-]\d+%$/.test(trimmed)) {
+    return trimmed;
+  }
+  if (/^[+-]\d+$/.test(trimmed)) {
+    return trimmed + '%';
+  }
+  if (/^\d+%$/.test(trimmed)) {
+    return '+' + trimmed;
+  }
+  if (/^\d+$/.test(trimmed)) {
+    return '+' + trimmed + '%';
+  }
+  return '+0%';
+}
+
+/**
+ * Streams TTS audio chunks directly via callback while populating cache.
+ */
+export async function streamEdgeTTS(
+  options: TTSOptions,
+  onAudioChunk: (chunk: Buffer) => void
+): Promise<Buffer> {
+  const text = options.text?.trim();
   if (!text) {
     throw new Error('Empty text provided for TTS');
   }
 
-  const escapedText = text
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&apos;');
+  const voice = options.voice || 'en-US-AriaNeural';
+  const rate = formatRate(options.rate);
+  const cacheKey = getCacheKey(text, voice, rate);
 
-  const requestId = crypto.randomBytes(16).toString('hex');
-  const wsUrl = `wss://speech.platform.bing.com/consumer/speech/synthesize/readaloud/edge/v1?TrustedClientToken=6A5AA1D4EA63407983578873F4FAF348`;
+  // Check in-memory cache
+  if (ttsAudioCache.has(cacheKey)) {
+    const cachedBuffer = ttsAudioCache.get(cacheKey)!;
+    onAudioChunk(cachedBuffer);
+    return cachedBuffer;
+  }
 
-  return new Promise((resolve, reject) => {
-    const audioBuffers: Buffer[] = [];
-    const ws = new WebSocket(wsUrl, {
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36 Edg/130.0.0.0',
-        'Origin': 'chrome-extension://jdiccldimpdaibcomobobfl visualised-speech',
-      },
-    } as any);
-
-    const timeout = setTimeout(() => {
-      try { ws.close(); } catch {}
-      reject(new Error('Edge TTS synthesis timed out after 15s'));
-    }, 15000);
-
-    ws.onopen = () => {
-      // 1. Send speech config
-      const configMsg = `X-Timestamp:${new Date().toISOString()}\r\nContent-Type:application/json; charset=utf-8\r\nPath:speech.config\r\n\r\n{"context":{"synthesis":{"audio":{"metadataversion":"2020-02-07","format":"audio-24khz-48kbitrate-mono-mp3"}}}}`;
-      ws.send(configMsg);
-
-      // 2. Send SSML
-      const ssmlMsg = `X-RequestId:${requestId}\r\nContent-Type:application/ssml+xml\r\nPath:ssml\r\n\r\n<speak version='1.0' xmlns='http://www.w3.org/2001/10/synthesis' xml:lang='en-US'><voice name='${voice}'><pitch hertz='0Hz'/><prosody pitch='+0Hz' rate='${rate}' volume='+0%'>${escapedText}</prosody></voice></speak>`;
-      ws.send(ssmlMsg);
-    };
-
-    ws.onmessage = async (event: MessageEvent) => {
-      if (typeof event.data === 'string') {
-        if (event.data.includes('Path:turn.end')) {
-          clearTimeout(timeout);
-          try { ws.close(); } catch {}
-          resolve(Buffer.concat(audioBuffers));
-        }
-      } else if (event.data instanceof ArrayBuffer || Buffer.isBuffer(event.data) || event.data instanceof Blob) {
-        let buffer: Buffer;
-        if (event.data instanceof Blob) {
-          const arrayBuffer = await event.data.arrayBuffer();
-          buffer = Buffer.from(arrayBuffer);
-        } else if (event.data instanceof ArrayBuffer) {
-          buffer = Buffer.from(event.data);
-        } else {
-          buffer = event.data;
-        }
-
-        // Look for Path:audio boundary
-        const headerDelimiter = 'Path:audio\r\n';
-        const delimiterIndex = buffer.indexOf(headerDelimiter);
-        if (delimiterIndex !== -1) {
-          const audioData = buffer.subarray(delimiterIndex + headerDelimiter.length);
-          if (audioData.length > 0) {
-            audioBuffers.push(audioData);
-          }
-        }
-      }
-    };
-
-    ws.onerror = (err) => {
-      clearTimeout(timeout);
-      try { ws.close(); } catch {}
-      reject(new Error('Edge TTS WebSocket connection error'));
-    };
-
-    ws.onclose = () => {
-      clearTimeout(timeout);
-      if (audioBuffers.length > 0) {
-        resolve(Buffer.concat(audioBuffers));
-      } else {
-        reject(new Error('Edge TTS connection closed without audio output'));
-      }
-    };
+  const communicate = new Communicate(text, {
+    voice,
+    rate,
   });
+
+  const chunks: Buffer[] = [];
+  for await (const chunk of communicate.stream()) {
+    if (chunk.type === 'audio' && chunk.data) {
+      chunks.push(chunk.data);
+      onAudioChunk(chunk.data);
+    }
+  }
+
+  if (chunks.length === 0) {
+    throw new Error('No audio data received from Microsoft Edge TTS');
+  }
+
+  const fullBuffer = Buffer.concat(chunks);
+
+  // Evict oldest entry if cache limit reached
+  if (ttsAudioCache.size >= MAX_CACHE_SIZE) {
+    const firstKey = ttsAudioCache.keys().next().value;
+    if (firstKey) ttsAudioCache.delete(firstKey);
+  }
+  ttsAudioCache.set(cacheKey, fullBuffer);
+
+  return fullBuffer;
+}
+
+/**
+ * Robust Text-to-Speech function that uses edge-tts-universal with caching.
+ */
+export async function generateEdgeTTS(options: TTSOptions): Promise<Buffer> {
+  const text = options.text?.trim();
+  if (!text) {
+    throw new Error('Empty text provided for TTS');
+  }
+
+  const voice = options.voice || 'en-US-AriaNeural';
+  const rate = formatRate(options.rate);
+  const cacheKey = getCacheKey(text, voice, rate);
+
+  if (ttsAudioCache.has(cacheKey)) {
+    return ttsAudioCache.get(cacheKey)!;
+  }
+
+  return await streamEdgeTTS(options, () => {});
 }

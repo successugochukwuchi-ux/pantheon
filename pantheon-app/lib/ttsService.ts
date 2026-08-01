@@ -7,6 +7,11 @@ import { Platform } from 'react-native';
 const VOICE_STORE_KEY = 'colearn_default_voice';
 const BACKEND_URL = 'https://ais-dev-iuwo2zt3vdgdkwbrhidmyy-184499856098.europe-west3.run.app';
 
+const BACKEND_URLS = [
+  'https://ais-dev-iuwo2zt3vdgdkwbrhidmyy-184499856098.europe-west3.run.app',
+  'https://ais-pre-iuwo2zt3vdgdkwbrhidmyy-184499856098.europe-west3.run.app'
+];
+
 export interface TTSVoice {
   id: string;
   name: string;
@@ -60,31 +65,141 @@ export async function stopSpeech(): Promise<void> {
   } catch (e) {}
 }
 
+export async function pauseSpeech(): Promise<boolean> {
+  try {
+    if (activeSound) {
+      const status = await activeSound.getStatusAsync();
+      if (status.isLoaded && status.isPlaying) {
+        await activeSound.pauseAsync();
+        return true;
+      }
+    }
+  } catch (e) {
+    console.warn('Error pausing speech on mobile:', e);
+  }
+  return false;
+}
+
+export async function resumeSpeech(): Promise<boolean> {
+  try {
+    if (activeSound) {
+      const status = await activeSound.getStatusAsync();
+      if (status.isLoaded && !status.isPlaying) {
+        await activeSound.playAsync();
+        return true;
+      }
+    }
+  } catch (e) {
+    console.warn('Error resuming speech on mobile:', e);
+  }
+  return false;
+}
+
+export interface SpeakOptions {
+  voiceId?: string;
+  onPreparing?: (progressPercent: number) => void;
+  onStart?: () => void;
+  onPlaybackProgress?: (playbackPercent: number) => void;
+  onDone?: () => void;
+  onError?: (err: any) => void;
+}
+
 export async function speakText(
   text: string,
-  options?: {
-    voiceId?: string;
-    onStart?: () => void;
-    onDone?: () => void;
-    onError?: (err: any) => void;
-  }
+  options?: SpeakOptions
 ): Promise<void> {
   await stopSpeech();
 
   const voice = options?.voiceId || (await getDefaultVoice());
   let onlineSuccess = false;
+  let downloadResult: any = null;
+  const tempFileUri = `${FileSystem.cacheDirectory}colearn_tts.mp3`;
 
-  // Try Microsoft Natural TTS via backend server if online
-  try {
-    options?.onStart?.();
+  options?.onPreparing?.(0);
 
-    const ttsUrl = `${BACKEND_URL}/api/tts?text=${encodeURIComponent(text)}&voice=${encodeURIComponent(voice)}`;
-    const tempFileUri = `${FileSystem.cacheDirectory}colearn_tts.mp3`;
+  // Try Microsoft Natural TTS via backend server
+  for (const baseUrl of BACKEND_URLS) {
+    try {
+      console.log(`Attempting TTS generation via POST on ${baseUrl}...`);
+      // Use POST first to avoid URL length issues for long notes
+      const downloadResumable = FileSystem.createDownloadResumable(
+        `${baseUrl}/api/tts`,
+        tempFileUri,
+        {
+          httpMethod: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            text,
+            voice,
+          }),
+        },
+        (downloadProgress) => {
+          if (downloadProgress.totalBytesExpectedToWrite > 0) {
+            const progress = Math.min(
+              99,
+              Math.round(
+                (downloadProgress.totalBytesWritten / downloadProgress.totalBytesExpectedToWrite) * 100
+              )
+            );
+            options?.onPreparing?.(progress);
+          } else {
+            // Estimate based on text length (~450 bytes per character)
+            const estimated = Math.max(6000, text.length * 450);
+            const progress = Math.min(
+              99,
+              Math.round((downloadProgress.totalBytesWritten / estimated) * 100)
+            );
+            options?.onPreparing?.(progress);
+          }
+        }
+      );
 
-    // Download the file locally
-    const downloadResult = await FileSystem.downloadAsync(ttsUrl, tempFileUri);
+      downloadResult = await downloadResumable.downloadAsync();
+      if (downloadResult && downloadResult.status === 200) {
+        onlineSuccess = true;
+        break;
+      }
+    } catch (e) {
+      console.warn(`TTS POST to ${baseUrl} failed:`, e);
+    }
 
-    if (downloadResult.status === 200) {
+    // Try GET if POST failed or had an issue
+    try {
+      console.log(`Attempting TTS generation via GET on ${baseUrl}...`);
+      const getTtsUrl = `${baseUrl}/api/tts?text=${encodeURIComponent(text.substring(0, 1500))}&voice=${encodeURIComponent(voice)}`;
+      const downloadResumableGet = FileSystem.createDownloadResumable(
+        getTtsUrl,
+        tempFileUri,
+        {},
+        (downloadProgress) => {
+          if (downloadProgress.totalBytesExpectedToWrite > 0) {
+            const progress = Math.min(
+              99,
+              Math.round(
+                (downloadProgress.totalBytesWritten / downloadProgress.totalBytesExpectedToWrite) * 100
+              )
+            );
+            options?.onPreparing?.(progress);
+          }
+        }
+      );
+
+      downloadResult = await downloadResumableGet.downloadAsync();
+      if (downloadResult && downloadResult.status === 200) {
+        onlineSuccess = true;
+        break;
+      }
+    } catch (e) {
+      console.warn(`TTS GET to ${baseUrl} failed:`, e);
+    }
+  }
+
+  if (onlineSuccess && downloadResult) {
+    try {
+      options?.onPreparing?.(100);
+
       await Audio.setAudioModeAsync({
         allowsRecordingIOS: false,
         playsInSilentModeIOS: true,
@@ -98,9 +213,17 @@ export async function speakText(
       );
 
       activeSound = sound;
+      options?.onStart?.();
 
       sound.setOnPlaybackStatusUpdate((status) => {
         if (status.isLoaded) {
+          if (status.durationMillis && status.durationMillis > 0) {
+            const pct = Math.min(
+              100,
+              Math.round((status.positionMillis / status.durationMillis) * 100)
+            );
+            options?.onPlaybackProgress?.(pct);
+          }
           if (status.didJustFinish) {
             sound.unloadAsync().catch(() => {});
             activeSound = null;
@@ -113,32 +236,29 @@ export async function speakText(
         }
       });
 
-      onlineSuccess = true;
       return;
-    } else {
-      console.warn(`TTS Download failed with status code ${downloadResult.status}`);
+    } catch (playbackErr) {
+      console.warn('Error during active sound initialization, falling back:', playbackErr);
     }
-  } catch (err) {
-    console.log('Microsoft TTS Online playback failed or offline, falling back to expo-speech:', err);
   }
 
-  // Fallback to expo-speech if offline or server request failed
-  if (!onlineSuccess) {
-    try {
-      Speech.speak(text, {
-        language: 'en',
-        rate: 0.9,
-        onStart: () => options?.onStart?.(),
-        onDone: () => options?.onDone?.(),
-        onStopped: () => options?.onDone?.(),
-        onError: (err) => {
-          console.warn('Expo speech fallback error:', err);
-          options?.onError?.(err);
-        },
-      });
-    } catch (speechErr) {
-      console.error('Expo Speech fallback failed:', speechErr);
-      options?.onError?.(speechErr);
-    }
+  // Fallback to expo-speech if offline or server requests failed
+  console.log('Falling back to expo-speech...');
+  options?.onPreparing?.(100); // Trigger 100% to ensure UI doesn't get stuck preparing
+  try {
+    Speech.speak(text, {
+      language: 'en',
+      rate: 0.9,
+      onStart: () => options?.onStart?.(),
+      onDone: () => options?.onDone?.(),
+      onStopped: () => options?.onDone?.(),
+      onError: (err) => {
+        console.warn('Expo speech fallback error:', err);
+        options?.onError?.(err);
+      },
+    });
+  } catch (speechErr) {
+    console.error('Expo Speech fallback failed:', speechErr);
+    options?.onError?.(speechErr);
   }
 }
