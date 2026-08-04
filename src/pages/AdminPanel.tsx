@@ -67,6 +67,8 @@ import { useTitle } from '../hooks/useTitle';
 import { MathJax } from 'better-react-mathjax';
 import AdminCredentials from '../components/AdminCredentials';
 import OverseerControl from '../components/OverseerControl';
+import AdminMobileControl from '../components/AdminMobileControl';
+import { VideoWorkshop } from '../components/VideoWorkshop';
 import { CloudinaryUpload } from '../components/CloudinaryUpload';
 import ReactMarkdown from 'react-markdown';
 import remarkMath from 'remark-math';
@@ -2288,6 +2290,7 @@ export default function AdminPanel() {
         {isLevel4 && (
           <>
             <Button variant={location.pathname.includes('videos') ? 'default' : 'ghost'} size="sm" onClick={() => navigate('/administrator/videos')}>Video Library</Button>
+            <Button variant={location.pathname.includes('video-workshop') ? 'default' : 'ghost'} size="sm" onClick={() => navigate('/administrator/video-workshop')}>Video Workshop</Button>
             <Button variant={location.pathname.includes('notifier') ? 'default' : 'ghost'} size="sm" onClick={() => navigate('/administrator/notifier')}>Notifier</Button>
             <Button variant={location.pathname.includes('credentials') ? 'default' : 'ghost'} size="sm" onClick={() => navigate('/administrator/credentials')}>Credentials</Button>
             <Button variant={location.pathname.includes('devices') ? 'default' : 'ghost'} size="sm" onClick={() => navigate('/administrator/devices')}>Devices</Button>
@@ -2298,6 +2301,9 @@ export default function AdminPanel() {
         )}
         {isLevel5 && (
           <Button variant={location.pathname.includes('overseer') ? 'default' : 'ghost'} size="sm" onClick={() => navigate('/administrator/overseer')}>Overseer Control</Button>
+        )}
+        {isLevel5 && (
+          <Button variant={location.pathname.includes('mobile') ? 'default' : 'ghost'} size="sm" onClick={() => navigate('/administrator/mobile')}>Mobile Control</Button>
         )}
       </div>
 
@@ -2311,7 +2317,9 @@ export default function AdminPanel() {
         <Route path="/discipline" element={<AdminDiscipline />} />
         <Route path="/credentials" element={<AdminCredentials />} />
         <Route path="/devices" element={isLevel4 ? <AdminDevices /> : <Navigate to="/administrator" replace />} />
+        <Route path="/video-workshop" element={isLevel4 ? <VideoWorkshop /> : <Navigate to="/administrator" replace />} />
         <Route path="/overseer" element={isLevel5 ? <OverseerControl /> : <Navigate to="/administrator" replace />} />
+        <Route path="/mobile" element={isLevel5 ? <AdminMobileControl /> : <Navigate to="/administrator" replace />} />
         <Route path="/videos" element={
           <div className="space-y-6">
             <Card>

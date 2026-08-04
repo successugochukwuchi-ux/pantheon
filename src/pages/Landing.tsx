@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { Button, buttonVariants } from '../components/ui/button';
 import { cn } from '../lib/utils';
-import { BookOpen, Shield, Zap, Users, GraduationCap, ChevronRight, MessageCircle, History, LogIn, LayoutDashboard } from 'lucide-react';
+import { BookOpen, Shield, Zap, Users, GraduationCap, ChevronRight, MessageCircle, History, LogIn, LayoutDashboard, Download, Smartphone } from 'lucide-react';
 import { useTitle } from '../hooks/useTitle';
 import { useAuth } from '../contexts/AuthContext';
 import { SystemStatus } from '../components/SystemStatus';
@@ -34,12 +34,26 @@ export default function Landing() {
           </Link>
           <nav className="flex items-center gap-4">
             {isAuthReady && user ? (
-              <Link to="/dashboard" className={cn(buttonVariants({ size: 'sm' }), "rounded-full gap-2")}>
-                <LayoutDashboard className="h-4 w-4" />
-                Dashboard
-              </Link>
+              <div className="flex items-center gap-2">
+                {typeof navigator !== 'undefined' && /android/i.test(navigator.userAgent) && (
+                  <Link to="/download" className={cn(buttonVariants({ variant: 'outline', size: 'sm' }), "rounded-full gap-1.5 text-emerald-600 border-emerald-500/40 hover:bg-emerald-50 font-bold")}>
+                    <Download className="h-3.5 w-3.5" />
+                    Download App
+                  </Link>
+                )}
+                <Link to="/dashboard" className={cn(buttonVariants({ size: 'sm' }), "rounded-full gap-2")}>
+                  <LayoutDashboard className="h-4 w-4" />
+                  Dashboard
+                </Link>
+              </div>
             ) : (
               <>
+                {typeof navigator !== 'undefined' && /android/i.test(navigator.userAgent) && (
+                  <Link to="/download" className={cn(buttonVariants({ variant: 'outline', size: 'sm' }), "rounded-full gap-1.5 text-emerald-600 border-emerald-500/40 hover:bg-emerald-50 font-bold")}>
+                    <Download className="h-3.5 w-3.5" />
+                    Download App
+                  </Link>
+                )}
                 <Link to="/login" className={cn(buttonVariants({ variant: 'ghost', size: 'sm' }), "hidden sm:flex")}>
                   Login
                 </Link>
@@ -87,6 +101,17 @@ export default function Landing() {
               >
                 {user ? "View Dashboard" : "Get Started Now"} <ChevronRight className="ml-2 h-5 w-5" />
               </Link>
+
+              {typeof navigator !== 'undefined' && /android/i.test(navigator.userAgent) && (
+                <Link
+                  to="/download"
+                  className={cn(buttonVariants({ variant: 'default', size: 'lg' }), "rounded-full px-8 h-12 text-lg bg-emerald-600 hover:bg-emerald-700 text-white gap-2 shadow-lg shadow-emerald-600/20 font-bold")}
+                >
+                  <Smartphone className="h-5 w-5" />
+                  Download Android App
+                </Link>
+              )}
+
               <Button variant="outline" size="lg" className="rounded-full px-8 h-12 text-lg" onClick={openWhatsApp}>
                 <MessageCircle className="mr-2 h-5 w-5 text-green-500" />
                 Contact Admin

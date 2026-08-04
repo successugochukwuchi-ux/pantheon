@@ -45,12 +45,13 @@ export const ThemeProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     // Apply custom colors if theme is 'custom'
     if (theme === 'custom') {
       Object.entries(customColors).forEach(([key, value]) => {
-        root.style.setProperty(`--${key}`, value);
+        const valStr = String(value);
+        root.style.setProperty(`--${key}`, valStr);
         // Also apply to sidebar variables for custom theme
-        if (key === 'background') root.style.setProperty('--sidebar', value);
-        if (key === 'foreground') root.style.setProperty('--sidebar-foreground', value);
-        if (key === 'primary') root.style.setProperty('--sidebar-primary', value);
-        if (key === 'accent') root.style.setProperty('--sidebar-accent', value);
+        if (key === 'background') root.style.setProperty('--sidebar', valStr);
+        if (key === 'foreground') root.style.setProperty('--sidebar-foreground', valStr);
+        if (key === 'primary') root.style.setProperty('--sidebar-primary', valStr);
+        if (key === 'accent') root.style.setProperty('--sidebar-accent', valStr);
       });
     } else {
       // Clear inline styles when switching away from custom

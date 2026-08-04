@@ -27,7 +27,9 @@ import {
   Compass,
   Star,
   Calendar,
-  Home
+  Home,
+  Smartphone,
+  Download
 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { useFlux } from '../contexts/FluxContext';
@@ -265,6 +267,24 @@ export const Sidebar: React.FC<SidebarProps> = ({ onClose, isCollapsed = false, 
         "border-sidebar-border bg-sidebar-accent/20",
         isCollapsed ? "p-2 space-y-1" : ""
       )}>
+        {typeof navigator !== 'undefined' && /android/i.test(navigator.userAgent) && (
+          <Link
+            to="/download"
+            onClick={onClose}
+            title={isCollapsed ? "Download App" : undefined}
+            className={cn(
+              "flex items-center gap-2.5 px-3 py-2.5 rounded-lg text-sm font-bold bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 hover:bg-emerald-500/20 transition-all mb-2",
+              isCollapsed ? "justify-center px-0 h-10 w-10 mx-auto" : "w-full justify-between"
+            )}
+          >
+            <div className="flex items-center gap-2">
+              <Smartphone className="h-4 w-4 text-emerald-500 shrink-0" />
+              {!isCollapsed && <span>Download Android App</span>}
+            </div>
+            {!isCollapsed && <Download className="h-3.5 w-3.5 opacity-70" />}
+          </Link>
+        )}
+
         <Link
           to="/settings"
           onClick={onClose}

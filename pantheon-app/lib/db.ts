@@ -414,3 +414,33 @@ export function clearAllCoursesLocal() {
     console.error('Error clearing local courses:', e);
   }
 }
+
+export function saveAppVersionLocal(versionNumber: string, avuuid: string) {
+  const db = getDatabase();
+  if (!db) return;
+  try {
+    if (db.runSync) {
+      db.runSync('INSERT OR REPLACE INTO system_config (key, value) VALUES (?, ?)', ['appVersionNumber', versionNumber]);
+      db.runSync('INSERT OR REPLACE INTO system_config (key, value) VALUES (?, ?)', ['appAvuuid', avuuid]);
+    }
+  } catch (e) {
+    console.error('Error saving app version to SQLite:', e);
+  }
+}
+
+export function getAppVersionLocal(): { versionNumber: string; avuuid: string } {
+  const db = getDatabase();
+  if (!db || !db.getFirstSync) return { versionNumber: '0.1.2', avuuid: '' };
+  try {
+    const vRes = db.getFirstSync('SELECT value FROM system_config WHERE key = ?', ['appVersionNumber']) as any;
+    const aRes = db.getFirstSync('SELECT value FROM system_config WHERE key = ?', ['appAvuuid']) as any;
+    return {
+      versionNumber: vRes?.value || '0.1.2',
+      avuuid: aRes?.value || '',
+    };
+  } catch (e) {
+    console.error('Error fetching app version from SQLite:', e);
+    return { versionNumber: '0.1.2', avuuid: '' };
+  }
+}
+

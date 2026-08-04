@@ -1058,6 +1058,58 @@
         "departments",
         "createdAt"
       ]
+    },
+    "AppVersion": {
+      "title": "AppVersion",
+      "description": "Mobile application version release details",
+      "type": "object",
+      "properties": {
+        "versionNumber": {
+          "type": "string"
+        },
+        "avuuid": {
+          "type": "string"
+        },
+        "secretPhrase": {
+          "type": "string"
+        },
+        "changelog": {
+          "type": "string"
+        },
+        "isMandatory": {
+          "type": "boolean"
+        },
+        "hostMode": {
+          "type": "string",
+          "enum": [
+            "colearn",
+            "playstore"
+          ]
+        },
+        "downloadUrl": {
+          "type": "string"
+        },
+        "playStoreUrl": {
+          "type": "string"
+        },
+        "appStoreUrl": {
+          "type": "string"
+        },
+        "isActive": {
+          "type": "boolean"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "versionNumber",
+        "avuuid",
+        "isMandatory",
+        "hostMode",
+        "createdAt"
+      ]
     }
   },
   "firestore": {
@@ -1172,6 +1224,14 @@
     "/disciplines/{disciplineId}": {
       "schema": "Discipline",
       "description": "CCMAS curriculum disciplines with department mapping and course lock properties"
+    },
+    "/app_versions/{versionId}": {
+      "schema": "AppVersion",
+      "description": "Mobile app version records"
+    },
+    "/system/mobile": {
+      "schema": "object",
+      "description": "Active mobile system release configuration"
     }
   }
 }

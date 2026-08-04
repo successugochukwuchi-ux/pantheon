@@ -4,9 +4,12 @@ import { Button } from './ui/button';
 
 interface CloudinaryUploadProps {
   onUploadSuccess: (url: string, resourceType: string) => void;
-  acceptedTypes?: 'image/*' | 'video/*' | 'image/*,video/*';
+  acceptedTypes?: string;
   label?: string;
   className?: string;
+  folder?: string;
+  uploadPreset?: string;
+  uploadResourceType?: 'auto' | 'image' | 'video' | 'raw';
 }
 
 export const CloudinaryUpload: React.FC<CloudinaryUploadProps> = ({
@@ -14,6 +17,9 @@ export const CloudinaryUpload: React.FC<CloudinaryUploadProps> = ({
   acceptedTypes = 'image/*,video/*',
   label = 'Upload Image or Video',
   className = '',
+  folder = 'colodge_listings',
+  uploadPreset = 'colodge_unsigned',
+  uploadResourceType = 'auto',
 }) => {
   const [uploading, setUploading] = useState(false);
   const [progress, setProgress] = useState(0);
@@ -30,13 +36,32 @@ export const CloudinaryUpload: React.FC<CloudinaryUploadProps> = ({
     setSuccess(false);
 
     try {
+      const isApk = file.name.toLowerCase().endsWith('.apk');
+      const effectiveResourceType = isApk ? 'raw' : uploadResourceType;
+
+      // Cloudinary unsigned free preset enforces a strict 10MB limit on raw files (e.g. APKs)
+      if (effectiveResourceType === 'raw' && file.size > 10 * 1024 * 1024) {
+        const sizeMB = (file.size / (1024 * 1024)).toFixed(1);
+        throw new Error(
+          `File size (${sizeMB} MB) exceeds Cloudinary's 10 MB raw limit for unsigned uploads. Please use the Direct Server Uploader or host on GitHub Releases.`
+        );
+      }
+      
       const formData = new FormData();
-      formData.append('file', file);
-      formData.append('upload_preset', 'colodge_unsigned');
-      formData.append('folder', 'colodge_listings');
+      if (isApk) {
+        // Disguise .apk as .apk.bin to bypass Cloudinary extension restriction for raw files
+        const sanitizedFileName = file.name.replace(/\.apk$/i, '.apk.bin');
+        const renamedFile = new File([file], sanitizedFileName, { type: 'application/octet-stream' });
+        formData.append('file', renamedFile);
+      } else {
+        formData.append('file', file);
+      }
+      formData.append('upload_preset', uploadPreset);
+      formData.append('folder', folder);
 
       const xhr = new XMLHttpRequest();
-      xhr.open('POST', 'https://api.cloudinary.com/v1_1/lfrjrbtz/upload', true);
+      const endpoint = `https://api.cloudinary.com/v1_1/lfrjrbtz/${effectiveResourceType}/upload`;
+      xhr.open('POST', endpoint, true);
 
       xhr.upload.onprogress = (event) => {
         if (event.lengthComputable) {

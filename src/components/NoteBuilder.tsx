@@ -406,6 +406,7 @@ interface SortableBlockProps {
   onDelete: (id: string) => void;
   onFocus: (id: string, cursorPosition: number) => void;
   isPreview?: boolean;
+  key?: React.Key;
 }
 
 const SortableBlock = ({ block, onUpdate, onDelete, onFocus, isPreview }: SortableBlockProps) => {

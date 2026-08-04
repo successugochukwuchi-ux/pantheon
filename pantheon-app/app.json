@@ -28,7 +28,8 @@
       "buildToolsVersion": "35.0.0",
       "permissions": [
         "SCHEDULE_EXACT_ALARM",
-        "USE_EXACT_ALARM"
+        "USE_EXACT_ALARM",
+        "android.permission.REQUEST_INSTALL_PACKAGES"
       ]
     },
     "web": {

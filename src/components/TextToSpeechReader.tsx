@@ -220,6 +220,10 @@ export function TextToSpeechReader({ noteContent, noteTitle }: TextToSpeechReade
               }
             }
             if (type === 'diagram' || type === 'image') {
+              const caption = b.settings?.caption || b.settings?.description || b.settings?.alt || '';
+              if (caption.trim()) {
+                return `Diagram showing: ${caption.trim()}`;
+              }
               return '';
             }
             if (type === 'bullet-list' || type === 'numbered-list' || type === 'list') {
@@ -240,18 +244,43 @@ export function TextToSpeechReader({ noteContent, noteTitle }: TextToSpeechReade
           })
           .filter(Boolean);
 
-        let joined = rawFullTextParts.join('. ');
+        let joined = rawFullTextParts.join('... ');
+        // Strip base64, SVG XML and raw HTML tags
+        joined = joined.replace(/data:image\/[a-zA-Z0-9+-]+;base64,[A-Za-z0-9+/=]+/g, '');
+        joined = joined.replace(/\b[A-Za-z0-9+/=]{100,}\b/g, '');
+        joined = joined.replace(/<svg[\s\S]*?<\/svg>/gi, '');
+        joined = joined.replace(/<[^>]*>/g, '');
+
         if (!joined.trim()) {
           joined = `${noteTitle || 'Study Note'}.`;
         }
         cleanTextRef.current = convertLatexToSpeakable(joined);
       } else {
-        cleanTextRef.current = convertLatexToSpeakable(noteContent || noteTitle);
+        let rawText = noteContent || noteTitle;
+        rawText = rawText.replace(/data:image\/[a-zA-Z0-9+-]+;base64,[A-Za-z0-9+/=]+/g, '');
+        rawText = rawText.replace(/\b[A-Za-z0-9+/=]{100,}\b/g, '');
+        rawText = rawText.replace(/<svg[\s\S]*?<\/svg>/gi, '');
+        rawText = rawText.replace(/<[^>]*>/g, '');
+        cleanTextRef.current = convertLatexToSpeakable(rawText);
       }
     } catch {
       // Fallback for markdown notes
-      const strippedMarkdown = (noteContent || noteTitle)
-        .replace(/!\[.*?\]\(.*?\)/g, '') // strip markdown images
+      let rawText = noteContent || noteTitle;
+      // Strip raw base64 data strings (very large continuous blocks of characters)
+      rawText = rawText.replace(/data:image\/[a-zA-Z0-9+-]+;base64,[A-Za-z0-9+/=]+/g, '');
+      rawText = rawText.replace(/\b[A-Za-z0-9+/=]{100,}\b/g, ''); // strip any giant token of 100+ chars (common for base64)
+      
+      // Strip SVG XML structures
+      rawText = rawText.replace(/<svg[\s\S]*?<\/svg>/gi, '');
+      
+      // Strip general HTML tags
+      rawText = rawText.replace(/<[^>]*>/g, '');
+      
+      // Strip markdown image strings
+      rawText = rawText.replace(/!\[.*?\]\(.*?\)/g, '');
+      
+      // Clean up other markdown elements
+      const strippedMarkdown = rawText
         .replace(/#+\s+/g, '') // strip headings
         .replace(/\*\*|__/g, '') // strip bold
         .replace(/\*|_/g, '') // strip italics

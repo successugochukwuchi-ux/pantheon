@@ -41,7 +41,8 @@
     "expo-notifications": "~0.29.1",
     "expo-speech": "~13.0.0",
     "expo-alarm-kit": "*",
-    "expo-alarm-module": "*"
+    "expo-alarm-module": "*",
+    "expo-intent-launcher": "~12.0.0"
   },
   "devDependencies": {
     "@babel/core": "^7.24.0",

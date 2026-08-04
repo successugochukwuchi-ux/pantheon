@@ -34,6 +34,7 @@ import VideoLibrary from './pages/VideoLibrary';
 import Chat from './pages/Chat';
 import PrivacyPolicy from './pages/PrivacyPolicy';
 import TermsOfService from './pages/TermsOfService';
+import DownloadPage from './pages/Download';
 import StudyTimetable from './pages/StudyTimetable';
 import Onboarding from './pages/Onboarding';
 
@@ -108,6 +109,7 @@ export default function App() {
                   <Routes>
                     {/* Public Routes */}
                     <Route path="/" element={<Landing />} />
+                    <Route path="/download" element={<DownloadPage />} />
                     <Route path="/login" element={<Login />} />
                     <Route path="/register" element={<Register />} />
                     <Route path="/privacy" element={<PrivacyPolicy />} />

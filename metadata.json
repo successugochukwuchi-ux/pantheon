@@ -2,5 +2,7 @@
   "name": "CoLearn",
   "description": "A comprehensive study app for FUTO students featuring lecture notes, past questions, CBT practice, and the FLUX extracurricular wing for skill tracks, clubs, and global competitions.",
   "requestFramePermissions": [],
-  "majorCapabilities": []
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
 }

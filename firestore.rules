@@ -249,6 +249,10 @@ service cloud.firestore {
     }
 
     match /news/{newsId} { allow read, list: if isSignedIn(); allow write: if isAdmin(); }
+    match /app_versions/{versionId} {
+      allow read, list: if true;
+      allow create, update, delete: if isLevel5();
+    }
     match /system/{docId} { 
       allow read, list: if true; 
       allow write: if isAdmin();
