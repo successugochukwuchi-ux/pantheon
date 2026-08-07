@@ -19,6 +19,29 @@ import { db } from '../lib/firebase';
 import { APP_HARDCODED_AVUUID, APP_BUILD_VERSION } from '../constants/versionConfig';
 import { saveAppVersionLocal, getAppVersionLocal } from '../lib/db';
 
+// Helper function to check if app can request package installs
+const canRequestPackageInstalls = async (): Promise<boolean> => {
+  if (Platform.OS !== 'android') return true;
+  try {
+    // Try to use Linking.canOpenURL to check if we can open the package installer
+    const canOpen = await Linking.canOpenURL('package:com.pillara.colearn');
+    return canOpen;
+  } catch {
+    return false;
+  }
+};
+
+// Helper function to open the settings screen for granting install permission
+const openInstallPermissionSettings = () => {
+  if (Platform.OS === 'android') {
+    // Open the settings screen where user can grant "Install unknown apps" permission
+    // This opens the specific settings page for the current app
+    IntentLauncher.startActivityAsync('android.settings.MANAGE_UNKNOWN_APP_SOURCES', {
+      data: `package:com.pillara.colearn`,
+    });
+  }
+};
+
 interface MobileSystemRelease {
   versionNumber: string;
   secretPhrase?: string;
@@ -117,6 +140,27 @@ export function AppUpdater() {
       return;
     }
 
+    // On Android, check and prompt for "Install unknown apps" permission before downloading
+    if (Platform.OS === 'android') {
+      const canRequestInstalls = await canRequestPackageInstalls();
+      if (!canRequestInstalls) {
+        Alert.alert(
+          'Permission Required',
+          'To install updates, you need to grant the app permission to install unknown apps. Would you like to open settings to enable this permission?',
+          [
+            { text: 'Cancel', style: 'cancel' },
+            {
+              text: 'Open Settings',
+              onPress: () => {
+                openInstallPermissionSettings();
+              }
+            }
+          ]
+        );
+        return;
+      }
+    }
+
     try {
       setDownloading(true);
       setErrorMsg(null);
@@ -149,11 +193,34 @@ export function AppUpdater() {
       // Trigger Android Intent Installer
       if (Platform.OS === 'android') {
         const contentUri = await FileSystem.getContentUriAsync(result.uri);
-        await IntentLauncher.startActivityAsync('android.intent.action.VIEW', {
-          data: contentUri,
-          flags: 1, // FLAG_GRANT_READ_URI_PERMISSION
-          type: 'application/vnd.android.package-archive',
-        });
+
+        // First, try to launch the install intent with proper flags for Android 7+
+        // Using FLAG_GRANT_READ_URI_PERMISSION (1) and FLAG_ACTIVITY_NEW_TASK (268435456)
+        try {
+          await IntentLauncher.startActivityAsync('android.intent.action.VIEW', {
+            data: contentUri,
+            flags: 1 | 268435456, // FLAG_GRANT_READ_URI_PERMISSION | FLAG_ACTIVITY_NEW_TASK
+            type: 'application/vnd.android.package-archive',
+          });
+        } catch (intentErr: any) {
+          console.error('[AppUpdater] Install intent failed:', intentErr);
+          // If the intent fails, it might be due to missing permission
+          // Guide user to enable "Install unknown apps" permission
+          Alert.alert(
+            'Installation Failed',
+            'The app needs permission to install updates. Would you like to open settings to enable "Install unknown apps" permission?',
+            [
+              { text: 'Cancel', style: 'cancel' },
+              {
+                text: 'Open Settings',
+                onPress: () => {
+                  openInstallPermissionSettings();
+                }
+              }
+            ]
+          );
+          throw intentErr;
+        }
       } else {
         Alert.alert('Success', 'Update package downloaded.');
       }
