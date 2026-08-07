@@ -22,6 +22,7 @@ import { auth } from '../lib/firebase';
 import { signOut } from 'firebase/auth';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { clearUserProfileLocal, getAppVersionLocal } from '../lib/db';
+import { APP_BUILD_VERSION } from '../constants/versionConfig';
 
 // ── Sub-components ────────────────────────────────────────────────────────────
 
@@ -126,7 +127,7 @@ export default function SettingsScreen() {
   const { profile, logout, isOffline } = useAuth();
   const { colors: C } = useTheme();
   const s = useMemo(() => createStyles(C), [C]);
-  const [appVersion, setAppVersion] = React.useState('0.1.2');
+  const [appVersion, setAppVersion] = React.useState(APP_BUILD_VERSION);
 
   React.useEffect(() => {
     const v = getAppVersionLocal();
@@ -225,7 +226,7 @@ export default function SettingsScreen() {
           <Text style={s.logoutBtnText}>Log Out</Text>
         </TouchableOpacity>
 
-        <Text style={s.versionText}>COLEARN v{appVersion} • FUTO Edition</Text>
+        <Text style={s.versionText}>COLEARN v{appVersion}</Text>
 
         <View style={{ height: 100 }} />
       </ScrollView>

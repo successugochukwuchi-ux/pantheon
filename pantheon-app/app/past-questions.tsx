@@ -533,7 +533,7 @@ export default function PastQuestionsScreen() {
           // View 1: List all course cards available
           <View>
             <Text style={[s.subtitle, { color: C.inkMid }]}>
-              Select a course to view official FUTO study past examination papers.
+              Select a course to view official past examination papers.
             </Text>
 
             {loading ? (

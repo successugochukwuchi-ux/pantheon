@@ -126,8 +126,8 @@ export default function AdminMobileControl() {
   const [copiedPat, setCopiedPat] = useState(false);
 
   // New Version Form State
-  const [versionNumber, setVersionNumber] = useState('0.1.2');
-  const [secretPhrase, setSecretPhrase] = useState('colearn-v0.1.2-release');
+  const [versionNumber, setVersionNumber] = useState('0.1.6');
+  const [secretPhrase, setSecretPhrase] = useState('colearn-v0.1.6-release');
   const [computedAvuuid, setComputedAvuuid] = useState('');
   const [changelog, setChangelog] = useState('- Native Edge TTS Audio Chunking\n- Fixed Expo Speech fallbacks\n- Improved Offline CBT Syncing\n- Internal Bug Fixes');
   const [isMandatory, setIsMandatory] = useState(false);
@@ -262,7 +262,7 @@ export default function AdminMobileControl() {
     }
 
     const sizeMB = (file.size / (1024 * 1024)).toFixed(1);
-    const tagName = `v${targetVer.trim() || '0.1.2'}`;
+    const tagName = `v${targetVer.trim() || '0.1.6'}`;
     const cleanToken = ghPat.trim();
     const cleanOwner = ghOwner.trim();
     const cleanRepo = ghRepo.trim();
@@ -679,7 +679,7 @@ export default function AdminMobileControl() {
                       id="vNum"
                       value={versionNumber} 
                       onChange={(e) => setVersionNumber(e.target.value)} 
-                      placeholder="e.g. 0.1.2" 
+                      placeholder="e.g. 0.1.6" 
                       required 
                     />
                   </div>

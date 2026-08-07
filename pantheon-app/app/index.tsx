@@ -73,13 +73,13 @@ function HeroSection() {
   return (
     <Animated.View style={[s.hero, { opacity, transform: [{ translateY: fadeY }] }]}>
       <View style={s.heroPill}>
-        <Text style={s.heroPillText}>BUILT FOR FUTO STUDENTS</Text>
+        <Text style={s.heroPillText}>BUILT FOR ALL STUDENTS</Text>
       </View>
       <Text style={s.heroTitle}>Do more with Less on CoLearn.</Text>
       <Text style={s.heroBody}>
-        The all-in-one platform for FUTO students to master their courses. Access
+        The all-in-one platform for university students to master their courses. Access
         curriculum-aligned notes, past questions, and collaborative study spaces
-        designed for engineering precision.
+        designed for academic precision.
       </Text>
       <TouchableOpacity style={s.heroCta} activeOpacity={0.85} onPress={() => router.push('/register')}>
         <Text style={s.heroCtaText}>Join CoLearn</Text>
@@ -92,8 +92,8 @@ function HeroSection() {
 
 function CurriculumSection() {
   const exams = [
-    'FUTO EXAMS', 'SEET', 'SESET', 'SOPS', 'SOES',
-    'SBMS', 'SAAT', 'SOBS', 'SOHT', 'SICT', 'SLIT'
+    'EXAMS', 'ENGINEERING', 'SCIENCES', 'MEDICINE', 'ARTS',
+    'COMPUTING', 'BUSINESS', 'LAW', 'ENVIRONMENTAL', 'AGRICULTURE'
   ];
   const scrollRef = useRef<ScrollView>(null);
   const scrollX = useRef(0);
@@ -190,7 +190,7 @@ function DesignedSection() {
     <View style={s.designedCard}>
       <Text style={s.designedTitle}>Designed for{'\n'}Excellence</Text>
       <Text style={s.designedBody}>
-        Our specialized toolkit is architected to streamline the demanding FUTO curriculum,
+        Our specialized toolkit is architected to streamline demanding university curricula,
         providing the clarity needed for top-tier academic results.
       </Text>
     </View>
@@ -203,7 +203,7 @@ function PricingSection({ prices }: { prices: { standard: number; plus: number }
       <Text style={s.pricingHeadline}>Ready to{'\n'}top your{'\n'}class?</Text>
       <Text style={s.pricingSubtitle}>
         Join CoLearn and get the tools you need to conquer your curriculum. Access premium
-        features designed for the FUTO academic experience.
+        features designed for your academic experience.
       </Text>
 
       <View style={s.pricingCard}>
@@ -304,7 +304,7 @@ export default function LandingScreen() {
         <FeatureCard
           icon="🎯"
           title="Exam Prep"
-          body="Access a massive repository of past FUTO questions and detailed answers curated for your department."
+          body="Access a massive repository of past examination questions and detailed answers curated for your department."
           dark
         />
 

@@ -1,4 +1,5 @@
 import * as SQLite from 'expo-sqlite';
+import { APP_BUILD_VERSION, APP_HARDCODED_AVUUID } from '../constants/versionConfig';
 
 let dbInstance: any = null;
 
@@ -430,17 +431,17 @@ export function saveAppVersionLocal(versionNumber: string, avuuid: string) {
 
 export function getAppVersionLocal(): { versionNumber: string; avuuid: string } {
   const db = getDatabase();
-  if (!db || !db.getFirstSync) return { versionNumber: '0.1.2', avuuid: '' };
+  if (!db || !db.getFirstSync) return { versionNumber: APP_BUILD_VERSION, avuuid: APP_HARDCODED_AVUUID };
   try {
     const vRes = db.getFirstSync('SELECT value FROM system_config WHERE key = ?', ['appVersionNumber']) as any;
     const aRes = db.getFirstSync('SELECT value FROM system_config WHERE key = ?', ['appAvuuid']) as any;
     return {
-      versionNumber: vRes?.value || '0.1.2',
-      avuuid: aRes?.value || '',
+      versionNumber: vRes?.value || APP_BUILD_VERSION,
+      avuuid: aRes?.value || APP_HARDCODED_AVUUID,
     };
   } catch (e) {
     console.error('Error fetching app version from SQLite:', e);
-    return { versionNumber: '0.1.2', avuuid: '' };
+    return { versionNumber: APP_BUILD_VERSION, avuuid: APP_HARDCODED_AVUUID };
   }
 }
 

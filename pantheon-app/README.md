@@ -1,6 +1,6 @@
 # CoLearn App
 
-React Native (Expo) mobile app for the CoLearn study platform — built for FUTO students.
+React Native (Expo) mobile app for the CoLearn study platform — built for university students.
 
 ---
 

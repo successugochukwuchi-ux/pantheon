@@ -140,7 +140,7 @@ export default function SocialHubScreen() {
           chatId: room.id,
           uid: otherUid,
           name: 'Classmate',
-          dept: 'FUTO Student',
+          dept: 'CoLearn Student',
           level: '100 Level',
           photoURL: null
         };
@@ -291,7 +291,7 @@ export default function SocialHubScreen() {
                   />
                   <View style={s.requestInfo}>
                     <Text style={[s.requestName, { color: C.ink }]}>{req.fromName || 'Student'}</Text>
-                    <Text style={[s.requestDept, { color: C.inkMid }]}>{req.fromDept || 'FUTO Comrade'}</Text>
+                    <Text style={[s.requestDept, { color: C.inkMid }]}>{req.fromDept || 'CoLearn Student'}</Text>
                   </View>
                   <View style={s.requestActions}>
                     <TouchableOpacity style={[s.acceptBtn, { backgroundColor: C.ink }]} onPress={() => handleAcceptRequest(req)}>

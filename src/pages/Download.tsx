@@ -186,7 +186,7 @@ export default function DownloadPage() {
           </CardContent>
 
           <CardFooter className="justify-center border-t border-stone-800/80 pt-4 text-xs text-stone-500">
-            CoLearn Mobile Application • Official FUTO Edition
+            CoLearn Mobile Application
           </CardFooter>
         </Card>
       </main>

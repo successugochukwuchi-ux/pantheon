@@ -298,7 +298,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
               studentId: data.studentId || '', 
               email: data.email || user.email || '',
               username: data.username || data.name || 'Student',
-              department: data.department || 'FUTO Student',
+              department: data.department || 'Student',
               mobileNumber: data.mobileNumber || data.phone || '',
               // Match web app: level is permission, academicLevel is the study level
               academicLevel: data.academicLevel || '100',

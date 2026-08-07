@@ -500,7 +500,7 @@ export default function ProfileSettingsScreen() {
         <View style={s.footerDivider} />
         
         <Text style={s.footerText}>
-          COLEARN STUDENT IDENTITY SYSTEM V4.2.0 • FUTO CORE ENCRYPTED
+          COLEARN STUDENT IDENTITY SYSTEM V4.2.0 • CORE ENCRYPTED
         </Text>
 
         <View style={{ height: 40 }} />

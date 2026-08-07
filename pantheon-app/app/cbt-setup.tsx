@@ -299,7 +299,7 @@ export default function CbtSetupScreen() {
           {/* Welcome Text */}
           <Text style={[s.pageTitle, { color: C.ink }]}>CBT Practice</Text>
           <Text style={[s.pageSubtitle, { color: C.inkMid }]}>
-            Master FUTO exams in a real-time, customizable simulation environment.
+            Master university exams in a real-time, customizable simulation environment.
           </Text>
 
           {/* Form Card */}
@@ -382,7 +382,7 @@ export default function CbtSetupScreen() {
               <Text style={[s.infoTitle, { color: C.ink }]}>Pro Tip</Text>
               <Text style={[s.infoBody, { color: C.inkLight }]}>
                 Enable the timer for a realistic exam experience. Past questions from recent years
-                tend to repeat in FUTO CBT.
+                tend to repeat in CBT exams.
               </Text>
             </View>
           </View>
