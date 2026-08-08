@@ -5,13 +5,11 @@ import {
   Modal,
   TouchableOpacity,
   StyleSheet,
-  ActivityIndicator,
   Linking,
   Platform,
   Alert,
   ScrollView,
 } from 'react-native';
-import * as FileSystem from 'expo-file-system';
 import * as IntentLauncher from 'expo-intent-launcher';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { doc, getDoc } from 'firebase/firestore';
@@ -34,9 +32,6 @@ interface MobileSystemRelease {
 export function AppUpdater() {
   const [modalVisible, setModalVisible] = useState(false);
   const [release, setRelease] = useState<MobileSystemRelease | null>(null);
-  const [downloading, setDownloading] = useState(false);
-  const [progress, setProgress] = useState(0);
-  const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
   useEffect(() => {
     checkAppVersion();
@@ -91,87 +86,33 @@ export function AppUpdater() {
     }
   };
 
-  const handleAppleAppStore = () => {
-    if (!release?.appStoreUrl) {
-      Alert.alert('Error', 'App Store link is not configured.');
-      return;
-    }
-    Linking.openURL(release.appStoreUrl).catch(() => {
-      Alert.alert('Error', 'Could not open App Store link.');
-    });
-  };
-
-  const handlePlayStore = () => {
-    if (!release?.playStoreUrl) {
-      Alert.alert('Error', 'Play Store link is not configured.');
-      return;
-    }
-    Linking.openURL(release.playStoreUrl).catch(() => {
-      Alert.alert('Error', 'Could not open Play Store link.');
-    });
-  };
-
-  const handleColearnDownload = async () => {
-    if (!release?.downloadUrl) {
-      Alert.alert('Error', 'Download URL for Android APK is missing.');
+  const handleDownloadAndUpdate = async () => {
+    const url = release?.downloadUrl;
+    if (!url) {
+      Alert.alert('Error', 'Download link is not configured in Firebase.');
       return;
     }
 
     try {
-      setDownloading(true);
-      setErrorMsg(null);
-      setProgress(0);
-
-      const targetPath = `${FileSystem.documentDirectory}colearn_v${release.versionNumber}.apk`;
-
-      const downloadResumable = FileSystem.createDownloadResumable(
-        release.downloadUrl,
-        targetPath,
-        {},
-        (downloadProgress) => {
-          const p =
-            downloadProgress.totalBytesWritten /
-            downloadProgress.totalBytesExpectedToWrite;
-          setProgress(Math.min(Math.max(p, 0), 1));
-        }
-      );
-
-      const result = await downloadResumable.downloadAsync();
-      if (!result || !result.uri) {
-        throw new Error('Download returned empty file path.');
-      }
-
-      console.log('[AppUpdater] APK downloaded successfully:', result.uri);
-
-      // Save new version info into SQLite
-      saveAppVersionLocal(release.versionNumber, release.avuuid);
-
-      // Trigger Android Intent Installer
       if (Platform.OS === 'android') {
-        const contentUri = await FileSystem.getContentUriAsync(result.uri);
-        await IntentLauncher.startActivityAsync('android.intent.action.VIEW', {
-          data: contentUri,
-          flags: 1, // FLAG_GRANT_READ_URI_PERMISSION
-          type: 'application/vnd.android.package-archive',
-        });
-      } else {
-        Alert.alert('Success', 'Update package downloaded.');
+        try {
+          await IntentLauncher.startActivityAsync('android.intent.action.VIEW', {
+            data: url,
+            packageName: 'com.android.chrome',
+          });
+          return;
+        } catch {
+          // Fallback if Chrome package intent cannot be resolved directly
+        }
       }
-
-      setDownloading(false);
-      if (!release.isMandatory) {
-        setModalVisible(false);
-      }
-    } catch (err: any) {
-      console.error('[AppUpdater] Download/Install error:', err);
-      setDownloading(false);
-      setErrorMsg(err.message || 'Failed to download or install the update.');
+      await Linking.openURL(url);
+    } catch (err) {
+      console.error('[AppUpdater] Failed to open download link:', err);
+      Alert.alert('Error', 'Could not open Chrome or browser for download.');
     }
   };
 
   if (!modalVisible || !release) return null;
-
-  const isIOS = Platform.OS === 'ios';
 
   return (
     <Modal
@@ -204,60 +145,23 @@ export function AppUpdater() {
             </Text>
           </ScrollView>
 
-          {downloading && (
-            <View style={s.progressContainer}>
-              <View style={s.progressHeader}>
-                <Text style={s.progressText}>Downloading update...</Text>
-                <Text style={s.progressText}>{Math.round(progress * 100)}%</Text>
-              </View>
-              <View style={s.progressBarBg}>
-                <View style={[s.progressBarFill, { width: `${progress * 100}%` }]} />
-              </View>
-            </View>
-          )}
-
-          {errorMsg && <Text style={s.errorText}>{errorMsg}</Text>}
-
           {/* Action Buttons */}
           <View style={s.actionRow}>
-            {isIOS ? (
-              <TouchableOpacity
-                style={s.btnPrimary}
-                onPress={handleAppleAppStore}
-                activeOpacity={0.8}
-              >
-                <Text style={s.btnPrimaryText}>Update via App Store</Text>
-              </TouchableOpacity>
-            ) : release.hostMode === 'playstore' ? (
-              <TouchableOpacity
-                style={s.btnPrimary}
-                onPress={handlePlayStore}
-                activeOpacity={0.8}
-              >
-                <Text style={s.btnPrimaryText}>Install from Play Store</Text>
-              </TouchableOpacity>
-            ) : (
-              <TouchableOpacity
-                style={[s.btnPrimary, downloading && s.btnDisabled]}
-                onPress={handleColearnDownload}
-                disabled={downloading}
-                activeOpacity={0.8}
-              >
-                {downloading ? (
-                  <ActivityIndicator color="#FFFFFF" size="small" />
-                ) : (
-                  <Text style={s.btnPrimaryText}>Download & Install Update</Text>
-                )}
-              </TouchableOpacity>
-            )}
+            <TouchableOpacity
+              style={s.btnPrimary}
+              onPress={handleDownloadAndUpdate}
+              activeOpacity={0.8}
+            >
+              <Text style={s.btnPrimaryText}>Download and update</Text>
+            </TouchableOpacity>
 
-            {!release.isMandatory && !downloading && (
+            {!release.isMandatory && (
               <TouchableOpacity
                 style={s.btnSecondary}
                 onPress={handleRefuse}
                 activeOpacity={0.8}
               >
-                <Text style={s.btnSecondaryText}>Skip for Now</Text>
+                <Text style={s.btnSecondaryText}>Skip for now</Text>
               </TouchableOpacity>
             )}
           </View>
@@ -339,36 +243,6 @@ const s = StyleSheet.create({
     color: '#4B5563',
     lineHeight: 18,
   },
-  progressContainer: {
-    marginBottom: 16,
-  },
-  progressHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginBottom: 6,
-  },
-  progressText: {
-    fontSize: 12,
-    fontWeight: '600',
-    color: '#374151',
-  },
-  progressBarBg: {
-    height: 8,
-    backgroundColor: '#E5E7EB',
-    borderRadius: 4,
-    overflow: 'hidden',
-  },
-  progressBarFill: {
-    height: '100%',
-    backgroundColor: '#10B981',
-    borderRadius: 4,
-  },
-  errorText: {
-    fontSize: 12,
-    color: '#EF4444',
-    marginBottom: 12,
-    textAlign: 'center',
-  },
   actionRow: {
     gap: 10,
   },
@@ -378,9 +252,6 @@ const s = StyleSheet.create({
     paddingVertical: 14,
     alignItems: 'center',
     justifyContent: 'center',
-  },
-  btnDisabled: {
-    opacity: 0.6,
   },
   btnPrimaryText: {
     color: '#FFFFFF',

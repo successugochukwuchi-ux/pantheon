@@ -29,7 +29,8 @@ import {
   Calendar,
   Home,
   Smartphone,
-  Download
+  Download,
+  Database
 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { useFlux } from '../contexts/FluxContext';
@@ -109,6 +110,12 @@ export const Sidebar: React.FC<SidebarProps> = ({ onClose, isCollapsed = false, 
     { name: 'System Reports', path: '/administrator/reports', icon: FileText },
   ];
 
+  const level5NavItems: SidebarNavItem[] = [
+    ...level4NavItems,
+    { name: 'Overseer Control', path: '/administrator/overseer', icon: Database },
+    { name: 'Academic Backup', path: '/administrator/backup', icon: Download },
+  ];
+
   const fluxNavItems: SidebarNavItem[] = [
     { name: 'FLUX Dashboard', path: '/flux', icon: Zap },
     { name: 'Track Browser', path: '/flux/browse', icon: LayoutGrid },
@@ -127,7 +134,8 @@ export const Sidebar: React.FC<SidebarProps> = ({ onClose, isCollapsed = false, 
     }
     
     if (isAdminPath) {
-      if (profile?.level === '4' || profile?.level === '5') return level4NavItems;
+      if (profile?.level === '5') return level5NavItems;
+      if (profile?.level === '4') return level4NavItems;
       if (profile?.level === '3') return level3AdminNavItems;
       return level2AdminNavItems;
     }

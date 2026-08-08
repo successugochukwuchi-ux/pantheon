@@ -68,6 +68,7 @@ import { MathJax } from 'better-react-mathjax';
 import AdminCredentials from '../components/AdminCredentials';
 import OverseerControl from '../components/OverseerControl';
 import AdminMobileControl from '../components/AdminMobileControl';
+import { AdminBackup } from '../components/AdminBackup';
 import { VideoWorkshop } from '../components/VideoWorkshop';
 import { CloudinaryUpload } from '../components/CloudinaryUpload';
 import ReactMarkdown from 'react-markdown';
@@ -2305,6 +2306,9 @@ export default function AdminPanel() {
         {isLevel5 && (
           <Button variant={location.pathname.includes('mobile') ? 'default' : 'ghost'} size="sm" onClick={() => navigate('/administrator/mobile')}>Mobile Control</Button>
         )}
+        {isLevel5 && (
+          <Button variant={location.pathname.includes('backup') ? 'default' : 'ghost'} size="sm" onClick={() => navigate('/administrator/backup')}>Academic Backup</Button>
+        )}
       </div>
 
       <Routes>
@@ -2320,6 +2324,7 @@ export default function AdminPanel() {
         <Route path="/video-workshop" element={isLevel4 ? <VideoWorkshop /> : <Navigate to="/administrator" replace />} />
         <Route path="/overseer" element={isLevel5 ? <OverseerControl /> : <Navigate to="/administrator" replace />} />
         <Route path="/mobile" element={isLevel5 ? <AdminMobileControl /> : <Navigate to="/administrator" replace />} />
+        <Route path="/backup" element={isLevel5 ? <AdminBackup /> : <Navigate to="/administrator" replace />} />
         <Route path="/videos" element={
           <div className="space-y-6">
             <Card>
