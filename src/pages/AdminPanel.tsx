@@ -70,6 +70,7 @@ import OverseerControl from '../components/OverseerControl';
 import AdminMobileControl from '../components/AdminMobileControl';
 import { AdminBackup } from '../components/AdminBackup';
 import { VideoWorkshop } from '../components/VideoWorkshop';
+import { AdminFeedback } from '../components/admin/AdminFeedback';
 import { CloudinaryUpload } from '../components/CloudinaryUpload';
 import ReactMarkdown from 'react-markdown';
 import remarkMath from 'remark-math';
@@ -2295,6 +2296,7 @@ export default function AdminPanel() {
             <Button variant={location.pathname.includes('notifier') ? 'default' : 'ghost'} size="sm" onClick={() => navigate('/administrator/notifier')}>Notifier</Button>
             <Button variant={location.pathname.includes('credentials') ? 'default' : 'ghost'} size="sm" onClick={() => navigate('/administrator/credentials')}>Credentials</Button>
             <Button variant={location.pathname.includes('devices') ? 'default' : 'ghost'} size="sm" onClick={() => navigate('/administrator/devices')}>Devices</Button>
+            <Button variant={location.pathname.includes('feedback') ? 'default' : 'ghost'} size="sm" onClick={() => navigate('/administrator/feedback')}>User Feedback</Button>
             <Button variant={location.pathname.includes('reports') ? 'default' : 'ghost'} size="sm" onClick={() => navigate('/administrator/reports')}>Reports</Button>
             <Button variant={location.pathname.includes('manual') ? 'default' : 'ghost'} size="sm" onClick={() => navigate('/administrator/manual')}>Admin Manual</Button>
             <Button variant={location.pathname.includes('system') ? 'default' : 'ghost'} size="sm" onClick={() => navigate('/administrator/system')}>System</Button>
@@ -2320,6 +2322,7 @@ export default function AdminPanel() {
         <Route path="/manual" element={<AdminManual />} />
         <Route path="/discipline" element={<AdminDiscipline />} />
         <Route path="/credentials" element={<AdminCredentials />} />
+        <Route path="/feedback" element={isLevel4 ? <AdminFeedback /> : <Navigate to="/administrator" replace />} />
         <Route path="/devices" element={isLevel4 ? <AdminDevices /> : <Navigate to="/administrator" replace />} />
         <Route path="/video-workshop" element={isLevel4 ? <VideoWorkshop /> : <Navigate to="/administrator" replace />} />
         <Route path="/overseer" element={isLevel5 ? <OverseerControl /> : <Navigate to="/administrator" replace />} />

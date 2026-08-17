@@ -644,6 +644,22 @@ export default function Settings() {
                 )}
               </div>
             </div>
+            <div className="flex flex-col gap-1 w-full pt-2 border-t">
+              <div className="flex items-center justify-between">
+                <div>
+                  <span className="text-xs text-muted-foreground uppercase font-semibold">Support & Inquiries</span>
+                  <p className="text-xs text-muted-foreground">Have feedback, bug reports, or syllabus requests for your university?</p>
+                </div>
+                <Button 
+                  variant="outline" 
+                  size="sm" 
+                  onClick={() => window.location.href = '/feedback'}
+                  className="font-bold text-xs"
+                >
+                  Open Feedback Form
+                </Button>
+              </div>
+            </div>
           </CardContent>
         </Card>
       </div>

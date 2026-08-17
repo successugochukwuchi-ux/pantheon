@@ -285,3 +285,31 @@ export interface Discipline {
   courses?: Record<string, 'allow' | 'lock'>;
   createdAt: string;
 }
+
+export type FeedbackType = 'Bug Report' | 'Feature Request' | 'General Feedback' | 'Academic Content Issue' | 'Platform Inquiry';
+export type FeedbackStatus = 'pending' | 'reviewed' | 'resolved' | 'pushed_to_level5' | 'dismissed';
+
+export interface FeedbackItem {
+  id: string;
+  uid: string;
+  userId?: string;
+  username: string;
+  email: string;
+  studentId?: string;
+  department?: string;
+  academicLevel?: string;
+  level?: string;
+  type: FeedbackType;
+  subject?: string;
+  message: string;
+  status: FeedbackStatus;
+  pushedToLevel5?: boolean;
+  pushedAt?: string;
+  pushedBy?: string;
+  pushedByAdminLevel?: string;
+  adminResponse?: string;
+  respondedBy?: string;
+  respondedAt?: string;
+  createdAt: string;
+  At: string; // University ID/code
+}

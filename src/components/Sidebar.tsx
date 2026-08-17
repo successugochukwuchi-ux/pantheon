@@ -79,6 +79,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ onClose, isCollapsed = false, 
     { name: 'Friends', path: '/friends', icon: UserPlus },
     { name: 'Compete', path: '/compete', icon: Trophy },
     { name: 'Referrals', path: '/referrals', icon: Users },
+    { name: 'Feedback & Support', path: '/feedback', icon: HelpCircle },
   ];
 
   const adminNavItems: SidebarNavItem[] = [
@@ -105,6 +106,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ onClose, isCollapsed = false, 
 
   const level4NavItems: SidebarNavItem[] = [
     ...adminNavItems,
+    { name: 'User Feedback', path: '/administrator/feedback', icon: MessageSquare },
     { name: 'Credentials', path: '/administrator/credentials', icon: Key },
     { name: 'System Control', path: '/administrator/system', icon: Settings },
     { name: 'System Reports', path: '/administrator/reports', icon: FileText },

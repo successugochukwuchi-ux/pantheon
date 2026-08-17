@@ -24,6 +24,7 @@ import CourseDiscussion from './pages/CourseDiscussion';
 import PublicProfile from './pages/PublicProfile';
 import SearchResults from './pages/SearchResults';
 import Settings from './pages/Settings';
+import Feedback from './pages/Feedback';
 import AdminPanel from './pages/AdminPanel';
 import Banned from './pages/Banned';
 import News from './pages/News';
@@ -334,6 +335,14 @@ export default function App() {
                       <ProtectedRoute>
                         <Layout>
                           <Settings />
+                        </Layout>
+                      </ProtectedRoute>
+                    } />
+
+                    <Route path="/feedback" element={
+                      <ProtectedRoute requireActivation={false}>
+                        <Layout>
+                          <Feedback />
                         </Layout>
                       </ProtectedRoute>
                     } />

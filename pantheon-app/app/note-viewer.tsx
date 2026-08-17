@@ -238,7 +238,6 @@ export default function NoteViewerScreen() {
   const s = useMemo(() => createStyles(C), [C]);
 
   const { noteId, courseId } = useLocalSearchParams<{ noteId: string; courseId: string }>();
-  const [toolbarVisible, setToolbarVisible] = useState(false);
   const [hermesOpen, setHermesOpen] = useState(false);
   const [hermesMsg, setHermesMsg] = useState('');
   const [hermesChat, setHermesChat] = useState<ChatMessage[]>([
@@ -1206,15 +1205,7 @@ export default function NoteViewerScreen() {
         <Text style={[s.headerBrand, { color: C.ink, flex: 1, textAlign: 'center', marginHorizontal: 10 }]} numberOfLines={1} ellipsizeMode="tail">
           {note?.title || 'COLEARN'}
         </Text>
-        <TouchableOpacity
-          onPress={() => setToolbarVisible(!toolbarVisible)}
-          activeOpacity={0.7}
-          style={s.iconBtn}
-        >
-          <View style={[s.dot, { backgroundColor: C.ink, marginBottom: 4 }]} />
-          <View style={[s.dot, { backgroundColor: C.ink, marginBottom: 4 }]} />
-          <View style={[s.dot, { backgroundColor: C.ink }]} />
-        </TouchableOpacity>
+        <View style={{ width: 36, height: 36 }} />
       </View>
 
       {/* Progress bar - Sleek fixed bar at top */}

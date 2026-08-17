@@ -284,6 +284,11 @@ service cloud.firestore {
     }
     match /announcements/{announcementId} { allow read, list: if isSignedIn(); allow write: if isAdmin(); }
     match /reports/{reportId} { allow read, write: if isAdmin(); allow create: if isSignedIn(); }
+    match /feedback/{feedbackId} { 
+      allow read, list: if isAdmin() || (isSignedIn() && (resource.data.uid == request.auth.uid || resource.data.userId == request.auth.uid));
+      allow create: if isSignedIn();
+      allow update, delete: if isAdmin();
+    }
     match /diagnostics/{docId} { allow read, write: if true; }
 
     // Chat rules

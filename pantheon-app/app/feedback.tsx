@@ -35,6 +35,7 @@ export default function FeedbackScreen() {
   const { profile } = useAuth();
 
   const [type, setType] = useState(FEEDBACK_TYPES[2]);
+  const [subject, setSubject] = useState('');
   const [message, setMessage] = useState('');
   const [submitting, setSubmitting] = useState(false);
 
@@ -48,16 +49,24 @@ export default function FeedbackScreen() {
       if (profile) {
         await addDoc(collection(db, 'feedback'), {
           uid: profile.uid,
+          userId: profile.uid,
           username: profile.username || 'Student',
           email: profile.email || '',
+          studentId: profile.studentId || '',
+          department: profile.department || '',
+          academicLevel: profile.academicLevel || profile.level || '',
+          level: profile.level || '1',
           type: type,
+          subject: subject.trim() || type,
           message: message.trim(),
+          status: 'pending',
+          pushedToLevel5: false,
           createdAt: new Date().toISOString(),
           At: profile.At || 'futo',
         });
       }
       setSubmitting(false);
-      Alert.alert('Thank You', 'Your feedback has been received and will be reviewed by our team.', [
+      Alert.alert('Thank You', 'Your feedback has been received and routed to your university administrator team.', [
         { text: 'OK', onPress: () => router.back() }
       ]);
     } catch (err) {
@@ -95,13 +104,22 @@ export default function FeedbackScreen() {
             ))}
           </View>
 
+          <Text style={[s.label, { color: C.inkLight }]}>SUBJECT (OPTIONAL)</Text>
+          <TextInput
+            style={[s.input, { backgroundColor: C.surface, borderColor: C.border, color: C.ink }]}
+            placeholder="e.g. Question on MTH201, Bug in Quiz..."
+            placeholderTextColor={C.inkLight}
+            value={subject}
+            onChangeText={setSubject}
+          />
+
           <Text style={[s.label, { color: C.inkLight }]}>YOUR MESSAGE</Text>
           <TextInput
             style={[s.textArea, { backgroundColor: C.surface, borderColor: C.border, color: C.ink }]}
-            placeholder="Type your feedback here..."
+            placeholder="Type your detailed feedback or inquiry here..."
             placeholderTextColor={C.inkLight}
             multiline
-            numberOfLines={10}
+            numberOfLines={8}
             textAlignVertical="top"
             value={message}
             onChangeText={setMessage}
@@ -117,7 +135,7 @@ export default function FeedbackScreen() {
 
           <View style={[s.infoBox, { backgroundColor: C.activeBg || '#E8F6EF' }]}>
             <Text style={[s.infoText, { color: C.activeText || '#27AE60' }]}>
-              We value your input! Your feedback helps us make CoLearn the ultimate companion for students.
+              We value your input! Your feedback is securely delivered directly to administrators of your university ({profile?.At ? profile.At.toUpperCase() : 'CoLearn'}).
             </Text>
           </View>
         </ScrollView>
@@ -139,8 +157,8 @@ const createStyles = (C: any) => StyleSheet.create({
   headerTitle: { fontFamily: F.bold, fontSize: 18 },
   backBtn: { width: 44, height: 44, justifyContent: 'center', alignItems: 'center' },
   content: { flex: 1 },
-  label: { fontFamily: F.bold, fontSize: 12, letterSpacing: 1.2, marginBottom: 12, marginTop: 12 },
-  typeGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10, marginBottom: 24 },
+  label: { fontFamily: F.bold, fontSize: 12, letterSpacing: 1.2, marginBottom: 8, marginTop: 12 },
+  typeGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10, marginBottom: 16 },
   typeBtn: {
     paddingHorizontal: 16,
     paddingVertical: 10,
@@ -150,12 +168,21 @@ const createStyles = (C: any) => StyleSheet.create({
   typeBtnActive: { },
   typeBtnText: { fontFamily: F.bold, fontSize: 13 },
   typeBtnTextActive: { color: '#fff' },
+  input: {
+    borderRadius: 14,
+    paddingHorizontal: 16,
+    height: 48,
+    fontFamily: F.body,
+    fontSize: 15,
+    borderWidth: 1,
+    marginBottom: 8,
+  },
   textArea: {
     borderRadius: 16,
     padding: 16,
-    height: 200,
+    height: 160,
     fontFamily: F.body,
-    fontSize: 16,
+    fontSize: 15,
     borderWidth: 1,
     marginBottom: 24,
   },
@@ -170,6 +197,6 @@ const createStyles = (C: any) => StyleSheet.create({
     elevation: 4,
   },
   submitBtnText: { fontFamily: F.bold, fontSize: 15, letterSpacing: 1 },
-  infoBox: { marginTop: 32, padding: 20, borderRadius: 16 },
-  infoText: { fontFamily: F.medium, fontSize: 14, textAlign: 'center', lineHeight: 20 },
+  infoBox: { marginTop: 24, padding: 18, borderRadius: 16 },
+  infoText: { fontFamily: F.medium, fontSize: 13, textAlign: 'center', lineHeight: 19 },
 });
