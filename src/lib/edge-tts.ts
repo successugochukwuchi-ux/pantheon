@@ -50,6 +50,14 @@ function formatRate(rate?: string): string {
   return '+0%';
 }
 
+function sanitizeTextForTTS(text: string): string {
+  if (!text) return '';
+  return text
+    .replace(/[\u0000-\u0008\u000B-\u000C\u000E-\u001F\uD800-\uDFFF\uFFFE\uFFFF]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
 /**
  * Streams TTS audio chunks directly via callback while populating cache.
  */
@@ -57,7 +65,8 @@ export async function streamEdgeTTS(
   options: TTSOptions,
   onAudioChunk: (chunk: Buffer) => void
 ): Promise<Buffer> {
-  const text = options.text?.trim();
+  const rawText = options.text || '';
+  const text = sanitizeTextForTTS(rawText);
   if (!text) {
     throw new Error('Empty text provided for TTS');
   }
@@ -79,10 +88,27 @@ export async function streamEdgeTTS(
   });
 
   const chunks: Buffer[] = [];
-  for await (const chunk of communicate.stream()) {
-    if (chunk.type === 'audio' && chunk.data) {
-      chunks.push(chunk.data);
-      onAudioChunk(chunk.data);
+  try {
+    for await (const chunk of communicate.stream()) {
+      if (chunk.type === 'audio' && chunk.data) {
+        chunks.push(chunk.data);
+        onAudioChunk(chunk.data);
+      }
+    }
+  } catch (streamErr: any) {
+    console.error(`Edge TTS stream error for voice "${voice}":`, streamErr?.message || streamErr);
+    // If voice failed and wasn't default, attempt fallback with default voice
+    if (voice !== 'en-US-AriaNeural') {
+      console.log('Attempting fallback to en-US-AriaNeural...');
+      const fallbackComm = new Communicate(text, { voice: 'en-US-AriaNeural', rate });
+      for await (const chunk of fallbackComm.stream()) {
+        if (chunk.type === 'audio' && chunk.data) {
+          chunks.push(chunk.data);
+          onAudioChunk(chunk.data);
+        }
+      }
+    } else {
+      throw streamErr;
     }
   }
 

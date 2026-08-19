@@ -6,7 +6,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../co
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
 import { Badge } from '../components/ui/badge';
-import { Search, BookOpen, ChevronRight, ArrowLeft, AlertCircle, Maximize2, HelpCircle, CheckCircle2, XCircle, Wand2 } from 'lucide-react';
+import { Search, BookOpen, ChevronRight, ArrowLeft, AlertCircle, Maximize2, HelpCircle, CheckCircle2, XCircle, Wand2, Sparkles, X } from 'lucide-react';
 import { Course, Note } from '../types';
 import ReactMarkdown from 'react-markdown';
 import remarkMath from 'remark-math';
@@ -23,6 +23,7 @@ import { ScientificCalculator } from '../components/ScientificCalculator';
 import { AIAssistant } from '../components/AIAssistant';
 import { VideoPlayer } from '../components/VideoPlayer';
 import { TextToSpeechReader } from '../components/TextToSpeechReader';
+import { searchNote } from '../lib/noteSearch';
 
 import { getFilteredCoursesForStudent } from '../lib/courseFilter';
 
@@ -33,6 +34,7 @@ export default function LectureNotes() {
   const [selectedCourse, setSelectedCourse] = useState<Course | null>(null);
   const [selectedNote, setSelectedNote] = useState<Note | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
+  const [noteSearchQuery, setNoteSearchQuery] = useState('');
   const [viewingImage, setViewingImage] = useState<string | null>(null);
 
   const isHoliday = !systemConfig || systemConfig.currentSemester === 'none';
@@ -58,6 +60,7 @@ export default function LectureNotes() {
   useEffect(() => {
     if (!selectedCourse || !profile) {
       setNotes([]);
+      setNoteSearchQuery('');
       return;
     }
 
@@ -69,7 +72,8 @@ export default function LectureNotes() {
 
     getDocs(q).then((snapshot) => {
       const allNotes = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Note));
-      const sorted = allNotes.sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
+      // Arranged in alphabetical order
+      const sorted = allNotes.sort((a, b) => (a.title || '').localeCompare(b.title || '', undefined, { sensitivity: 'base' }));
       
       const isUnactivatedStudent = (!profile || !profile.isActivated) && profile?.level !== '3' && profile?.level !== '4';
       if (isUnactivatedStudent) {
@@ -306,16 +310,54 @@ export default function LectureNotes() {
 
   if (selectedCourse) {
     const isUnactivatedStudent = (!profile || !profile.isActivated) && profile?.level !== '3' && profile?.level !== '4';
+    
+    const searchFilteredNotes = notes
+      .map(note => ({
+        note,
+        searchResult: searchNote(note, noteSearchQuery)
+      }))
+      .filter(item => item.searchResult.matches);
+
     return (
       <div className="space-y-6">
-        <Button variant="ghost" onClick={() => setSelectedCourse(null)} className="gap-2">
+        <Button variant="ghost" onClick={() => { setSelectedCourse(null); setNoteSearchQuery(''); }} className="gap-2">
           <ArrowLeft className="h-4 w-4" /> Back to Courses
         </Button>
 
-        <div className="flex flex-col gap-2">
-          <h1 className="text-3xl font-bold tracking-tight">{selectedCourse.code} Notes</h1>
-          <p className="text-muted-foreground">{selectedCourse.title}</p>
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+          <div className="space-y-1">
+            <h1 className="text-3xl font-bold tracking-tight">{selectedCourse.code} Notes</h1>
+            <p className="text-muted-foreground">{selectedCourse.title} (Alphabetical Order)</p>
+          </div>
+
+          {/* Search within this course */}
+          <div className="relative w-full sm:w-80">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+            <Input 
+              placeholder={`Search in ${selectedCourse.code}...`} 
+              className="pl-9 pr-8 h-9 text-sm"
+              value={noteSearchQuery}
+              onChange={(e) => setNoteSearchQuery(e.target.value)}
+            />
+            {noteSearchQuery && (
+              <button
+                onClick={() => setNoteSearchQuery('')}
+                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground p-0.5 rounded-full"
+              >
+                <X className="h-3.5 w-3.5" />
+              </button>
+            )}
+          </div>
         </div>
+
+        {noteSearchQuery && (
+          <div className="flex items-center gap-2 text-xs text-muted-foreground bg-primary/5 border border-primary/20 px-3 py-1.5 rounded-lg">
+            <Search className="h-3.5 w-3.5 text-primary" />
+            <span>
+              Showing {searchFilteredNotes.length} of {notes.length} note{notes.length === 1 ? '' : 's'} in <strong>{selectedCourse.code}</strong> matching "{noteSearchQuery}"
+            </span>
+          </div>
+        )}
 
         {isUnactivatedStudent && (
           <div className="p-4 rounded-xl bg-amber-500/10 border border-amber-500/20 text-amber-600 dark:text-amber-400 text-sm flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
@@ -330,31 +372,54 @@ export default function LectureNotes() {
         )}
 
         <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-          {notes.length > 0 ? (
-            notes.map(note => (
+          {searchFilteredNotes.length > 0 ? (
+            searchFilteredNotes.map(({ note, searchResult }) => (
               <Card 
                 key={note.id} 
-                className="hover:bg-accent transition-colors cursor-pointer"
+                className="hover:bg-accent transition-colors cursor-pointer flex flex-col justify-between"
                 onClick={() => setSelectedNote(note)}
               >
                 <CardHeader>
-                  <CardTitle className="text-lg">{note.title}</CardTitle>
+                  <div className="flex items-start justify-between gap-2">
+                    <CardTitle className="text-lg">{note.title}</CardTitle>
+                    {noteSearchQuery && searchResult.matchType === 'title' && (
+                      <Badge variant="secondary" className="text-[10px] shrink-0">Title Match</Badge>
+                    )}
+                  </div>
                   <CardDescription>Added on {new Date(note.createdAt).toLocaleDateString()}</CardDescription>
                 </CardHeader>
-                <CardContent>
-                  <p className="text-sm text-muted-foreground line-clamp-3">
-                    {(() => {
-                      try {
-                        const blocks = JSON.parse(note.content);
-                        return blocks.find((b: any) => b.type === 'text')?.content.substring(0, 150) || 'Academic material';
-                      } catch (e) {
-                        return note.content.substring(0, 150);
-                      }
-                    })()}...
-                  </p>
+                <CardContent className="space-y-2">
+                  {noteSearchQuery && searchResult.snippet ? (
+                    <div className="text-xs bg-muted/60 p-2.5 rounded-md border border-border/60 text-foreground">
+                      <span className="text-[10px] font-semibold text-primary block mb-0.5 uppercase tracking-wider">Matched content</span>
+                      <p className="line-clamp-3 font-mono text-[11px] leading-relaxed">
+                        {searchResult.snippet}
+                      </p>
+                    </div>
+                  ) : (
+                    <p className="text-sm text-muted-foreground line-clamp-3">
+                      {(() => {
+                        try {
+                          const blocks = JSON.parse(note.content);
+                          return blocks.find((b: any) => b.type === 'text')?.content.substring(0, 150) || 'Academic material';
+                        } catch (e) {
+                          return note.content.substring(0, 150);
+                        }
+                      })()}...
+                    </p>
+                  )}
                 </CardContent>
               </Card>
             ))
+          ) : notes.length > 0 && noteSearchQuery ? (
+            <div className="col-span-full py-12 text-center border rounded-lg bg-muted/50">
+              <Search className="h-12 w-12 mx-auto mb-4 text-muted-foreground" />
+              <h3 className="text-lg font-medium">No matching notes in {selectedCourse.code}</h3>
+              <p className="text-muted-foreground text-sm mt-1">No note in this course mentions "{noteSearchQuery}".</p>
+              <Button variant="outline" size="sm" className="mt-4" onClick={() => setNoteSearchQuery('')}>
+                Clear search
+              </Button>
+            </div>
           ) : (
             <div className="col-span-full py-12 text-center border rounded-lg bg-muted/50">
               <BookOpen className="h-12 w-12 mx-auto mb-4 text-muted-foreground" />

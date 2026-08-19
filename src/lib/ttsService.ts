@@ -18,6 +18,23 @@ export const MICROSOFT_VOICES: TTSVoice[] = [
 const VOICE_STORE_KEY = 'colearn_default_voice';
 let activeAudio: HTMLAudioElement | null = null;
 let currentAbortController: AbortController | null = null;
+let isAudioUnlocked = false;
+
+/**
+ * Prime audio element on user click to comply with browser autoplay policies.
+ */
+export function unlockAudioContext(): void {
+  if (isAudioUnlocked || typeof window === 'undefined') return;
+  try {
+    const dummyAudio = new Audio();
+    dummyAudio.src = 'data:audio/wav;base64,UklGRigAAABXQVZFZm10IBIAAAABAAEARKwAAIhYAQACABAAAABkYXRhAgAAAAEA';
+    dummyAudio.volume = 0.001;
+    dummyAudio.play().then(() => {
+      dummyAudio.pause();
+      isAudioUnlocked = true;
+    }).catch(() => {});
+  } catch {}
+}
 
 export async function getDefaultVoice(): Promise<string> {
   if (typeof window === 'undefined') return 'en-US-AriaNeural';
@@ -38,29 +55,40 @@ export function stopSpeech(): void {
     currentAbortController = null;
   }
   if (activeAudio) {
-    activeAudio.pause();
-    activeAudio.currentTime = 0;
+    try {
+      activeAudio.pause();
+      activeAudio.currentTime = 0;
+      activeAudio.src = '';
+    } catch {}
     activeAudio = null;
   }
   if (typeof window !== 'undefined' && window.speechSynthesis) {
-    window.speechSynthesis.cancel();
+    try {
+      window.speechSynthesis.cancel();
+    } catch {}
   }
 }
 
 export function pauseSpeech(): void {
   if (activeAudio && !activeAudio.paused) {
     activeAudio.pause();
+  } else if (typeof window !== 'undefined' && window.speechSynthesis && window.speechSynthesis.speaking) {
+    window.speechSynthesis.pause();
   }
 }
 
 export function resumeSpeech(): void {
   if (activeAudio && activeAudio.paused) {
     activeAudio.play().catch((err) => console.error('Resume playback error:', err));
+  } else if (typeof window !== 'undefined' && window.speechSynthesis && window.speechSynthesis.paused) {
+    window.speechSynthesis.resume();
   }
 }
 
 export function isSpeechPaused(): boolean {
-  return activeAudio ? activeAudio.paused : false;
+  if (activeAudio) return activeAudio.paused;
+  if (typeof window !== 'undefined' && window.speechSynthesis) return window.speechSynthesis.paused;
+  return false;
 }
 
 export interface SpeakOptions {
@@ -81,7 +109,7 @@ function splitTextToSentences(text: string): string[] {
     .filter(s => s.length > 0);
 }
 
-function splitTextIntoChunks(text: string, maxChunkLength = 1500): string[] {
+function splitTextIntoChunks(text: string, maxChunkLength = 1200): string[] {
   if (text.length <= maxChunkLength) return [text];
 
   const sentences = splitTextToSentences(text);
@@ -93,7 +121,6 @@ function splitTextIntoChunks(text: string, maxChunkLength = 1500): string[] {
       if (currentChunk.trim().length > 0) {
         chunks.push(currentChunk.trim());
       }
-      // If the sentence itself is larger than maxChunkLength, we MUST split it forcefully
       if (sentence.length > maxChunkLength) {
         let remaining = sentence;
         while (remaining.length > maxChunkLength) {
@@ -163,8 +190,63 @@ async function fetchChunkAudio(
     throw new DOMException('Aborted', 'AbortError');
   }
 
+  if (chunks.length === 0) {
+    throw new Error('Received 0 bytes from TTS endpoint');
+  }
+
   const blob = new Blob(chunks, { type: 'audio/mpeg' });
   return URL.createObjectURL(blob);
+}
+
+/**
+ * Fallback to browser's native SpeechSynthesis if server TTS is unreachable
+ */
+function speakWithBrowserSynthesis(text: string, options?: SpeakOptions) {
+  if (typeof window === 'undefined' || !window.speechSynthesis) {
+    options?.onError?.(new Error('Speech synthesis not supported in this browser'));
+    return;
+  }
+
+  try {
+    window.speechSynthesis.cancel();
+    const utterance = new SpeechSynthesisUtterance(text);
+    
+    // Calculate rate
+    if (options?.rate) {
+      const match = options.rate.match(/([+-]?\d+)/);
+      if (match) {
+        const delta = parseInt(match[1], 10);
+        utterance.rate = Math.max(0.5, Math.min(2.0, 1.0 + (delta / 100)));
+      }
+    }
+
+    const voices = window.speechSynthesis.getVoices();
+    const voicePref = options?.voiceId || 'en-US';
+    const matchedVoice = voices.find(v => v.lang.includes(voicePref.substring(0, 5)) || v.name.toLowerCase().includes('natural') || v.name.toLowerCase().includes('google')) ||
+      voices.find(v => v.lang.startsWith('en')) ||
+      voices[0];
+
+    if (matchedVoice) {
+      utterance.voice = matchedVoice;
+    }
+
+    utterance.onstart = () => {
+      options?.onStart?.();
+    };
+
+    utterance.onend = () => {
+      options?.onDone?.();
+    };
+
+    utterance.onerror = (e) => {
+      console.warn('Browser SpeechSynthesis error:', e);
+      options?.onError?.(e);
+    };
+
+    window.speechSynthesis.speak(utterance);
+  } catch (err) {
+    options?.onError?.(err);
+  }
 }
 
 /**
@@ -305,6 +387,7 @@ export async function speakText(
   options?: SpeakOptions
 ): Promise<void> {
   stopSpeech();
+  unlockAudioContext();
 
   const text = stripDiagramsAndCleanForTTS(rawText);
 
@@ -317,7 +400,7 @@ export async function speakText(
   const abortController = new AbortController();
   currentAbortController = abortController;
 
-  const chunks = splitTextIntoChunks(text, 1500);
+  const chunks = splitTextIntoChunks(text, 1200);
   const totalChunks = chunks.length;
 
   if (totalChunks === 0) {
@@ -350,30 +433,26 @@ export async function speakText(
     // Start fetching first chunk immediately
     startFetchingChunk(0);
 
-    // Also start pre-fetching second chunk immediately to be fast!
+    // Pre-fetch second chunk immediately
     if (totalChunks > 1) {
       startFetchingChunk(1);
     }
 
     let currentIndex = 0;
 
-    // We'll play each chunk sequentially
+    // Play each chunk sequentially
     while (currentIndex < totalChunks) {
       if (abortController.signal.aborted) return;
 
-      // Ensure the current chunk's fetch is triggered
       startFetchingChunk(currentIndex);
 
-      // Wait for current chunk's URL to load
       const currentUrl = await fetchPromises[currentIndex]!;
       if (abortController.signal.aborted) return;
 
-      // Pre-fetch next chunk (index + 1) in the background if not already fetching
       if (currentIndex + 1 < totalChunks) {
         startFetchingChunk(currentIndex + 1);
       }
 
-      // Play the current chunk
       const audio = new Audio(currentUrl);
       activeAudio = audio;
 
@@ -421,17 +500,21 @@ export async function speakText(
       currentIndex++;
     }
 
-    // Done with all chunks
     activeAudio = null;
     options?.onDone?.();
   } catch (err: any) {
     if (err.name === 'AbortError') {
       return;
     }
-    console.error('Sequential TTS failed:', err);
-    options?.onError?.(err);
+    console.warn('Edge TTS streaming encountered error, attempting SpeechSynthesis fallback:', err);
+    // Graceful fallback to browser speech synthesis
+    try {
+      speakWithBrowserSynthesis(text, options);
+    } catch (fallbackErr) {
+      console.error('All TTS methods failed:', fallbackErr);
+      options?.onError?.(err);
+    }
   } finally {
-    // Revoke any fetched blob URLs that were not consumed
     blobUrls.forEach((url) => {
       if (url) {
         try {

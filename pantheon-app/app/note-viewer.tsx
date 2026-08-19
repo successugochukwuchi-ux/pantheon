@@ -412,17 +412,8 @@ export default function NoteViewerScreen() {
               allNotesInCourse = notesSnap.docs
                 .map(d => ({ id: d.id, ...d.data() } as Note));
             }
-            allNotesInCourse.sort((a, b) => {
-              const timeA = a.createdAt ? (a.createdAt.seconds ? a.createdAt.seconds * 1000 : new Date(a.createdAt).getTime()) : 0;
-              const timeB = b.createdAt ? (b.createdAt.seconds ? b.createdAt.seconds * 1000 : new Date(b.createdAt).getTime()) : 0;
-              if (timeA && timeB) {
-                return timeA - timeB; // oldest first
-              }
-              if (a.order !== undefined && b.order !== undefined) {
-                return (a.order || 0) - (b.order || 0);
-              }
-              return (a.title || '').localeCompare(b.title || '');
-            });
+            // Arranged in alphabetical order
+            allNotesInCourse.sort((a, b) => (a.title || '').localeCompare(b.title || '', undefined, { sensitivity: 'base' }));
               
             const idx = allNotesInCourse.findIndex(n => n.id === noteId);
             setNoteIndex(idx);

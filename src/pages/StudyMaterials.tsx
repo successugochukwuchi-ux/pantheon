@@ -6,7 +6,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../co
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
 import { Badge } from '../components/ui/badge';
-import { Search, BookOpen, ChevronRight, ArrowLeft, AlertCircle, History, HelpCircle, MessageSquare, Maximize2, CheckCircle2, XCircle, Wand2, Lock } from 'lucide-react';
+import { Search, BookOpen, ChevronRight, ArrowLeft, AlertCircle, History, HelpCircle, MessageSquare, Maximize2, CheckCircle2, XCircle, Wand2, Lock, X } from 'lucide-react';
 import { Course, Note } from '../types';
 import ReactMarkdown from 'react-markdown';
 import remarkMath from 'remark-math';
@@ -25,6 +25,7 @@ import { TextToSpeechReader } from '../components/TextToSpeechReader';
 import { useSearchParams, useNavigate } from 'react-router-dom';
 import { useTitle } from '../hooks/useTitle';
 import { toast } from 'sonner';
+import { searchNote } from '../lib/noteSearch';
 
 import { getFilteredCoursesForStudent } from '../lib/courseFilter';
 
@@ -39,6 +40,7 @@ export default function StudyMaterials() {
   const [selectedCourse, setSelectedCourse] = useState<Course | null>(null);
   const [selectedNote, setSelectedNote] = useState<Note | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
+  const [noteSearchQuery, setNoteSearchQuery] = useState('');
   const [viewingImage, setViewingImage] = useState<string | null>(null);
 
   const isAdmin = profile?.level === '3' || profile?.level === '4' || profile?.level === '5';
@@ -134,6 +136,7 @@ export default function StudyMaterials() {
   useEffect(() => {
     if (!selectedCourse) {
       setNotes([]);
+      setNoteSearchQuery('');
       return;
     }
 
@@ -145,10 +148,10 @@ export default function StudyMaterials() {
 
     getDocs(q).then((snapshot) => {
       const allNotes = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Note));
-      // Filter by type in memory
+      // Filter by type in memory and sort in alphabetical order by note title
       const filtered = allNotes
         .filter(n => n.type === type)
-        .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
+        .sort((a, b) => (a.title || '').localeCompare(b.title || '', undefined, { sensitivity: 'base' }));
       setNotes(filtered);
     }).catch((error) => {
       console.error("Notes fetch error in StudyMaterials:", error);
@@ -377,10 +380,17 @@ export default function StudyMaterials() {
   }
 
   if (selectedCourse) {
+    const searchFilteredNotes = notes
+      .map(note => ({
+        note,
+        searchResult: searchNote(note, noteSearchQuery)
+      }))
+      .filter(item => item.searchResult.matches);
+
     return (
       <div className="space-y-6">
         <div className="flex items-center justify-between">
-          <Button variant="ghost" onClick={() => setSelectedCourse(null)} className="gap-2">
+          <Button variant="ghost" onClick={() => { setSelectedCourse(null); setNoteSearchQuery(''); }} className="gap-2">
             <ArrowLeft className="h-4 w-4" /> Back to Courses
           </Button>
           <Button variant="outline" size="sm" className="gap-2" onClick={() => navigate(`/discussions/${selectedCourse.id}`)}>
@@ -388,19 +398,50 @@ export default function StudyMaterials() {
           </Button>
         </div>
 
-        <div className="flex flex-col gap-2">
-          <h1 className="text-3xl font-bold tracking-tight">{selectedCourse.code} {typeLabels[type]}</h1>
-          <p className="text-muted-foreground">{selectedCourse.title}</p>
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+          <div className="space-y-1">
+            <h1 className="text-3xl font-bold tracking-tight">{selectedCourse.code} {typeLabels[type]}</h1>
+            <p className="text-muted-foreground">{selectedCourse.title} (Alphabetical Order)</p>
+          </div>
+
+          {/* Search within this course and type */}
+          <div className="relative w-full sm:w-80">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+            <Input 
+              placeholder={`Search ${typeLabels[type].toLowerCase()} in ${selectedCourse.code}...`} 
+              className="pl-9 pr-8 h-9 text-sm"
+              value={noteSearchQuery}
+              onChange={(e) => setNoteSearchQuery(e.target.value)}
+            />
+            {noteSearchQuery && (
+              <button
+                onClick={() => setNoteSearchQuery('')}
+                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground p-0.5 rounded-full"
+              >
+                <X className="h-3.5 w-3.5" />
+              </button>
+            )}
+          </div>
         </div>
 
+        {noteSearchQuery && (
+          <div className="flex items-center gap-2 text-xs text-muted-foreground bg-primary/5 border border-primary/20 px-3 py-1.5 rounded-lg">
+            <Search className="h-3.5 w-3.5 text-primary" />
+            <span>
+              Showing {searchFilteredNotes.length} of {notes.length} material{notes.length === 1 ? '' : 's'} in <strong>{selectedCourse.code}</strong> matching "{noteSearchQuery}"
+            </span>
+          </div>
+        )}
+
         <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-          {notes.length > 0 ? (
-            notes.map((note, idx) => {
-              const isLocked = isUnactivatedStudent && idx > 0;
+          {searchFilteredNotes.length > 0 ? (
+            searchFilteredNotes.map(({ note, searchResult }, idx) => {
+              const originalIndex = notes.findIndex(n => n.id === note.id);
+              const isLocked = isUnactivatedStudent && originalIndex > 0;
               return (
                 <Card 
                   key={note.id} 
-                  className={`transition-all relative overflow-hidden ${isLocked ? 'opacity-70 border-amber-500/10 hover:border-amber-500/30' : 'hover:bg-accent cursor-pointer'}`}
+                  className={`transition-all relative overflow-hidden flex flex-col justify-between ${isLocked ? 'opacity-70 border-amber-500/10 hover:border-amber-500/30' : 'hover:bg-accent cursor-pointer'}`}
                   onClick={() => {
                     if (isLocked) {
                       toast.error("This study guide is locked. Please activate your account to gain full access.");
@@ -416,26 +457,49 @@ export default function StudyMaterials() {
                     </div>
                   )}
                   <CardHeader>
-                    <CardTitle className={`text-lg ${isLocked ? 'text-muted-foreground pr-8' : ''}`}>{note.title}</CardTitle>
+                    <div className="flex items-start justify-between gap-2">
+                      <CardTitle className={`text-lg ${isLocked ? 'text-muted-foreground pr-8' : ''}`}>{note.title}</CardTitle>
+                      {noteSearchQuery && searchResult.matchType === 'title' && (
+                        <Badge variant="secondary" className="text-[10px] shrink-0">Title Match</Badge>
+                      )}
+                    </div>
                     <CardDescription>Added on {new Date(note.createdAt).toLocaleDateString()}</CardDescription>
                   </CardHeader>
-                  <CardContent>
-                    <p className="text-sm text-muted-foreground line-clamp-3 font-sans">
-                      {isLocked ? (
-                        <span className="italic">Unlock this study guide and get everything else by buying an activation pin.</span>
-                      ) : (() => {
-                        try {
-                          const blocks = JSON.parse(note.content);
-                          return blocks.find((b: any) => b.type === 'text')?.content.substring(0, 150) || 'Academic material';
-                        } catch (e) {
-                          return note.content.substring(0, 150);
-                        }
-                      })()}
-                    </p>
+                  <CardContent className="space-y-2">
+                    {noteSearchQuery && searchResult.snippet ? (
+                      <div className="text-xs bg-muted/60 p-2.5 rounded-md border border-border/60 text-foreground">
+                        <span className="text-[10px] font-semibold text-primary block mb-0.5 uppercase tracking-wider">Matched content</span>
+                        <p className="line-clamp-3 font-mono text-[11px] leading-relaxed">
+                          {searchResult.snippet}
+                        </p>
+                      </div>
+                    ) : (
+                      <p className="text-sm text-muted-foreground line-clamp-3 font-sans">
+                        {isLocked ? (
+                          <span className="italic">Unlock this study guide and get everything else by buying an activation pin.</span>
+                        ) : (() => {
+                          try {
+                            const blocks = JSON.parse(note.content);
+                            return blocks.find((b: any) => b.type === 'text')?.content.substring(0, 150) || 'Academic material';
+                          } catch (e) {
+                            return note.content.substring(0, 150);
+                          }
+                        })()}
+                      </p>
+                    )}
                   </CardContent>
                 </Card>
               );
             })
+          ) : notes.length > 0 && noteSearchQuery ? (
+            <div className="col-span-full py-12 text-center border rounded-lg bg-muted/50">
+              <Search className="h-12 w-12 mx-auto mb-4 text-muted-foreground" />
+              <h3 className="text-lg font-medium">No matching {typeLabels[type].toLowerCase()} in {selectedCourse.code}</h3>
+              <p className="text-muted-foreground text-sm mt-1">No note in this course mentions "{noteSearchQuery}".</p>
+              <Button variant="outline" size="sm" className="mt-4" onClick={() => setNoteSearchQuery('')}>
+                Clear search
+              </Button>
+            </div>
           ) : (
             <div className="col-span-full py-12 text-center border rounded-lg bg-muted/50">
               <Icon className="h-12 w-12 mx-auto mb-4 text-muted-foreground" />

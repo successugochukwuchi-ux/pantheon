@@ -5,7 +5,7 @@ import { Card, CardContent } from './ui/card';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
 import { Slider } from './ui/slider';
 import { Badge } from './ui/badge';
-import { speakText, stopSpeech, pauseSpeech, resumeSpeech, getDefaultVoice, setDefaultVoice, MICROSOFT_VOICES } from '../lib/ttsService';
+import { speakText, stopSpeech, pauseSpeech, resumeSpeech, getDefaultVoice, setDefaultVoice, unlockAudioContext, MICROSOFT_VOICES } from '../lib/ttsService';
 
 interface TextToSpeechReaderProps {
   noteContent: string;
@@ -298,6 +298,7 @@ export function TextToSpeechReader({ noteContent, noteTitle }: TextToSpeechReade
   }, []);
 
   const startSpeaking = async () => {
+    unlockAudioContext();
     if (!cleanTextRef.current) return;
 
     stopSpeech();

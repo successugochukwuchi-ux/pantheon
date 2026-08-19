@@ -4,6 +4,7 @@ import {
   Text,
   ScrollView,
   TouchableOpacity,
+  TextInput,
   StyleSheet,
   Animated,
   ActivityIndicator,
@@ -55,11 +56,59 @@ interface Course {
 interface Note {
   id: string;
   title: string;
+  content?: string;
   duration?: string;
   completed?: boolean;
   tag?: 'CORE' | 'ADVANCED';
   order?: number;
   createdAt?: any;
+}
+
+function extractNotePlainText(content: string | undefined | null): string {
+  if (!content) return '';
+  try {
+    const blocks = JSON.parse(content);
+    if (Array.isArray(blocks)) {
+      return blocks
+        .map((b: any) => {
+          if (!b) return '';
+          if (typeof b.content === 'string') return b.content;
+          if (b.type === 'quiz' && b.question) return `${b.question} ${Array.isArray(b.options) ? b.options.join(' ') : ''}`;
+          return '';
+        })
+        .filter(Boolean)
+        .join(' ');
+    }
+  } catch {}
+  return content;
+}
+
+function searchCourseNote(topic: Note, queryStr: string): { matches: boolean; snippet: string } {
+  const q = (queryStr || '').trim().toLowerCase();
+  if (!q) return { matches: true, snippet: '' };
+
+  const titleLower = (topic.title || '').toLowerCase();
+  const titleMatches = titleLower.includes(q);
+
+  const plainText = extractNotePlainText(topic.content);
+  const plainTextLower = plainText.toLowerCase();
+  const matchIndex = plainTextLower.indexOf(q);
+
+  if (titleMatches || matchIndex !== -1) {
+    let snippet = '';
+    if (matchIndex !== -1) {
+      const start = Math.max(0, matchIndex - 35);
+      const end = Math.min(plainText.length, matchIndex + q.length + 55);
+      const prefix = start > 0 ? '...' : '';
+      const suffix = end < plainText.length ? '...' : '';
+      snippet = prefix + plainText.substring(start, end).replace(/\s+/g, ' ').trim() + suffix;
+    } else {
+      snippet = `Matched in title: "${topic.title}"`;
+    }
+    return { matches: true, snippet };
+  }
+
+  return { matches: false, snippet: '' };
 }
 
 function ProgressBarDark({ value, s }: { value: number; s: any }) {
@@ -90,6 +139,7 @@ export default function NotesTopicsScreen() {
 
   const { courseId } = useLocalSearchParams<{ courseId: string }>();
   const [filter, setFilter] = useState<'ALL' | 'CORE' | 'ADVANCED'>('ALL');
+  const [searchQuery, setSearchQuery] = useState('');
   
   const [course, setCourse] = useState<Course | null>(null);
   const [topics, setTopics] = useState<Note[]>([]);
@@ -119,6 +169,7 @@ export default function NotesTopicsScreen() {
           fetchedNotes = localNotesData.map(n => ({
             id: n.id,
             title: n.title,
+            content: (n as any).content || '',
             duration: n.duration || '10 mins',
             tag: n.tag || 'CORE',
             order: n.order || 0,
@@ -178,20 +229,11 @@ export default function NotesTopicsScreen() {
           .filter(d => d.data().completed === true)
           .map(d => d.data().targetId);
 
+        // Arranged in alphabetical order
         const notesWithProgress = fetchedNotes.map(n => ({
           ...n,
           completed: completedIds.includes(n.id)
-        })).sort((a, b) => {
-          const timeA = a.createdAt ? (a.createdAt.seconds ? a.createdAt.seconds * 1000 : new Date(a.createdAt).getTime()) : 0;
-          const timeB = b.createdAt ? (b.createdAt.seconds ? b.createdAt.seconds * 1000 : new Date(b.createdAt).getTime()) : 0;
-          if (timeA && timeB) {
-            return timeA - timeB;
-          }
-          if (a.order !== undefined && b.order !== undefined) {
-            return (a.order || 0) - (b.order || 0);
-          }
-          return (a.title || '').localeCompare(b.title || '');
-        });
+        })).sort((a, b) => (a.title || '').localeCompare(b.title || '', undefined, { sensitivity: 'base' }));
 
         setTopics(notesWithProgress);
 
@@ -222,7 +264,13 @@ export default function NotesTopicsScreen() {
   }, [loading, course]);
 
   const completed = topics.filter((t) => t.completed).length;
-  const filtered = filter === 'ALL' ? topics : topics.filter((t) => t.tag === filter);
+  
+  const searchFilteredTopics = useMemo(() => {
+    return topics
+      .filter((t) => filter === 'ALL' || t.tag === filter)
+      .map((t) => ({ topic: t, searchResult: searchCourseNote(t, searchQuery) }))
+      .filter((item) => item.searchResult.matches);
+  }, [topics, filter, searchQuery]);
 
   if (loading) {
     return (
@@ -305,6 +353,33 @@ export default function NotesTopicsScreen() {
           </View>
         </Animated.View>
 
+        {/* Search within this course */}
+        <View style={[s.searchBox, { backgroundColor: C.surface, borderColor: C.border }]}>
+          <Text style={[s.searchIcon, { color: C.inkLight }]}>🔍</Text>
+          <TextInput
+            placeholder={`Search topics in ${course.code}...`}
+            placeholderTextColor={C.inkLight}
+            value={searchQuery}
+            onChangeText={setSearchQuery}
+            style={[s.searchInput, { color: C.ink }]}
+            autoCapitalize="none"
+            autoCorrect={false}
+          />
+          {searchQuery.length > 0 && (
+            <TouchableOpacity onPress={() => setSearchQuery('')} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+              <Text style={[s.searchClear, { color: C.inkLight }]}>✕</Text>
+            </TouchableOpacity>
+          )}
+        </View>
+
+        {searchQuery.trim().length > 0 && (
+          <View style={[s.searchSummary, { backgroundColor: C.surface, borderColor: C.border }]}>
+            <Text style={[s.searchSummaryText, { color: C.inkLight }]}>
+              Found <Text style={{ fontFamily: F.bold, color: C.ink }}>{searchFilteredTopics.length}</Text> of {topics.length} topic{topics.length === 1 ? '' : 's'} in {course.code} mentioning "{searchQuery}"
+            </Text>
+          </View>
+        )}
+
         {/* Filter tabs */}
         <View style={s.filterRow}>
           {(['ALL', 'CORE', 'ADVANCED'] as const).map((f) => (
@@ -319,11 +394,11 @@ export default function NotesTopicsScreen() {
           ))}
         </View>
 
-        <Text style={[s.sectionLabel, { color: C.inkLight }]}>SELECT A TOPIC</Text>
+        <Text style={[s.sectionLabel, { color: C.inkLight }]}>TOPICS (ALPHABETICAL)</Text>
 
         {/* Topic rows */}
-        {filtered.length > 0 ? (
-          filtered.map((topic, i) => {
+        {searchFilteredTopics.length > 0 ? (
+          searchFilteredTopics.map(({ topic, searchResult }, i) => {
             const originalIndex = topics.findIndex(t => t.id === topic.id);
             const isTopicLocked = isUnactivatedStudent && originalIndex > 0;
             return (
@@ -378,6 +453,13 @@ export default function NotesTopicsScreen() {
                         </Text>
                       </View>
                     </View>
+                    {searchQuery.trim().length > 0 && searchResult.snippet ? (
+                      <View style={[s.snippetBox, { backgroundColor: C.bg, borderColor: C.border }]}>
+                        <Text style={[s.snippetText, { color: C.inkLight }]} numberOfLines={2}>
+                          {searchResult.snippet}
+                        </Text>
+                      </View>
+                    ) : null}
                   </View>
                   {isTopicLocked ? (
                     <Text style={{ fontSize: 16, color: C.inkLight, marginRight: 4 }}>🔒</Text>
@@ -388,6 +470,22 @@ export default function NotesTopicsScreen() {
               </Animated.View>
             );
           })
+        ) : topics.length > 0 && searchQuery ? (
+          <View style={{ paddingVertical: 40, alignItems: 'center', paddingHorizontal: 20 }}>
+            <Text style={{ fontSize: 28, marginBottom: 8 }}>🔍</Text>
+            <Text style={{ fontFamily: F.bold, color: C.ink, fontSize: 15, textAlign: 'center' }}>
+              No matching notes in {course.code}
+            </Text>
+            <Text style={{ fontFamily: F.body, color: C.inkLight, fontSize: 13, textAlign: 'center', marginTop: 4 }}>
+              No note mentions "{searchQuery}".
+            </Text>
+            <TouchableOpacity 
+              onPress={() => setSearchQuery('')}
+              style={{ marginTop: 14, paddingHorizontal: 16, paddingVertical: 8, backgroundColor: C.surface, borderRadius: 20, borderWidth: 1, borderColor: C.border }}
+            >
+              <Text style={{ fontFamily: F.bold, color: C.ink, fontSize: 12 }}>Clear Search</Text>
+            </TouchableOpacity>
+          </View>
         ) : (
           <View style={{ paddingVertical: 40, alignItems: 'center' }}>
             <Text style={{ fontFamily: F.medium, color: C.inkLight }}>No topics found for this course.</Text>
@@ -421,6 +519,39 @@ const createStyles = (C: any) => StyleSheet.create({
     transform: [{ rotate: '45deg' }],
   },
   dot: { width: 4, height: 4, borderRadius: 2 },
+
+  // Search box
+  searchBox: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderWidth: 1,
+    borderRadius: 14,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    marginTop: 14,
+  },
+  searchIcon: { fontSize: 14, marginRight: 8 },
+  searchInput: { flex: 1, fontFamily: F.body, fontSize: 13, padding: 0 },
+  searchClear: { fontSize: 14, paddingLeft: 8, fontWeight: 'bold' },
+  searchSummary: {
+    borderWidth: 1,
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    marginTop: 8,
+  },
+  searchSummaryText: { fontFamily: F.body, fontSize: 11 },
+  snippetBox: {
+    marginTop: 6,
+    padding: 6,
+    borderRadius: 6,
+    borderWidth: 1,
+  },
+  snippetText: {
+    fontFamily: F.body,
+    fontSize: 10.5,
+    lineHeight: 14,
+  },
 
   // Hero
   heroCard: {
