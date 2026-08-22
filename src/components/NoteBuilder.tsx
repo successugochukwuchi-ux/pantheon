@@ -1242,6 +1242,7 @@ const applyAccentShortcuts = (text: string): string => {
 interface NoteBuilderProps {
   initialContent?: string;
   onChange: (content: string) => void;
+  onTitleChange?: (title: string) => void;
   mode?: 'create' | 'edit';
 }
 
@@ -1274,7 +1275,7 @@ export const NoteRenderer: React.FC<{ content: string }> = ({ content }) => {
   );
 };
 
-export const NoteBuilder: React.FC<NoteBuilderProps> = ({ initialContent, onChange, mode = 'create' }) => {
+export const NoteBuilder: React.FC<NoteBuilderProps> = ({ initialContent, onChange, onTitleChange, mode = 'create' }) => {
   const [blocks, setBlocks] = useState<NoteBlock[]>(() => {
     if (initialContent) {
       try {
@@ -1310,6 +1311,22 @@ export const NoteBuilder: React.FC<NoteBuilderProps> = ({ initialContent, onChan
   });
 
   useEffect(() => {
+    if (initialContent && onTitleChange) {
+      try {
+        const parsed = JSON.parse(initialContent);
+        if (Array.isArray(parsed)) {
+          const firstH1 = parsed.find((b: any) => b.type === 'h1');
+          if (firstH1 && firstH1.content && firstH1.content.trim()) {
+            onTitleChange(firstH1.content.trim());
+          }
+        }
+      } catch (e) {
+        // Not JSON
+      }
+    }
+  }, [initialContent, onTitleChange]);
+
+  useEffect(() => {
     const unsub = onSnapshot(doc(db, 'system', 'magicNote'), (snapshot) => {
       if (snapshot.exists()) {
         const data = snapshot.data() as AIConfig;
@@ -1337,7 +1354,13 @@ export const NoteBuilder: React.FC<NoteBuilderProps> = ({ initialContent, onChan
   const updateBlocks = useCallback((newBlocks: NoteBlock[]) => {
     setBlocks(newBlocks);
     onChange(JSON.stringify(newBlocks));
-  }, [onChange]);
+    if (onTitleChange) {
+      const firstH1 = newBlocks.find(b => b.type === 'h1');
+      if (firstH1 && firstH1.content !== undefined) {
+        onTitleChange(firstH1.content.trim());
+      }
+    }
+  }, [onChange, onTitleChange]);
 
   const handleDragEnd = (event: DragEndEvent) => {
     const { active, over } = event;

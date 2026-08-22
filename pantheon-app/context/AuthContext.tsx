@@ -213,6 +213,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         }
 
         const userData = userSnap?.exists() ? userSnap.data() : {};
+        const isLevel5 = userData.level === '5' || user.email === 'successugochukwuchi@gmail.com';
         let devices = userData.devices || [];
         const currentDevices = devices.filter((d: any) => d.semester === currentSemester);
 
@@ -223,7 +224,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           // Device has stored UUID for this user account
           const matched = currentDevices.find((d: any) => d.id === deviceId);
           if (!matched) {
-            if (currentDevices.length >= 2) {
+            if (!isLevel5 && currentDevices.length >= 2) {
               setProfile(null);
               signOut(auth).catch(() => {});
               Alert.alert(
@@ -249,7 +250,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           }
         } else {
           // First time on this device for this user account
-          if (currentDevices.length >= 2) {
+          if (!isLevel5 && currentDevices.length >= 2) {
             setProfile(null);
             signOut(auth).catch(() => {});
             Alert.alert(
@@ -276,10 +277,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         unsubscribeProfile = onSnapshot(doc(db, 'users', user.uid), async (snapshot) => {
           if (snapshot.exists()) {
             const data = snapshot.data();
+            const isUserLevel5 = data.level === '5' || user.email === 'successugochukwuchi@gmail.com';
             const liveDevices = (data.devices || []).filter((d: any) => d.semester === currentSemester);
             
-            // Disconnect ONLY if activeDeviceId was explicitly removed from liveDevices
-            const stillRegistered = liveDevices.some((d: any) => d.id === activeDeviceId);
+            // Disconnect ONLY if activeDeviceId was explicitly removed from liveDevices (exempt L5)
+            const stillRegistered = isUserLevel5 || liveDevices.some((d: any) => d.id === activeDeviceId);
 
             if (!stillRegistered) {
               setProfile(null);

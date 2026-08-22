@@ -160,6 +160,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         }
 
         const userData = userSnap?.exists() ? userSnap.data() : {};
+        const isLevel5 = userData.level === '5' || user.email === 'successugochukwuchi@gmail.com';
         let devices = userData.devices || [];
         const currentDevices = devices.filter((d: any) => d.semester === currentSemester);
 
@@ -169,7 +170,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         if (deviceId) {
           const matched = currentDevices.find((d: any) => d.id === deviceId);
           if (!matched) {
-            if (currentDevices.length >= 2) {
+            if (!isLevel5 && currentDevices.length >= 2) {
               setProfile(null);
               firebaseSignOut(auth).catch(() => {});
               toast.error(`Device Limit Reached: Your account has reached the max of 2 devices for the current semester (${currentSemester}). Contact an admin for ${userData.At || 'futo'} to resolve this.`);
@@ -190,7 +191,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             await updateDoc(doc(db, 'users', user.uid), { devices: currentDevices }).catch(() => {});
           }
         } else {
-          if (currentDevices.length >= 2) {
+          if (!isLevel5 && currentDevices.length >= 2) {
             setProfile(null);
             firebaseSignOut(auth).catch(() => {});
             toast.error(`Device Limit Reached: Your account has reached the max of 2 devices for the current semester (${currentSemester}). Contact an admin for ${userData.At || 'futo'} to resolve this.`);
@@ -215,9 +216,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         unsubscribeProfile = onSnapshot(doc(db, 'users', user.uid), async (snapshot) => {
           if (snapshot.exists()) {
             const data = snapshot.data() as UserProfile;
+            const isUserLevel5 = data.level === '5' || user.email === 'successugochukwuchi@gmail.com';
             const liveDevices = (data.devices || []).filter((d: any) => d.semester === currentSemester);
             
-            const stillRegistered = liveDevices.some((d: any) => d.id === activeDeviceId);
+            const stillRegistered = isUserLevel5 || liveDevices.some((d: any) => d.id === activeDeviceId);
 
             if (!stillRegistered) {
               setProfile(null);

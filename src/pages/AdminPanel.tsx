@@ -246,7 +246,12 @@ export default function AdminPanel() {
     title: string;
     content: string;
     type: Note['type'];
-  }>({ courseId: '', title: '', content: '', type: 'lecture' });
+  }>(() => ({ 
+    courseId: localStorage.getItem('colearn_admin_last_note_course_id') || '', 
+    title: '', 
+    content: '', 
+    type: 'lecture' 
+  }));
   const [createNoteKey, setCreateNoteKey] = useState(0);
   const [noteToDelete, setNoteToDelete] = useState<string | null>(null);
   const [expandedSemesters, setExpandedSemesters] = useState<Record<string, boolean>>({
@@ -935,7 +940,7 @@ export default function AdminPanel() {
       await updateStatCount('totalNotes', 1);
 
       toast.success('Note created successfully', { id: toastId });
-      setNewNote({ courseId: '', title: '', content: '', type: 'lecture' });
+      setNewNote(prev => ({ courseId: prev.courseId, title: '', content: '', type: prev.type || 'lecture' }));
       setCreateNoteKey(prev => prev + 1);
     } catch (error: any) {
       toast.error("Failed to create note", { id: toastId });
@@ -3237,7 +3242,13 @@ export default function AdminPanel() {
                 <CardContent className="grid gap-4 md:grid-cols-2">
                   <div className="space-y-2">
                     <Label>Course</Label>
-                    <Select value={newNote.courseId} onValueChange={(v) => setNewNote({...newNote, courseId: v})}>
+                    <Select 
+                      value={newNote.courseId} 
+                      onValueChange={(v) => {
+                        localStorage.setItem('colearn_admin_last_note_course_id', v);
+                        setNewNote(prev => ({ ...prev, courseId: v }));
+                      }}
+                    >
                       <SelectTrigger><SelectValue placeholder="Select Course" /></SelectTrigger>
                       <SelectContent>
                         {courses.filter(course => profile?.level === '4' || !course.disabled).map(course => (
@@ -3272,7 +3283,12 @@ export default function AdminPanel() {
                     <NoteBuilder 
                       key={`create-note-${createNoteKey}`}
                       initialContent={newNote.content} 
-                      onChange={(content) => setNewNote({...newNote, content})} 
+                      onChange={(content) => setNewNote(prev => ({ ...prev, content }))} 
+                      onTitleChange={(title) => {
+                        if (title) {
+                          setNewNote(prev => ({ ...prev, title }));
+                        }
+                      }}
                       mode="create"
                     />
                   </div>
@@ -3575,7 +3591,12 @@ export default function AdminPanel() {
                       <NoteBuilder 
                         key={noteToEdit?.id || 'edit-note'}
                         initialContent={editNote.content} 
-                        onChange={(content) => setEditNote({...editNote, content})} 
+                        onChange={(content) => setEditNote(prev => ({ ...prev, content }))} 
+                        onTitleChange={(title) => {
+                          if (title) {
+                            setEditNote(prev => ({ ...prev, title }));
+                          }
+                        }}
                         mode="edit"
                       />
                     </div>

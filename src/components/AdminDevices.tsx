@@ -72,7 +72,7 @@ export default function AdminDevices() {
           </CardTitle>
           <CardDescription>
             Forcefully disconnect devices from a user's account in case of loss or theft. 
-            Users are limited to 2 devices per semester.
+            Standard users are limited to 2 devices per semester (Level 5 Super Admins have unlimited devices).
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-6">
@@ -93,9 +93,16 @@ export default function AdminDevices() {
 
           {userDoc && (
             <div className="space-y-4 pt-4 border-t">
-              <div>
-                <h3 className="font-semibold text-lg">{userDoc.name || userDoc.username || 'Unknown User'}</h3>
-                <p className="text-sm text-muted-foreground">{userDoc.email} • {userDoc.studentId}</p>
+              <div className="flex items-center justify-between">
+                <div>
+                  <h3 className="font-semibold text-lg">{userDoc.name || userDoc.username || 'Unknown User'}</h3>
+                  <p className="text-sm text-muted-foreground">{userDoc.email} • {userDoc.studentId}</p>
+                </div>
+                {userDoc.level === '5' && (
+                  <span className="text-xs px-2.5 py-1 rounded-full font-medium bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20">
+                    Level 5 Overseer (Unlimited Devices)
+                  </span>
+                )}
               </div>
               
               <div className="space-y-3">
