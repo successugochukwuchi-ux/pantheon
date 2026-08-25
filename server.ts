@@ -251,6 +251,58 @@ async function startServer() {
     }
   });
 
+  // Helper function to normalize OpenAI-compatible Base URLs
+  function normalizeOpenAIBaseUrl(rawUrl?: string, provider?: string): string {
+    let url = (rawUrl || '').trim();
+    if (!url) {
+      if (provider === 'groq') return 'https://api.groq.com/openai/v1';
+      if (provider === 'openrouter') return 'https://openrouter.ai/api/v1';
+      if (provider === 'openai' || provider === 'custom') return 'https://api.openai.com/v1';
+      return 'https://api.openai.com/v1';
+    }
+
+    // Strip trailing slashes
+    url = url.replace(/\/+$/, '');
+
+    // Upgrade insecure HTTP to HTTPS for remote domains
+    if (url.startsWith('http://') && !url.includes('localhost') && !url.includes('127.0.0.1') && !url.includes('192.168.') && !url.includes('10.') && !url.includes('172.16.')) {
+      url = 'https://' + url.substring(7);
+    }
+
+    // Strip full endpoint suffixes if mistakenly pasted
+    if (url.endsWith('/chat/completions')) {
+      url = url.replace(/\/chat\/completions$/, '');
+    }
+
+    // Provider specific canonical paths
+    if (/^https?:\/\/api\.openai\.com$/i.test(url)) {
+      url = 'https://api.openai.com/v1';
+    }
+    if (/^https?:\/\/api\.groq\.com$/i.test(url) || /^https?:\/\/api\.groq\.com\/v1$/i.test(url)) {
+      url = 'https://api.groq.com/openai/v1';
+    }
+    if (/^https?:\/\/openrouter\.ai$/i.test(url) || /^https?:\/\/openrouter\.ai\/v1$/i.test(url) || /^https?:\/\/openrouter\.ai\/api$/i.test(url)) {
+      url = 'https://openrouter.ai/api/v1';
+    }
+    if (/^https?:\/\/api\.deepseek\.com$/i.test(url)) {
+      url = 'https://api.deepseek.com/v1';
+    }
+    if (/^https?:\/\/api\.together\.xyz$/i.test(url) || /^https?:\/\/api\.together\.ai$/i.test(url)) {
+      url = 'https://api.together.xyz/v1';
+    }
+    if (/^https?:\/\/api\.x\.ai$/i.test(url)) {
+      url = 'https://api.x.ai/v1';
+    }
+    if (/^https?:\/\/api\.mistral\.ai$/i.test(url)) {
+      url = 'https://api.mistral.ai/v1';
+    }
+    if (/^https?:\/\/api\.perplexity\.ai$/i.test(url)) {
+      url = 'https://api.perplexity.ai';
+    }
+
+    return url.replace(/\/+$/, '');
+  }
+
   app.post("/api/hermes/chat", async (req, res) => {
     try {
       const { messages, noteContent, config } = req.body;
@@ -285,33 +337,23 @@ async function startServer() {
 
       const systemPrompt = {
         role: 'system',
-        content: `You are Hermes, a hyper-focused academic assistant designed to help the user query their study notes.
+        content: `You are Hermes, a friendly, intelligent, and polite academic assistant on CoLearn designed to help students study, understand, and query their lecture notes.
 
-CRITICAL REFUSAL MANDATES:
-1. You can ONLY answer questions that can be directly and objectively answered using the provided "STUDY NOTE CONTENT" below.
-2. If the user's latest question is NOT fully and directly addressed in the provided STUDY NOTE CONTENT, or if they ask general knowledge questions, language translation questions, programming questions, or questions about yourself (who you are, your model, etc.), you MUST decline.
-3. In such cases of off-topic or unanswerable queries, you MUST respond EXACTLY with the following sentence and nothing else:
-"I can only assist you with questions directly related to this note."
-4. Do NOT translate languages, do NOT answer in French unless the study note is explicitly about the French language, and do NOT make up information.
-5. Use LaTeX for ALL mathematical formulas or scientific notations (e.g., $E=mc^2$ or \\frac{a}{b}).
-6. Keep all answers highly concise, factual, and strictly relevant.
+CORE CAPABILITIES & GUIDELINES:
+1. GREETINGS & COURTESY: Always respond warmly, politely, and helpfully to user greetings (e.g. "hi", "hello", "good day", "how are you?") and pleasantries. Welcome the student and express readiness to assist them with their note.
+2. ABOUT HERMES: Answer questions about yourself clearly, accurately, and politely. You are Hermes, the dedicated AI study companion on CoLearn, designed to help students explore, understand, summarize, and master their lecture notes and academic materials.
+3. NOTE INQUIRIES & ACADEMIC HELP: Answer questions about the provided "STUDY NOTE CONTENT" below. Explain, summarize, simplify, or clarify the concepts, definitions, examples, and details found in the note.
+4. MATHEMATICAL & SCIENTIFIC NOTATION: Use LaTeX for mathematical formulas, equations, or scientific notations (e.g., $E=mc^2$ or \\frac{a}{b}).
+5. BOUNDARIES FOR UNRELATED TOPICS: You should only answer questions about yourself, user greetings, and this study note. If the user asks about completely unrelated topics (such as general entertainment, unrelated coding, pop culture, or unrelated news), politely explain that you are dedicated to helping them with this note and invite them to ask questions about the current topic.
+6. Keep your explanations clear, educational, well-formatted, and helpful.
 
 STUDY NOTE CONTENT:
 ${truncatedNote}
 `
       };
 
-      // Determine base URL
-      let rawBaseUrl = config?.baseUrl ? config.baseUrl.trim().replace(/\/+$/, '') : '';
-
-      if (!rawBaseUrl) {
-        if (provider === 'groq') rawBaseUrl = 'https://api.groq.com/openai/v1';
-        else if (provider === 'openrouter') rawBaseUrl = 'https://openrouter.ai/api/v1';
-        else if (provider === 'openai' || provider === 'custom') rawBaseUrl = 'https://api.openai.com/v1';
-      }
-
-      // ─── GOOGLE GEMINI (Direct REST API) ──────────────────────────────────────────
-      if (provider === 'gemini' && !rawBaseUrl) {
+      // ─── GOOGLE GEMINI (Direct REST API when no custom Base URL is set) ────────────
+      if (provider === 'gemini' && !config?.baseUrl) {
         if (!apiKey) {
           return res.status(400).json({ error: 'Google Gemini Chat AI is not configured. Please set an API Key in the Admin Panel.' });
         }
@@ -344,45 +386,78 @@ ${truncatedNote}
       }
 
       // ─── OPENAI-COMPATIBLE ENDPOINT (Groq, OpenRouter, OpenAI, Custom, etc.) ──────
-      if (rawBaseUrl.endsWith('/chat/completions')) {
-        rawBaseUrl = rawBaseUrl.replace(/\/chat\/completions$/, '');
-      }
-      const finalEndpoint = `${rawBaseUrl}/chat/completions`;
+      const normalizedBaseUrl = normalizeOpenAIBaseUrl(config?.baseUrl, provider);
+      let primaryEndpoint = `${normalizedBaseUrl}/chat/completions`;
 
       const headers: Record<string, string> = {
         'Content-Type': 'application/json',
+        'Accept': 'application/json',
+        'User-Agent': 'CoLearn-Hermes-AI/1.0',
       };
 
       if (apiKey) {
         headers['Authorization'] = `Bearer ${apiKey}`;
       }
 
-      if (provider === 'openrouter') {
+      if (provider === 'openrouter' || primaryEndpoint.includes('openrouter.ai')) {
         headers['HTTP-Referer'] = req.headers.origin || 'https://ais-dev-iuwo2zt3vdgdkwbrhidmyy-184499856098.europe-west3.run.app';
         headers['X-Title'] = 'Hermes Academic Assistant';
       }
 
-      const response = await fetch(finalEndpoint, {
+      const payload = {
+        model: model,
+        messages: [systemPrompt, ...slicedMessages],
+      };
+
+      let response = await fetch(primaryEndpoint, {
         method: 'POST',
         headers,
-        body: JSON.stringify({
-          model: model,
-          messages: [systemPrompt, ...slicedMessages],
-        }),
+        body: JSON.stringify(payload),
       });
 
+      // Automatic fallback retry for 404/405 (Method Not Allowed / Not Found)
+      // e.g. If url is https://server.com and needed /v1/chat/completions, or if url had /v1 and needed /chat/completions
+      if (!response.ok && (response.status === 404 || response.status === 405)) {
+        let fallbackEndpoint: string | null = null;
+        if (!normalizedBaseUrl.endsWith('/v1') && !normalizedBaseUrl.includes('/v1/')) {
+          fallbackEndpoint = `${normalizedBaseUrl}/v1/chat/completions`;
+        } else if (normalizedBaseUrl.endsWith('/v1')) {
+          fallbackEndpoint = `${normalizedBaseUrl.replace(/\/v1$/, '')}/chat/completions`;
+        }
+
+        if (fallbackEndpoint && fallbackEndpoint !== primaryEndpoint) {
+          console.warn(`Hermes primary endpoint ${primaryEndpoint} returned ${response.status}. Retrying fallback: ${fallbackEndpoint}`);
+          const fallbackRes = await fetch(fallbackEndpoint, {
+            method: 'POST',
+            headers,
+            body: JSON.stringify(payload),
+          });
+          if (fallbackRes.ok) {
+            response = fallbackRes;
+            primaryEndpoint = fallbackEndpoint;
+          }
+        }
+      }
+
       if (!response.ok) {
-        const errData = await response.json().catch(() => ({}));
-        const errInfo = errData.error?.error || errData.error || errData;
-        const errMsg = errInfo.message || `Failed to connect to Hermes via ${provider}`;
-        const errCode = errInfo.code || response.status;
+        const rawText = await response.text().catch(() => '');
+        let errInfo: any = {};
+        try {
+          errInfo = JSON.parse(rawText);
+        } catch {
+          errInfo = { message: rawText || `HTTP ${response.status} from AI endpoint` };
+        }
+
+        const nestedErr = errInfo.error?.error || errInfo.error || errInfo;
+        const errMsg = typeof nestedErr === 'string' ? nestedErr : nestedErr.message || `Failed to connect to Hermes via ${provider}`;
+        const errCode = nestedErr.code || response.status;
         
         console.error("Hermes Proxy Chat Error Details:", {
           status: response.status,
           code: errCode,
-          error: errData,
+          error: errInfo,
           provider,
-          endpoint: finalEndpoint
+          endpoint: primaryEndpoint
         });
         return res.status(response.status).json({ error: `${errMsg} (Code: ${errCode})` });
       }

@@ -1549,6 +1549,29 @@ export default function AdminPanel() {
       if (formattedBaseUrl.endsWith('/chat/completions')) {
         formattedBaseUrl = formattedBaseUrl.replace(/\/chat\/completions$/, '');
       }
+      if (/^https?:\/\/api\.openai\.com$/i.test(formattedBaseUrl)) {
+        formattedBaseUrl = 'https://api.openai.com/v1';
+      }
+      if (/^https?:\/\/api\.groq\.com$/i.test(formattedBaseUrl) || /^https?:\/\/api\.groq\.com\/v1$/i.test(formattedBaseUrl)) {
+        formattedBaseUrl = 'https://api.groq.com/openai/v1';
+      }
+      if (/^https?:\/\/openrouter\.ai$/i.test(formattedBaseUrl) || /^https?:\/\/openrouter\.ai\/v1$/i.test(formattedBaseUrl) || /^https?:\/\/openrouter\.ai\/api$/i.test(formattedBaseUrl)) {
+        formattedBaseUrl = 'https://openrouter.ai/api/v1';
+      }
+      if (/^https?:\/\/api\.deepseek\.com$/i.test(formattedBaseUrl)) {
+        formattedBaseUrl = 'https://api.deepseek.com/v1';
+      }
+      if (/^https?:\/\/api\.together\.xyz$/i.test(formattedBaseUrl) || /^https?:\/\/api\.together\.ai$/i.test(formattedBaseUrl)) {
+        formattedBaseUrl = 'https://api.together.xyz/v1';
+      }
+      if (/^https?:\/\/api\.x\.ai$/i.test(formattedBaseUrl)) {
+        formattedBaseUrl = 'https://api.x.ai/v1';
+      }
+      if (/^https?:\/\/api\.mistral\.ai$/i.test(formattedBaseUrl)) {
+        formattedBaseUrl = 'https://api.mistral.ai/v1';
+      }
+      formattedBaseUrl = formattedBaseUrl.replace(/\/+$/, '');
+
       await setDoc(doc(db, 'system', 'hermes'), {
         ...editAI,
         baseUrl: formattedBaseUrl,

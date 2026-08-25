@@ -13,6 +13,12 @@ export const MICROSOFT_VOICES: TTSVoice[] = [
   { id: 'en-GB-RyanNeural', name: 'Ryan (UK Male - Natural)', lang: 'en-GB', gender: 'Male' },
   { id: 'en-NG-EzinneNeural', name: 'Ezinne (Nigeria Female - Natural)', lang: 'en-NG', gender: 'Female' },
   { id: 'en-NG-AbeoNeural', name: 'Abeo (Nigeria Male - Natural)', lang: 'en-NG', gender: 'Male' },
+  { id: 'en-US-ChristopherNeural', name: 'Christopher (US Male - News/Academic)', lang: 'en-US', gender: 'Male' },
+  { id: 'en-US-MichelleNeural', name: 'Michelle (US Female - Conversational)', lang: 'en-US', gender: 'Female' },
+  { id: 'en-AU-NatashaNeural', name: 'Natasha (Australia Female - Natural)', lang: 'en-AU', gender: 'Female' },
+  { id: 'en-IN-NeerjaNeural', name: 'Neerja (India Female - Natural)', lang: 'en-IN', gender: 'Female' },
+  { id: 'en-KE-AsiliaNeural', name: 'Asilia (Kenya Female - Natural)', lang: 'en-KE', gender: 'Female' },
+  { id: 'en-ZA-LeahNeural', name: 'Leah (South Africa Female - Natural)', lang: 'en-ZA', gender: 'Female' },
 ];
 
 const VOICE_STORE_KEY = 'colearn_default_voice';
@@ -21,18 +27,41 @@ let currentAbortController: AbortController | null = null;
 let isAudioUnlocked = false;
 
 /**
- * Prime audio element on user click to comply with browser autoplay policies.
+ * Pre-created and unlocked audio element to bypass Chrome/Safari/Firefox autoplay restrictions
+ */
+function getOrCreateAudioElement(): HTMLAudioElement {
+  if (typeof window === 'undefined') {
+    throw new Error('Audio element only available in browser environment');
+  }
+  if (!activeAudio) {
+    activeAudio = new Audio();
+    activeAudio.preload = 'auto';
+    // Preserve volume settings
+    activeAudio.volume = 1.0;
+  }
+  return activeAudio;
+}
+
+/**
+ * Prime audio element on user click to comply with browser autoplay policies across Chrome, Safari, Firefox and Edge.
  */
 export function unlockAudioContext(): void {
-  if (isAudioUnlocked || typeof window === 'undefined') return;
+  if (typeof window === 'undefined') return;
   try {
-    const dummyAudio = new Audio();
-    dummyAudio.src = 'data:audio/wav;base64,UklGRigAAABXQVZFZm10IBIAAAABAAEARKwAAIhYAQACABAAAABkYXRhAgAAAAEA';
-    dummyAudio.volume = 0.001;
-    dummyAudio.play().then(() => {
-      dummyAudio.pause();
-      isAudioUnlocked = true;
-    }).catch(() => {});
+    const audio = getOrCreateAudioElement();
+    if (!isAudioUnlocked) {
+      audio.src = 'data:audio/wav;base64,UklGRigAAABXQVZFZm10IBIAAAABAAEARKwAAIhYAQACABAAAABkYXRhAgAAAAEA';
+      audio.volume = 0.01;
+      audio.play().then(() => {
+        audio.pause();
+        audio.currentTime = 0;
+        audio.volume = 1.0;
+        isAudioUnlocked = true;
+      }).catch(() => {
+        // Even if immediate play promise is pending, element is primed
+        isAudioUnlocked = true;
+      });
+    }
   } catch {}
 }
 
@@ -60,7 +89,6 @@ export function stopSpeech(): void {
       activeAudio.currentTime = 0;
       activeAudio.src = '';
     } catch {}
-    activeAudio = null;
   }
   if (typeof window !== 'undefined' && window.speechSynthesis) {
     try {
@@ -78,7 +106,7 @@ export function pauseSpeech(): void {
 }
 
 export function resumeSpeech(): void {
-  if (activeAudio && activeAudio.paused) {
+  if (activeAudio && activeAudio.paused && activeAudio.src) {
     activeAudio.play().catch((err) => console.error('Resume playback error:', err));
   } else if (typeof window !== 'undefined' && window.speechSynthesis && window.speechSynthesis.paused) {
     window.speechSynthesis.resume();
@@ -86,7 +114,7 @@ export function resumeSpeech(): void {
 }
 
 export function isSpeechPaused(): boolean {
-  if (activeAudio) return activeAudio.paused;
+  if (activeAudio && activeAudio.src) return activeAudio.paused;
   if (typeof window !== 'undefined' && window.speechSynthesis) return window.speechSynthesis.paused;
   return false;
 }
@@ -143,6 +171,9 @@ function splitTextIntoChunks(text: string, maxChunkLength = 1200): string[] {
   return chunks.length > 0 ? chunks : [text];
 }
 
+/**
+ * Robust fetch for TTS chunks with automatic multi-endpoint fallback
+ */
 async function fetchChunkAudio(
   text: string,
   voice: string,
@@ -150,52 +181,63 @@ async function fetchChunkAudio(
   signal: AbortSignal,
   onPreparing?: (progressPercent: number) => void
 ): Promise<string> {
-  const response = await fetch('/api/tts', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ text, voice, rate }),
-    signal,
-  });
+  const backendEndpoints = [
+    '/api/tts',
+    'https://colearn-backend-tzo9.onrender.com/api/tts'
+  ];
 
-  if (!response.ok) {
-    const errorData = await response.json().catch(() => ({}));
-    throw new Error(errorData.error || `Server responded with status ${response.status}`);
-  }
+  let lastError: any = null;
 
-  const chunks: Uint8Array[] = [];
-  let receivedBytes = 0;
-  const textLength = text.length;
-  const estimatedTotalBytes = Math.max(6000, textLength * 450);
+  for (const endpoint of backendEndpoints) {
+    if (signal.aborted) throw new DOMException('Aborted', 'AbortError');
 
-  if (response.body) {
-    const reader = response.body.getReader();
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      if (value) {
-        chunks.push(value);
-        receivedBytes += value.length;
-        if (onPreparing) {
-          const prepPercent = Math.min(98, Math.round((receivedBytes / estimatedTotalBytes) * 100));
-          onPreparing(prepPercent);
+    // 1. Try POST request with JSON
+    try {
+      if (onPreparing) onPreparing(15);
+      const response = await fetch(endpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text, voice, rate }),
+        signal,
+      });
+
+      if (response.ok) {
+        if (onPreparing) onPreparing(60);
+        const blob = await response.blob();
+        if (blob && blob.size > 100) {
+          if (onPreparing) onPreparing(100);
+          return URL.createObjectURL(blob);
         }
       }
+    } catch (err: any) {
+      if (err.name === 'AbortError') throw err;
+      lastError = err;
     }
-  } else {
-    const arrayBuffer = await response.arrayBuffer();
-    chunks.push(new Uint8Array(arrayBuffer));
+
+    // 2. Try GET request with URL params as fallback
+    try {
+      const getUrl = `${endpoint}?text=${encodeURIComponent(text)}&voice=${encodeURIComponent(voice)}${rate ? `&rate=${encodeURIComponent(rate)}` : ''}`;
+      if (onPreparing) onPreparing(35);
+      const response = await fetch(getUrl, {
+        method: 'GET',
+        signal,
+      });
+
+      if (response.ok) {
+        if (onPreparing) onPreparing(80);
+        const blob = await response.blob();
+        if (blob && blob.size > 100) {
+          if (onPreparing) onPreparing(100);
+          return URL.createObjectURL(blob);
+        }
+      }
+    } catch (err: any) {
+      if (err.name === 'AbortError') throw err;
+      lastError = err;
+    }
   }
 
-  if (signal.aborted) {
-    throw new DOMException('Aborted', 'AbortError');
-  }
-
-  if (chunks.length === 0) {
-    throw new Error('Received 0 bytes from TTS endpoint');
-  }
-
-  const blob = new Blob(chunks, { type: 'audio/mpeg' });
-  return URL.createObjectURL(blob);
+  throw lastError || new Error('Failed to generate natural TTS audio from available servers');
 }
 
 /**
@@ -453,7 +495,8 @@ export async function speakText(
         startFetchingChunk(currentIndex + 1);
       }
 
-      const audio = new Audio(currentUrl);
+      const audio = getOrCreateAudioElement();
+      audio.src = currentUrl;
       activeAudio = audio;
 
       if (currentIndex === 0) {

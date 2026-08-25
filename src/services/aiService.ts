@@ -258,7 +258,16 @@ export async function chatWithHermes(messages: ChatMessage[], noteContent: strin
 
     if (!response.ok) {
       const errData = await response.json().catch(() => ({}));
-      const errMsg = errData?.error || `Proxy server error (${response.status})`;
+      let errMsg = '';
+      if (typeof errData?.error === 'string') {
+        errMsg = errData.error;
+      } else if (typeof errData?.error?.message === 'string') {
+        errMsg = errData.error.message;
+      } else if (typeof errData?.message === 'string') {
+        errMsg = errData.message;
+      } else {
+        errMsg = `Hermes AI error (${response.status})`;
+      }
       throw new Error(errMsg);
     }
 

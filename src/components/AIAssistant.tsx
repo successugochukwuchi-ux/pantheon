@@ -201,9 +201,14 @@ export function AIAssistant({ noteContent, noteTitle }: AIAssistantProps) {
           size="icon"
           className="h-14 w-14 rounded-full shadow-lg ring-4 ring-primary/20"
           onClick={() => {
-            setIsOpen(true);
-            setIsMinimized(false);
+            if (isOpen) {
+              setIsOpen(false);
+            } else {
+              setIsOpen(true);
+              setIsMinimized(false);
+            }
           }}
+          aria-label={isOpen ? "Close Hermes Assistant" : "Open Hermes Assistant"}
         >
           <Bird className="h-7 w-7" />
         </Button>

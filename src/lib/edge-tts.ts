@@ -15,6 +15,12 @@ export const MICROSOFT_VOICES = [
   { id: 'en-GB-RyanNeural', name: 'Ryan (UK Male - Natural)', lang: 'en-GB', gender: 'Male' },
   { id: 'en-NG-EzinneNeural', name: 'Ezinne (Nigeria Female - Natural)', lang: 'en-NG', gender: 'Female' },
   { id: 'en-NG-AbeoNeural', name: 'Abeo (Nigeria Male - Natural)', lang: 'en-NG', gender: 'Male' },
+  { id: 'en-US-ChristopherNeural', name: 'Christopher (US Male - News/Academic)', lang: 'en-US', gender: 'Male' },
+  { id: 'en-US-MichelleNeural', name: 'Michelle (US Female - Conversational)', lang: 'en-US', gender: 'Female' },
+  { id: 'en-AU-NatashaNeural', name: 'Natasha (Australia Female - Natural)', lang: 'en-AU', gender: 'Female' },
+  { id: 'en-IN-NeerjaNeural', name: 'Neerja (India Female - Natural)', lang: 'en-IN', gender: 'Female' },
+  { id: 'en-KE-AsiliaNeural', name: 'Asilia (Kenya Female - Natural)', lang: 'en-KE', gender: 'Female' },
+  { id: 'en-ZA-LeahNeural', name: 'Leah (South Africa Female - Natural)', lang: 'en-ZA', gender: 'Female' },
 ];
 
 // In-memory TTS audio cache: Key -> Buffer
