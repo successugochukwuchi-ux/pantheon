@@ -24,6 +24,7 @@ export default function RootLayout() {
 
   useEffect(() => {
     initDatabase();
+
     if (fontsLoaded || fontError) {
       SplashScreen.hideAsync().catch(() => {});
     }

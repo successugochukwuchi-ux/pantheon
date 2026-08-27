@@ -159,14 +159,18 @@ export const Sidebar: React.FC<SidebarProps> = ({ onClose, isCollapsed = false, 
         <Link 
           to={isFluxMode ? "/flux" : "/"} 
           className={cn(
-            "flex items-center gap-2 font-bold transition-all",
+            "flex items-center gap-2.5 font-bold transition-all",
             isCollapsed ? "text-xl justify-center text-center self-center" : "text-2xl tracking-tighter",
             isFluxMode ? "text-pink-500" : "text-sidebar-primary"
           )}
         >
-          {isFluxMode ? <Zap className="fill-pink-500 h-5 w-5" /> : null}
+          {isFluxMode ? (
+            <Zap className="fill-pink-500 h-5 w-5" />
+          ) : (
+            <img src="/icon.png" alt="CoLearn Logo" className="h-7 w-7 rounded-md object-contain shrink-0" />
+          )}
           {isCollapsed ? (
-            <span className="font-extrabold tracking-tighter text-sidebar-primary">C</span>
+            <span className="sr-only">COLEARN</span>
           ) : (
             <>COLEARN {isFluxMode && <span className="text-white">FLUX</span>}</>
           )}

@@ -29,7 +29,8 @@ export default function Landing() {
       {/* Header */}
       <header className="sticky top-0 z-50 w-full border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
         <div className="container flex h-16 items-center justify-between px-4 mx-auto">
-          <Link to="/" className="flex items-center gap-2 font-bold text-2xl tracking-tighter text-primary">
+          <Link to="/" className="flex items-center gap-2.5 font-bold text-2xl tracking-tighter text-primary">
+            <img src="/icon.png" alt="CoLearn" className="h-8 w-8 rounded-lg object-contain" />
             COLEARN
           </Link>
           <nav className="flex items-center gap-4">

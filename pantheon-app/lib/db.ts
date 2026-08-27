@@ -100,6 +100,32 @@ export async function initDatabase() {
   }
 }
 
+// Save last logged in studentId to SQLite
+export function saveLastLoggedInStudentId(studentId: string) {
+  const db = getDatabase();
+  if (!db || !studentId) return;
+  try {
+    if (db.runSync) {
+      db.runSync('INSERT OR REPLACE INTO system_config (key, value) VALUES (?, ?)', ['lastLoggedInStudentId', String(studentId).trim()]);
+    }
+  } catch (e) {
+    console.error('Error saving last logged in studentId to SQLite:', e);
+  }
+}
+
+// Get last logged in studentId from SQLite
+export function getLastLoggedInStudentId(): string | null {
+  const db = getDatabase();
+  if (!db || !db.getFirstSync) return null;
+  try {
+    const res = db.getFirstSync('SELECT value FROM system_config WHERE key = ?', ['lastLoggedInStudentId']) as any;
+    return res?.value || null;
+  } catch (e) {
+    console.error('Error getting last logged in studentId from SQLite:', e);
+    return null;
+  }
+}
+
 // Helper to check if a course is downloaded
 export function isCourseDownloadedLocal(courseId: string): boolean {
   const db = getDatabase();
@@ -113,6 +139,32 @@ export function isCourseDownloadedLocal(courseId: string): boolean {
     console.error('Error checking local course download:', e);
   }
   return false;
+}
+
+// Helper to get all downloaded course IDs
+export function getAllDownloadedCourseIdsLocal(): string[] {
+  const db = getDatabase();
+  if (!db || !db.getAllSync) return [];
+  try {
+    const courses = db.getAllSync('SELECT id FROM courses WHERE isDownloaded = 1') || [];
+    return courses.map((c: any) => c.id);
+  } catch (e) {
+    console.error('Error fetching downloaded course IDs:', e);
+    return [];
+  }
+}
+
+// Helper to get all local course IDs
+export function getAllLocalCourseIds(): string[] {
+  const db = getDatabase();
+  if (!db || !db.getAllSync) return [];
+  try {
+    const courses = db.getAllSync('SELECT id FROM courses') || [];
+    return courses.map((c: any) => c.id);
+  } catch (e) {
+    console.error('Error fetching all local course IDs:', e);
+    return [];
+  }
 }
 
 // Helper to get all downloaded courses
@@ -211,6 +263,30 @@ export function saveNoteLocal(note: any) {
   }
 }
 
+// Fast batch save for notes (uses single transaction if available)
+export function saveNotesBatchLocal(notes: any[]) {
+  const db = getDatabase();
+  if (!db || !notes || notes.length === 0) return;
+  try {
+    const doBatch = () => {
+      for (const note of notes) {
+        db.runSync(
+          `INSERT OR REPLACE INTO notes (id, courseId, title, content, "order", duration, tag) 
+           VALUES (?, ?, ?, ?, ?, ?, ?)`,
+          [note.id, note.courseId, note.title, note.content || '', note.order || 0, note.duration || '', note.tag || 'CORE']
+        );
+      }
+    };
+    if (typeof db.withTransactionSync === 'function') {
+      db.withTransactionSync(doBatch);
+    } else {
+      doBatch();
+    }
+  } catch (e) {
+    console.error('Error batch saving notes to SQLite:', e);
+  }
+}
+
 // Utility to parse Firestore questions into unified mobile standard schema
 export function parseFirestoreQuestion(id: string, data: any): any {
   let optsArray: string[] = [];
@@ -256,6 +332,32 @@ export function saveQuestionLocal(q: any) {
   }
 }
 
+// Fast batch save for questions
+export function saveQuestionsBatchLocal(questions: any[]) {
+  const db = getDatabase();
+  if (!db || !questions || questions.length === 0) return;
+  try {
+    const doBatch = () => {
+      for (const q of questions) {
+        const parsed = parseFirestoreQuestion(q.id, q);
+        const optionsJSON = JSON.stringify(parsed.opts);
+        db.runSync(
+          `INSERT OR REPLACE INTO questions (id, courseId, q, options, answer, sheetId) 
+           VALUES (?, ?, ?, ?, ?, ?)`,
+          [parsed.id || '', parsed.courseId || q.courseId || '', parsed.q || '', optionsJSON || '[]', parsed.answer || 0, parsed.sheetId || '']
+        );
+      }
+    };
+    if (typeof db.withTransactionSync === 'function') {
+      db.withTransactionSync(doBatch);
+    } else {
+      doBatch();
+    }
+  } catch (e) {
+    console.error('Error batch saving questions to SQLite:', e);
+  }
+}
+
 // Sync question sheet to SQLite
 export function saveQuestionSheetLocal(sheet: any) {
   const db = getDatabase();
@@ -270,6 +372,30 @@ export function saveQuestionSheetLocal(sheet: any) {
     }
   } catch (e) {
     console.error('Error saving local question sheet:', e);
+  }
+}
+
+// Fast batch save for question sheets
+export function saveQuestionSheetsBatchLocal(sheets: any[]) {
+  const db = getDatabase();
+  if (!db || !sheets || sheets.length === 0) return;
+  try {
+    const doBatch = () => {
+      for (const sheet of sheets) {
+        db.runSync(
+          `INSERT OR REPLACE INTO question_sheets (id, courseId, year, semester, academicLevel) 
+           VALUES (?, ?, ?, ?, ?)`,
+          [sheet.id || '', sheet.courseId || '', sheet.year || '', sheet.semester || '', sheet.academicLevel || '']
+        );
+      }
+    };
+    if (typeof db.withTransactionSync === 'function') {
+      db.withTransactionSync(doBatch);
+    } else {
+      doBatch();
+    }
+  } catch (e) {
+    console.error('Error batch saving question sheets to SQLite:', e);
   }
 }
 
@@ -320,11 +446,106 @@ export function clearUserProfileLocal() {
   try {
     if (db.runSync) {
       db.runSync('DELETE FROM user_profile');
-      db.runSync('DELETE FROM system_config');
-      console.log('Cleared user_profile and system_config local database tables.');
+      // Preserve lastLoggedInStudentId and app settings across user sessions
+      db.runSync("DELETE FROM system_config WHERE key NOT IN ('lastLoggedInStudentId', 'appVersionNumber', 'appAvuuid')");
+      console.log('Cleared user_profile local database table while preserving lastLoggedInStudentId.');
     }
   } catch (e) {
     console.error('Error clearing local user profile in SQLite:', e);
+  }
+}
+
+// Delete a course and all its associated materials locally
+export function deleteCourseLocal(courseId: string) {
+  const db = getDatabase();
+  if (!db || !courseId) return;
+  try {
+    const doDelete = () => {
+      db.runSync('DELETE FROM courses WHERE id = ?', [courseId]);
+      db.runSync('DELETE FROM notes WHERE courseId = ?', [courseId]);
+      db.runSync('DELETE FROM questions WHERE courseId = ?', [courseId]);
+      db.runSync('DELETE FROM question_sheets WHERE courseId = ?', [courseId]);
+    };
+    if (typeof db.withTransactionSync === 'function') {
+      db.withTransactionSync(doDelete);
+    } else {
+      doDelete();
+    }
+  } catch (e) {
+    console.error('Error deleting course locally:', e);
+  }
+}
+
+// Atomic transaction save for complete course with notes, questions, and sheets
+export function saveCompleteCourseLocal(course: any, notes: any[], questions: any[], questionSheets: any[]) {
+  const db = getDatabase();
+  if (!db || !course || !course.id) return;
+  try {
+    const doBatch = () => {
+      // 1. Insert/Update Course
+      db.runSync(
+        `INSERT OR REPLACE INTO courses (id, code, title, semester, level, department, progress, isDownloaded, disabled) 
+         VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?)`,
+        [
+          course.id, 
+          course.code || '', 
+          course.title || '', 
+          course.semester || '', 
+          course.level || '', 
+          course.department || '', 
+          course.progress || 0,
+          course.disabled ? 1 : 0
+        ]
+      );
+
+      // 2. Clear existing items for this course to prevent duplicates
+      db.runSync('DELETE FROM notes WHERE courseId = ?', [course.id]);
+      db.runSync('DELETE FROM questions WHERE courseId = ?', [course.id]);
+      db.runSync('DELETE FROM question_sheets WHERE courseId = ?', [course.id]);
+
+      // 3. Batch insert notes
+      if (Array.isArray(notes) && notes.length > 0) {
+        for (const note of notes) {
+          db.runSync(
+            `INSERT OR REPLACE INTO notes (id, courseId, title, content, "order", duration, tag) 
+             VALUES (?, ?, ?, ?, ?, ?, ?)`,
+            [note.id, course.id, note.title || '', note.content || '', note.order || 0, note.duration || '', note.tag || 'CORE']
+          );
+        }
+      }
+
+      // 4. Batch insert questions
+      if (Array.isArray(questions) && questions.length > 0) {
+        for (const q of questions) {
+          const parsed = parseFirestoreQuestion(q.id, q);
+          const optionsJSON = JSON.stringify(parsed.opts || []);
+          db.runSync(
+            `INSERT OR REPLACE INTO questions (id, courseId, q, options, answer, sheetId) 
+             VALUES (?, ?, ?, ?, ?, ?)`,
+            [parsed.id || '', course.id, parsed.q || '', optionsJSON, parsed.answer || 0, parsed.sheetId || '']
+          );
+        }
+      }
+
+      // 5. Batch insert question sheets
+      if (Array.isArray(questionSheets) && questionSheets.length > 0) {
+        for (const sheet of questionSheets) {
+          db.runSync(
+            `INSERT OR REPLACE INTO question_sheets (id, courseId, year, semester, academicLevel) 
+             VALUES (?, ?, ?, ?, ?)`,
+            [sheet.id || '', course.id, sheet.year || '', sheet.semester || '', sheet.academicLevel || '']
+          );
+        }
+      }
+    };
+
+    if (typeof db.withTransactionSync === 'function') {
+      db.withTransactionSync(doBatch);
+    } else {
+      doBatch();
+    }
+  } catch (e) {
+    console.error('Error saving complete course batch to SQLite:', e);
   }
 }
 

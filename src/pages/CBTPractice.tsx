@@ -16,6 +16,7 @@ import { MathJax } from 'better-react-mathjax';
 import ReactMarkdown from 'react-markdown';
 import remarkMath from 'remark-math';
 import rehypeKatex from 'rehype-katex';
+import rehypeRaw from 'rehype-raw';
 import remarkGfm from 'remark-gfm';
 import 'katex/dist/katex.min.css';
 import { useTitle } from '../hooks/useTitle';
@@ -322,7 +323,7 @@ export default function CBTPractice() {
                   <CardHeader className="pb-3">
                     <div className="flex items-start justify-between gap-4">
                       <div className="prose dark:prose-invert font-medium max-w-none">
-                        <ReactMarkdown remarkPlugins={[remarkMath, remarkGfm]} rehypePlugins={[rehypeKatex]}>
+                        <ReactMarkdown remarkPlugins={[remarkMath, remarkGfm]} rehypePlugins={[rehypeRaw, rehypeKatex]}>
                           {prepareMarkdownMath(`${i + 1}. ${q.text}`)}
                         </ReactMarkdown>
                       </div>
@@ -338,7 +339,7 @@ export default function CBTPractice() {
                       <div className={`p-3 rounded-lg flex items-center gap-3 ${userAnswers[q.id] === q.correctAnswer ? "bg-green-50 text-green-700 dark:bg-green-900/20 dark:text-green-400" : "bg-red-50 text-red-700 dark:bg-red-900/20 dark:text-red-400"}`}>
                         <div className="font-bold shrink-0">Your Choice:</div>
                         <div className="prose dark:prose-invert max-w-none text-current">
-                          <ReactMarkdown remarkPlugins={[remarkMath, remarkGfm]} rehypePlugins={[rehypeKatex]}>
+                          <ReactMarkdown remarkPlugins={[remarkMath, remarkGfm]} rehypePlugins={[rehypeRaw, rehypeKatex]}>
                             {prepareMarkdownMath(userAnswers[q.id] || 'Not answered')}
                           </ReactMarkdown>
                         </div>
@@ -347,7 +348,7 @@ export default function CBTPractice() {
                         <div className="p-3 rounded-lg bg-green-50 text-green-700 dark:bg-green-900/20 dark:text-green-400 flex items-center gap-3">
                           <div className="font-bold shrink-0">Correct:</div>
                           <div className="prose dark:prose-invert max-w-none text-current">
-                            <ReactMarkdown remarkPlugins={[remarkMath, remarkGfm]} rehypePlugins={[rehypeKatex]}>
+                            <ReactMarkdown remarkPlugins={[remarkMath, remarkGfm]} rehypePlugins={[rehypeRaw, rehypeKatex]}>
                               {prepareMarkdownMath(q.correctAnswer)}
                             </ReactMarkdown>
                           </div>
@@ -358,7 +359,7 @@ export default function CBTPractice() {
                       <div className="mt-2 p-4 bg-muted/30 rounded-lg text-sm italic border-l-2 border-primary/30">
                         <div className="prose dark:prose-invert max-w-none text-muted-foreground">
                           <strong className="not-italic text-foreground block mb-1">Explanation:</strong>
-                          <ReactMarkdown remarkPlugins={[remarkMath, remarkGfm]} rehypePlugins={[rehypeKatex]}>
+                          <ReactMarkdown remarkPlugins={[remarkMath, remarkGfm]} rehypePlugins={[rehypeRaw, rehypeKatex]}>
                             {prepareMarkdownMath(q.explanation)}
                           </ReactMarkdown>
                         </div>
@@ -419,7 +420,7 @@ export default function CBTPractice() {
             <CardHeader className="pb-8">
               <div className="prose dark:prose-invert max-w-none text-2xl leading-relaxed">
                 <div className="py-4">
-                  <ReactMarkdown remarkPlugins={[remarkMath, remarkGfm]} rehypePlugins={[rehypeKatex]}>
+                  <ReactMarkdown remarkPlugins={[remarkMath, remarkGfm]} rehypePlugins={[rehypeRaw, rehypeKatex]}>
                     {prepareMarkdownMath(currentQuestion.text)}
                   </ReactMarkdown>
                 </div>
@@ -444,7 +445,7 @@ export default function CBTPractice() {
                     {optionLabels[idx]}
                   </span>
                   <span className="font-semibold text-lg flex-1">
-                    <ReactMarkdown remarkPlugins={[remarkMath, remarkGfm]} rehypePlugins={[rehypeKatex]}>
+                    <ReactMarkdown remarkPlugins={[remarkMath, remarkGfm]} rehypePlugins={[rehypeRaw, rehypeKatex]}>
                       {prepareMarkdownMath(option)}
                     </ReactMarkdown>
                   </span>

@@ -334,10 +334,36 @@ export default function NoteViewerScreen() {
   const [calcAngleMode, setCalcAngleMode] = useState<'DEG' | 'RAD'>('DEG');
 
   const [focusedBlock, setFocusedBlock] = useState<{ type: 'math' | 'diagram'; content: string } | null>(null);
+  const [mathViewMode, setMathViewMode] = useState<'scroll' | 'fit'>('scroll');
+  const [toolbarVisible, setToolbarVisible] = useState(false);
 
   const [note, setNote] = useState<Note | null>(null);
   const [courseCode, setCourseCode] = useState('');
   const { isOffline } = useAuth();
+
+  const swipeAnim = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    if (focusedBlock?.type === 'math') {
+      setMathViewMode('scroll');
+      const loop = Animated.loop(
+        Animated.sequence([
+          Animated.timing(swipeAnim, {
+            toValue: 1,
+            duration: 1100,
+            useNativeDriver: true,
+          }),
+          Animated.timing(swipeAnim, {
+            toValue: 0,
+            duration: 1100,
+            useNativeDriver: true,
+          }),
+        ])
+      );
+      loop.start();
+      return () => loop.stop();
+    }
+  }, [focusedBlock]);
 
   useEffect(() => {
     const cid = courseId || note?.courseId;
@@ -369,23 +395,42 @@ export default function NoteViewerScreen() {
   const [scrollPct, setScrollPct] = useState(0);
   const isCompleted = useRef(false);
 
-  const handleScroll = (event: any) => {
-    const { contentOffset, contentSize, layoutMeasurement } = event.nativeEvent;
-    const currentOffset = contentOffset.y;
-    const maximumOffset = contentSize.height - layoutMeasurement.height;
-    
-    if (maximumOffset <= 0) return;
-    
-    const percentage = Math.max(0, Math.min(100, Math.round((currentOffset / maximumOffset) * 100)));
-    if (percentage !== scrollPct) {
-      setScrollPct(percentage);
+  const handleProgressScroll = (percentage: number) => {
+    const clamped = Math.max(0, Math.min(100, Math.round(percentage)));
+    if (clamped !== scrollPct) {
+      setScrollPct(clamped);
       Animated.spring(progressAnim, {
-        toValue: percentage,
+        toValue: clamped,
         useNativeDriver: false,
         tension: 40,
         friction: 7
       }).start();
     }
+  };
+
+  const handleNoteNavigate = (action: 'prev' | 'next') => {
+    if (action === 'prev' && prevNote) {
+      router.push({
+        pathname: '/note-viewer',
+        params: { courseId, noteId: prevNote.id },
+      });
+    } else if (action === 'next' && nextNote) {
+      router.push({
+        pathname: '/note-viewer',
+        params: { courseId, noteId: nextNote.id },
+      });
+    }
+  };
+
+  const handleScroll = (event: any) => {
+    const { contentOffset, contentSize, layoutMeasurement } = event.nativeEvent;
+    const currentOffset = contentOffset?.y || 0;
+    const maximumOffset = (contentSize?.height || 0) - (layoutMeasurement?.height || 0);
+    
+    if (maximumOffset <= 0) return;
+    
+    const percentage = Math.max(0, Math.min(100, Math.round((currentOffset / maximumOffset) * 100)));
+    handleProgressScroll(percentage);
   };
 
   const saveProgress = async (pct: number) => {
@@ -429,8 +474,10 @@ export default function NoteViewerScreen() {
 
   useEffect(() => {
     async function fetchNoteData() {
-      if (!noteId || !profile) {
-        console.warn('NoteViewer: Missing noteId or profile');
+      if (!noteId) {
+        console.warn('NoteViewer: Missing noteId');
+        setLoading(false);
+        setError('No note selected');
         return;
       }
       
@@ -499,8 +546,8 @@ export default function NoteViewerScreen() {
             handleFirestoreError(navErr, OperationType.LIST, 'notes');
           }
 
-          // 2. Update Progress
-          if (lastTrackedId.current !== noteId) {
+          // 2. Update Progress if profile exists
+          if (profile && lastTrackedId.current !== noteId) {
             lastTrackedId.current = noteId;
             try {
               console.log('NoteViewer: Loading previous progress');
@@ -1289,160 +1336,104 @@ export default function NoteViewerScreen() {
         />
       </View>
 
-      <ScrollView
-        style={s.scroll}
-        contentContainerStyle={s.scrollContent}
-        showsVerticalScrollIndicator={false}
-        scrollEventThrottle={16}
-        onScroll={handleScroll}
-      >
-        <Animated.View style={{ opacity, transform: [{ translateY }] }}>
-          {/* Course tag */}
-          <View style={[s.coursePill, { backgroundColor: C.tagBg }]}>
-            <Text style={[s.coursePillText, { color: C.tagText }]}>{courseCode ? courseCode.toUpperCase() : (courseId?.toUpperCase() || 'COURSE')}</Text>
-          </View>
-
-          {/* Title */}
-          <Text style={[s.articleTitle, { color: C.ink }]}>{note.title}</Text>
-
-          {/* Date */}
-          <View style={s.dateRow}>
-            <View style={s.calIcon}>
-              <View style={[s.calTop, { backgroundColor: C.ink }]} />
-              <View style={[s.calGrid, { borderColor: C.ink, borderTopWidth: 0 }]}>
-                {[0, 1, 2].map((i) => (
-                  <View key={i} style={[s.calDot, { backgroundColor: C.ink }]} />
-                ))}
-              </View>
+      {/* Audio Reader Widget (Text-To-Speech) */}
+      <View style={{
+        backgroundColor: C.surface,
+        borderColor: C.border,
+        borderWidth: 1,
+        borderRadius: 14,
+        padding: 12,
+        marginHorizontal: 16,
+        marginTop: 8,
+        marginBottom: 6,
+      }}>
+        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1, marginRight: 8 }}>
+            <View style={{
+              width: 34,
+              height: 34,
+              borderRadius: 17,
+              backgroundColor: speechIsPlaying && !speechIsPaused ? C.activeText + '15' : C.border,
+              justifyContent: 'center',
+              alignItems: 'center',
+              marginRight: 10
+            }}>
+              <Text style={{ fontSize: 15, color: speechIsPlaying && !speechIsPaused ? C.activeText : C.ink }}>🔊</Text>
             </View>
-            <Text style={[s.dateText, { color: C.inkLight }]}>{note.date || 'LATEST UPDATE'}</Text>
-          </View>
-
-          {/* Audio Reader Widget (Text-To-Speech) */}
-          <View style={{
-            backgroundColor: C.surface,
-            borderColor: C.border,
-            borderWidth: 1,
-            borderRadius: 14,
-            padding: 16,
-            marginVertical: 18,
-          }}>
-            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
-              <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1, marginRight: 8 }}>
-                <View style={{
-                  width: 36,
-                  height: 36,
-                  borderRadius: 18,
-                  backgroundColor: speechIsPlaying && !speechIsPaused ? C.activeText + '15' : C.border,
-                  justifyContent: 'center',
-                  alignItems: 'center',
-                  marginRight: 12
-                }}>
-                  <Text style={{ fontSize: 16, color: speechIsPlaying && !speechIsPaused ? C.activeText : C.ink }}>🔊</Text>
-                </View>
-                <View style={{ flex: 1 }}>
-                  <Text style={{ fontFamily: F.bold, fontSize: 13, color: C.ink }}>Audio Study Assistant</Text>
-                  <Text style={{ fontFamily: F.medium, fontSize: 11, color: C.inkLight, marginTop: 1 }} numberOfLines={1}>
-                    {speechIsPreparing
-                      ? `Preparing voiceover (${speechPrepProgress}%)...`
-                      : speechIsPlaying
-                      ? (speechIsPaused ? 'Playback paused' : 'Reading study guide...')
-                      : 'Listen to this complete note'}
-                  </Text>
-                </View>
-              </View>
-
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                <TouchableOpacity
-                  onPress={handleToggleSpeakNote}
-                  activeOpacity={0.85}
-                  style={{
-                    backgroundColor: speechIsPreparing ? C.activeText + '20' : (speechIsPlaying && !speechIsPaused ? C.border : C.ink),
-                    paddingHorizontal: 12,
-                    paddingVertical: 7,
-                    borderRadius: 8,
-                    flexDirection: 'row',
-                    alignItems: 'center',
-                    gap: 6
-                  }}
-                >
-                  <Text style={{ fontSize: 10, color: speechIsPreparing ? C.activeText : (speechIsPlaying && !speechIsPaused ? C.ink : C.bg) }}>
-                    {speechIsPreparing ? '⏳' : (speechIsPlaying ? (speechIsPaused ? '▶' : '❚❚') : '▶')}
-                  </Text>
-                  <Text style={{ fontFamily: F.bold, fontSize: 11, color: speechIsPreparing ? C.activeText : (speechIsPlaying && !speechIsPaused ? C.ink : C.bg) }}>
-                    {speechIsPreparing ? `Preparing ${speechPrepProgress}%` : (speechIsPlaying ? (speechIsPaused ? 'Resume' : 'Pause') : 'Listen')}
-                  </Text>
-                </TouchableOpacity>
-
-                {(speechIsPlaying || speechIsPreparing) && (
-                  <TouchableOpacity
-                    onPress={handleStopSpeaking}
-                    activeOpacity={0.85}
-                    style={{
-                      backgroundColor: '#ef444415',
-                      paddingHorizontal: 10,
-                      paddingVertical: 7,
-                      borderRadius: 8,
-                      borderWidth: 1,
-                      borderColor: '#ef444430'
-                    }}
-                  >
-                    <Text style={{ fontFamily: F.bold, fontSize: 11, color: '#ef4444' }}>Stop</Text>
-                  </TouchableOpacity>
-                )}
-              </View>
+            <View style={{ flex: 1 }}>
+              <Text style={{ fontFamily: F.bold, fontSize: 12.5, color: C.ink }}>Audio Study Assistant</Text>
+              <Text style={{ fontFamily: F.medium, fontSize: 11, color: C.inkLight, marginTop: 1 }} numberOfLines={1}>
+                {speechIsPreparing
+                  ? `Preparing voiceover (${speechPrepProgress}%)...`
+                  : speechIsPlaying
+                  ? (speechIsPaused ? 'Playback paused' : 'Reading study guide...')
+                  : 'Listen to this complete note'}
+              </Text>
             </View>
           </View>
 
-          {/* Note content rendered with NoteRenderer (WebView) */}
-          <NoteRenderer content={note.content} onFocusBlock={(type, content) => setFocusedBlock({ type, content })} />
-
-          {/* Summary */}
-          {note.summary && (
-            <View style={[s.summaryWrap, { borderTopColor: C.border }]}>
-              <Text style={[s.summaryLabel, { color: C.inkLight }]}>SUMMARY</Text>
-              <View style={[s.summaryBar, { backgroundColor: C.ink }]} />
-              <Text style={[s.summaryText, { color: C.inkMid }]}>{note.summary}</Text>
-            </View>
-          )}
-
-          {/* Prev / Next navigation */}
-          <View style={s.navRow}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
             <TouchableOpacity
-              style={[s.navBtn, { borderColor: C.border }, !prevNote && s.navBtnDisabled]}
-              disabled={!prevNote}
+              onPress={handleToggleSpeakNote}
               activeOpacity={0.85}
-              onPress={() =>
-                prevNote &&
-                router.push({
-                  pathname: '/note-viewer',
-                  params: { courseId, noteId: prevNote.id },
-                })
-              }
+              style={{
+                backgroundColor: speechIsPreparing ? C.activeText + '20' : (speechIsPlaying && !speechIsPaused ? C.border : C.ink),
+                paddingHorizontal: 10,
+                paddingVertical: 6,
+                borderRadius: 8,
+                flexDirection: 'row',
+                alignItems: 'center',
+                gap: 5
+              }}
             >
-              <Text style={[s.navBtnText, { color: C.inkMid }, !prevNote && [s.navBtnTextDisabled, { color: C.inkLight }]]}>← Previous</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={[s.navBtnPrimary, { backgroundColor: C.ink }, !nextNote && s.navBtnDisabled]}
-              disabled={!nextNote}
-              activeOpacity={0.85}
-              onPress={() =>
-                nextNote &&
-                router.push({
-                  pathname: '/note-viewer',
-                  params: { courseId, noteId: nextNote.id },
-                })
-              }
-            >
-              <Text style={[s.navBtnPrimaryText, { color: C.bg }, !nextNote && [s.navBtnTextDisabled, { color: C.inkLight }]]}>
-                Next Topic →
+              <Text style={{ fontSize: 10, color: speechIsPreparing ? C.activeText : (speechIsPlaying && !speechIsPaused ? C.ink : C.bg) }}>
+                {speechIsPreparing ? '⏳' : (speechIsPlaying ? (speechIsPaused ? '▶' : '❚❚') : '▶')}
+              </Text>
+              <Text style={{ fontFamily: F.bold, fontSize: 11, color: speechIsPreparing ? C.activeText : (speechIsPlaying && !speechIsPaused ? C.ink : C.bg) }}>
+                {speechIsPreparing ? `Preparing ${speechPrepProgress}%` : (speechIsPlaying ? (speechIsPaused ? 'Resume' : 'Pause') : 'Listen')}
               </Text>
             </TouchableOpacity>
-          </View>
 
-          <View style={{ height: 24 }} />
-        </Animated.View>
-      </ScrollView>
+            {(speechIsPlaying || speechIsPreparing) && (
+              <TouchableOpacity
+                onPress={handleStopSpeaking}
+                activeOpacity={0.85}
+                style={{
+                  backgroundColor: '#ef444415',
+                  paddingHorizontal: 8,
+                  paddingVertical: 6,
+                  borderRadius: 8,
+                  borderWidth: 1,
+                  borderColor: '#ef444430'
+                }}
+              >
+                <Text style={{ fontFamily: F.bold, fontSize: 11, color: '#ef4444' }}>Stop</Text>
+              </TouchableOpacity>
+            )}
+          </View>
+        </View>
+      </View>
+
+      {/* Note content rendered with independently scrollable NoteRenderer */}
+      <Animated.View style={{ flex: 1, opacity, transform: [{ translateY }] }}>
+        <NoteRenderer
+          content={note.content}
+          scrollEnabled={true}
+          onScrollPercentage={handleProgressScroll}
+          onNavigate={handleNoteNavigate}
+          headerMeta={{
+            courseCode: courseCode ? courseCode.toUpperCase() : (courseId?.toUpperCase() || 'COURSE'),
+            title: note.title,
+            date: note.date || 'LATEST UPDATE',
+          }}
+          summary={note.summary}
+          nav={{
+            hasPrev: !!prevNote,
+            hasNext: !!nextNote,
+          }}
+          onFocusBlock={(type, content) => setFocusedBlock({ type, content })}
+        />
+      </Animated.View>
 
       {/* Floating Buttons */}
       <View style={{ position: 'absolute', bottom: 32, right: 20, alignItems: 'center' }}>
@@ -1474,13 +1465,88 @@ export default function NoteViewerScreen() {
               </Text>
               
               {focusedBlock.type === 'math' ? (
-                <View style={{ maxHeight: 320, minHeight: 120, width: '100%' }}>
-                  <NoteRenderer 
-                    content={JSON.stringify([{ id: 'focus_math', type: 'math', content: focusedBlock.content }])} 
-                    bgOverride={C.surface}
-                    paddingOverride="20px"
-                    scrollableMath={true}
-                  />
+                <View style={{ width: '100%', gap: 14 }}>
+                  {/* Formula Display Box */}
+                  <View style={{ width: '100%', borderRadius: 16, overflow: 'hidden', backgroundColor: C.surface, borderWidth: 1, borderColor: C.border }}>
+                    <NoteRenderer 
+                      key={mathViewMode}
+                      content={JSON.stringify([{ id: 'focus_math', type: 'math', content: focusedBlock.content }])} 
+                      bgOverride={C.surface}
+                      paddingOverride="18px 14px"
+                      scrollableMath={mathViewMode === 'scroll'}
+                    />
+                  </View>
+
+                  {/* Horizontal Scroll Guide & Controls in the Empty Space */}
+                  <View style={{ 
+                    backgroundColor: C.surface, 
+                    borderRadius: 16, 
+                    borderWidth: 1, 
+                    borderColor: C.border, 
+                    padding: 14,
+                    alignItems: 'center' 
+                  }}>
+                    {/* Animated Swipe Cue */}
+                    <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', marginBottom: 8, gap: 12 }}>
+                      <Animated.View style={{ transform: [{ translateX: swipeAnim.interpolate({ inputRange: [0, 1], outputRange: [4, -6] }) }] }}>
+                        <Text style={{ fontSize: 16, color: C.inkLight }}>◀</Text>
+                      </Animated.View>
+                      
+                      <View style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: C.bg, paddingHorizontal: 12, paddingVertical: 6, borderRadius: 20, borderWidth: 1, borderColor: C.border }}>
+                        <Text style={{ fontSize: 12, fontFamily: F.bold, color: C.ink, letterSpacing: 0.6 }}>
+                          🖐️  SWIPE HORIZONTALLY
+                        </Text>
+                      </View>
+
+                      <Animated.View style={{ transform: [{ translateX: swipeAnim.interpolate({ inputRange: [0, 1], outputRange: [-4, 6] }) }] }}>
+                        <Text style={{ fontSize: 16, color: C.inkLight }}>▶</Text>
+                      </Animated.View>
+                    </View>
+
+                    <Text style={{ fontFamily: F.bold, fontSize: 13, color: C.ink, textAlign: 'center', marginBottom: 3 }}>
+                      Scroll equation left & right
+                    </Text>
+                    <Text style={{ fontFamily: F.regular, fontSize: 11.5, color: C.inkMid, textAlign: 'center', lineHeight: 16, paddingHorizontal: 6 }}>
+                      This formula extends beyond the container. Drag horizontally across the formula box above to reveal all hidden terms.
+                    </Text>
+
+                    {/* Interactive Display Mode Selector */}
+                    <View style={{ flexDirection: 'row', marginTop: 12, backgroundColor: C.bg, borderRadius: 10, padding: 3, borderWidth: 1, borderColor: C.border, width: '100%' }}>
+                      <TouchableOpacity
+                        onPress={() => setMathViewMode('scroll')}
+                        style={{
+                          flex: 1,
+                          paddingVertical: 7,
+                          borderRadius: 7,
+                          backgroundColor: mathViewMode === 'scroll' ? C.ink : 'transparent',
+                          alignItems: 'center',
+                          justifyContent: 'center'
+                        }}
+                        activeOpacity={0.8}
+                      >
+                        <Text style={{ fontFamily: F.bold, fontSize: 12, color: mathViewMode === 'scroll' ? C.bg : C.inkMid }}>
+                          ↔ Full Size (Scroll)
+                        </Text>
+                      </TouchableOpacity>
+
+                      <TouchableOpacity
+                        onPress={() => setMathViewMode('fit')}
+                        style={{
+                          flex: 1,
+                          paddingVertical: 7,
+                          borderRadius: 7,
+                          backgroundColor: mathViewMode === 'fit' ? C.ink : 'transparent',
+                          alignItems: 'center',
+                          justifyContent: 'center'
+                        }}
+                        activeOpacity={0.8}
+                      >
+                        <Text style={{ fontFamily: F.bold, fontSize: 12, color: mathViewMode === 'fit' ? C.bg : C.inkMid }}>
+                          🔍 Fit to Screen
+                        </Text>
+                      </TouchableOpacity>
+                    </View>
+                  </View>
                 </View>
               ) : (
                 <View style={{ width: '100%', height: 350, borderRadius: 12, overflow: 'hidden', backgroundColor: '#000' }}>
@@ -1618,7 +1684,7 @@ const createStyles = (C: any) => StyleSheet.create({
   // Nav
   navRow: { flexDirection: 'row', gap: 12, marginTop: 24 },
   navBtn: {
-    flex: 1, borderWith: 1.5, borderWidth: 1.5,
+    flex: 1, borderWidth: 1.5,
     borderRadius: 12, paddingVertical: 14, alignItems: 'center',
   },
   navBtnPrimary: {
@@ -1671,7 +1737,7 @@ const createStyles = (C: any) => StyleSheet.create({
   calcHeader: { padding: 20, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   calcTitle: { fontFamily: F.bold, fontSize: 16, color: '#fff' },
   calcDisplay: { padding: 16, borderRadius: 16, borderWidth: 1, marginBottom: 12, alignItems: 'flex-end', justifyContent: 'center', height: 100 },
-  calcExprText: { fontSize: 16, fontFamily: F.mono, marginBottom: 6 },
+  calcExprText: { fontSize: 16, fontFamily: F.medium, marginBottom: 6 },
   calcResultText: { fontSize: 26, fontFamily: F.bold },
   calcRowBtn: { flex: 1, height: 44, borderRadius: 10, justifyContent: 'center', alignItems: 'center' },
   calcGrid: { flex: 4, gap: 6 },

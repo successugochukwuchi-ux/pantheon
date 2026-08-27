@@ -46,7 +46,14 @@ function TopBar({ onMenu, onSearch, onBell, s, C }: {
           <HamburgerIcon color={C.ink} />
         </TouchableOpacity>
       </View>
-      <Text style={[s.topBarBrand, { color: C.ink }]}>COLEARN</Text>
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+        <Image 
+          source={require('../assets/icon.png')} 
+          style={{ width: 22, height: 22, borderRadius: 5 }} 
+          resizeMode="contain" 
+        />
+        <Text style={[s.topBarBrand, { color: C.ink }]}>COLEARN</Text>
+      </View>
       <View style={s.topBarRight}>
         <TouchableOpacity onPress={onSearch} activeOpacity={0.7} style={s.topBarIcon}>
           <SearchIcon color={C.ink} />

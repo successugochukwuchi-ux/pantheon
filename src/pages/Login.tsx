@@ -96,7 +96,10 @@ export default function Login() {
 
       <div className="w-full max-w-md space-y-8">
         <div className="text-center">
-          <Link to="/" className="text-3xl font-bold tracking-tighter text-primary">COLEARN</Link>
+          <Link to="/" className="inline-flex items-center gap-2.5 text-3xl font-bold tracking-tighter text-primary">
+            <img src="/icon.png" alt="CoLearn" className="h-8 w-8 rounded-lg object-contain" />
+            COLEARN
+          </Link>
           <p className="text-muted-foreground mt-2">Welcome back to your study hub</p>
         </div>
 

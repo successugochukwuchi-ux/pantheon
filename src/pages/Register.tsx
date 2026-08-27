@@ -264,10 +264,8 @@ export default function Register() {
       <div className="w-full max-w-lg space-y-6">
         {/* Brand Banner */}
         <div className="text-center space-y-2">
-          <Link to="/" className="inline-flex items-center gap-2 group.test">
-            <div className="p-2.5 rounded-2xl bg-primary text-primary-foreground shadow-lg shadow-primary/15 transition-transform duration-300 group-hover:scale-105">
-              <GraduationCap className="h-7 w-7" />
-            </div>
+          <Link to="/" className="inline-flex items-center gap-2.5 group">
+            <img src="/icon.png" alt="CoLearn" className="h-10 w-10 rounded-xl object-contain shadow-md shadow-primary/10 transition-transform duration-300 group-hover:scale-105" />
             <span className="text-3xl font-extrabold tracking-tight text-primary">
               COLEARN
             </span>

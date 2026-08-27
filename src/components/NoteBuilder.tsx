@@ -74,6 +74,7 @@ import { MathJax } from 'better-react-mathjax';
 import ReactMarkdown from 'react-markdown';
 import remarkMath from 'remark-math';
 import rehypeKatex from 'rehype-katex';
+import rehypeRaw from 'rehype-raw';
 import remarkGfm from 'remark-gfm';
 import 'katex/dist/katex.min.css';
 import { Rnd } from 'react-rnd';
@@ -348,8 +349,10 @@ const DEEPSEEK_PROMPT_GUIDE = `You are an expert CoLearn PLX Note Writer. Conver
 2. Use ONLY the following supported CoLearn tag blocks:
    - <H1>Title</H1>: Main notes header.
    - <H2>Subheader</H2>: Section sub-header.
-   - <TEXT>Normal body paragraph. Use <B>bolding</B> inline inside.</TEXT>
-   - <B>High priority highlight/warning blocks.</B>
+   - <TEXT>Normal body paragraph. Use <B>bolding</B>, <I>italics</I>, and <U>underline</U> inline inside.</TEXT>
+   - <B>Bold high priority highlight/warning blocks or inline bolding.</B>
+   - <I>Italics emphasis blocks or inline italics.</I>
+   - <U>Underlined text blocks or inline underline.</U>
    - <LIST>- Bullet item 1\\n- Bullet item 2</LIST> (prefix items with dashes)
    - <ORDERED>1. Step 1\\n2. Step 2</ORDERED> (prefix items with numbers)
    - <MATH>Block level LaTeX. Do NOT use single or double dollards ($) inside this block.</MATH>
@@ -439,21 +442,21 @@ const SortableBlock = ({ block, onUpdate, onDelete, onFocus, isPreview }: Sortab
       <div className="mb-6">
         {block.type === 'h1' && (
           <h1 className="text-3xl font-bold mb-4">
-            <ReactMarkdown remarkPlugins={[remarkMath, remarkGfm]} rehypePlugins={[rehypeKatex]}>
+            <ReactMarkdown remarkPlugins={[remarkMath, remarkGfm]} rehypePlugins={[rehypeRaw, rehypeKatex]}>
               {prepareMarkdownMath(block.content)}
             </ReactMarkdown>
           </h1>
         )}
         {block.type === 'h2' && (
           <h2 className="text-2xl font-bold mb-3">
-            <ReactMarkdown remarkPlugins={[remarkMath, remarkGfm]} rehypePlugins={[rehypeKatex]}>
+            <ReactMarkdown remarkPlugins={[remarkMath, remarkGfm]} rehypePlugins={[rehypeRaw, rehypeKatex]}>
               {prepareMarkdownMath(block.content)}
             </ReactMarkdown>
           </h2>
         )}
         {block.type === 'text' && (
           <div className="prose dark:prose-invert max-w-none">
-            <ReactMarkdown remarkPlugins={[remarkMath, remarkGfm]} rehypePlugins={[rehypeKatex]}>
+            <ReactMarkdown remarkPlugins={[remarkMath, remarkGfm]} rehypePlugins={[rehypeRaw, rehypeKatex]}>
               {prepareMarkdownMath(block.content)}
             </ReactMarkdown>
           </div>
@@ -474,7 +477,7 @@ const SortableBlock = ({ block, onUpdate, onDelete, onFocus, isPreview }: Sortab
                       <tr key={rowIndex}>
                         {row.map((cell, colIndex) => (
                           <td key={colIndex} className="border p-2 text-sm">
-                            <ReactMarkdown remarkPlugins={[remarkMath, remarkGfm]} rehypePlugins={[rehypeKatex]}>
+                            <ReactMarkdown remarkPlugins={[remarkMath, remarkGfm]} rehypePlugins={[rehypeRaw, rehypeKatex]}>
                               {prepareMarkdownMath(cell)}
                             </ReactMarkdown>
                           </td>
@@ -514,7 +517,7 @@ const SortableBlock = ({ block, onUpdate, onDelete, onFocus, isPreview }: Sortab
         )}
         {(block.type === 'bullet-list' || block.type === 'numbered-list') && (
           <div className="prose dark:prose-invert max-w-none my-6">
-            <ReactMarkdown remarkPlugins={[remarkMath, remarkGfm]} rehypePlugins={[rehypeKatex]}>
+            <ReactMarkdown remarkPlugins={[remarkMath, remarkGfm]} rehypePlugins={[rehypeRaw, rehypeKatex]}>
               {prepareMarkdownMath(block.content)}
             </ReactMarkdown>
           </div>
@@ -535,7 +538,7 @@ const SortableBlock = ({ block, onUpdate, onDelete, onFocus, isPreview }: Sortab
                   return (
                     <>
                       <div className="text-lg font-medium">
-                        <ReactMarkdown remarkPlugins={[remarkMath, remarkGfm]} rehypePlugins={[rehypeKatex]}>
+                        <ReactMarkdown remarkPlugins={[remarkMath, remarkGfm]} rehypePlugins={[rehypeRaw, rehypeKatex]}>
                           {prepareMarkdownMath(data.question)}
                         </ReactMarkdown>
                       </div>
@@ -546,7 +549,7 @@ const SortableBlock = ({ block, onUpdate, onDelete, onFocus, isPreview }: Sortab
                               <CheckCircle2 className="h-4 w-4" />
                             </div>
                             <span className="text-sm">
-                               <ReactMarkdown remarkPlugins={[remarkMath, remarkGfm]} rehypePlugins={[rehypeKatex]}>
+                               <ReactMarkdown remarkPlugins={[remarkMath, remarkGfm]} rehypePlugins={[rehypeRaw, rehypeKatex]}>
                                 {prepareMarkdownMath(data.correct)}
                               </ReactMarkdown>
                             </span>
@@ -558,7 +561,7 @@ const SortableBlock = ({ block, onUpdate, onDelete, onFocus, isPreview }: Sortab
                               <XCircle className="h-4 w-4" />
                             </div>
                             <span className="text-sm">
-                              <ReactMarkdown remarkPlugins={[remarkMath, remarkGfm]} rehypePlugins={[rehypeKatex]}>
+                              <ReactMarkdown remarkPlugins={[remarkMath, remarkGfm]} rehypePlugins={[rehypeRaw, rehypeKatex]}>
                                 {prepareMarkdownMath(inc)}
                               </ReactMarkdown>
                             </span>
@@ -571,7 +574,7 @@ const SortableBlock = ({ block, onUpdate, onDelete, onFocus, isPreview }: Sortab
                             <Wand2 className="h-3 w-3" /> Explanation
                           </div>
                           <div className="text-sm text-muted-foreground italic">
-                            <ReactMarkdown remarkPlugins={[remarkMath, remarkGfm]} rehypePlugins={[rehypeKatex]}>
+                            <ReactMarkdown remarkPlugins={[remarkMath, remarkGfm]} rehypePlugins={[rehypeRaw, rehypeKatex]}>
                               {prepareMarkdownMath(data.explanation)}
                             </ReactMarkdown>
                           </div>
@@ -1488,8 +1491,8 @@ export const NoteBuilder: React.FC<NoteBuilderProps> = ({ initialContent, onChan
         const text = plxMatch[1].trim();
         
         // Match both v1 [TAG] and v2/v4 <TAG>content</TAG> for backwards compatibility
-        const validTags = ['H1', 'H2', 'TEXT', 'B', 'MATH', 'LIST', 'ORDERED', 'TABLE', 'VIDEO', 'DIAGRAM', 'QUES'];
-        const tagRegex = /<(H1|H2|TEXT|B|MATH|LIST|ORDERED|TABLE|VIDEO|DIAGRAM|QUES)(?:\s*=\s*"([^"]*)")?>([\s\S]*?)<\/\1>/gi;
+        const validTags = ['H1', 'H2', 'TEXT', 'B', 'I', 'U', 'MATH', 'LIST', 'ORDERED', 'TABLE', 'VIDEO', 'DIAGRAM', 'QUES'];
+        const tagRegex = /<(H1|H2|TEXT|B|I|U|MATH|LIST|ORDERED|TABLE|VIDEO|DIAGRAM|QUES)(?:\s*=\s*"([^"]*)")?>([\s\S]*?)<\/\1>/gi;
         
         let match;
         let foundV2 = false;
@@ -1500,8 +1503,13 @@ export const NoteBuilder: React.FC<NoteBuilderProps> = ({ initialContent, onChan
           const attr = match[2] || '';
           let content = match[3].trim();
           
-          // Pre-processing: Support internal <B> tags by converting them to Markdown bold
+          // Pre-processing: Support internal <B>, <I>, <U> tags by converting them to Markdown / HTML
           content = content.replace(/<B>([\s\S]*?)<\/B>/gi, '**$1**');
+          content = content.replace(/<I>([\s\S]*?)<\/I>/gi, '*$1*');
+          content = content.replace(/<U>([\s\S]*?)<\/U>/gi, '<u>$1</u>');
+          content = content.replace(/\[B\]([\s\S]*?)\[\/B\]/gi, '**$1**');
+          content = content.replace(/\[I\]([\s\S]*?)\[\/I\]/gi, '*$1*');
+          content = content.replace(/\[U\]([\s\S]*?)\[\/U\]/gi, '<u>$1</u>');
           
           // Indentation Stripper: Remove common leading whitespace from each line 
           // This prevents lists from being rendered as code blocks in ReactMarkdown
@@ -1557,6 +1565,8 @@ export const NoteBuilder: React.FC<NoteBuilderProps> = ({ initialContent, onChan
             'H2': 'h2',
             'TEXT': 'text',
             'B': 'text',
+            'I': 'text',
+            'U': 'text',
             'MATH': 'math',
             'LIST': 'bullet-list',
             'ORDERED': 'numbered-list',
@@ -1567,9 +1577,13 @@ export const NoteBuilder: React.FC<NoteBuilderProps> = ({ initialContent, onChan
           let finalContent = content;
           if (tagName === 'B') {
             finalContent = `**${content}**`;
+          } else if (tagName === 'I') {
+            finalContent = `*${content}*`;
+          } else if (tagName === 'U') {
+            finalContent = `<u>${content}</u>`;
           }
           // Safely apply accent shortcuts only to text-based blocks inside loaded file, protecting math/table/video/diagrams
-          const textBasedTags = ['H1', 'H2', 'TEXT', 'B', 'LIST', 'ORDERED'];
+          const textBasedTags = ['H1', 'H2', 'TEXT', 'B', 'I', 'U', 'LIST', 'ORDERED'];
           if (textBasedTags.includes(tagName)) {
             finalContent = applyAccentShortcuts(finalContent);
           }
@@ -1686,12 +1700,20 @@ Use 2 spaces per indentation level.
 </H2>
 
 <TEXT>
-  This is a regular text block. You can use <B>bold</B> for emphasis.
+  This is a regular text block. You can use <B>bold</B>, <I>italics</I>, and <U>underline</U> for emphasis.
 </TEXT>
 
 <B>
   This entire block will be bolded for extreme emphasis.
 </B>
+
+<I>
+  This entire block will be in italics.
+</I>
+
+<U>
+  This entire block will be underlined.
+</U>
 
 <QUES ="1">
   Who founded CoLearn?

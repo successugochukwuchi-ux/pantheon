@@ -6,7 +6,7 @@ import { Alert, AppState, Platform } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Notifications from 'expo-notifications';
 import { auth, db } from '../lib/firebase';
-import { saveCoursesFromServer, clearUserProfileLocal, clearAllCoursesLocal } from '../lib/db';
+import { saveCoursesFromServer, clearUserProfileLocal, clearAllCoursesLocal, saveLastLoggedInStudentId } from '../lib/db';
 import { getFilteredCoursesForStudent } from '../lib/courseFilter';
 import { getDeviceUUID, getUserDeviceUUID, generateNewDeviceUUID, getMobileDeviceName } from '../lib/device';
 
@@ -322,8 +322,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                normalizedProfile.studentId = `CLN-${user.uid.slice(0, 4).toUpperCase()}-${user.uid.slice(-4).toUpperCase()}`;
             }
 
+            saveLastLoggedInStudentId(normalizedProfile.studentId);
             setProfile(normalizedProfile);
-            isFirstLoad = false;
             AsyncStorage.setItem('colearn_profile', JSON.stringify(normalizedProfile)).catch(() => {});
           } else {
             setProfile(null);
@@ -366,32 +366,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const interval = setInterval(verifyConnection, 5000);
     return () => clearInterval(interval);
   }, []);
-
-  // Sync recommended courses to SQLite when logged in and online
-  useEffect(() => {
-    if (!profile || !systemConfig || isOffline) return;
-
-    const syncCourses = async () => {
-      try {
-        const activeSemester = systemConfig.currentSemester || '1st';
-        const q = query(
-          collection(db, 'courses'),
-          where('semester', '==', activeSemester)
-        );
-        const snapshot = await getDocs(q);
-        const allFetched = snapshot.docs.map(doc => ({
-          id: doc.id,
-          ...doc.data()
-        })) as any[];
-
-        saveCoursesFromServer(allFetched);
-      } catch (err) {
-        console.log('[Background Auto-Sync] Course synchronization skipped (offline):', err);
-      }
-    };
-
-    syncCourses();
-  }, [profile, systemConfig, isOffline]);
 
   // Real-time Background Notification Dispatcher
   useEffect(() => {
@@ -686,19 +660,22 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const logout = async () => {
     try {
       setLoading(true);
+      if (profile?.studentId) {
+        saveLastLoggedInStudentId(profile.studentId);
+      }
       await signOut(auth);
       setUser(null);
       setProfile(null);
       await AsyncStorage.removeItem('colearn_profile').catch(() => {});
       await AsyncStorage.removeItem('colearn_system_config').catch(() => {});
       await AsyncStorage.removeItem('colearn_promo_config').catch(() => {});
-      await AsyncStorage.removeItem('colearn_last_downloaded_uid').catch(() => {});
-      await AsyncStorage.removeItem('colearn_last_downloaded_semester').catch(() => {});
+      // Note: We retain downloaded offline courses and student ID in SQLite
+      // so if the same user or another user with identical courses logs in,
+      // redundant re-syncing is completely skipped.
       try {
         clearUserProfileLocal();
-        clearAllCoursesLocal();
       } catch (e) {
-        console.log('Error clearing local user profile:', e);
+        console.log('Error clearing local user profile cache:', e);
       }
     } catch (err) {
       console.error('Logout error:', err);

@@ -10,6 +10,7 @@ import {
   Platform,
   Modal,
   FlatList,
+  Image,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
@@ -116,7 +117,11 @@ function Navbar() {
   return (
     <View style={s.navbar}>
       <View style={s.navBrand}>
-        <View style={s.navLogo} />
+        <Image 
+          source={require('../assets/icon.png')} 
+          style={{ width: 22, height: 22, borderRadius: 5, marginRight: 8 }} 
+          resizeMode="contain" 
+        />
         <Text style={s.navBrandText}>COLEARN</Text>
       </View>
       <TouchableOpacity

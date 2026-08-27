@@ -35,10 +35,25 @@ export const SafeMathRenderer: React.FC<SafeMathRendererProps> = ({ math, block 
   );
 };
 
+export const formatPLXFormatting = (text: string): string => {
+  if (!text) return '';
+  let processed = text;
+  // Process PLX bold <B>, italic <I>, and underline <U> (case-insensitive)
+  processed = processed.replace(/<B>([\s\S]*?)<\/B>/gi, '<strong class="font-bold font-semibold">$1</strong>');
+  processed = processed.replace(/<I>([\s\S]*?)<\/I>/gi, '<em class="italic">$1</em>');
+  processed = processed.replace(/<U>([\s\S]*?)<\/U>/gi, '<u class="underline decoration-1 underline-offset-2">$1</u>');
+  // Also process bracketed versions [B], [I], [U] for backward compatibility
+  processed = processed.replace(/\[B\]([\s\S]*?)\[\/B\]/gi, '<strong class="font-bold font-semibold">$1</strong>');
+  processed = processed.replace(/\[I\]([\s\S]*?)\[\/I\]/gi, '<em class="italic">$1</em>');
+  processed = processed.replace(/\[U\]([\s\S]*?)\[\/U\]/gi, '<u class="underline decoration-1 underline-offset-2">$1</u>');
+  return processed;
+};
+
 export const prepareMarkdownMath = (text: string): string => {
   if (!text) return '';
   
-  let processed = text;
+  // Format PLX bold, italics, and underline tags first
+  let processed = formatPLXFormatting(text);
   // Convert standard \\( and \\) or \( and \) to $...$
   processed = processed.replace(/\\\\\(([\s\S]*?)\\\\\)/g, '$$$1$$');
   processed = processed.replace(/\\\(([\s\S]*?)\\\)/g, '$$$1$$');

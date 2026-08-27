@@ -163,7 +163,10 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
                 </SheetContent>
               </Sheet>
               
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-3">
+                <Link to="/dashboard" className="flex items-center gap-2 md:hidden">
+                  <img src="/icon.png" alt="CoLearn" className="h-6 w-6 rounded-md object-contain" />
+                </Link>
                 <h2 className="text-sm font-black uppercase tracking-tighter text-muted-foreground">
                   {location.pathname === '/dashboard' ? 'Overview' : 
                    location.pathname.startsWith('/administrator') ? 'Administration' : 
