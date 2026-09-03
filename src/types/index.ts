@@ -90,6 +90,8 @@ export interface SystemConfig {
   updatedAt: string;
   standardPrice?: number;
   plusPrice?: number;
+  standardWholesalePrice?: number;
+  plusWholesalePrice?: number;
   activeSeasonId?: string | null;
   activeSeasonName?: string | null;
 }
@@ -155,6 +157,33 @@ export interface ActivationCode {
   assignedToStudentId?: string;
   owner?: string;
   At?: string; // University ID/code
+  // Lending System Extensions
+  isLent?: boolean;
+  lentWholesalePrice?: number;
+  settled?: boolean;
+  settledAt?: string;
+  settledBy?: string;
+  settlementId?: string;
+  dueDate?: string;
+  loanDays?: number;
+  lentAt?: string;
+  lentBy?: string;
+  recalledAt?: string;
+}
+
+export interface LendingSettlement {
+  id: string;
+  vendorUid: string;
+  vendorStudentId: string;
+  vendorUsername?: string;
+  amount: number;
+  clearedAt: string;
+  clearedBy: string;
+  clearedByStudentId?: string;
+  clearedByLevel?: string;
+  pinIds: string[];
+  pinCount: number;
+  At: string; // University ID/code
 }
 
 export interface Notification {

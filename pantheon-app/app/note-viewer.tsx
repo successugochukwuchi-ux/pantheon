@@ -134,12 +134,55 @@ function normalizeOpenAIBaseUrl(rawUrl?: string, provider?: string): string {
   return url.replace(/\/+$/, '');
 }
 
+function getMobileBackendUrls(): string[] {
+  const urls: string[] = [];
+  urls.push('https://colearn-backend-tzo9.onrender.com');
+
+  if (typeof process !== 'undefined' && (process.env as any)?.EXPO_PUBLIC_BACKEND_URL) {
+    urls.push((process.env as any).EXPO_PUBLIC_BACKEND_URL);
+  }
+
+  if (typeof window !== 'undefined' && window.location?.origin && window.location.origin.startsWith('http')) {
+    const origin = window.location.origin;
+    if (!origin.includes(':8081') && !origin.includes(':19000') && !origin.includes(':8082')) {
+      urls.push(origin);
+    }
+  }
+
+  return Array.from(new Set(urls.filter(Boolean)));
+}
+
 async function chatWithHermesMobile(messages: ChatMessage[], noteContent: string, config?: AIConfig) {
+  // Strategy 1: Try candidate backend proxies first (which handle keys and resilient fallbacks)
+  const candidateUrls = getMobileBackendUrls();
+  for (const baseUrl of candidateUrls) {
+    try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 12000);
+      const res = await fetch(`${baseUrl.replace(/\/+$/, '')}/api/hermes/chat`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ messages, noteContent, config }),
+        signal: controller.signal
+      });
+      clearTimeout(timeoutId);
+      if (res.ok) {
+        const data = await res.json();
+        if (data?.content) {
+          return data.content as string;
+        }
+      }
+    } catch (errProxy) {
+      console.warn(`Backend candidate ${baseUrl} unavailable:`, errProxy);
+    }
+  }
+
+  // Strategy 2: Direct Client-Side Fallback
   const provider = config?.provider || 'groq';
   let model = config?.model;
   
   if (!model) {
-    model = provider === 'groq' ? 'llama-3.3-70b-versatile' : provider === 'gemini' ? 'gemini-2.0-flash-lite' : provider === 'openrouter' ? 'google/gemini-2.0-flash-001' : 'gpt-4o-mini';
+    model = provider === 'groq' ? 'llama-3.3-70b-versatile' : provider === 'gemini' ? 'gemini-2.5-flash' : provider === 'openrouter' ? 'google/gemini-2.0-flash-001' : 'gpt-4o-mini';
   }
   
   // Clean model ID for Groq
@@ -149,7 +192,6 @@ async function chatWithHermesMobile(messages: ChatMessage[], noteContent: string
   }
 
   const rawKey = config?.apiKey || '';
-  // Extreme trim: removes ALL whitespace, surrounding quotes, and invisible characters
   const apiKey = rawKey.toString().replace(/\s+/g, '').replace(/['"]/g, '').replace(/[\u200B-\u200D\uFEFF]/g, '');
 
   // 1. Truncate note content to prevent model context limits
@@ -181,14 +223,14 @@ ${truncatedNote}
 `
   };
 
-  // ─── GOOGLE GEMINI (Direct when no custom Base URL is specified) ─────────────
+  // ─── GOOGLE GEMINI (Direct REST API) ─────────────────────────────────────────
   if (provider === 'gemini' && !config?.baseUrl) {
     if (!apiKey) {
       throw new Error('Google Gemini Chat AI is not configured. Please set an API Key in the Admin Panel.');
     }
-    const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
+    const targetModel = !model || model.includes('1.5') || model.includes('2.0-flash-lite') ? 'gemini-2.5-flash' : model;
+    const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${targetModel}:generateContent?key=${apiKey}`;
     
-    // Convert OpenAI-style system role to Gemini format
     const latestUserMsg = slicedMessages.length > 0 ? slicedMessages[slicedMessages.length - 1].content : '';
     const body = {
       contents: [
@@ -243,7 +285,7 @@ ${truncatedNote}
     body: JSON.stringify(payload),
   });
 
-  // Automatic fallback retry for 404/405 (Method Not Allowed / Not Found)
+  // Automatic fallback retry for 404/405
   if (!response.ok && (response.status === 404 || response.status === 405)) {
     let fallbackEndpoint: string | null = null;
     if (!normalizedBaseUrl.endsWith('/v1') && !normalizedBaseUrl.includes('/v1/')) {
@@ -253,7 +295,6 @@ ${truncatedNote}
     }
 
     if (fallbackEndpoint && fallbackEndpoint !== primaryEndpoint) {
-      console.warn(`Mobile Hermes primary endpoint ${primaryEndpoint} returned ${response.status}. Retrying fallback: ${fallbackEndpoint}`);
       const fallbackRes = await fetch(fallbackEndpoint, {
         method: 'POST',
         headers,
@@ -287,6 +328,389 @@ ${truncatedNote}
   }
 
   return data.choices[0].message.content as string;
+}
+
+// ── Math & LaTeX Formatting Engine for Hermes ────────────────────────────────
+const SUPERSCRIPTS: Record<string, string> = {
+  '0': '⁰', '1': '¹', '2': '²', '3': '³', '4': '⁴',
+  '5': '⁵', '6': '⁶', '7': '⁷', '8': '⁸', '9': '⁹',
+  '+': '⁺', '-': '⁻', '=': '⁼', '(': '⁽', ')': '⁾',
+  'n': 'ⁿ', 'i': 'ⁱ', 'x': 'ˣ', 'y': 'ʸ', 't': 'ᵗ',
+  'a': 'ᵃ', 'b': 'ᵇ', 'c': 'ᶜ', 'd': 'ᵈ', 'e': 'ᵉ',
+  'f': 'ᶠ', 'g': 'ᵍ', 'h': 'ʰ', 'j': 'ʲ', 'k': 'ᵏ',
+  'l': 'ˡ', 'm': 'ᵐ', 'o': 'ᵒ', 'p': 'ᵖ', 'r': 'ʳ',
+  's': 'ˢ', 'u': 'ᵘ', 'v': 'ᵛ', 'w': 'ʷ', 'z': 'ᶻ',
+  'T': 'ᵀ', 'A': 'ᴬ', 'B': 'ᴮ', 'D': 'ᴰ', 'E': 'ᴱ',
+  'G': 'ᴳ', 'H': 'ᴴ', 'I': 'ᴵ', 'J': 'ᴶ', 'K': 'ᴷ',
+  'L': 'ᴸ', 'M': 'ᴹ', 'N': 'ᴺ', 'O': 'ᴼ', 'P': 'ᴾ',
+  'R': 'ᴿ', 'U': 'ᵁ', 'V': 'ⱽ', 'W': 'ᵂ', 'c': 'ᶜ'
+};
+
+const SUBSCRIPTS: Record<string, string> = {
+  '0': '₀', '1': '₁', '2': '₂', '3': '₃', '4': '₄',
+  '5': '₅', '6': '₆', '7': '₇', '8': '₈', '9': '₉',
+  '+': '₊', '-': '₋', '=': '₌', '(': '₍', ')': '₎',
+  'a': 'ₐ', 'e': 'ₑ', 'h': 'ₕ', 'i': 'ᵢ', 'j': 'ⱼ',
+  'k': 'ₖ', 'l': 'ₗ', 'm': 'ₘ', 'n': 'ₙ', 'o': 'ₒ',
+  'p': 'ₚ', 'r': 'ᵣ', 's': 'ₛ', 't': 'ₜ', 'u': 'ᵤ',
+  'v': 'ᵥ', 'x': 'ₓ'
+};
+
+function toSuperscript(str: string): string {
+  return str.split('').map(c => SUPERSCRIPTS[c] || c).join('');
+}
+
+function toSubscript(str: string): string {
+  return str.split('').map(c => SUBSCRIPTS[c] || c).join('');
+}
+
+function formatLatexMath(raw: string): string {
+  if (!raw) return '';
+  let str = raw.trim();
+
+  // Strip enclosing math delimiters
+  str = str.replace(/^\$\$|^\\\[|^\$|^\\\(/, '').replace(/\$\$$|\\\]$|\$$|\\\)$/, '').trim();
+
+  // Blackboard bold sets
+  str = str.replace(/\\mathbb\{([A-Z])\}|\\mathbf\{([A-Z])\}/g, (_, c1, c2) => {
+    const c = c1 || c2;
+    const bb: Record<string, string> = { R: 'ℝ', N: 'ℕ', Z: 'ℤ', Q: 'ℚ', C: 'ℂ', H: 'ℍ' };
+    return bb[c] || c;
+  });
+
+  // Text commands
+  str = str.replace(/\\(?:text|mathrm|mathbf|mathit|mathtt)\{([^}]+)\}/g, '$1');
+
+  // Fractions: \frac{a}{b} or \dfrac{a}{b}
+  str = str.replace(/\\d?frac\{([^{}]+)\}\{([^{}]+)\}/g, (_, num, den) => {
+    const n = num.trim();
+    const d = den.trim();
+    return `(${n}) / (${d})`;
+  });
+
+  // Roots: \sqrt[n]{x} or \sqrt{x}
+  str = str.replace(/\\sqrt\[([^\]]+)\]\{([^{}]+)\}/g, (_, n, x) => `${toSuperscript(n)}√(${x.trim()})`);
+  str = str.replace(/\\sqrt\{([^{}]+)\}/g, (_, x) => `√(${x.trim()})`);
+  str = str.replace(/\\sqrt\s*([0-9a-zA-Z])/g, (_, x) => `√${x}`);
+
+  // Set operations, logic, relations, and Greek symbols
+  const symbolMap: [RegExp, string][] = [
+    [/\\cap\b/g, '∩'],
+    [/\\cup\b/g, '∪'],
+    [/\\setminus\b/g, ' \\ '],
+    [/\\subset\b/g, '⊂'],
+    [/\\subseteq\b/g, '⊆'],
+    [/\\supset\b/g, '⊃'],
+    [/\\supseteq\b/g, '⊇'],
+    [/\\in\b/g, '∈'],
+    [/\\notin\b/g, '∉'],
+    [/\\emptyset\b|\\varnothing\b/g, '∅'],
+    [/\\Delta\b/g, 'Δ'],
+    [/\\forall\b/g, '∀'],
+    [/\\exists\b/g, '∃'],
+    [/\\nexists\b/g, '∄'],
+    [/\\complement\b/g, '∁'],
+    [/\\land\b/g, '∧'],
+    [/\\lor\b/g, '∨'],
+    [/\\neg\b|\\lnot\b/g, '¬'],
+    [/\\implies\b|\\Rightarrow\b/g, '⇒'],
+    [/\\iff\b|\\Leftrightarrow\b/g, '⇔'],
+    [/\\to\b|\\rightarrow\b/g, '→'],
+    [/\\leftarrow\b/g, '←'],
+    [/\\leftrightarrow\b/g, '↔'],
+    [/\\pm\b/g, '±'],
+    [/\\mp\b/g, '∓'],
+    [/\\times\b/g, '×'],
+    [/\\div\b/g, '÷'],
+    [/\\cdot\b/g, '·'],
+    [/\\ast\b|\\star\b/g, '∗'],
+    [/\\circ\b/g, '∘'],
+    [/\\bullet\b/g, '•'],
+    [/\\neq\b|\\ne\b/g, '≠'],
+    [/\\leq\b|\\le\b/g, '≤'],
+    [/\\geq\b|\\ge\b/g, '≥'],
+    [/\\approx\b/g, '≈'],
+    [/\\equiv\b/g, '≡'],
+    [/\\sim\b/g, '∼'],
+    [/\\simeq\b/g, '≃'],
+    [/\\cong\b/g, '≅'],
+    [/\\propto\b/g, '∝'],
+    [/\\infty\b/g, '∞'],
+    [/\\partial\b/g, '∂'],
+    [/\\nabla\b/g, '∇'],
+    [/\\int\b/g, '∫'],
+    [/\\iint\b/g, '∬'],
+    [/\\iiint\b/g, '∭'],
+    [/\\oint\b/g, '∮'],
+    [/\\sum\b/g, '∑'],
+    [/\\prod\b/g, '∏'],
+    [/\\coprod\b/g, '∐'],
+    [/\\angle\b/g, '∠'],
+    [/\\perp\b/g, '⊥'],
+    [/\\parallel\b/g, '∥'],
+    [/\\triangle\b/g, '△'],
+    [/\\degree\b/g, '°'],
+    [/\\alpha\b/g, 'α'],
+    [/\\beta\b/g, 'β'],
+    [/\\gamma\b/g, 'γ'],
+    [/\\Gamma\b/g, 'Γ'],
+    [/\\delta\b/g, 'δ'],
+    [/\\epsilon\b|\\varepsilon\b/g, 'ε'],
+    [/\\zeta\b/g, 'ζ'],
+    [/\\eta\b/g, 'η'],
+    [/\\theta\b|\\vartheta\b/g, 'θ'],
+    [/\\Theta\b/g, 'Θ'],
+    [/\\iota\b/g, 'ι'],
+    [/\\kappa\b/g, 'κ'],
+    [/\\lambda\b/g, 'λ'],
+    [/\\Lambda\b/g, 'Λ'],
+    [/\\mu\b/g, 'μ'],
+    [/\\nu\b/g, 'ν'],
+    [/\\xi\b/g, 'ξ'],
+    [/\\Xi\b/g, 'Ξ'],
+    [/\\pi\b|\\varpi\b/g, 'π'],
+    [/\\Pi\b/g, 'Π'],
+    [/\\rho\b|\\varrho\b/g, 'ρ'],
+    [/\\sigma\b|\\varsigma\b/g, 'σ'],
+    [/\\Sigma\b/g, 'Σ'],
+    [/\\tau\b/g, 'τ'],
+    [/\\upsilon\b/g, 'υ'],
+    [/\\Upsilon\b/g, 'Υ'],
+    [/\\phi\b|\\varphi\b/g, 'φ'],
+    [/\\Phi\b/g, 'Φ'],
+    [/\\chi\b/g, 'χ'],
+    [/\\psi\b/g, 'ψ'],
+    [/\\Psi\b/g, 'Ψ'],
+    [/\\omega\b/g, 'ω'],
+    [/\\Omega\b/g, 'Ω'],
+    [/\\left\(/g, '('],
+    [/\\right\)/g, ')'],
+    [/\\left\[/g, '['],
+    [/\\right\]/g, ']'],
+    [/\\left\\\{/g, '{'],
+    [/\\right\\\}/g, '}'],
+    [/\\\{/g, '{'],
+    [/\\\}/g, '}'],
+    [/\\quad\b/g, '  '],
+    [/\\qquad\b/g, '    '],
+    [/\\,|\\;|\\:|\\!/g, ' '],
+    [/\\overline\{([^}]+)\}/g, '$1\u0305'],
+    [/\\bar\{([^}]+)\}/g, '$1\u0305'],
+    [/\\hat\{([^}]+)\}/g, '$1\u0302'],
+    [/\\vec\{([^}]+)\}/g, '$1\u20D7'],
+    [/\\dot\{([^}]+)\}/g, '$1\u0307'],
+    [/\\ddot\{([^}]+)\}/g, '$1\u0308'],
+  ];
+
+  for (const [pattern, replacement] of symbolMap) {
+    str = str.replace(pattern, replacement);
+  }
+
+  // Superscripts ^{...} and ^x
+  str = str.replace(/\^\{([^{}]+)\}/g, (_, exp) => toSuperscript(exp));
+  str = str.replace(/\^([0-9a-zA-Z+\-=()])/g, (_, exp) => toSuperscript(exp));
+
+  // Subscripts _{...} and _x
+  str = str.replace(/_\{([^{}]+)\}/g, (_, sub) => toSubscript(sub));
+  str = str.replace(/_([0-9a-zA-Z+\-=()])/g, (_, sub) => toSubscript(sub));
+
+  // Clean remaining stray backslashes
+  str = str.replace(/\\([a-zA-Z]+)/g, '$1');
+
+  return str.trim();
+}
+
+// ── Hermes Assistant Formatted Message Content ─────────────────────────────────
+function HermesMessageContent({ content, C }: { content: string; C: any }) {
+  // If the content is an array of note blocks (JSON) or PLX tags, use NoteRenderer
+  const isStructuredNote = useMemo(() => {
+    if (!content) return false;
+    if (content.includes('<PLX>') || content.includes('</PLX>')) return true;
+    try {
+      const parsed = JSON.parse(content);
+      return Array.isArray(parsed);
+    } catch {
+      return false;
+    }
+  }, [content]);
+
+  if (isStructuredNote) {
+    return (
+      <NoteRenderer 
+        content={content} 
+        bgOverride={C.surface}
+        paddingOverride="14px 18px"
+        inkOverride={C.ink}
+      />
+    );
+  }
+
+  const lines = (content || '').split('\n');
+
+  const renderFormattedText = (text: string, keyPrefix: string, textStyle: any) => {
+    // Matches bold, italic, inline code, display math $$...$$, inline math $...$, \(...\), \[...\]
+    const parts = text.split(/(\*\*[^*]+\*\*|\*[^*]+\*|`[^`]+`|\$\$[^\$]+\$\$|\$[^$]+\$|\\\[[\s\S]*?\\\]|\\\([\s\S]*?\\\))/g);
+
+    return (
+      <Text key={keyPrefix} style={textStyle}>
+        {parts.map((part, idx) => {
+          if (!part) return null;
+          if (part.startsWith('**') && part.endsWith('**') && part.length >= 4) {
+            return (
+              <Text key={`${keyPrefix}-${idx}`} style={{ fontFamily: F.bold, color: C.ink }}>
+                {part.slice(2, -2)}
+              </Text>
+            );
+          }
+          if (part.startsWith('*') && part.endsWith('*') && part.length >= 2) {
+            return (
+              <Text key={`${keyPrefix}-${idx}`} style={{ fontStyle: 'italic', color: C.ink }}>
+                {part.slice(1, -1)}
+              </Text>
+            );
+          }
+          if (part.startsWith('`') && part.endsWith('`') && part.length >= 2) {
+            return (
+              <Text key={`${keyPrefix}-${idx}`} style={{ fontFamily: 'monospace', backgroundColor: C.tabBg, color: C.activeText, paddingHorizontal: 3, borderRadius: 3 }}>
+                {part.slice(1, -1)}
+              </Text>
+            );
+          }
+          if (
+            (part.startsWith('$$') && part.endsWith('$$') && part.length > 4) ||
+            (part.startsWith('$') && part.endsWith('$') && part.length > 2) ||
+            (part.startsWith('\\(') && part.endsWith('\\)')) ||
+            (part.startsWith('\\[') && part.endsWith('\\]'))
+          ) {
+            const formattedMath = formatLatexMath(part);
+            return (
+              <Text 
+                key={`${keyPrefix}-${idx}`} 
+                style={{ 
+                  fontFamily: F.bold, 
+                  color: C.activeText || C.ink, 
+                  fontSize: 15,
+                  letterSpacing: 0.4 
+                }}
+              >
+                {formattedMath}
+              </Text>
+            );
+          }
+          return part;
+        })}
+      </Text>
+    );
+  };
+
+  return (
+    <View style={{ width: '100%', paddingHorizontal: 12, paddingVertical: 10 }}>
+      {lines.map((line, lineIdx) => {
+        const trimmed = line.trim();
+        if (!trimmed) {
+          return <View key={lineIdx} style={{ height: 6 }} />;
+        }
+
+        // Headers: # or ## or ###
+        if (trimmed.startsWith('# ')) {
+          return (
+            <Text key={lineIdx} style={{ fontFamily: F.bold, fontSize: 16.5, color: C.ink, marginBottom: 6, marginTop: 4 }}>
+              {trimmed.substring(2)}
+            </Text>
+          );
+        }
+        if (trimmed.startsWith('## ')) {
+          return (
+            <Text key={lineIdx} style={{ fontFamily: F.bold, fontSize: 15.5, color: C.ink, marginBottom: 4, marginTop: 4 }}>
+              {trimmed.substring(3)}
+            </Text>
+          );
+        }
+        if (trimmed.startsWith('### ')) {
+          return (
+            <Text key={lineIdx} style={{ fontFamily: F.bold, fontSize: 14.5, color: C.ink, marginBottom: 4, marginTop: 2 }}>
+              {trimmed.substring(4)}
+            </Text>
+          );
+        }
+
+        // Standalone Math Formula Block (e.g. $$ ... $$, \[ ... \], or a full line of $ ... $)
+        const isDisplayMath = 
+          /^\s*(\$\$|\\\[)\s*([\s\S]+?)\s*(\$\$|\\\])\s*$/.test(trimmed) || 
+          (/^\s*\$\s*([^$]+?)\s*\$\s*$/.test(trimmed) && (
+            trimmed.includes('\\') || trimmed.includes('=') || trimmed.includes('+') || 
+            trimmed.includes('-') || trimmed.includes('^') || trimmed.includes('_') || 
+            trimmed.includes('(') || trimmed.includes('∩') || trimmed.includes('∪')
+          ));
+
+        if (isDisplayMath) {
+          const formattedFormula = formatLatexMath(trimmed);
+          return (
+            <View 
+              key={lineIdx} 
+              style={{ 
+                marginVertical: 8,
+                paddingVertical: 10,
+                paddingHorizontal: 14,
+                backgroundColor: C.activeBg || C.tabBg,
+                borderRadius: 10,
+                borderWidth: 1,
+                borderColor: C.border,
+                alignSelf: 'stretch',
+                alignItems: 'center',
+                justifyContent: 'center',
+              }}
+            >
+              <Text 
+                style={{ 
+                  fontFamily: F.bold, 
+                  fontSize: 16, 
+                  color: C.activeText || C.ink, 
+                  letterSpacing: 0.6,
+                  textAlign: 'center',
+                  lineHeight: 24,
+                }}
+              >
+                {formattedFormula}
+              </Text>
+            </View>
+          );
+        }
+
+        // Bullet list: - or *
+        if (trimmed.startsWith('- ') || trimmed.startsWith('* ')) {
+          return (
+            <View key={lineIdx} style={{ flexDirection: 'row', alignItems: 'flex-start', marginBottom: 4, paddingLeft: 4 }}>
+              <Text style={{ color: C.activeText || C.ink, fontSize: 15, marginRight: 6, lineHeight: 22 }}>•</Text>
+              <View style={{ flex: 1 }}>
+                {renderFormattedText(trimmed.substring(2), `bullet-${lineIdx}`, { fontFamily: F.body, fontSize: 14.5, lineHeight: 22, color: C.ink })}
+              </View>
+            </View>
+          );
+        }
+
+        // Numbered list: e.g. 1. 2.
+        const numMatch = trimmed.match(/^(\d+)\.\s+(.*)/);
+        if (numMatch) {
+          return (
+            <View key={lineIdx} style={{ flexDirection: 'row', alignItems: 'flex-start', marginBottom: 4, paddingLeft: 4 }}>
+              <Text style={{ fontFamily: F.bold, color: C.inkMid, fontSize: 14, marginRight: 6, lineHeight: 22 }}>{numMatch[1]}.</Text>
+              <View style={{ flex: 1 }}>
+                {renderFormattedText(numMatch[2], `num-${lineIdx}`, { fontFamily: F.body, fontSize: 14.5, lineHeight: 22, color: C.ink })}
+              </View>
+            </View>
+          );
+        }
+
+        // Regular paragraph line
+        return (
+          <View key={lineIdx} style={{ marginBottom: 4 }}>
+            {renderFormattedText(line, `p-${lineIdx}`, { fontFamily: F.body, fontSize: 14.5, lineHeight: 22, color: C.ink })}
+          </View>
+        );
+      })}
+    </View>
+  );
 }
 
 // ── Toolbar overlay ───────────────────────────────────────────────────────────
@@ -1136,16 +1560,19 @@ export default function NoteViewerScreen() {
               </View>
               <ScrollView style={s.hermesChatScroll} contentContainerStyle={{ padding: 16 }}>
                 {hermesChat.map((m, i) => (
-                  <View key={i} style={[s.hermesBubble, m.role === 'user' ? s.hermesUser : [s.hermesBot, { backgroundColor: C.surface, width: '100%', maxWidth: '100%', padding: 0 }] ]}>
+                  <View 
+                    key={i} 
+                    style={[
+                      s.hermesBubble, 
+                      m.role === 'user' 
+                        ? [s.hermesUser, { backgroundColor: C.surfaceDark, alignSelf: 'flex-end', maxWidth: '85%' }] 
+                        : [s.hermesBot, { backgroundColor: C.surface, borderColor: C.border, borderWidth: 1, alignSelf: 'flex-start', maxWidth: '92%', width: 'auto', padding: 0 }] 
+                    ]}
+                  >
                     {m.role === 'user' ? (
                       <Text style={[s.hermesText, { color: '#fff' }]}>{m.content}</Text>
                     ) : (
-                      <NoteRenderer 
-                        content={m.content} 
-                        bgOverride={C.surface}
-                        paddingOverride="14px 18px"
-                        inkOverride={C.ink}
-                      />
+                      <HermesMessageContent content={m.content} C={C} />
                     )}
                   </View>
                 ))}

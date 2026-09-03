@@ -129,12 +129,39 @@ export default function Activate() {
       // Mark pin as used
       try {
         const pinRef = doc(db, 'activationCodes', pin);
-        await updateDoc(pinRef, {
+        
+        let lentWholesalePrice = pinData.lentWholesalePrice;
+        if (pinData.isLent && lentWholesalePrice === undefined) {
+          try {
+            const configSnap = await getDoc(doc(db, 'system', 'config'));
+            if (configSnap.exists()) {
+              const cfg = configSnap.data();
+              lentWholesalePrice = pinData.type === 'plus' 
+                ? (cfg.plusWholesalePrice ?? 1500) 
+                : (cfg.standardWholesalePrice ?? 800);
+            } else {
+              lentWholesalePrice = pinData.type === 'plus' ? 1500 : 800;
+            }
+          } catch (e) {
+            lentWholesalePrice = pinData.type === 'plus' ? 1500 : 800;
+          }
+        }
+
+        const pinUpdatePayload: any = {
           isUsed: true,
           usedBy: user?.uid,
           usedByStudentId: profile?.studentId || '',
           usedAt: new Date().toISOString()
-        });
+        };
+
+        if (pinData.isLent && pinData.lentWholesalePrice === undefined) {
+          pinUpdatePayload.lentWholesalePrice = lentWholesalePrice;
+          if (pinData.settled === undefined) {
+            pinUpdatePayload.settled = false;
+          }
+        }
+
+        await updateDoc(pinRef, pinUpdatePayload);
 
         // Update stats unused/used pin counts
         try {

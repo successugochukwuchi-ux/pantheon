@@ -242,6 +242,10 @@ service cloud.firestore {
       );
     }
 
+    match /lendingSettlements/{settlementId} {
+      allow read, list, write: if isAdmin();
+    }
+
     match /verificationRequests/{requestId} {
       allow read, list: if isAdmin();
       allow create: if isSignedIn();

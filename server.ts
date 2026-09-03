@@ -5,6 +5,7 @@ import express from "express";
 import path from "path";
 import fs from "fs";
 import { createServer as createViteServer } from "vite";
+import { GoogleGenAI } from "@google/genai";
 import { generateEdgeTTS, streamEdgeTTS, MICROSOFT_VOICES } from "./src/lib/edge-tts";
 
 async function startServer() {
@@ -311,7 +312,7 @@ async function startServer() {
       let model = config?.model;
       
       if (!model) {
-        model = provider === 'groq' ? 'llama-3.3-70b-versatile' : provider === 'gemini' ? 'gemini-2.0-flash-lite' : provider === 'openrouter' ? 'google/gemini-2.0-flash-001' : 'gpt-4o-mini';
+        model = provider === 'groq' ? 'llama-3.3-70b-versatile' : provider === 'gemini' ? 'gemini-2.5-flash' : provider === 'openrouter' ? 'google/gemini-2.0-flash-001' : 'gpt-4o-mini';
       }
       
       // Clean model ID for Groq
@@ -322,6 +323,7 @@ async function startServer() {
 
       const rawKey = config?.apiKey || '';
       const apiKey = rawKey?.toString().replace(/\s+/g, '').replace(/['"]/g, '').replace(/[\u200B-\u200D\uFEFF]/g, '') || '';
+      const serverGeminiKey = process.env.GEMINI_API_KEY || '';
 
       // 1. Truncate note content to prevent model context limits
       const maxNoteLength = 15000;
@@ -352,40 +354,63 @@ ${truncatedNote}
 `
       };
 
-      // ─── GOOGLE GEMINI (Direct REST API when no custom Base URL is set) ────────────
-      if (provider === 'gemini' && !config?.baseUrl) {
-        if (!apiKey) {
-          return res.status(400).json({ error: 'Google Gemini Chat AI is not configured. Please set an API Key in the Admin Panel.' });
-        }
-        const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
+      const latestUserMsg = slicedMessages.length > 0 ? slicedMessages[slicedMessages.length - 1].content : '';
+
+      // Helper function to call Google Gemini using GenAI SDK
+      const callGeminiFallback = async (key: string, geminiModelName?: string) => {
+        const aiGen = new GoogleGenAI({ apiKey: key });
+        const targetModel = geminiModelName && !geminiModelName.includes('1.5') && !geminiModelName.includes('2.0-flash-lite')
+          ? geminiModelName
+          : 'gemini-2.5-flash';
         
-        const latestUserMsg = slicedMessages.length > 0 ? slicedMessages[slicedMessages.length - 1].content : '';
-        const body = {
+        const response = await aiGen.models.generateContent({
+          model: targetModel,
           contents: [
             {
               role: 'user',
               parts: [{ text: `SYSTEM INSTRUCTIONS:\n${systemPrompt.content}\n\nUSER QUESTION: ${latestUserMsg}` }]
             }
           ]
-        };
-
-        const response = await fetch(geminiUrl, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(body),
         });
+        return response.text || "I'm sorry, I couldn't generate a response.";
+      };
 
-        if (!response.ok) {
-          const errData = await response.json().catch(() => ({}));
-          return res.status(response.status).json({ error: errData?.error?.message || `Gemini API error (${response.status})` });
+      // ─── GOOGLE GEMINI (Direct REST / SDK when no custom Base URL is set) ────────────
+      if (provider === 'gemini' && !config?.baseUrl) {
+        const activeGeminiKey = apiKey || serverGeminiKey;
+        if (!activeGeminiKey) {
+          return res.status(400).json({ error: 'Google Gemini Chat AI is not configured. Please set an API Key in the Admin Panel.' });
         }
 
-        const data = await response.json();
-        const content = data?.candidates?.[0]?.content?.parts?.[0]?.text || "I'm sorry, I couldn't generate a response.";
-        return res.json({ content });
+        try {
+          const content = await callGeminiFallback(activeGeminiKey, model);
+          return res.json({ content });
+        } catch (geminiErr: any) {
+          console.error("Gemini SDK error in Hermes chat proxy:", geminiErr);
+          // If custom key failed and server key is available, try server key
+          if (apiKey && serverGeminiKey && apiKey !== serverGeminiKey) {
+            try {
+              const fallbackContent = await callGeminiFallback(serverGeminiKey, 'gemini-2.5-flash');
+              return res.json({ content: fallbackContent });
+            } catch (secErr: any) {
+              console.error("Server fallback Gemini key also failed:", secErr);
+            }
+          }
+          return res.status(500).json({ error: geminiErr.message || "Failed to generate response from Gemini." });
+        }
       }
 
       // ─── OPENAI-COMPATIBLE ENDPOINT (Groq, OpenRouter, OpenAI, Custom, etc.) ──────
+      // If provider key is missing, seamlessly fallback to Gemini if server key exists
+      if (!apiKey && serverGeminiKey) {
+        try {
+          const content = await callGeminiFallback(serverGeminiKey, 'gemini-2.5-flash');
+          return res.json({ content });
+        } catch (err: any) {
+          console.warn("Fallback to Gemini failed when API key was missing:", err);
+        }
+      }
+
       const normalizedBaseUrl = normalizeOpenAIBaseUrl(config?.baseUrl, provider);
       let primaryEndpoint = `${normalizedBaseUrl}/chat/completions`;
 
@@ -459,17 +484,49 @@ ${truncatedNote}
           provider,
           endpoint: primaryEndpoint
         });
+
+        // Fallback to server Gemini if third-party provider failed with 401/429/500 and server key exists
+        if (serverGeminiKey) {
+          try {
+            console.log("Attempting fallback to Gemini due to provider error...");
+            const fallbackContent = await callGeminiFallback(serverGeminiKey, 'gemini-2.5-flash');
+            return res.json({ content: fallbackContent });
+          } catch (fbErr) {
+            console.error("Gemini fallback also failed:", fbErr);
+          }
+        }
+
         return res.status(response.status).json({ error: `${errMsg} (Code: ${errCode})` });
       }
 
       const data = await response.json();
       if (!data?.choices?.[0]?.message?.content) {
+        // Try fallback if choice is missing
+        if (serverGeminiKey) {
+          try {
+            const fallbackContent = await callGeminiFallback(serverGeminiKey, 'gemini-2.5-flash');
+            return res.json({ content: fallbackContent });
+          } catch (e) {}
+        }
         return res.status(500).json({ error: "Unexpected response structure from AI provider." });
       }
 
       return res.json({ content: data.choices[0].message.content });
     } catch (err: any) {
       console.error("Error in Hermes chat proxy:", err);
+      // Last-resort fallback to server Gemini key
+      if (process.env.GEMINI_API_KEY) {
+        try {
+          const aiGen = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+          const response = await aiGen.models.generateContent({
+            model: 'gemini-2.5-flash',
+            contents: `You are Hermes, an academic assistant. Please answer the user: ${(req.body?.messages?.slice(-1)?.[0]?.content) || 'Hello'}`
+          });
+          if (response.text) {
+            return res.json({ content: response.text });
+          }
+        } catch (e) {}
+      }
       return res.status(500).json({ error: err.message || "Internal server error" });
     }
   });

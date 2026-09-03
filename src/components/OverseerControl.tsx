@@ -28,6 +28,8 @@ interface PriceHistoryRecord {
   id?: string;
   standardPrice: number;
   plusPrice: number;
+  standardWholesalePrice?: number;
+  plusWholesalePrice?: number;
   updatedAt: string;
 }
 
@@ -54,6 +56,8 @@ export default function OverseerControl() {
   // Price configuration states
   const [standardPrice, setStandardPrice] = useState(1000);
   const [plusPrice, setPlusPrice] = useState(2000);
+  const [standardWholesalePrice, setStandardWholesalePrice] = useState(800);
+  const [plusWholesalePrice, setPlusWholesalePrice] = useState(1500);
   const [priceLoading, setPriceLoading] = useState(false);
   const [priceHistory, setPriceHistory] = useState<PriceHistoryRecord[]>([]);
 
@@ -67,17 +71,21 @@ export default function OverseerControl() {
     standardUsedDirect: number;
     plusTransferred: number;
     plusUsedDirect: number;
+    lendingStandardCount: number;
+    lendingPlusCount: number;
     standardTotalRevenue: number;
     plusTotalRevenue: number;
+    lendingTotalRevenue: number;
     colodgeCommissionRevenue?: number;
     grandTotal: number;
     details: string[];
     pins: {
       code: string;
       type: 'standard' | 'plus';
-      status: 'transferred' | 'used_direct';
+      status: 'transferred' | 'used_direct' | 'lending_settled';
       associatedId: string;
       timestamp: string;
+      amount?: number;
     }[];
   } | null>(null);
 
@@ -103,6 +111,8 @@ export default function OverseerControl() {
         const data = configDoc.data();
         setStandardPrice(data.standardPrice ?? 1000);
         setPlusPrice(data.plusPrice ?? 2000);
+        setStandardWholesalePrice(data.standardWholesalePrice ?? 800);
+        setPlusWholesalePrice(data.plusWholesalePrice ?? 1500);
       }
 
       // Fetch Price History
@@ -378,6 +388,8 @@ export default function OverseerControl() {
       await updateDoc(doc(db, 'system', 'config'), {
         standardPrice,
         plusPrice,
+        standardWholesalePrice,
+        plusWholesalePrice,
         pricesUpdatedAt: nowStr
       });
 
@@ -385,10 +397,12 @@ export default function OverseerControl() {
       await addDoc(collection(db, 'priceHistory'), {
         standardPrice,
         plusPrice,
+        standardWholesalePrice,
+        plusWholesalePrice,
         updatedAt: nowStr
       });
 
-      toast.success("Activation pin prices updated successfully!");
+      toast.success("Activation pin prices and wholesale lending rates updated successfully!");
       fetchData();
     } catch (err: any) {
       console.error("Error saving prices:", err);
@@ -419,21 +433,35 @@ export default function OverseerControl() {
 
       const allPins = pinsSnap.docs.map(d => ({ id: d.id, ...d.data() } as any));
 
-      // Filter pins transferred or used in the selected month
-      // Standard / Plus pin transferred or used directly:
-      // - Transferred: has a vendor (assignedTo is set). Transfer date = createdAt.
-      // - Used directly: isUsed is true, no vendor (assignedTo is not set). Usage date = usedAt.
+      // Filter pins transferred, used directly, or settled via lending in the selected month:
+      // - Standard / Plus upfront transferred: has a vendor (assignedTo is set), isLent != true. Transfer date = createdAt.
+      // - Standard / Plus used directly: isUsed is true, no vendor (assignedTo is not set), isLent != true. Usage date = usedAt.
+      // - Lending Settled: isLent is true, settled is true. Settlement date = settledAt.
       
       const standardTransferred: any[] = [];
       const standardUsedDirect: any[] = [];
       const plusTransferred: any[] = [];
       const plusUsedDirect: any[] = [];
+      const lendingSettledStandard: any[] = [];
+      const lendingSettledPlus: any[] = [];
 
       allPins.forEach(pin => {
         const isPlus = pin.type === 'plus';
         
-        if (pin.assignedTo) {
-          // Transferred Pin
+        if (pin.isLent) {
+          // Lending PIN: Only counts towards revenue once settled/paid by vendor
+          if (pin.settled && pin.settledAt) {
+            const settlementDate = new Date(pin.settledAt);
+            if (settlementDate >= startOfChosenMonth && settlementDate <= endOfChosenMonth) {
+              if (isPlus) {
+                lendingSettledPlus.push(pin);
+              } else {
+                lendingSettledStandard.push(pin);
+              }
+            }
+          }
+        } else if (pin.assignedTo) {
+          // Upfront Transferred Non-Lent Pin
           if (pin.createdAt) {
             const transferDate = new Date(pin.createdAt);
             if (transferDate >= startOfChosenMonth && transferDate <= endOfChosenMonth) {
@@ -445,7 +473,7 @@ export default function OverseerControl() {
             }
           }
         } else if (pin.isUsed) {
-          // Used Directly Pin
+          // Used Directly Non-Lent Pin
           if (pin.usedAt) {
             const usageDate = new Date(pin.usedAt);
             if (usageDate >= startOfChosenMonth && usageDate <= endOfChosenMonth) {
@@ -465,24 +493,34 @@ export default function OverseerControl() {
       const historyPoints = pHSnap.docs.map(d => d.data() as PriceHistoryRecord);
 
       // Helper function to get applicable prices at any given timestamp
-      const getPricesAtDate = (dateIso: string): { standard: number; plus: number } => {
+      const getPricesAtDate = (dateIso: string): { standard: number; plus: number; standardWholesale: number; plusWholesale: number } => {
         const timestamp = new Date(dateIso).getTime();
         let activeStandard = 1000;
         let activePlus = 2000;
+        let activeStandardWholesale = 800;
+        let activePlusWholesale = 1500;
         
         // Find latest price change that occurred before or equal to this timestamp
         for (const pt of historyPoints) {
           if (new Date(pt.updatedAt).getTime() <= timestamp) {
             activeStandard = pt.standardPrice;
             activePlus = pt.plusPrice;
+            if (pt.standardWholesalePrice !== undefined) activeStandardWholesale = pt.standardWholesalePrice;
+            if (pt.plusWholesalePrice !== undefined) activePlusWholesale = pt.plusWholesalePrice;
           }
         }
-        return { standard: activeStandard, plus: activePlus };
+        return { 
+          standard: activeStandard, 
+          plus: activePlus, 
+          standardWholesale: activeStandardWholesale, 
+          plusWholesale: activePlusWholesale 
+        };
       };
 
       // Calculate Revenue
       let standardTotalRevenue = 0;
       let plusTotalRevenue = 0;
+      let lendingTotalRevenue = 0;
       const details: string[] = [];
 
       // Process standard transferred
@@ -521,6 +559,22 @@ export default function OverseerControl() {
         details.push(`Directly Used PLUS PINs: ${plusUsedDirect.length}`);
       }
 
+      // Process settled lending pins (Wholesale debt cleared)
+      lendingSettledStandard.forEach(p => {
+        const prices = getPricesAtDate(p.settledAt || p.createdAt);
+        const amount = p.lentWholesalePrice !== undefined ? p.lentWholesalePrice : prices.standardWholesale;
+        lendingTotalRevenue += amount;
+      });
+      lendingSettledPlus.forEach(p => {
+        const prices = getPricesAtDate(p.settledAt || p.createdAt);
+        const amount = p.lentWholesalePrice !== undefined ? p.lentWholesalePrice : prices.plusWholesale;
+        lendingTotalRevenue += amount;
+      });
+
+      if (lendingSettledStandard.length > 0 || lendingSettledPlus.length > 0) {
+        details.push(`Settled Lending PINs Recovered: ${lendingSettledStandard.length + lendingSettledPlus.length} (Std: ${lendingSettledStandard.length}, Plus: ${lendingSettledPlus.length}) -> NGN ${lendingTotalRevenue.toLocaleString()}`);
+      }
+
       // Display pricing in effect during this month
       const monthPriceChanges = historyPoints.filter(pt => {
         const ptDate = new Date(pt.updatedAt);
@@ -530,66 +584,105 @@ export default function OverseerControl() {
       if (monthPriceChanges.length > 0) {
         details.push("--- Price changes during this month ---");
         monthPriceChanges.forEach(pt => {
-          details.push(`Date: ${new Date(pt.updatedAt).toLocaleDateString()} -> Standard: NGN ${pt.standardPrice}, PLUS: NGN ${pt.plusPrice}`);
+          details.push(`Date: ${new Date(pt.updatedAt).toLocaleDateString()} -> Standard: NGN ${pt.standardPrice}, PLUS: NGN ${pt.plusPrice}, Std Wholesale: NGN ${pt.standardWholesalePrice ?? 800}, PLUS Wholesale: NGN ${pt.plusWholesalePrice ?? 1500}`);
         });
       } else {
         // Find price point before month start
         let activeStandard = 1000;
         let activePlus = 2000;
+        let activeStdWholesale = 800;
+        let activePlusWholesale = 1500;
         for (const pt of historyPoints) {
           if (new Date(pt.updatedAt).getTime() < startOfChosenMonth.getTime()) {
             activeStandard = pt.standardPrice;
             activePlus = pt.plusPrice;
+            if (pt.standardWholesalePrice !== undefined) activeStdWholesale = pt.standardWholesalePrice;
+            if (pt.plusWholesalePrice !== undefined) activePlusWholesale = pt.plusWholesalePrice;
           }
         }
-        details.push(`Price Point: Standard: NGN ${activeStandard}, PLUS: NGN ${activePlus}`);
+        details.push(`Price Point: Standard: NGN ${activeStandard}, PLUS: NGN ${activePlus} | Wholesale: Std NGN ${activeStdWholesale}, PLUS NGN ${activePlusWholesale}`);
       }
 
       const detailedPins: {
         code: string;
         type: 'standard' | 'plus';
-        status: 'transferred' | 'used_direct';
+        status: 'transferred' | 'used_direct' | 'lending_settled';
         associatedId: string;
         timestamp: string;
+        amount?: number;
       }[] = [];
 
       standardTransferred.forEach(p => {
+        const prices = getPricesAtDate(p.createdAt);
         detailedPins.push({
           code: p.code || p.id,
           type: 'standard',
           status: 'transferred',
           associatedId: p.assignedToStudentId || p.owner || 'Unknown Vendor',
-          timestamp: p.createdAt
+          timestamp: p.createdAt,
+          amount: prices.standard
         });
       });
 
       plusTransferred.forEach(p => {
+        const prices = getPricesAtDate(p.createdAt);
         detailedPins.push({
           code: p.code || p.id,
           type: 'plus',
           status: 'transferred',
           associatedId: p.assignedToStudentId || p.owner || 'Unknown Vendor',
-          timestamp: p.createdAt
+          timestamp: p.createdAt,
+          amount: prices.plus
         });
       });
 
       standardUsedDirect.forEach(p => {
+        const prices = getPricesAtDate(p.usedAt);
         detailedPins.push({
           code: p.code || p.id,
           type: 'standard',
           status: 'used_direct',
           associatedId: p.usedByStudentId || 'N/A',
-          timestamp: p.usedAt
+          timestamp: p.usedAt,
+          amount: prices.standard
         });
       });
 
       plusUsedDirect.forEach(p => {
+        const prices = getPricesAtDate(p.usedAt);
         detailedPins.push({
           code: p.code || p.id,
           type: 'plus',
           status: 'used_direct',
           associatedId: p.usedByStudentId || 'N/A',
-          timestamp: p.usedAt
+          timestamp: p.usedAt,
+          amount: prices.plus
+        });
+      });
+
+      lendingSettledStandard.forEach(p => {
+        const prices = getPricesAtDate(p.settledAt || p.createdAt);
+        const amount = p.lentWholesalePrice !== undefined ? p.lentWholesalePrice : prices.standardWholesale;
+        detailedPins.push({
+          code: p.code || p.id,
+          type: 'standard',
+          status: 'lending_settled',
+          associatedId: `Settled Vendor: ${p.assignedToStudentId || 'Vendor'} (User: ${p.usedByStudentId || 'Student'})`,
+          timestamp: p.settledAt || p.usedAt || p.createdAt,
+          amount
+        });
+      });
+
+      lendingSettledPlus.forEach(p => {
+        const prices = getPricesAtDate(p.settledAt || p.createdAt);
+        const amount = p.lentWholesalePrice !== undefined ? p.lentWholesalePrice : prices.plusWholesale;
+        detailedPins.push({
+          code: p.code || p.id,
+          type: 'plus',
+          status: 'lending_settled',
+          associatedId: `Settled Vendor: ${p.assignedToStudentId || 'Vendor'} (User: ${p.usedByStudentId || 'Student'})`,
+          timestamp: p.settledAt || p.usedAt || p.createdAt,
+          amount
         });
       });
 
@@ -628,10 +721,13 @@ export default function OverseerControl() {
         standardUsedDirect: standardUsedDirect.length,
         plusTransferred: plusTransferred.length,
         plusUsedDirect: plusUsedDirect.length,
+        lendingStandardCount: lendingSettledStandard.length,
+        lendingPlusCount: lendingSettledPlus.length,
         standardTotalRevenue,
         plusTotalRevenue,
+        lendingTotalRevenue,
         colodgeCommissionRevenue,
-        grandTotal: standardTotalRevenue + plusTotalRevenue + colodgeCommissionRevenue,
+        grandTotal: standardTotalRevenue + plusTotalRevenue + lendingTotalRevenue + colodgeCommissionRevenue,
         details,
         pins: detailedPins
       });
@@ -672,23 +768,26 @@ export default function OverseerControl() {
         ["Grand Total Revenue", `NGN ${calculatedRevenue.grandTotal.toLocaleString()}`],
         ["Standard PIN Income", `NGN ${calculatedRevenue.standardTotalRevenue.toLocaleString()}`, `${calculatedRevenue.standardTransferred + calculatedRevenue.standardUsedDirect} Pins`],
         ["PLUS PIN Income", `NGN ${calculatedRevenue.plusTotalRevenue.toLocaleString()}`, `${calculatedRevenue.plusTransferred + calculatedRevenue.plusUsedDirect} Pins`],
+        ["Lending Settlements Income", `NGN ${(calculatedRevenue.lendingTotalRevenue || 0).toLocaleString()}`, `${(calculatedRevenue.lendingStandardCount || 0) + (calculatedRevenue.lendingPlusCount || 0)} Settled Borrowed Pins`],
         ["CoLodge Commissions", `NGN ${(calculatedRevenue.colodgeCommissionRevenue || 0).toLocaleString()}`, "10% commission on withdrawn agent fees"],
         [],
         ["BREAKDOWN COUNTS"],
-        ["Standard Pins Transferred", calculatedRevenue.standardTransferred],
+        ["Standard Pins Transferred (Upfront)", calculatedRevenue.standardTransferred],
         ["Standard Pins Used Directly", calculatedRevenue.standardUsedDirect],
-        ["PLUS Pins Transferred", calculatedRevenue.plusTransferred],
+        ["PLUS Pins Transferred (Upfront)", calculatedRevenue.plusTransferred],
         ["PLUS Pins Used Directly", calculatedRevenue.plusUsedDirect],
+        ["Lending Standard PINs Settled", calculatedRevenue.lendingStandardCount || 0],
+        ["Lending PLUS PINs Settled", calculatedRevenue.lendingPlusCount || 0],
         ["CoLodge Commission Income", `NGN ${(calculatedRevenue.colodgeCommissionRevenue || 0).toLocaleString()}`],
         [],
         ["DETAILED ACTIVATION PIN RECORDS"],
-        ["S/N", "PIN Code", "Type", "Category/Status", "Associated Student ID (Vendor or User)", "Date & Time"]
+        ["S/N", "PIN Code", "Type", "Category/Status", "Associated Student ID (Vendor or User)", "Date & Time", "Revenue Amount (NGN)"]
       ];
 
       const pins = calculatedRevenue.pins || [];
       pins.forEach((p, idx) => {
         const typeStr = p.type.toUpperCase();
-        const statusStr = p.status === 'transferred' ? 'TRANSFERRED' : 'USED DIRECT';
+        const statusStr = p.status === 'transferred' ? 'TRANSFERRED (UPFRONT)' : p.status === 'lending_settled' ? 'LENDING (SETTLED DEBT)' : 'USED DIRECT';
         const formattedDate = new Date(p.timestamp).toLocaleString();
         
         dataRows.push([
@@ -697,7 +796,8 @@ export default function OverseerControl() {
           typeStr,
           statusStr,
           p.associatedId,
-          formattedDate
+          formattedDate,
+          p.amount !== undefined ? `NGN ${p.amount.toLocaleString()}` : 'N/A'
         ]);
       });
 
@@ -855,22 +955,32 @@ export default function OverseerControl() {
       // Card 3: PLUS PIN
       doc.setFillColor(248, 250, 252); // slate-50
       doc.setDrawColor(226, 232, 240); // slate-200
-      doc.rect(139, 90, 56, 32, "FD");
+      doc.rect(139, 90, 56, 15, "FD");
 
       doc.setTextColor(100, 116, 139); // slate-500
       doc.setFont("Helvetica", "bold");
-      doc.setFontSize(8);
-      doc.text("PLUS PIN INCOME", 144, 97);
+      doc.setFontSize(7.5);
+      doc.text("PLUS PIN INCOME", 143, 95);
 
       doc.setTextColor(15, 23, 42); // slate-900
       doc.setFont("Helvetica", "bold");
-      doc.setFontSize(14);
-      doc.text(`N${calculatedRevenue.plusTotalRevenue.toLocaleString()}`, 144, 107);
+      doc.setFontSize(11);
+      doc.text(`N${calculatedRevenue.plusTotalRevenue.toLocaleString()}`, 143, 101);
 
-      doc.setFont("Helvetica", "normal");
-      doc.setFontSize(8);
-      doc.setTextColor(100, 116, 139);
-      doc.text(`${calculatedRevenue.plusTransferred + calculatedRevenue.plusUsedDirect} Pins Processed`, 144, 115);
+      // Card 4: Lending Settlements
+      doc.setFillColor(248, 250, 252); // slate-50
+      doc.setDrawColor(226, 232, 240); // slate-200
+      doc.rect(139, 107, 56, 15, "FD");
+
+      doc.setTextColor(100, 116, 139); // slate-500
+      doc.setFont("Helvetica", "bold");
+      doc.setFontSize(7.5);
+      doc.text("LENDING RECOVERY INCOME", 143, 112);
+
+      doc.setTextColor(15, 23, 42); // slate-900
+      doc.setFont("Helvetica", "bold");
+      doc.setFontSize(11);
+      doc.text(`N${(calculatedRevenue.lendingTotalRevenue || 0).toLocaleString()}`, 143, 118);
 
       // 4. Breakdown Table
       doc.setFont("Helvetica", "bold");
@@ -915,6 +1025,7 @@ export default function OverseerControl() {
       // Draw rows
       drawRow(145, "Standard Pin Activations (Regular Grade Access)", calculatedRevenue.standardTransferred, calculatedRevenue.standardUsedDirect, false);
       drawRow(155, "PLUS Pin Activations (Premium Advanced Access)", calculatedRevenue.plusTransferred, calculatedRevenue.plusUsedDirect, true);
+      drawRow(165, "Settled Borrowed/Lent PINs (Wholesale Debt Cleared)", calculatedRevenue.lendingStandardCount || 0, calculatedRevenue.lendingPlusCount || 0, false);
 
       // 5. Audit Log Details
       doc.setFont("Helvetica", "bold");
@@ -1156,17 +1267,17 @@ export default function OverseerControl() {
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <DollarSign className="h-5 w-5 text-green-500" />
-            Activation PIN Pricing (Overseer Authority Only)
+            Activation PIN Pricing & Wholesale Lending Rates (Overseer Authority Only)
           </CardTitle>
           <CardDescription>
-            Change the default prices for standard and plus activation pins platform-wide. All price changes are securely logged to facilitate revenue calculations.
+            Change the default prices for standard and plus activation pins platform-wide, as well as wholesale lending unit prices for borrowed pins. All price changes are securely logged to facilitate accurate historical revenue calculations.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-6">
           <form onSubmit={handleSavePrices} className="space-y-4">
             <div className="grid gap-4 md:grid-cols-2">
               <div className="space-y-2">
-                <Label htmlFor="standardPrice">Standard PIN Price (₦)</Label>
+                <Label htmlFor="standardPrice">Standard PIN Retail Price (₦)</Label>
                 <Input 
                   id="standardPrice"
                   type="number"
@@ -1175,9 +1286,10 @@ export default function OverseerControl() {
                   onChange={(e) => setStandardPrice(parseInt(e.target.value) || 0)}
                   required
                 />
+                <p className="text-[11px] text-muted-foreground">Default price for standard study portal access</p>
               </div>
               <div className="space-y-2">
-                <Label htmlFor="plusPrice">PLUS PIN Price (₦)</Label>
+                <Label htmlFor="plusPrice">PLUS PIN Retail Price (₦)</Label>
                 <Input 
                   id="plusPrice"
                   type="number"
@@ -1186,10 +1298,35 @@ export default function OverseerControl() {
                   onChange={(e) => setPlusPrice(parseInt(e.target.value) || 0)}
                   required
                 />
+                <p className="text-[11px] text-muted-foreground">Default price for premium PLUS portal access</p>
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="standardWholesalePrice" className="text-amber-700 dark:text-amber-400">Standard PIN Wholesale Lending Rate (₦)</Label>
+                <Input 
+                  id="standardWholesalePrice"
+                  type="number"
+                  min="0"
+                  value={standardWholesalePrice}
+                  onChange={(e) => setStandardWholesalePrice(parseInt(e.target.value) || 0)}
+                  required
+                />
+                <p className="text-[11px] text-muted-foreground">Amount owed to CoLearn per used borrowed Standard PIN</p>
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="plusWholesalePrice" className="text-amber-700 dark:text-amber-400">PLUS PIN Wholesale Lending Rate (₦)</Label>
+                <Input 
+                  id="plusWholesalePrice"
+                  type="number"
+                  min="0"
+                  value={plusWholesalePrice}
+                  onChange={(e) => setPlusWholesalePrice(parseInt(e.target.value) || 0)}
+                  required
+                />
+                <p className="text-[11px] text-muted-foreground">Amount owed to CoLearn per used borrowed PLUS PIN</p>
               </div>
             </div>
             <Button type="submit" disabled={priceLoading} className="bg-green-600 hover:bg-green-700">
-              {priceLoading ? 'Saving Price...' : 'Update Pricing & Record'}
+              {priceLoading ? 'Saving Price...' : 'Update Pricing & Record Rates'}
             </Button>
           </form>
 
@@ -1198,11 +1335,13 @@ export default function OverseerControl() {
               <h4 className="font-bold text-sm text-muted-foreground flex items-center gap-1">
                 <List className="h-4 w-4" /> Recent Price Log History
               </h4>
-              <div className="max-h-32 overflow-y-auto space-y-1.5 border rounded-lg p-3 text-xs font-mono">
+              <div className="max-h-36 overflow-y-auto space-y-1.5 border rounded-lg p-3 text-xs font-mono">
                 {priceHistory.map((pt, i) => (
-                  <div key={i} className="flex justify-between items-center py-1 border-b last:border-0">
+                  <div key={i} className="flex justify-between items-center py-1 border-b last:border-0 flex-wrap gap-1">
                     <span>{new Date(pt.updatedAt).toLocaleString()}</span>
-                    <span className="font-bold text-primary">Standard: ₦{pt.standardPrice} | PLUS: ₦{pt.plusPrice}</span>
+                    <span className="font-bold text-primary">
+                      Std: ₦{pt.standardPrice} | PLUS: ₦{pt.plusPrice} | Std Wholesale: ₦{pt.standardWholesalePrice ?? 800} | PLUS Wholesale: ₦{pt.plusWholesalePrice ?? 1500}
+                    </span>
                   </div>
                 ))}
               </div>
@@ -1402,7 +1541,7 @@ export default function OverseerControl() {
                 </div>
               </div>
 
-              <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 text-sm">
+              <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4 text-sm">
                 <div className="space-y-1 p-3 bg-background border rounded-lg">
                   <span className="text-xs text-muted-foreground block">Standard Pin Income</span>
                   <span className="font-bold text-lg text-primary">₦{calculatedRevenue.standardTotalRevenue.toLocaleString()}</span>
@@ -1415,6 +1554,13 @@ export default function OverseerControl() {
                   <span className="font-bold text-lg text-primary">₦{calculatedRevenue.plusTotalRevenue.toLocaleString()}</span>
                   <p className="text-xs text-muted-foreground">
                     Transferred: {calculatedRevenue.plusTransferred} • Used directly: {calculatedRevenue.plusUsedDirect}
+                  </p>
+                </div>
+                <div className="space-y-1 p-3 bg-background border rounded-lg">
+                  <span className="text-xs text-muted-foreground block">Lending Debt Cleared</span>
+                  <span className="font-bold text-lg text-amber-600">₦{(calculatedRevenue.lendingTotalRevenue || 0).toLocaleString()}</span>
+                  <p className="text-xs text-muted-foreground">
+                    Std: {calculatedRevenue.lendingStandardCount || 0} • PLUS: {calculatedRevenue.lendingPlusCount || 0}
                   </p>
                 </div>
                 <div className="space-y-1 p-3 bg-background border rounded-lg">

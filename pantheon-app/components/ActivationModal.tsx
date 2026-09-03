@@ -140,13 +140,40 @@ export function ActivationModal() {
 
       const usedAtStr = new Date().toISOString();
 
+      // If lent pin without pre-recorded wholesale price, fetch wholesale rate from system config
+      let lentWholesalePrice = codeData.lentWholesalePrice;
+      if (codeData.isLent && lentWholesalePrice === undefined) {
+        try {
+          const configSnap = await getDoc(doc(db, 'system', 'config'));
+          if (configSnap.exists()) {
+            const cfg = configSnap.data();
+            lentWholesalePrice = codeData.type === 'plus' 
+              ? (cfg.plusWholesalePrice ?? 1500) 
+              : (cfg.standardWholesalePrice ?? 800);
+          } else {
+            lentWholesalePrice = codeData.type === 'plus' ? 1500 : 800;
+          }
+        } catch (e) {
+          lentWholesalePrice = codeData.type === 'plus' ? 1500 : 800;
+        }
+      }
+
       // Valid code! Update code with appropriate tracking fields
-      await updateDoc(codeRef, {
+      const codeUpdatePayload: any = {
         isUsed: true,
         usedBy: user?.uid,
         usedByStudentId: profile?.studentId || '',
         usedAt: usedAtStr,
-      });
+      };
+
+      if (codeData.isLent && codeData.lentWholesalePrice === undefined) {
+        codeUpdatePayload.lentWholesalePrice = lentWholesalePrice;
+        if (codeData.settled === undefined) {
+          codeUpdatePayload.settled = false;
+        }
+      }
+
+      await updateDoc(codeRef, codeUpdatePayload);
 
       // Update system stats on pin consumption
       try {
