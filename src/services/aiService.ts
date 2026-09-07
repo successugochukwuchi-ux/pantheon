@@ -242,7 +242,7 @@ ${fileData.data}`
   }
 }
 
-export async function chatWithHermes(messages: ChatMessage[], noteContent: string, config?: AIConfig) {
+export async function chatWithHermes(messages: ChatMessage[], noteContent: string, config?: AIConfig, isVoiceCall?: boolean) {
   try {
     const response = await fetch('/api/hermes/chat', {
       method: 'POST',
@@ -253,6 +253,7 @@ export async function chatWithHermes(messages: ChatMessage[], noteContent: strin
         messages,
         noteContent,
         config,
+        isVoiceCall: Boolean(isVoiceCall),
       }),
     });
 

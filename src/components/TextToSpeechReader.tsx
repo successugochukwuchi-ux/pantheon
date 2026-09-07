@@ -5,135 +5,13 @@ import { Card, CardContent } from './ui/card';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
 import { Slider } from './ui/slider';
 import { Badge } from './ui/badge';
-import { speakText, stopSpeech, pauseSpeech, resumeSpeech, getDefaultVoice, setDefaultVoice, unlockAudioContext, MICROSOFT_VOICES } from '../lib/ttsService';
+import { speakText, stopSpeech, pauseSpeech, resumeSpeech, getDefaultVoice, setDefaultVoice, unlockAudioContext, MICROSOFT_VOICES, convertLatexToSpeakable, stripDiagramsAndCleanForTTS } from '../lib/ttsService';
+
+export { convertLatexToSpeakable };
 
 interface TextToSpeechReaderProps {
   noteContent: string;
   noteTitle: string;
-}
-
-export function convertLatexToSpeakable(text: string): string {
-  if (!text) return '';
-  // Convert standard inline and block LaTeX ($...$ or $$...$$) into phonetically clean English
-  return text.replace(/\$\$?([\s\S]+?)\$\$?/g, (_, formula) => {
-    let speakable = formula.trim();
-
-    // 1. Pre-processing: remove formatting tags and bracket controls
-    speakable = speakable.replace(/\\left/g, '').replace(/\\right/g, '');
-    speakable = speakable.replace(/\\mathrm/g, '');
-    speakable = speakable.replace(/\\text\s*\{([^}]+)\}/g, ' $1 ');
-    speakable = speakable.replace(/\\mathrm\s*\{([^}]+)\}/g, ' $1 ');
-
-    // 2. Trigonometric and common mathematical functions
-    speakable = speakable.replace(/\\sin\b/g, ' sine of, ');
-    speakable = speakable.replace(/\\cos\b/g, ' cosine of, ');
-    speakable = speakable.replace(/\\tan\b/g, ' tangent of, ');
-    speakable = speakable.replace(/\\ln\b/g, ' natural log of, ');
-    speakable = speakable.replace(/\\log\b/g, ' log of, ');
-
-    // 3. Vector / Arrow markers
-    speakable = speakable.replace(/\\vec\{(\w)\}/g, ' vector, $1, ');
-    speakable = speakable.replace(/\\bar\{(\w)\}/g, ' $1 bar, ');
-    speakable = speakable.replace(/\\hat\{(\w)\}/g, ' $1 hat, ');
-
-    // 4. Limits
-    speakable = speakable.replace(/\\lim_\{([^\}]+)\s*\\to\s*([^}]+)\}/g, ' limit as $1, approaches $2, ');
-    speakable = speakable.replace(/\\lim_\{([^\}]+)\}/g, ' limit as $1, ');
-
-    // 5. Summations (Sum from lower to upper of ...)
-    speakable = speakable.replace(/\\sum_\{([^\}]+)\}\^\{([^\}]+)\}/g, ' sum from $1, to $2, of, ');
-    speakable = speakable.replace(/\\sum_\{([^\}]+)\}\^(\w)/g, ' sum from $1, to $2, of, ');
-    speakable = speakable.replace(/\\sum\b/g, ' sum ');
-
-    // 6. Integrals (Integral from lower to upper of ...)
-    speakable = speakable.replace(/\\int_\{([^\}]+)\}\^\{([^\}]+)\}/g, ' integral from $1, to $2, of, ');
-    speakable = speakable.replace(/\\int_\{([^\}]+)\}\^(\w)/g, ' integral from $1, to $2, of, ');
-    speakable = speakable.replace(/\\int\b/g, ' integral ');
-
-    // 7. Fractions (handle derivatives first: \frac{dy}{dx} -> derivative of y with respect to x)
-    speakable = speakable.replace(/\\frac\{d(\w)\}\{d(\w)\}/g, ' derivative of $1, with respect to $2, ');
-    speakable = speakable.replace(/\\frac\{\\partial\s*(\w)\}\{\\partial\s*(\w)\}/g, ' partial derivative of $1, with respect to $2, ');
-    
-    let prev;
-    do {
-      prev = speakable;
-      speakable = speakable.replace(/\\frac\s*\{([^}]+)\}\s*\{([^}]+)\}/g, ' ($1, divided by, $2) ');
-    } while (speakable !== prev);
-
-    // 8. Superscripts / powers (avoiding collision with sum/integral limits already parsed)
-    speakable = speakable.replace(/(\w+)\^2\b/g, '$1, squared, ');
-    speakable = speakable.replace(/(\w+)\^3\b/g, '$1, cubed, ');
-    speakable = speakable.replace(/\{?([^}^^]+)\}?\^\{([^}]+)\}/g, '$1, to the power of, $2, ');
-    speakable = speakable.replace(/\{?([^}^^]+)\}?\^(\w)/g, '$1, to the power of, $2, ');
-
-    // 9. Square roots
-    speakable = speakable.replace(/\\sqrt\s*\{([^}]+)\}/g, ' the square root of, $1, ');
-    speakable = speakable.replace(/\\sqrt\s*(\w)/g, ' the square root of, $1, ');
-
-    // 10. Greek Letters conversion
-    const greekLetters: Record<string, string> = {
-      '\\alpha': 'alpha',
-      '\\beta': 'beta',
-      '\\gamma': 'gamma',
-      '\\delta': 'delta',
-      '\\epsilon': 'epsilon',
-      '\\zeta': 'zeta',
-      '\\eta': 'eta',
-      '\\theta': 'theta',
-      '\\iota': 'iota',
-      '\\kappa': 'kappa',
-      '\\lambda': 'lambda',
-      '\\mu': 'mu',
-      '\\nu': 'nu',
-      '\\xi': 'xi',
-      '\\pi': 'pi',
-      '\\rho': 'rho',
-      '\\sigma': 'sigma',
-      '\\tau': 'tau',
-      '\\upsilon': 'upsilon',
-      '\\phi': 'phi',
-      '\\chi': 'chi',
-      '\\psi': 'psi',
-      '\\omega': 'omega',
-      '\\Delta': 'delta',
-      '\\Sigma': 'sigma',
-      '\\Omega': 'omega',
-    };
-
-    Object.entries(greekLetters).forEach(([latex, spoken]) => {
-      const escaped = latex.replace(/\\/g, '\\\\');
-      const regex = new RegExp(escaped, 'g');
-      speakable = speakable.replace(regex, ` ${spoken} `);
-    });
-
-    // 11. Subscripts: v_initial -> v initial, v_{i} -> v i
-    speakable = speakable.replace(/(\w+)_\{([^}]+)\}/g, '$1 sub $2');
-    speakable = speakable.replace(/(\w+)_(\w)/g, '$1 sub $2');
-
-    // 12. Math Operators & Relations
-    speakable = speakable.replace(/\\infty/g, ' infinity ');
-    speakable = speakable.replace(/\\partial/g, ' partial derivative ');
-    speakable = speakable.replace(/\\times/g, ' times ');
-    speakable = speakable.replace(/\\cdot/g, ' times ');
-    speakable = speakable.replace(/\\div/g, ' divided by ');
-    speakable = speakable.replace(/\\pm/g, ' plus or minus ');
-    speakable = speakable.replace(/\\approx/g, ' approximately equals ');
-    speakable = speakable.replace(/\\le/g, ' is less than or equal to ');
-    speakable = speakable.replace(/\\ge/g, ' is greater than or equal to ');
-    speakable = speakable.replace(/\\neq/g, ' is not equal to ');
-    speakable = speakable.replace(/\\to/g, ' approaches ');
-    speakable = speakable.replace(/\\(dots|ldots|cdots)/g, ', and so on, ');
-    speakable = speakable.replace(/=/g, ', equals, ');
-    speakable = speakable.replace(/\+/g, ' plus ');
-    speakable = speakable.replace(/-/g, ' minus ');
-
-    // Clean up leftover symbols, parenthesis and curly braces
-    speakable = speakable.replace(/[{}]/g, ' ');
-    speakable = speakable.replace(/\\/g, ' ');
-    speakable = speakable.replace(/\s+/g, ' ').trim();
-
-    return ` ${speakable} `;
-  });
 }
 
 export function getVoiceLabel(voice: SpeechSynthesisVoice): string {

@@ -30,6 +30,7 @@
     "expo-linear-gradient": "~14.0.1",
     "expo-notifications": "~0.29.1",
     "expo-router": "~4.0.0",
+    "expo-screen-capture": "~6.0.1",
     "expo-secure-store": "~14.0.1",
     "expo-speech": "~13.0.0",
     "expo-splash-screen": "~0.29.13",

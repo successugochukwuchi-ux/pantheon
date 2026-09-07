@@ -29,10 +29,11 @@ import { db, auth } from '../lib/firebase';
 import { useAuth } from '../context/AuthContext';
 import { BirdIcon, CalculatorIcon } from '../components/Icons';
 import { NoteRenderer } from '../components/NoteRenderer';
+import { HermesMobileLiveOrb } from '../components/HermesMobileLiveOrb';
 import { F } from '../components/Theme';
 import { useTheme } from '../context/ThemeContext';
 import { getDatabase, isCourseDownloadedLocal, getLocalNotes, getLocalCourse } from '../lib/db';
-import { speakText, stopSpeech, pauseSpeech, resumeSpeech } from '../lib/ttsService';
+import { speakText, stopSpeech, pauseSpeech, resumeSpeech, convertLatexToSpeakable, stripDiagramsAndCleanForTTS } from '../lib/ttsService';
 import * as Speech from 'expo-speech';
 import { WebView } from 'react-native-webview';
 
@@ -152,7 +153,7 @@ function getMobileBackendUrls(): string[] {
   return Array.from(new Set(urls.filter(Boolean)));
 }
 
-async function chatWithHermesMobile(messages: ChatMessage[], noteContent: string, config?: AIConfig) {
+async function chatWithHermesMobile(messages: ChatMessage[], noteContent: string, config?: AIConfig, isVoiceCall?: boolean) {
   // Strategy 1: Try candidate backend proxies first (which handle keys and resilient fallbacks)
   const candidateUrls = getMobileBackendUrls();
   for (const baseUrl of candidateUrls) {
@@ -162,7 +163,7 @@ async function chatWithHermesMobile(messages: ChatMessage[], noteContent: string
       const res = await fetch(`${baseUrl.replace(/\/+$/, '')}/api/hermes/chat`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ messages, noteContent, config }),
+        body: JSON.stringify({ messages, noteContent, config, isVoiceCall: Boolean(isVoiceCall) }),
         signal: controller.signal
       });
       clearTimeout(timeoutId);
@@ -206,15 +207,25 @@ async function chatWithHermesMobile(messages: ChatMessage[], noteContent: string
     ? messages.slice(-maxHistoryCount)
     : (messages || []);
 
+  const voiceCallDirective = isVoiceCall
+    ? `\n\nCRITICAL LIVE VOICE CALL DIRECTIVE (GEMINI LIVE STYLE):
+- You are currently speaking with the student on a LIVE REAL-TIME PHONE/VOICE CALL.
+- Keep your response strictly conversational, punchy, and concise: MAXIMUM 1 TO 2 SHORT SENTENCES (under 25 words).
+- Answer the student's question immediately and naturally like a live tutor on the phone.
+- STRICTLY FORBIDDEN: NEVER use emojis, bullet points, numbered lists, markdown headings, code blocks, bold markers, or conversational filler like "Sure thing!" or "Certainly!".
+- Never give long lectures or over-explain; if the student wants more depth, they will ask in their next turn.\n`
+    : '';
+
   const systemPrompt: ChatMessage = {
     role: 'system',
-    content: `You are Hermes, a friendly, intelligent, and polite academic assistant on CoLearn designed to help students study, understand, and query their lecture notes.
+    content: `You are Hermes, a friendly, intelligent, and polite academic assistant on CoLearn designed to help students study, understand, and query their lecture notes.${voiceCallDirective}
 
 CORE CAPABILITIES & GUIDELINES:
 1. GREETINGS & COURTESY: Always respond warmly, politely, and helpfully to user greetings (e.g. "hi", "hello", "good day", "how are you?") and pleasantries. Welcome the student and express readiness to assist them with their note.
 2. ABOUT HERMES: Answer questions about yourself clearly, accurately, and politely. You are Hermes, the dedicated AI study companion on CoLearn, designed to help students explore, understand, summarize, and master their lecture notes and academic materials.
 3. NOTE INQUIRIES & ACADEMIC HELP: Answer questions about the provided "STUDY NOTE CONTENT" below. Explain, summarize, simplify, or clarify the concepts, definitions, examples, and details found in the note.
-4. MATHEMATICAL & SCIENTIFIC NOTATION: Use LaTeX for mathematical formulas, equations, or scientific notations (e.g., $E=mc^2$ or \\frac{a}{b}).
+4. MATHEMATICAL & SCIENTIFIC NOTATION:
+CRITICAL FORMATTING MANDATE: Every mathematical formula, equation, variable, fraction, power, or symbol MUST be wrapped in single dollar signs $ ... $ for inline math (e.g. $E=mc^2$, $\\frac{a}{b}$, $\\sqrt{x}$, $\\theta$) or double dollar signs $$ ... $$ for standalone display formulas. NEVER output raw bare LaTeX commands like \\frac or \\sqrt without dollar signs.
 5. BOUNDARIES FOR UNRELATED TOPICS: You should only answer questions about yourself, user greetings, and this study note. If the user asks about completely unrelated topics (such as general entertainment, unrelated coding, pop culture, or unrelated news), politely explain that you are dedicated to helping them with this note and invite them to ask questions about the current topic.
 6. Keep your explanations clear, educational, well-formatted, and helpful.
 
@@ -381,12 +392,16 @@ function formatLatexMath(raw: string): string {
   // Text commands
   str = str.replace(/\\(?:text|mathrm|mathbf|mathit|mathtt)\{([^}]+)\}/g, '$1');
 
-  // Fractions: \frac{a}{b} or \dfrac{a}{b}
-  str = str.replace(/\\d?frac\{([^{}]+)\}\{([^{}]+)\}/g, (_, num, den) => {
-    const n = num.trim();
-    const d = den.trim();
-    return `(${n}) / (${d})`;
-  });
+  // Fractions: \frac{a}{b} or \dfrac{a}{b} (loop to resolve any nested fractions)
+  let prevFractionStr = '';
+  while (prevFractionStr !== str && /\\d?frac\{([^{}]+)\}\{([^{}]+)\}/.test(str)) {
+    prevFractionStr = str;
+    str = str.replace(/\\d?frac\{([^{}]+)\}\{([^{}]+)\}/g, (_, num, den) => {
+      const n = num.trim();
+      const d = den.trim();
+      return `(${n}) / (${d})`;
+    });
+  }
 
   // Roots: \sqrt[n]{x} or \sqrt{x}
   str = str.replace(/\\sqrt\[([^\]]+)\]\{([^{}]+)\}/g, (_, n, x) => `${toSuperscript(n)}√(${x.trim()})`);
@@ -520,6 +535,42 @@ function formatLatexMath(raw: string): string {
   return str.trim();
 }
 
+// ── Automatic Math Delimiter Wrapper for Hermes ───────────────────────────────
+function autoWrapLatexMath(text: string): string {
+  if (!text) return '';
+
+  // 1. Temporarily protect already delimited math blocks and code tags
+  const protectedChunks: string[] = [];
+  const placeholder = '___PX_MTH_HLD_' + Math.random().toString(36).substring(2, 7) + '___';
+
+  let sanitized = text.replace(
+    /(\$\$[\s\S]*?\$\$|\$[^\$\n]+\$|\\\[[\s\S]*?\\\]|\\\([\s\S]*?\\\)|\`[^\`]+\`)/g,
+    (match) => {
+      protectedChunks.push(match);
+      return `${placeholder}${protectedChunks.length - 1}___`;
+    }
+  );
+
+  // 2. Wrap naked fractions: \frac{...}{...}, \dfrac{...}{...}
+  sanitized = sanitized.replace(/\\d?frac\s*\{[^{}]+\}\s*\{[^{}]+\}/g, (m) => `$${m}$`);
+
+  // 3. Wrap naked roots: \sqrt[...]{...}, \sqrt{...}
+  sanitized = sanitized.replace(/\\sqrt(?:\[[^\]]+\])?\{[^{}]+\}/g, (m) => `$${m}$`);
+
+  // 4. Wrap naked sums, integrals, products, limits with sub/super-scripts
+  sanitized = sanitized.replace(/\\(?:sum|prod|int|iint|iiint|oint|lim)(?:_\{[^{}]+\}|_[0-9a-zA-Z]+)?(?:\^\{[^{}]+\}|\^[0-9a-zA-Z]+)?/g, (m) => `$${m}$`);
+
+  // 5. Wrap naked Greek letters and common math operators
+  sanitized = sanitized.replace(/(^|[^\w\$\\])(\\(?:alpha|beta|gamma|delta|epsilon|zeta|eta|theta|iota|kappa|lambda|mu|nu|xi|pi|rho|sigma|tau|upsilon|phi|chi|psi|omega|Gamma|Delta|Theta|Lambda|Xi|Pi|Sigma|Upsilon|Phi|Psi|Omega|approx|times|div|pm|mp|cdot|leq|geq|neq|equiv|infty|partial|nabla|to|rightarrow|implies|iff))(?=[^\w\$\\]|$)/g, '$1$$$2$');
+
+  // 6. Restore protected chunks
+  sanitized = sanitized.replace(new RegExp(`${placeholder}(\\d+)___`, 'g'), (_, idx) => {
+    return protectedChunks[Number(idx)] || '';
+  });
+
+  return sanitized;
+}
+
 // ── Hermes Assistant Formatted Message Content ─────────────────────────────────
 function HermesMessageContent({ content, C }: { content: string; C: any }) {
   // If the content is an array of note blocks (JSON) or PLX tags, use NoteRenderer
@@ -545,7 +596,8 @@ function HermesMessageContent({ content, C }: { content: string; C: any }) {
     );
   }
 
-  const lines = (content || '').split('\n');
+  const processedContent = useMemo(() => autoWrapLatexMath(content || ''), [content]);
+  const lines = processedContent.split('\n');
 
   const renderFormattedText = (text: string, keyPrefix: string, textStyle: any) => {
     // Matches bold, italic, inline code, display math $$...$$, inline math $...$, \(...\), \[...\]
@@ -737,6 +789,7 @@ export default function NoteViewerScreen() {
 
   const { noteId, courseId } = useLocalSearchParams<{ noteId: string; courseId: string }>();
   const [hermesOpen, setHermesOpen] = useState(false);
+  const [hermesCallOpen, setHermesCallOpen] = useState(false);
   const [hermesMsg, setHermesMsg] = useState('');
   const [hermesChat, setHermesChat] = useState<ChatMessage[]>([
     { role: 'assistant', content: 'Hi! I am Hermes. Ask me anything about this note.' }
@@ -1126,130 +1179,6 @@ export default function NoteViewerScreen() {
     };
   }, []);
 
-  const convertLatexToSpeakable = (text: string): string => {
-    if (!text) return '';
-    // Convert standard inline and block LaTeX ($...$ or $$...$$) into phonetically clean English
-    return text.replace(/\$\$?([\s\S]+?)\$\$?/g, (_, formula) => {
-      let speakable = formula.trim();
-
-      // 1. Pre-processing: remove formatting tags and bracket controls
-      speakable = speakable.replace(/\\left/g, '').replace(/\\right/g, '');
-      speakable = speakable.replace(/\\mathrm/g, '');
-      speakable = speakable.replace(/\\text\s*\{([^}]+)\}/g, ' $1 ');
-      speakable = speakable.replace(/\\mathrm\s*\{([^}]+)\}/g, ' $1 ');
-
-      // 2. Trigonometric and common mathematical functions
-      speakable = speakable.replace(/\\sin\b/g, ' sine of, ');
-      speakable = speakable.replace(/\\cos\b/g, ' cosine of, ');
-      speakable = speakable.replace(/\\tan\b/g, ' tangent of, ');
-      speakable = speakable.replace(/\\ln\b/g, ' natural log of, ');
-      speakable = speakable.replace(/\\log\b/g, ' log of, ');
-
-      // 3. Vector / Arrow markers
-      speakable = speakable.replace(/\\vec\{(\w)\}/g, ' vector, $1, ');
-      speakable = speakable.replace(/\\bar\{(\w)\}/g, ' $1 bar, ');
-      speakable = speakable.replace(/\\hat\{(\w)\}/g, ' $1 hat, ');
-
-      // 4. Limits
-      speakable = speakable.replace(/\\lim_\{([^\}]+)\s*\\to\s*([^}]+)\}/g, ' limit as $1, approaches $2, ');
-      speakable = speakable.replace(/\\lim_\{([^\}]+)\}/g, ' limit as $1, ');
-
-      // 5. Summations (Sum from lower to upper of ...)
-      speakable = speakable.replace(/\\sum_\{([^\}]+)\}\^\{([^\}]+)\}/g, ' sum from $1, to $2, of, ');
-      speakable = speakable.replace(/\\sum_\{([^\}]+)\}\^(\w)/g, ' sum from $1, to $2, of, ');
-      speakable = speakable.replace(/\\sum\b/g, ' sum ');
-
-      // 6. Integrals (Integral from lower to upper of ...)
-      speakable = speakable.replace(/\\int_\{([^\}]+)\}\^\{([^\}]+)\}/g, ' integral from $1, to $2, of, ');
-      speakable = speakable.replace(/\\int_\{([^\}]+)\}\^(\w)/g, ' integral from $1, to $2, of, ');
-      speakable = speakable.replace(/\\int\b/g, ' integral ');
-
-      // 7. Fractions (handle derivatives first: \frac{dy}{dx} -> derivative of y with respect to x)
-      speakable = speakable.replace(/\\frac\{d(\w)\}\{d(\w)\}/g, ' derivative of $1, with respect to $2, ');
-      speakable = speakable.replace(/\\frac\{\\partial\s*(\w)\}\{\\partial\s*(\w)\}/g, ' partial derivative of $1, with respect to $2, ');
-      
-      let prev;
-      do {
-        prev = speakable;
-        speakable = speakable.replace(/\\frac\s*\{([^}]+)\}\s*\{([^}]+)\}/g, ' ($1, divided by, $2) ');
-      } while (speakable !== prev);
-
-      // 8. Superscripts / powers (avoiding collision with sum/integral limits already parsed)
-      speakable = speakable.replace(/(\w+)\^2\b/g, '$1, squared, ');
-      speakable = speakable.replace(/(\w+)\^3\b/g, '$1, cubed, ');
-      speakable = speakable.replace(/\{?([^}^^]+)\}?\^\{([^}]+)\}/g, '$1, to the power of, $2, ');
-      speakable = speakable.replace(/\{?([^}^^]+)\}?\^(\w)/g, '$1, to the power of, $2, ');
-
-      // 9. Square roots
-      speakable = speakable.replace(/\\sqrt\s*\{([^}]+)\}/g, ' the square root of, $1, ');
-      speakable = speakable.replace(/\\sqrt\s*(\w)/g, ' the square root of, $1, ');
-
-      // 10. Greek Letters conversion
-      const greekLetters: Record<string, string> = {
-        '\\alpha': 'alpha',
-        '\\beta': 'beta',
-        '\\gamma': 'gamma',
-        '\\delta': 'delta',
-        '\\epsilon': 'epsilon',
-        '\\zeta': 'zeta',
-        '\\eta': 'eta',
-        '\\theta': 'theta',
-        '\\iota': 'iota',
-        '\\kappa': 'kappa',
-        '\\lambda': 'lambda',
-        '\\mu': 'mu',
-        '\\nu': 'nu',
-        '\\xi': 'xi',
-        '\\pi': 'pi',
-        '\\rho': 'rho',
-        '\\sigma': 'sigma',
-        '\\tau': 'tau',
-        '\\upsilon': 'upsilon',
-        '\\phi': 'phi',
-        '\\chi': 'chi',
-        '\\psi': 'psi',
-        '\\omega': 'omega',
-        '\\Delta': 'delta',
-        '\\Sigma': 'sigma',
-        '\\Omega': 'omega',
-      };
-
-      Object.entries(greekLetters).forEach(([latex, spoken]) => {
-        const escaped = latex.replace(/\\/g, '\\\\');
-        const regex = new RegExp(escaped, 'g');
-        speakable = speakable.replace(regex, ` ${spoken} `);
-      });
-
-      // 11. Subscripts: v_initial -> v initial, v_{i} -> v i
-      speakable = speakable.replace(/(\w+)_\{([^}]+)\}/g, '$1 sub $2');
-      speakable = speakable.replace(/(\w+)_(\w)/g, '$1 sub $2');
-
-      // 12. Math Operators & Relations
-      speakable = speakable.replace(/\\infty/g, ' infinity ');
-      speakable = speakable.replace(/\\partial/g, ' partial derivative ');
-      speakable = speakable.replace(/\\times/g, ' times ');
-      speakable = speakable.replace(/\\cdot/g, ' times ');
-      speakable = speakable.replace(/\\div/g, ' divided by ');
-      speakable = speakable.replace(/\\pm/g, ' plus or minus ');
-      speakable = speakable.replace(/\\approx/g, ' approximately equals ');
-      speakable = speakable.replace(/\\le/g, ' is less than or equal to ');
-      speakable = speakable.replace(/\\ge/g, ' is greater than or equal to ');
-      speakable = speakable.replace(/\\neq/g, ' is not equal to ');
-      speakable = speakable.replace(/\\to/g, ' approaches ');
-      speakable = speakable.replace(/\\(dots|ldots|cdots)/g, ', and so on, ');
-      speakable = speakable.replace(/=/g, ', equals, ');
-      speakable = speakable.replace(/\+/g, ' plus ');
-      speakable = speakable.replace(/-/g, ' minus ');
-      
-      // Clean up leftover symbols, parenthesis and curly braces
-      speakable = speakable.replace(/[{}]/g, ' ');
-      speakable = speakable.replace(/\\/g, ' ');
-      speakable = speakable.replace(/\s+/g, ' ').trim();
-
-      return ` ${speakable} `;
-    });
-  };
-
   const handleToggleSpeakNote = async () => {
     try {
       if (speechIsPlaying) {
@@ -1551,12 +1480,36 @@ export default function NoteViewerScreen() {
       <Modal visible={hermesOpen} transparent animationType="slide">
         <View style={s.hermesOverlay}>
            <View style={[s.hermesContent, { backgroundColor: C.bg }]}>
-              <View style={[s.hermesHeader, { backgroundColor: C.surfaceDark }]}>
-                 <BirdIcon color="#fff" />
-                 <Text style={s.hermesTitle}>HERMES AI</Text>
-                 <TouchableOpacity onPress={() => setHermesOpen(false)}>
-                   <Text style={{ color: '#fff', fontFamily: F.bold }}>Close</Text>
-                 </TouchableOpacity>
+              <View style={[s.hermesHeader, { backgroundColor: C.surfaceDark, justifyContent: 'space-between' }]}>
+                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                   <BirdIcon color="#fff" />
+                   <Text style={s.hermesTitle}>HERMES AI</Text>
+                 </View>
+                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+                   <TouchableOpacity
+                     onPress={() => {
+                       setHermesOpen(false);
+                       setHermesCallOpen(true);
+                     }}
+                     style={{
+                       flexDirection: 'row',
+                       alignItems: 'center',
+                       gap: 5,
+                       backgroundColor: '#06b6d425',
+                       borderWidth: 1,
+                       borderColor: '#06b6d450',
+                       paddingHorizontal: 9,
+                       paddingVertical: 4,
+                       borderRadius: 12,
+                     }}
+                   >
+                     <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: '#06b6d4' }} />
+                     <Text style={{ color: '#38bdf8', fontFamily: F.bold, fontSize: 11 }}>Live Call</Text>
+                   </TouchableOpacity>
+                   <TouchableOpacity onPress={() => setHermesOpen(false)}>
+                     <Text style={{ color: '#fff', fontFamily: F.bold }}>Close</Text>
+                   </TouchableOpacity>
+                 </View>
               </View>
               <ScrollView style={s.hermesChatScroll} contentContainerStyle={{ padding: 16 }}>
                 {hermesChat.map((m, i) => (
@@ -1744,7 +1697,25 @@ export default function NoteViewerScreen() {
         <Text style={[s.headerBrand, { color: C.ink, flex: 1, textAlign: 'center', marginHorizontal: 10 }]} numberOfLines={1} ellipsizeMode="tail">
           {note?.title || 'COLEARN'}
         </Text>
-        <View style={{ width: 36, height: 36 }} />
+        <TouchableOpacity
+          onPress={() => setHermesCallOpen(prev => !prev)}
+          activeOpacity={0.7}
+          style={{
+            width: 36,
+            height: 36,
+            borderRadius: 18,
+            backgroundColor: hermesCallOpen ? '#06b6d420' : C.border + '60',
+            borderWidth: 1,
+            borderColor: hermesCallOpen ? '#06b6d4' : C.border,
+            justifyContent: 'center',
+            alignItems: 'center',
+          }}
+          hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+        >
+          <Text style={{ fontSize: 16, color: hermesCallOpen ? '#06b6d4' : C.ink }}>
+            {hermesCallOpen ? '✦' : '🎙️'}
+          </Text>
+        </TouchableOpacity>
       </View>
 
       {/* Progress bar - Sleek fixed bar at top */}
@@ -2030,6 +2001,34 @@ export default function NoteViewerScreen() {
           </View>
         </Modal>
       )}
+
+      {/* Hermes Mobile Live Call Glowing Orb Overlay */}
+      <HermesMobileLiveOrb
+        visible={hermesCallOpen}
+        onClose={() => setHermesCallOpen(false)}
+        onOpenChat={() => {
+          setHermesCallOpen(false);
+          setHermesOpen(true);
+        }}
+        noteTitle={note?.title || 'Current Note'}
+        noteContent={note?.content || ''}
+        onSendMessage={async (queryText: string, isVoiceCall: boolean) => {
+          return await chatWithHermesMobile(
+            [...hermesChat, { role: 'user', content: queryText }],
+            note?.content || '',
+            aiConfig || undefined,
+            isVoiceCall
+          );
+        }}
+        chatHistory={hermesChat}
+        onUpdateChatHistory={(userMsg: string, botResponse: string) => {
+          setHermesChat(prev => [
+            ...prev,
+            { role: 'user', content: userMsg },
+            { role: 'assistant', content: botResponse }
+          ]);
+        }}
+      />
 
       <Toolbar visible={toolbarVisible} onClose={() => setToolbarVisible(false)} s={s} C={C} />
     </SafeAreaView>

@@ -306,7 +306,7 @@ async function startServer() {
 
   app.post("/api/hermes/chat", async (req, res) => {
     try {
-      const { messages, noteContent, config } = req.body;
+      const { messages, noteContent, config, isVoiceCall } = req.body;
       
       const provider = config?.provider || 'groq';
       let model = config?.model;
@@ -337,15 +337,25 @@ async function startServer() {
         ? messages.slice(-maxHistoryCount)
         : (messages || []);
 
+      const voiceCallDirective = isVoiceCall
+        ? `\n\nCRITICAL LIVE VOICE CALL DIRECTIVE (GEMINI LIVE STYLE):
+- You are currently speaking with the student on a LIVE REAL-TIME PHONE/VOICE CALL.
+- Keep your response strictly conversational, punchy, and concise: MAXIMUM 1 TO 2 SHORT SENTENCES (under 25 words).
+- Answer the student's question immediately and naturally like a live tutor on the phone.
+- STRICTLY FORBIDDEN: NEVER use emojis, bullet points, numbered lists, markdown headings, code blocks, bold markers, or conversational filler like "Sure thing!" or "Certainly!".
+- Never give long lectures or over-explain; if the student wants more depth, they will ask in their next turn.\n`
+        : '';
+
       const systemPrompt = {
         role: 'system',
-        content: `You are Hermes, a friendly, intelligent, and polite academic assistant on CoLearn designed to help students study, understand, and query their lecture notes.
+        content: `You are Hermes, a friendly, intelligent, and polite academic assistant on CoLearn designed to help students study, understand, and query their lecture notes.${voiceCallDirective}
 
 CORE CAPABILITIES & GUIDELINES:
 1. GREETINGS & COURTESY: Always respond warmly, politely, and helpfully to user greetings (e.g. "hi", "hello", "good day", "how are you?") and pleasantries. Welcome the student and express readiness to assist them with their note.
 2. ABOUT HERMES: Answer questions about yourself clearly, accurately, and politely. You are Hermes, the dedicated AI study companion on CoLearn, designed to help students explore, understand, summarize, and master their lecture notes and academic materials.
 3. NOTE INQUIRIES & ACADEMIC HELP: Answer questions about the provided "STUDY NOTE CONTENT" below. Explain, summarize, simplify, or clarify the concepts, definitions, examples, and details found in the note.
-4. MATHEMATICAL & SCIENTIFIC NOTATION: Use LaTeX for mathematical formulas, equations, or scientific notations (e.g., $E=mc^2$ or \\frac{a}{b}).
+4. MATHEMATICAL & SCIENTIFIC NOTATION:
+CRITICAL FORMATTING MANDATE: Every mathematical formula, equation, variable, fraction, power, or symbol MUST be wrapped in single dollar signs $ ... $ for inline math (e.g. $E=mc^2$, $\\frac{a}{b}$, $\\sqrt{x}$, $\\theta$) or double dollar signs $$ ... $$ for standalone display formulas. NEVER output raw bare LaTeX commands like \\frac or \\sqrt without dollar signs.
 5. BOUNDARIES FOR UNRELATED TOPICS: You should only answer questions about yourself, user greetings, and this study note. If the user asks about completely unrelated topics (such as general entertainment, unrelated coding, pop culture, or unrelated news), politely explain that you are dedicated to helping them with this note and invite them to ask questions about the current topic.
 6. Keep your explanations clear, educational, well-formatted, and helpful.
 
@@ -528,6 +538,47 @@ ${truncatedNote}
         } catch (e) {}
       }
       return res.status(500).json({ error: err.message || "Internal server error" });
+    }
+  });
+
+  // Multimodal Voice Transcription for Hermes Live Voice Calls
+  app.post("/api/hermes/transcribe", async (req, res) => {
+    try {
+      const { audio, mimeType, config } = req.body;
+      if (!audio || typeof audio !== 'string') {
+        return res.status(400).json({ error: 'Audio base64 data is required' });
+      }
+
+      // Clean base64 string
+      const cleanBase64 = audio.replace(/^data:audio\/[a-z0-9+-]+;base64,/, '').trim();
+      const cleanMime = mimeType || 'audio/m4a';
+
+      const apiKey = config?.apiKey || process.env.GEMINI_API_KEY || '';
+      if (!apiKey) {
+        return res.status(400).json({ error: 'No Gemini API key available for speech transcription' });
+      }
+
+      const aiGen = new GoogleGenAI({ apiKey });
+      const response = await aiGen.models.generateContent({
+        model: 'gemini-2.5-flash',
+        contents: [
+          {
+            inlineData: {
+              mimeType: cleanMime,
+              data: cleanBase64,
+            },
+          },
+          {
+            text: 'Listen carefully to this student asking a question in a voice call with their academic tutor. Transcribe the student\'s exact words. Output ONLY the transcribed text. Do NOT add quotes, markdown formatting, introductory labels, or commentary. If the recording is silence or inaudible, return an empty string.',
+          },
+        ],
+      });
+
+      const text = (response.text || '').trim();
+      return res.json({ text });
+    } catch (err: any) {
+      console.error('Error in /api/hermes/transcribe:', err);
+      return res.status(500).json({ error: err?.message || 'Failed to transcribe audio' });
     }
   });
 

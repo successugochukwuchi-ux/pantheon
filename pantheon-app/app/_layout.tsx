@@ -10,6 +10,7 @@ import { AuthProvider } from '../context/AuthContext';
 import { ThemeProvider } from '../context/ThemeContext';
 import { AutoDownloader } from '../components/AutoDownloader';
 import { AppUpdater } from '../components/AppUpdater';
+import { ScreenSecurityHandler } from '../components/ScreenSecurityHandler';
 import { initDatabase } from '../lib/db';
 
 SplashScreen.preventAutoHideAsync().catch(() => {});
@@ -36,6 +37,7 @@ export default function RootLayout() {
 
   return (
     <AuthProvider>
+      <ScreenSecurityHandler />
       <ThemeProvider>
         <AutoDownloader />
         <AppUpdater />

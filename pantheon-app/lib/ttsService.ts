@@ -113,56 +113,278 @@ export interface SpeakOptions {
 }
 
 /**
+ * Converts mathematical formulas, Greek letters, and LaTeX/MathJax syntax to natural spoken English.
+ * Covers algebra, calculus, matrices, trigonometry, physics/chemistry units, logic, and set theory.
+ * Strips all raw backslashes and LaTeX formatting so the TTS sounds like an educated professor,
+ * never pronouncing "backslash" or code syntax.
+ */
+export function cleanMathFormula(formula: string): string {
+  if (!formula) return '';
+  let m = formula;
+
+  // 1. MathJax / MathML tags cleanup if raw MathML or tags are present
+  m = m.replace(/<math[\s\S]*?>/gi, ' ').replace(/<\/math>/gi, ' ');
+  m = m.replace(/<mrow[\s\S]*?>/gi, ' ').replace(/<\/mrow>/gi, ' ');
+  m = m.replace(/<mfrac>\s*([\s\S]*?)\s*([\s\S]*?)\s*<\/mfrac>/gi, ' ($1 divided by $2) ');
+  m = m.replace(/<[^>]+>/g, ' ');
+
+  // 2. Matrices and multi-line equations
+  m = m.replace(/\\begin\{(?:pmatrix|bmatrix|vmatrix|Vmatrix|matrix)\}([\s\S]*?)\\end\{(?:pmatrix|bmatrix|vmatrix|Vmatrix|matrix)\}/gi, (_, content) => {
+    const rows = content.split(/\\\\/).map((r: string) => r.replace(/&/g, ', ').trim()).filter(Boolean);
+    return ` matrix with rows: ${rows.join('; and ')} `;
+  });
+
+  m = m.replace(/\\begin\{cases\}([\s\S]*?)\\end\{cases\}/gi, (_, content) => {
+    const cases = content.split(/\\\\/).map((c: string) => c.replace(/&/g, ', ').trim()).filter(Boolean);
+    return ` cases: ${cases.join(', ')} `;
+  });
+
+  // Strip other layout wrappers and environments
+  m = m.replace(/\\begin\{[a-zA-Z*]+\}([\s\S]*?)\\end\{[a-zA-Z*]+\}/g, '$1');
+  m = m.replace(/\\left|\\right/g, '');
+  m = m.replace(/\\text\s*\{([^}]+)\}/g, ' $1 ');
+  m = m.replace(/\\mathrm\s*\{([^}]+)\}/g, ' $1 ');
+  m = m.replace(/\\mathbf\s*\{([^}]+)\}/g, ' $1 ');
+  m = m.replace(/\\textbf\s*\{([^}]+)\}/g, ' $1 ');
+  m = m.replace(/\\textit\s*\{([^}]+)\}/g, ' $1 ');
+  m = m.replace(/\\mathit\s*\{([^}]+)\}/g, ' $1 ');
+  m = m.replace(/\\bm\s*\{([^}]+)\}/g, ' $1 ');
+  m = m.replace(/\\boldsymbol\s*\{([^}]+)\}/g, ' $1 ');
+  m = m.replace(/\\underline\s*\{([^}]+)\}/g, ' $1 ');
+  m = m.replace(/\\overline\s*\{([^}]+)\}/g, ' $1 bar ');
+
+  // Number sets
+  m = m.replace(/\\mathbb\{R\}/g, ' real numbers ');
+  m = m.replace(/\\mathbb\{C\}/g, ' complex numbers ');
+  m = m.replace(/\\mathbb\{N\}/g, ' natural numbers ');
+  m = m.replace(/\\mathbb\{Z\}/g, ' integers ');
+  m = m.replace(/\\mathbb\{Q\}/g, ' rational numbers ');
+  m = m.replace(/\\mathbb\{([^{}]+)\}/g, ' set $1 ');
+
+  // Spacing commands & styling
+  m = m.replace(/\\(?:quad|qquad|thickspace|medspace|thinspace|enspace)/g, ' ');
+  m = m.replace(/\\(?:displaystyle|textstyle|scriptstyle|scriptscriptstyle)/g, ' ');
+  m = m.replace(/\\[,;:!]/g, ' ');
+
+  // 3. Higher-order & partial derivatives & calculus
+  m = m.replace(/\\frac\{d\^2(\w)\}\{d(\w)\^2\}/g, ' second derivative of $1 with respect to $2 ');
+  m = m.replace(/\\frac\{d\^3(\w)\}\{d(\w)\^3\}/g, ' third derivative of $1 with respect to $2 ');
+  m = m.replace(/\\frac\{d(\w)\}\{d(\w)\}/g, ' derivative of $1 with respect to $2 ');
+  m = m.replace(/\\frac\{d\}\{d(\w)\}/g, ' derivative with respect to $1 of ');
+  m = m.replace(/\\frac\{\\partial\^2\s*(\w)\}\{\\partial\s*(\w)\^2\}/g, ' second partial derivative of $1 with respect to $2 ');
+  m = m.replace(/\\frac\{\\partial\s*(\w)\}\{\\partial\s*(\w)\}/g, ' partial derivative of $1 with respect to $2 ');
+  m = m.replace(/\\frac\{\\Delta\s*(\w)\}\{\\Delta\s*(\w)\}/g, ' change in $1 over change in $2 ');
+  m = m.replace(/\\Delta\s*(\w)/g, ' delta $1 ');
+
+  // Binomial coefficients: \binom{n}{k} -> n choose k
+  m = m.replace(/\\binom\s*\{([^{}]+)\}\s*\{([^{}]+)\}/g, ' $1 choose $2 ');
+
+  // Fractions: recursively resolve \frac{num}{den} and \dfrac{num}{den} -> (num divided by den)
+  let prev;
+  do {
+    prev = m;
+    m = m.replace(/\\(?:frac|dfrac|tfrac)\s*\{([^{}]+)\}\s*\{([^{}]+)\}/g, ' ($1 divided by $2) ');
+  } while (m !== prev);
+
+  // Square roots and n-th roots
+  m = m.replace(/\\sqrt\[3\]\s*\{([^{}]+)\}/g, ' cube root of $1 ');
+  m = m.replace(/\\sqrt\[(\d+)\]\s*\{([^{}]+)\}/g, ' $1th root of $2 ');
+  m = m.replace(/\\sqrt\s*\{([^{}]+)\}/g, ' square root of $1 ');
+  m = m.replace(/\\sqrt\s*(\w)/g, ' square root of $1 ');
+
+  // Limits
+  m = m.replace(/\\lim_\{([^{}]+)\s*\\to\s*([^{}]+)\^([+-])\}/g, ' limit as $1 approaches $2 from the $3, ');
+  m = m.replace(/\\lim_\{([^{}]+)\s*\\to\s*([^{}]+)\}/g, ' limit as $1 approaches $2, ');
+  m = m.replace(/\\lim_\{([^{}]+)\}/g, ' limit as $1, ');
+
+  // Integrals & Summations & Products
+  m = m.replace(/\\oint_\{([^{}]+)\}\^\{([^{}]+)\}/g, ' contour integral from $1 to $2 of ');
+  m = m.replace(/\\oint\b/g, ' contour integral ');
+  m = m.replace(/\\iint\b/g, ' double integral ');
+  m = m.replace(/\\iiint\b/g, ' triple integral ');
+  m = m.replace(/\\int_\{([^{}]+)\}\^\{([^{}]+)\}/g, ' integral from $1 to $2 of ');
+  m = m.replace(/\\int_\{([^{}]+)\}\^(\w)/g, ' integral from $1 to $2 of ');
+  m = m.replace(/\\int\b/g, ' integral ');
+
+  m = m.replace(/\\sum_\{([^{}]+)\}\^\{([^{}]+)\}/g, ' sum from $1 to $2 of ');
+  m = m.replace(/\\sum_\{([^{}]+)\}\^(\w)/g, ' sum from $1 to $2 of ');
+  m = m.replace(/\\sum\b/g, ' sum ');
+
+  m = m.replace(/\\prod_\{([^{}]+)\}\^\{([^{}]+)\}/g, ' product from $1 to $2 of ');
+  m = m.replace(/\\prod_\{([^{}]+)\}\^(\w)/g, ' product from $1 to $2 of ');
+  m = m.replace(/\\prod\b/g, ' product ');
+
+  // Vectors, hats, bars, dots
+  m = m.replace(/\\ddot\{(\w+)\}/g, ' $1 double dot ');
+  m = m.replace(/\\dot\{(\w+)\}/g, ' $1 dot ');
+  m = m.replace(/\\vec\{(\w+)\}/g, ' vector $1 ');
+  m = m.replace(/\\hat\{(\w+)\}/g, ' unit vector $1 ');
+  m = m.replace(/\\bar\{(\w+)\}/g, ' $1 bar ');
+
+  // Powers and exponents
+  m = m.replace(/(\b\w+)\^\{-1\}/g, '$1 inverse ');
+  m = m.replace(/(\b\w+)\^2\b/g, '$1 squared ');
+  m = m.replace(/(\b\w+)\^3\b/g, '$1 cubed ');
+  m = m.replace(/(\b\w+)\^\{2\}/g, '$1 squared ');
+  m = m.replace(/(\b\w+)\^\{3\}/g, '$1 cubed ');
+  m = m.replace(/(\b\w+)\^\{(-?\d+)\}/g, '$1 to the power of $2 ');
+  m = m.replace(/(\b\w+)\^\{([^{}]+)\}/g, '$1 to the power of $2 ');
+  m = m.replace(/(\b\w+)\^([a-zA-Z0-9])/g, '$1 to the power of $2 ');
+
+  // Subscripts: e.g. v_0 -> v naught, v_i -> v initial, v_f -> v final
+  m = m.replace(/(\b[a-zA-Z])_0\b/g, '$1 naught ');
+  m = m.replace(/(\b[a-zA-Z])_\{0\}/g, '$1 naught ');
+  m = m.replace(/(\b[a-zA-Z])_i\b/g, '$1 initial ');
+  m = m.replace(/(\b[a-zA-Z])_f\b/g, '$1 final ');
+  m = m.replace(/(\b[a-zA-Z])_\{max\}/gi, '$1 max ');
+  m = m.replace(/(\b[a-zA-Z])_\{min\}/gi, '$1 min ');
+  m = m.replace(/(\b[a-zA-Z])_\{net\}/gi, '$1 net ');
+  m = m.replace(/(\b[a-zA-Z])_\{total\}/gi, '$1 total ');
+  m = m.replace(/(\b[a-zA-Z])_\{([^{}]+)\}/g, '$1 sub $2 ');
+  m = m.replace(/(\b[a-zA-Z])_([a-zA-Z0-9])/g, '$1 sub $2 ');
+
+  // Greek letters (lowercase and uppercase)
+  const greek: Record<string, string> = {
+    '\\alpha': 'alpha', '\\beta': 'beta', '\\gamma': 'gamma', '\\Gamma': 'gamma',
+    '\\delta': 'delta', '\\Delta': 'delta', '\\epsilon': 'epsilon', '\\varepsilon': 'epsilon',
+    '\\zeta': 'zeta', '\\eta': 'eta', '\\theta': 'theta', '\\vartheta': 'theta', '\\Theta': 'theta',
+    '\\iota': 'iota', '\\kappa': 'kappa', '\\lambda': 'lambda', '\\Lambda': 'lambda',
+    '\\mu': 'mu', '\\nu': 'nu', '\\xi': 'xi', '\\Xi': 'xi',
+    '\\pi': 'pi', '\\varpi': 'pi', '\\Pi': 'pi', '\\rho': 'rho', '\\varrho': 'rho',
+    '\\sigma': 'sigma', '\\varsigma': 'sigma', '\\Sigma': 'sigma',
+    '\\tau': 'tau', '\\upsilon': 'upsilon', '\\phi': 'phi', '\\varphi': 'phi', '\\Phi': 'phi',
+    '\\chi': 'chi', '\\psi': 'psi', '\\Psi': 'psi', '\\omega': 'omega', '\\Omega': 'ohms'
+  };
+  for (const [sym, word] of Object.entries(greek)) {
+    const re = new RegExp(sym.replace('\\', '\\\\') + '\\b', 'g');
+    m = m.replace(re, ` ${word} `);
+  }
+
+  // Trigonometry, inverse trig, hyperbolic
+  m = m.replace(/\\arcsin\b|\\sin\^\{-1\}/g, ' arcsine of ');
+  m = m.replace(/\\arccos\b|\\cos\^\{-1\}/g, ' arccosine of ');
+  m = m.replace(/\\arctan\b|\\tan\^\{-1\}/g, ' arctangent of ');
+  m = m.replace(/\\sinh\b/g, ' hyperbolic sine of ');
+  m = m.replace(/\\cosh\b/g, ' hyperbolic cosine of ');
+  m = m.replace(/\\tanh\b/g, ' hyperbolic tangent of ');
+  m = m.replace(/\\sin\b/g, ' sine of ');
+  m = m.replace(/\\cos\b/g, ' cosine of ');
+  m = m.replace(/\\tan\b/g, ' tangent of ');
+  m = m.replace(/\\cot\b/g, ' cotangent of ');
+  m = m.replace(/\\sec\b/g, ' secant of ');
+  m = m.replace(/\\csc\b/g, ' cosecant of ');
+  m = m.replace(/\\ln\b/g, ' natural log of ');
+  m = m.replace(/\\log_\{10\}\b|\\log_10\b/g, ' log base 10 of ');
+  m = m.replace(/\\log_\{2\}\b|\\log_2\b/g, ' log base 2 of ');
+  m = m.replace(/\\log_\{([^{}]+)\}/g, ' log base $1 of ');
+  m = m.replace(/\\log\b/g, ' log of ');
+  m = m.replace(/\\exp\b/g, ' exponential of ');
+
+  // Logic, relations, and set operators
+  m = m.replace(/\\implies\b|\\Longrightarrow\b/g, ' implies ');
+  m = m.replace(/\\iff\b|\\Longleftrightarrow\b/g, ' if and only if ');
+  m = m.replace(/\\to\b|\\rightarrow\b|\\longrightarrow\b/g, ' approaches ');
+  m = m.replace(/\\leftarrow\b|\\longleftarrow\b/g, ' from ');
+  m = m.replace(/\\rightleftharpoons\b|\\leftrightarrow\b/g, ' is in equilibrium with ');
+  m = m.replace(/\\times\b/g, ' times ');
+  m = m.replace(/\\cdot\b/g, ' times ');
+  m = m.replace(/\\pm\b/g, ' plus or minus ');
+  m = m.replace(/\\mp\b/g, ' minus or plus ');
+  m = m.replace(/\\div\b/g, ' divided by ');
+  m = m.replace(/\\neq\b/g, ' does not equal ');
+  m = m.replace(/\\approx\b|\\approxeq\b|\\cong\b/g, ' is approximately ');
+  m = m.replace(/\\equiv\b/g, ' is equivalent to ');
+  m = m.replace(/\\sim\b/g, ' is roughly ');
+  m = m.replace(/\\propto\b/g, ' is proportional to ');
+  m = m.replace(/\\le\b|\\leq\b/g, ' is less than or equal to ');
+  m = m.replace(/\\ge\b|\\geq\b/g, ' is greater than or equal to ');
+  m = m.replace(/\\ll\b/g, ' is much less than ');
+  m = m.replace(/\\gg\b/g, ' is much greater than ');
+  m = m.replace(/\\infty\b/g, ' infinity ');
+  m = m.replace(/\\circ\b|\\degree\b|\^\\circ/g, ' degrees ');
+  m = m.replace(/\\partial\b/g, ' partial ');
+  m = m.replace(/\\nabla\^2\b/g, ' Laplacian of ');
+  m = m.replace(/\\nabla\b/g, ' del ');
+  m = m.replace(/\\hbar\b/g, ' h bar ');
+  m = m.replace(/\\in\b/g, ' in ');
+  m = m.replace(/\\notin\b/g, ' not in ');
+  m = m.replace(/\\subset\b/g, ' subset of ');
+  m = m.replace(/\\subseteq\b/g, ' subset or equal to ');
+  m = m.replace(/\\supset\b/g, ' superset of ');
+  m = m.replace(/\\supseteq\b/g, ' superset or equal to ');
+  m = m.replace(/\\cup\b/g, ' union ');
+  m = m.replace(/\\cap\b/g, ' intersection ');
+  m = m.replace(/\\emptyset\b|\\varnothing\b/g, ' empty set ');
+  m = m.replace(/\\forall\b/g, ' for all ');
+  m = m.replace(/\\exists\b/g, ' there exists ');
+  m = m.replace(/\\neg\b/g, ' not ');
+  m = m.replace(/\\land\b/g, ' and ');
+  m = m.replace(/\\lor\b/g, ' or ');
+  m = m.replace(/\\parallel\b/g, ' is parallel to ');
+  m = m.replace(/\\perp\b/g, ' is perpendicular to ');
+  m = m.replace(/\\angle\b/g, ' angle ');
+  m = m.replace(/\\triangle\b/g, ' triangle ');
+  m = m.replace(/\\dots\b|\\ldots\b|\\cdots\b|\\vdots\b|\\ddots\b/g, ' and so on ');
+
+  // Units
+  m = m.replace(/\\mu\s*F\b/g, ' microfarads ');
+  m = m.replace(/\\mu\s*m\b/g, ' micrometers ');
+  m = m.replace(/\\mu\s*s\b/g, ' microseconds ');
+  m = m.replace(/\\mu\s*g\b/g, ' micrograms ');
+  m = m.replace(/\\Omega\b/g, ' ohms ');
+
+  // Norms and factorials
+  m = m.replace(/\\\|([^{}|]+)\\\|/g, ' norm of $1 ');
+  m = m.replace(/(\b\w+)!/g, ' $1 factorial ');
+
+  // Remove any remaining backslash followed by letters (e.g. \displaystyle, \over)
+  m = m.replace(/\\([a-zA-Z]+)/g, ' $1 ');
+
+  // ABSOLUTE BACKSLASH KILL-SWITCH: remove all solitary backslashes completely
+  m = m.replace(/\\/g, ' ');
+
+  // Clean brackets and curly braces
+  m = m.replace(/[{}]/g, ' ');
+
+  // Clean multiple whitespace
+  m = m.replace(/\s{2,}/g, ' ');
+
+  return m.trim();
+}
+
+/**
  * Converts LaTeX formulas to phonetically clean English for TTS
  */
 export function convertLatexToSpeakable(text: string): string {
   if (!text) return '';
-  return text.replace(/\$\$?([\s\S]+?)\$\$?/g, (_, formula) => {
-    let speakable = formula.trim();
+  let s = text;
 
-    speakable = speakable.replace(/\\left/g, '').replace(/\\right/g, '');
-    speakable = speakable.replace(/\\mathrm/g, '');
-    speakable = speakable.replace(/\\text\s*\{([^}]+)\}/g, ' $1 ');
-    speakable = speakable.replace(/\\mathrm\s*\{([^}]+)\}/g, ' $1 ');
+  // 1. Normalize MathJax script wrappers
+  s = s.replace(/<script\s+type=["']math\/tex;?\s*(?:mode=display)?["']>([\s\S]*?)<\/script>/gi, ' $$ $1 $$ ');
 
-    speakable = speakable.replace(/\\sin\b/g, ' sine of, ');
-    speakable = speakable.replace(/\\cos\b/g, ' cosine of, ');
-    speakable = speakable.replace(/\\tan\b/g, ' tangent of, ');
-    speakable = speakable.replace(/\\ln\b/g, ' natural log of, ');
-    speakable = speakable.replace(/\\log\b/g, ' log of, ');
+  // 2. Normalize block delimiters: \[...\] and \\[...\\] to $$...$$
+  s = s.replace(/\\\\\[([\s\S]+?)\\\\\]/g, ' $$ $1 $$ ');
+  s = s.replace(/\\\[([\s\S]+?)\\\]/g, ' $$ $1 $$ ');
 
-    speakable = speakable.replace(/\\vec\{(\w)\}/g, ' vector $1, ');
-    speakable = speakable.replace(/\\bar\{(\w)\}/g, ' $1 bar, ');
-    speakable = speakable.replace(/\\hat\{(\w)\}/g, ' $1 hat, ');
+  // 3. Normalize inline delimiters: \(...\) and \\(...\\) to $...$
+  s = s.replace(/\\\\\(([\s\S]+?)\\\\\)/g, ' $ $1 $ ');
+  s = s.replace(/\\\(([\s\S]+?)\\\)/g, ' $ $1 $ ');
 
-    speakable = speakable.replace(/\\lim_\{([^\}]+)\s*\\to\s*([^}]+)\}/g, ' limit as $1 approaches $2, ');
-    speakable = speakable.replace(/\\lim_\{([^\}]+)\}/g, ' limit as $1, ');
-
-    speakable = speakable.replace(/\\sum_\{([^\}]+)\}\^\{([^\}]+)\}/g, ' sum from $1 to $2 of, ');
-    speakable = speakable.replace(/\\sum_\{([^\}]+)\}\^(\w)/g, ' sum from $1 to $2 of, ');
-    speakable = speakable.replace(/\\sum\b/g, ' sum ');
-
-    speakable = speakable.replace(/\\int_\{([^\}]+)\}\^\{([^\}]+)\}/g, ' integral from $1 to $2 of, ');
-    speakable = speakable.replace(/\\int_\{([^\}]+)\}\^(\w)/g, ' integral from $1 to $2 of, ');
-    speakable = speakable.replace(/\\int\b/g, ' integral ');
-
-    speakable = speakable.replace(/\\frac\{d(\w)\}\{d(\w)\}/g, ' derivative of $1 with respect to $2, ');
-    speakable = speakable.replace(/\\frac\{\\partial\s*(\w)\}\{\\partial\s*(\w)\}/g, ' partial derivative of $1 with respect to $2, ');
-
-    let prev;
-    do {
-      prev = speakable;
-      speakable = speakable.replace(/\\frac\s*\{([^}]+)\}\s*\{([^}]+)\}/g, ' ($1 divided by $2) ');
-    } while (speakable !== prev);
-
-    speakable = speakable.replace(/(\w+)\^2\b/g, '$1 squared ');
-    speakable = speakable.replace(/(\w+)\^3\b/g, '$1 cubed ');
-    speakable = speakable.replace(/\{?([^}^^]+)\}?\^\{([^}]+)\}/g, '$1 to the power of $2 ');
-
-    speakable = speakable.replace(/\\sqrt\s*\{([^}]+)\}/g, ' square root of $1 ');
-
-    return ` ${speakable} `;
+  // 4. Process math inside $$ ... $$ and $ ... $
+  s = s.replace(/\$\$([\s\S]+?)\$\$/g, (_, formula) => {
+    return ` ${cleanMathFormula(formula)} `;
   });
+  s = s.replace(/(?<!\$)\$([^\$\n]+?)\$(?!\$)/g, (_, formula) => {
+    return ` ${cleanMathFormula(formula)} `;
+  });
+
+  // 5. Process any remaining bare math/LaTeX formulas that were outside delimiters
+  s = cleanMathFormula(s);
+
+  // Guarantee no remaining stray backslashes survive
+  s = s.replace(/\\/g, ' ');
+
+  return s;
 }
 
 /**
@@ -245,6 +467,10 @@ export function stripDiagramsAndCleanForTTS(text: string): string {
     .replace(/\n+/g, ' ')
     .replace(/\s{2,}/g, ' ')
     .trim();
+
+  // 10. Strip all emojis, pictographs, symbols, and variation selectors so TTS never pronounces emoji names
+  cleaned = cleaned.replace(/[\u{1F300}-\u{1F9FF}\u{1FA00}-\u{1FAFF}\u{2600}-\u{26FF}\u{2700}-\u{27BF}\u{1F1E6}-\u{1F1FF}\u{FE00}-\u{FE0F}\u{1F900}-\u{1F9FF}\u{1F004}\u{1F0CF}\u{1F170}-\u{1F251}\u{200D}\u{20E3}]/gu, '');
+  cleaned = cleaned.replace(/\s{2,}/g, ' ').trim();
 
   return cleaned;
 }
