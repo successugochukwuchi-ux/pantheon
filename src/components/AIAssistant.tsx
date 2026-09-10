@@ -11,6 +11,7 @@ import { db } from '../firebase';
 import { AIConfig } from '../types';
 import { useAuth } from '../contexts/AuthContext';
 import { speakText, stopSpeech } from '../lib/ttsService';
+import { toast } from 'sonner';
 import ReactMarkdown from 'react-markdown';
 import remarkMath from 'remark-math';
 import rehypeMathjax from 'rehype-mathjax';
@@ -114,21 +115,48 @@ export function AIAssistant({ noteContent, noteTitle }: AIAssistantProps) {
     }
   };
 
-  // Hold-to-speak implementation using Web Speech Recognition
-  const startHoldToSpeak = () => {
-    // 1. Instant interruption of any active speech
+  const isRecordingRef = useRef(false);
+  const silenceTimerRef = useRef<any>(null);
+
+  // Stop recording and send text
+  const stopRecordingAndSend = useCallback(() => {
+    if (!isRecordingRef.current) return;
+    isRecordingRef.current = false;
+    setIsRecording(false);
+    if (silenceTimerRef.current) {
+      clearTimeout(silenceTimerRef.current);
+      silenceTimerRef.current = null;
+    }
+
+    if (recognitionRef.current) {
+      try {
+        recognitionRef.current.stop();
+      } catch {}
+    }
+
+    const finalSpokenText = holdTranscriptRef.current.trim();
+    setRecordingTranscript('');
+
+    if (finalSpokenText) {
+      handleSend(finalSpokenText, true);
+    }
+  }, [handleSend]);
+
+  // Start speech recognition for Tap-to-Talk
+  const startRecording = useCallback(() => {
+    // 1. Instant barge-in interruption of any active speech
     interruptSpeech();
 
-    isHoldingRef.current = true;
+    isRecordingRef.current = true;
     holdTranscriptRef.current = '';
     setRecordingTranscript('');
     setIsRecording(true);
 
     const SpeechRec = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
     if (!SpeechRec) {
-      alert('Speech recognition is not supported in this browser. Please use Chrome, Edge, or Safari.');
+      toast.error('Speech recognition is not supported in this browser. Please use Chrome, Edge, or Safari.');
       setIsRecording(false);
-      isHoldingRef.current = false;
+      isRecordingRef.current = false;
       return;
     }
 
@@ -149,20 +177,37 @@ export function AIAssistant({ noteContent, noteTitle }: AIAssistantProps) {
         }
         holdTranscriptRef.current = currentTranscript;
         setRecordingTranscript(currentTranscript);
+
+        // Reset silence timer whenever words are spoken: auto-send after 2.5s of silence
+        if (silenceTimerRef.current) {
+          clearTimeout(silenceTimerRef.current);
+        }
+        silenceTimerRef.current = setTimeout(() => {
+          if (isRecordingRef.current && holdTranscriptRef.current.trim()) {
+            stopRecordingAndSend();
+          }
+        }, 2500);
       };
 
       recognition.onerror = (event: any) => {
-        console.warn('Speech recognition error:', event.error);
-        if (event.error !== 'no-speech') {
+        console.warn('Speech recognition warning/error:', event.error);
+        // 'no-speech' is expected when user pauses; do NOT kill recording!
+        if (event.error === 'no-speech') {
+          return;
+        }
+        if (event.error === 'not-allowed') {
+          toast.error('Microphone permission denied. Please allow microphone access.');
+          isRecordingRef.current = false;
           setIsRecording(false);
-          isHoldingRef.current = false;
         }
       };
 
       recognition.onend = () => {
-        if (isHoldingRef.current) {
-          // Restart if user is still holding
-          try { recognition.start(); } catch {}
+        // If recording is still supposed to be active, restart seamlessly to prevent premature cutoff
+        if (isRecordingRef.current) {
+          try {
+            recognition.start();
+          } catch {}
         } else {
           setIsRecording(false);
         }
@@ -173,26 +218,16 @@ export function AIAssistant({ noteContent, noteTitle }: AIAssistantProps) {
     } catch (err) {
       console.warn('Failed to start speech recognition:', err);
       setIsRecording(false);
-      isHoldingRef.current = false;
+      isRecordingRef.current = false;
     }
-  };
+  }, [interruptSpeech, stopRecordingAndSend]);
 
-  const stopHoldToSpeak = () => {
-    if (!isHoldingRef.current) return;
-    isHoldingRef.current = false;
-    setIsRecording(false);
-
-    if (recognitionRef.current) {
-      try {
-        recognitionRef.current.stop();
-      } catch {}
-    }
-
-    const finalSpokenText = holdTranscriptRef.current.trim();
-    setRecordingTranscript('');
-
-    if (finalSpokenText) {
-      handleSend(finalSpokenText, true);
+  // Toggle Tap-To-Talk: Tap to start listening, tap again to finish and send
+  const toggleTapToTalk = () => {
+    if (isRecording) {
+      stopRecordingAndSend();
+    } else {
+      startRecording();
     }
   };
 
@@ -330,16 +365,19 @@ export function AIAssistant({ noteContent, noteTitle }: AIAssistantProps) {
                       </div>
                     </div>
 
-                    {/* Recording indicator overlay if holding to speak */}
+                    {/* Recording indicator overlay */}
                     {isRecording && (
-                      <div className="px-3 py-2 bg-primary/10 border-t border-primary/20 flex items-center gap-2 text-xs text-primary animate-pulse">
-                        <span className="relative flex h-2.5 w-2.5">
-                          <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75"></span>
-                          <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-red-500"></span>
-                        </span>
-                        <span className="font-medium">
-                          Listening... {recordingTranscript ? `"${recordingTranscript}"` : 'Hold while speaking, release to send'}
-                        </span>
+                      <div className="px-3 py-2 bg-primary/10 border-t border-primary/20 flex items-center justify-between text-xs text-primary animate-pulse">
+                        <div className="flex items-center gap-2">
+                          <span className="relative flex h-2.5 w-2.5">
+                            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75"></span>
+                            <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-red-500"></span>
+                          </span>
+                          <span className="font-medium">
+                            {recordingTranscript ? `"${recordingTranscript}"` : 'Listening... Speak now'}
+                          </span>
+                        </div>
+                        <span className="text-[10px] text-muted-foreground font-semibold">Tap mic to send</span>
                       </div>
                     )}
                     
@@ -352,32 +390,22 @@ export function AIAssistant({ noteContent, noteTitle }: AIAssistantProps) {
                         }}
                         className="flex items-center gap-2"
                       >
-                        {/* Hold-To-Speak Button */}
+                        {/* Tap-To-Talk Button */}
                         <Button
                           type="button"
                           variant={isRecording ? "destructive" : "secondary"}
                           size="icon"
-                          onMouseDown={startHoldToSpeak}
-                          onMouseUp={stopHoldToSpeak}
-                          onMouseLeave={stopHoldToSpeak}
-                          onTouchStart={(e) => {
-                            e.preventDefault();
-                            startHoldToSpeak();
-                          }}
-                          onTouchEnd={(e) => {
-                            e.preventDefault();
-                            stopHoldToSpeak();
-                          }}
+                          onClick={toggleTapToTalk}
                           className={`rounded-full h-9 w-9 shrink-0 transition-transform select-none ${
                             isRecording ? 'scale-110 ring-4 ring-destructive/25' : 'hover:bg-primary hover:text-primary-foreground'
                           }`}
-                          title="Hold to Speak (Release to send, or interrupts Hermes if speaking)"
+                          title={isRecording ? "Tap to finish and send" : "Tap to Speak"}
                         >
                           {isRecording ? <MicOff className="h-4 w-4" /> : <Mic className="h-4 w-4" />}
                         </Button>
 
                         <Input
-                          placeholder={isRecording ? "Listening..." : "Ask Hermes or hold mic..."}
+                          placeholder={isRecording ? "Listening... Speak now" : "Ask Hermes or tap mic to speak..."}
                           value={input}
                           onChange={(e) => setInput(e.target.value)}
                           className="rounded-full bg-muted border-none h-9 text-sm focus-visible:ring-1 flex-1"

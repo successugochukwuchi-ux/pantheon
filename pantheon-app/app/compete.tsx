@@ -15,6 +15,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { BottomNav } from '../components/BottomNav';
+import { MathText } from '../components/MathText';
 import { F, width } from '../components/Theme';
 import { useTheme } from '../context/ThemeContext';
 import { useAuth } from '../context/AuthContext';
@@ -78,7 +79,24 @@ export default function CompeteScreen() {
 
   const [selectedNumQuestions, setSelectedNumQuestions] = useState<10 | 20 | 30>(10);
   const [customNumQuestions, setCustomNumQuestions] = useState<number>(10);
+  const [selectedGameMode, setSelectedGameMode] = useState<'points_grab' | 'time_trial'>('points_grab');
+  const [customTimeTrialMinutes, setCustomTimeTrialMinutes] = useState<number>(3);
   const [joinRoomCode, setJoinRoomCode] = useState('');
+
+  const handleHostUpdateDuration = async (minutes: number) => {
+    if (!currentMatch?.id || user?.uid !== currentMatch.creatorId) return;
+    const validatedMins = Math.max(1, Math.min(60, minutes));
+    try {
+      await updateDoc(doc(db, 'compete_matches', currentMatch.id), {
+        duration: validatedMins,
+        durationSeconds: validatedMins * 60,
+      });
+      Alert.alert('Duration Updated', `Match time trial set to ${validatedMins} minute${validatedMins > 1 ? 's' : ''}.`);
+    } catch (err) {
+      console.error('Failed to update duration:', err);
+      Alert.alert('Error', 'Could not update match duration.');
+    }
+  };
 
   // Live Match variables
   const [currentMatch, setCurrentMatch] = useState<any>(null);
@@ -208,7 +226,7 @@ export default function CompeteScreen() {
         setActiveQuestionIndex(0);
         setSelectedOption(null);
         setHasSubmittedAnswer(false);
-        setTimeLeft(updatedMatch.duration ? updatedMatch.duration * 60 : 300);
+        setTimeLeft(updatedMatch.durationSeconds || (updatedMatch.duration ? updatedMatch.duration * 60 : 180));
         setQuestionStartTime(Date.now());
         setUserStats({ timeTaken: 0, answersLog: [] });
         setGameState('playing');
@@ -581,12 +599,15 @@ export default function CompeteScreen() {
         setGameState('waiting');
 
         const newMatchDoc = doc(collection(db, 'compete_matches'));
+        const durationMins = selectedGameMode === 'time_trial' ? Math.max(1, Math.min(60, customTimeTrialMinutes || 3)) : overallDurationMins;
         const matchPayload = {
           id: newMatchDoc.id,
           courseId: selectedCourse.id,
           courseCode: selectedCourse.code,
           type: 'custom_room',
-          duration: overallDurationMins,
+          gameMode: selectedGameMode,
+          duration: durationMins,
+          durationSeconds: durationMins * 60,
           numQuestions: customNumQuestions,
           status: 'waiting',
           creatorId: user.uid,
@@ -1196,18 +1217,122 @@ export default function CompeteScreen() {
 
                 <View style={[s.divider, { backgroundColor: C.border }]} />
 
+                {/* GAME MODE SELECTOR */}
                 <Text style={[s.choiceConfigLabel, { color: C.inkLight }]}>
-                  CREATE: QUESTION LIMIT
+                  SELECT GAME MODE
                 </Text>
-                <TextInput
-                  keyboardType="number-pad"
-                  style={[s.textInput, { backgroundColor: C.bgAlt, color: C.ink, borderColor: C.border }]}
-                  value={String(customNumQuestions)}
-                  onChangeText={(val) => {
-                    const parsed = parseInt(val, 10);
-                    setCustomNumQuestions(isNaN(parsed) ? 10 : parsed);
-                  }}
-                />
+                <View style={{ flexDirection: 'row', gap: 8, marginBottom: 8 }}>
+                  <TouchableOpacity
+                    style={[
+                      s.countBtn,
+                      { borderColor: C.border, backgroundColor: C.bgAlt },
+                      selectedGameMode === 'points_grab' && { backgroundColor: C.surfaceDark, borderColor: C.surfaceDark },
+                    ]}
+                    onPress={() => setSelectedGameMode('points_grab')}
+                  >
+                    <Text
+                      style={[
+                        s.countBtnText,
+                        { color: C.ink },
+                        selectedGameMode === 'points_grab' && { color: C.bg, fontFamily: F.bold },
+                      ]}
+                    >
+                      Points Grab
+                    </Text>
+                  </TouchableOpacity>
+
+                  <TouchableOpacity
+                    style={[
+                      s.countBtn,
+                      { borderColor: C.border, backgroundColor: C.bgAlt },
+                      selectedGameMode === 'time_trial' && { backgroundColor: C.surfaceDark, borderColor: C.surfaceDark },
+                    ]}
+                    onPress={() => setSelectedGameMode('time_trial')}
+                  >
+                    <Text
+                      style={[
+                        s.countBtnText,
+                        { color: C.ink },
+                        selectedGameMode === 'time_trial' && { color: C.bg, fontFamily: F.bold },
+                      ]}
+                    >
+                      ⚡ Time Trial
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+
+                {selectedGameMode === 'time_trial' ? (
+                  <View style={{ gap: 8, marginBottom: 4 }}>
+                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <Text style={[s.choiceConfigLabel, { color: C.inkLight }]}>
+                        MATCH TIME (MINUTES)
+                      </Text>
+                      <Text style={{ fontFamily: F.bold, fontSize: 13, color: C.ink }}>
+                        {customTimeTrialMinutes} {customTimeTrialMinutes === 1 ? 'Min' : 'Mins'}
+                      </Text>
+                    </View>
+
+                    <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
+                      {[1, 2, 3, 5, 10, 15, 20, 30].map((m) => (
+                        <TouchableOpacity
+                          key={m}
+                          style={[
+                            {
+                              paddingHorizontal: 12,
+                              paddingVertical: 6,
+                              borderRadius: 8,
+                              borderWidth: 1,
+                              borderColor: C.border,
+                              backgroundColor: C.bgAlt,
+                            },
+                            customTimeTrialMinutes === m && {
+                              backgroundColor: C.surfaceDark,
+                              borderColor: C.surfaceDark,
+                            },
+                          ]}
+                          onPress={() => setCustomTimeTrialMinutes(m)}
+                        >
+                          <Text
+                            style={[
+                              { fontFamily: F.bold, fontSize: 12, color: C.ink },
+                              customTimeTrialMinutes === m && { color: C.bg },
+                            ]}
+                          >
+                            {m}m
+                          </Text>
+                        </TouchableOpacity>
+                      ))}
+                    </View>
+
+                    <TextInput
+                      keyboardType="number-pad"
+                      placeholder="Custom minutes (1-60)"
+                      placeholderTextColor={C.inkLight}
+                      style={[s.textInput, { backgroundColor: C.bgAlt, color: C.ink, borderColor: C.border }]}
+                      value={String(customTimeTrialMinutes)}
+                      onChangeText={(val) => {
+                        const parsed = parseInt(val, 10);
+                        const clamped = isNaN(parsed) ? 1 : Math.max(1, Math.min(60, parsed));
+                        setCustomTimeTrialMinutes(clamped);
+                      }}
+                    />
+                  </View>
+                ) : (
+                  <View style={{ gap: 4, marginBottom: 4 }}>
+                    <Text style={[s.choiceConfigLabel, { color: C.inkLight }]}>
+                      CREATE: QUESTION LIMIT
+                    </Text>
+                    <TextInput
+                      keyboardType="number-pad"
+                      style={[s.textInput, { backgroundColor: C.bgAlt, color: C.ink, borderColor: C.border }]}
+                      value={String(customNumQuestions)}
+                      onChangeText={(val) => {
+                        const parsed = parseInt(val, 10);
+                        setCustomNumQuestions(isNaN(parsed) ? 10 : parsed);
+                      }}
+                    />
+                  </View>
+                )}
 
                 <TouchableOpacity
                   style={[s.secondaryBtn, { borderColor: C.ink }]}
@@ -1217,7 +1342,9 @@ export default function CompeteScreen() {
                   }}
                   activeOpacity={0.8}
                 >
-                  <Text style={[s.secondaryBtnText, { color: C.ink }]}>Create Lobby Arena</Text>
+                  <Text style={[s.secondaryBtnText, { color: C.ink }]}>
+                    Create {selectedGameMode === 'time_trial' ? 'Time Trial' : 'Points Grab'} Arena
+                  </Text>
                 </TouchableOpacity>
 
                 <View style={[s.divider, { backgroundColor: C.border }]} />
@@ -1263,6 +1390,71 @@ export default function CompeteScreen() {
                     ? `Matching for ${selectedCourse?.code || 'course'}. CoLearn bot activates in ${searchCountdown}s.`
                     : 'Give this 5-character match code to a classmate in this class.'}
                 </Text>
+
+                {/* MATCH MODE & DURATION BADGE */}
+                {currentMatch.gameMode === 'time_trial' && (
+                  <View style={{ marginTop: 8, paddingHorizontal: 12, paddingVertical: 4, borderRadius: 20, backgroundColor: C.bgAlt, borderWidth: 1, borderColor: C.border, alignSelf: 'center' }}>
+                    <Text style={{ fontFamily: F.bold, fontSize: 12, color: C.ink }}>
+                      ⚡ Time Trial Race: {currentMatch.durationSeconds ? Math.round(currentMatch.durationSeconds / 60) : (currentMatch.duration || 3)} Minutes
+                    </Text>
+                  </View>
+                )}
+
+                {/* HOST TIME TRIAL DURATION CONTROLS */}
+                {currentMatch.gameMode === 'time_trial' && user?.uid === currentMatch.creatorId && (
+                  <View style={{ marginTop: 14, width: '100%', padding: 12, borderRadius: 12, backgroundColor: C.bgAlt, borderWidth: 1, borderColor: C.border, gap: 8 }}>
+                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <Text style={{ fontFamily: F.bold, fontSize: 11, color: C.ink, letterSpacing: 0.5 }}>
+                        ⏱️ HOST: SET MATCH TIME
+                      </Text>
+                      <Text style={{ fontFamily: F.bold, fontSize: 11, color: C.inkLight }}>
+                        Host Only
+                      </Text>
+                    </View>
+                    <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
+                      {[1, 2, 3, 5, 10, 15, 20].map((m) => {
+                        const isCur = (currentMatch.durationSeconds ? Math.round(currentMatch.durationSeconds / 60) : currentMatch.duration) === m;
+                        return (
+                          <TouchableOpacity
+                            key={m}
+                            onPress={() => handleHostUpdateDuration(m)}
+                            style={[
+                              {
+                                paddingHorizontal: 10,
+                                paddingVertical: 5,
+                                borderRadius: 6,
+                                borderWidth: 1,
+                                borderColor: C.border,
+                                backgroundColor: C.surface,
+                              },
+                              isCur && {
+                                backgroundColor: C.surfaceDark,
+                                borderColor: C.surfaceDark,
+                              },
+                            ]}
+                          >
+                            <Text style={[{ fontFamily: F.bold, fontSize: 11, color: C.ink }, isCur && { color: C.bg }]}>
+                              {m}m
+                            </Text>
+                          </TouchableOpacity>
+                        );
+                      })}
+                    </View>
+                  </View>
+                )}
+
+                {/* WEBRTC VOICE CALL INDICATOR */}
+                <View style={{ marginTop: 12, width: '100%', padding: 10, borderRadius: 10, backgroundColor: C.bgAlt, borderWidth: 1, borderColor: C.border, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                    <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: '#22c55e' }} />
+                    <Text style={{ fontFamily: F.bold, fontSize: 11, color: C.ink }}>
+                      WebRTC Voice (Lyra 6kbps)
+                    </Text>
+                  </View>
+                  <Text style={{ fontFamily: F.body, fontSize: 10, color: C.inkLight }}>
+                    P2P Audio Ready
+                  </Text>
+                </View>
 
                 {currentMatch.type === 'custom_room' && (
                   <View style={s.customRoomCodeWrap}>

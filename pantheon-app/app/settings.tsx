@@ -23,8 +23,23 @@ import { signOut } from 'firebase/auth';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { clearUserProfileLocal, getAppVersionLocal } from '../lib/db';
 import { APP_BUILD_VERSION } from '../constants/versionConfig';
+import { checkAndApplyAcademicUpdates } from '../lib/academicSync';
+import { Alert, ActivityIndicator } from 'react-native';
 
 // ── Sub-components ────────────────────────────────────────────────────────────
+
+function AcademicUpdateIcon() {
+  const { colors: C } = useTheme();
+  return (
+    <View style={{ width: 20, height: 20, justifyContent: 'center', alignItems: 'center' }}>
+      <View style={{ width: 16, height: 12, borderWidth: 1.8, borderColor: C.ink, borderRadius: 2 }} />
+      <View style={{ position: 'absolute', width: 2, height: 12, backgroundColor: C.ink }} />
+      <View style={{ position: 'absolute', bottom: -2, right: -2, width: 8, height: 8, borderRadius: 4, backgroundColor: C.primary || '#3B82F6', justifyContent: 'center', alignItems: 'center' }}>
+        <Text style={{ color: '#fff', fontSize: 6, fontWeight: '900' }}>↻</Text>
+      </View>
+    </View>
+  );
+}
 
 function BackIcon() {
   const { colors: C } = useTheme();
@@ -124,15 +139,48 @@ function SettingRow({ icon, title, subtitle, isDark, onPress }: {
 
 export default function SettingsScreen() {
   const router = useRouter();
-  const { profile, logout, isOffline } = useAuth();
+  const { profile, systemConfig, logout, isOffline } = useAuth();
   const { colors: C } = useTheme();
   const s = useMemo(() => createStyles(C), [C]);
   const [appVersion, setAppVersion] = React.useState(APP_BUILD_VERSION);
+  const [isUpdatingAcademic, setIsUpdatingAcademic] = React.useState(false);
+  const [updateStatusText, setUpdateStatusText] = React.useState('');
 
   React.useEffect(() => {
     const v = getAppVersionLocal();
     if (v.versionNumber) setAppVersion(v.versionNumber);
   }, []);
+
+  const handleAcademicUpdate = async () => {
+    if (isOffline) {
+      Alert.alert('Offline', 'Please connect to the internet to check for academic updates.');
+      return;
+    }
+    if (!profile?.isActivated) {
+      Alert.alert('Activation Required', 'Your account must be activated to download and update academic materials.');
+      return;
+    }
+
+    try {
+      setIsUpdatingAcademic(true);
+      setUpdateStatusText('Checking course catalog...');
+      const result = await checkAndApplyAcademicUpdates(profile, systemConfig, (msg) => {
+        setUpdateStatusText(msg);
+      });
+
+      Alert.alert(
+        result.hasUpdates ? 'Academic Updates Synced' : 'Up to Date',
+        result.summaryMessage,
+        [{ text: 'OK' }]
+      );
+    } catch (err: any) {
+      console.error('Academic update error:', err);
+      Alert.alert('Update Failed', err?.message || 'Failed to check for academic updates. Please try again.');
+    } finally {
+      setIsUpdatingAcademic(false);
+      setUpdateStatusText('');
+    }
+  };
 
   const handleLogout = async () => {
     try {
@@ -193,6 +241,14 @@ export default function SettingsScreen() {
         </View>
 
         {/* Sections */}
+        <Text style={s.sectionLabel}>ACADEMIC MATERIALS</Text>
+        <SettingRow
+          icon={isUpdatingAcademic ? <ActivityIndicator size="small" color={C.ink} /> : <AcademicUpdateIcon />}
+          title={isUpdatingAcademic ? "Checking for Updates..." : "Academic Update"}
+          subtitle={isUpdatingAcademic ? (updateStatusText || "Comparing SQLite with Firestore...") : "Sync new notes, questions & sheets to SQLite"}
+          onPress={isUpdatingAcademic ? undefined : handleAcademicUpdate}
+        />
+
         <Text style={s.sectionLabel}>ACCOUNT & PREFERENCES</Text>
         <SettingRow
           icon={<ProfileSmallIcon />}

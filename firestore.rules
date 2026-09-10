@@ -360,6 +360,16 @@ service cloud.firestore {
 
     match /compete_matches/{matchId} {
       allow read, list, write: if isSignedIn();
+      match /{subpath=**} {
+        allow read, list, write: if isSignedIn();
+      }
+    }
+
+    match /compete_voice/{matchId} {
+      allow read, list, write: if isSignedIn();
+      match /{subpath=**} {
+        allow read, list, write: if isSignedIn();
+      }
     }
 
     match /disciplines/{disciplineId} {

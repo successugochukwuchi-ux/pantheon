@@ -2,6 +2,7 @@ import React from 'react';
 import { StyleSheet, View, Text, TouchableOpacity } from 'react-native';
 import { useTheme } from '../context/ThemeContext';
 import { NoteRenderer } from './NoteRenderer';
+import { MathText } from './MathText';
 import { F } from './Theme';
 
 interface QuestionRendererProps {
@@ -138,7 +139,7 @@ export function QuestionRenderer({
               </View>
 
               <View style={{ flex: 1, paddingVertical: 2 }}>
-                <Text style={optText}>{formatOptionText(opt)}</Text>
+                <MathText text={opt} style={optText} />
               </View>
 
               {isAnswered && isCorrect && (
