@@ -20,7 +20,8 @@ import {
   HelpCircle,
   Copy,
   Hourglass,
-  Flame
+  Flame,
+  UserMinus
 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { db, handleFirestoreError, OperationType } from '../firebase';
@@ -39,7 +40,9 @@ import {
   limit, 
   serverTimestamp,
   increment,
-  writeBatch
+  writeBatch,
+  deleteField,
+  arrayUnion
 } from 'firebase/firestore';
 import { toast } from 'sonner';
 import { Course, Question } from '../types';
@@ -48,8 +51,6 @@ import { Input } from '../components/ui/input';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '../components/ui/card';
 import { motion, AnimatePresence } from 'framer-motion';
 import { MathMarkdown } from '../components/MathMarkdown';
-import { LyraVoiceChat } from '../components/LyraVoiceChat';
-import { TimeTrialSlider } from '../components/TimeTrialSlider';
 
 export default function Compete() {
   const { user, profile, systemConfig } = useAuth();
@@ -77,24 +78,6 @@ export default function Compete() {
 
   // Game states: 'lobby' | 'selecting_course' | 'selecting_lobby_type' | 'waiting' | 'playing' | 'results'
   const [gameState, setGameState] = useState<'lobby' | 'selecting_course' | 'selecting_lobby_type' | 'waiting' | 'playing' | 'results'>('lobby');
-  const [selectedGameMode, setSelectedGameMode] = useState<'points_grab' | 'time_trial'>('points_grab');
-  const [timeTrialDuration, setTimeTrialDuration] = useState<number>(180); // in seconds: 120, 180, 300, 600
-  const [customTimeTrialMinutes, setCustomTimeTrialMinutes] = useState<number>(3); // host-configurable minutes for private match
-
-  const handleHostUpdateDuration = async (minutes: number) => {
-    if (!currentMatch?.id || user?.uid !== currentMatch.creatorId) return;
-    const validatedMins = Math.max(1, Math.min(60, minutes));
-    try {
-      await updateDoc(doc(db, 'compete_matches', currentMatch.id), {
-        duration: validatedMins,
-        durationSeconds: validatedMins * 60,
-      });
-      toast.success(`Match time updated to ${validatedMins} minute${validatedMins > 1 ? 's' : ''}!`, { icon: '⏱️' });
-    } catch (err) {
-      console.error("Failed to update duration:", err);
-      toast.error("Failed to update duration.");
-    }
-  };
   
   const [courses, setCourses] = useState<Course[]>([]);
   const [loadingCourses, setLoadingCourses] = useState(false);
@@ -115,6 +98,7 @@ export default function Compete() {
   const [selectedOption, setSelectedOption] = useState<string | null>(null);
   const [hasSubmittedAnswer, setHasSubmittedAnswer] = useState(false);
   const [matchQuestions, setMatchQuestions] = useState<Question[]>([]);
+  const [reviewFilter, setReviewFilter] = useState<'all' | 'mistakes' | 'correct'>('all');
   
   // In-Game Live Timers
   const [timeLeft, setTimeLeft] = useState<number>(300); // in seconds
@@ -214,6 +198,27 @@ export default function Compete() {
       if (!docSnap.exists()) return;
       const data = docSnap.data();
       const updatedMatch: any = { id: docSnap.id, ...data };
+
+      // Check if current user was kicked from private room
+      if (user?.uid && updatedMatch.kickedList?.includes(user.uid)) {
+        setCurrentMatch(null);
+        setGameState('select_mode');
+        toast.error("You have been removed from this private room by the host.");
+        return;
+      }
+
+      if (
+        user?.uid &&
+        updatedMatch.type === 'custom_room' &&
+        user.uid !== updatedMatch.creatorId &&
+        gameState === 'waiting' &&
+        updatedMatch.opponentId !== user.uid
+      ) {
+        setCurrentMatch(null);
+        setGameState('lobby');
+        toast.error("You have been removed from this private room by the host.");
+        return;
+      }
       
       setCurrentMatch(updatedMatch);
 
@@ -307,7 +312,7 @@ export default function Compete() {
       });
     }, 1000);
 
-    // Resilient 2-second scan interval
+    // Resilient 2-second scan interval with freshness check to prevent ghost matching
     const scanInterval = setInterval(async () => {
       if (!currentMatch?.id || !user?.uid || !selectedCourse?.id) return;
       try {
@@ -324,6 +329,12 @@ export default function Compete() {
         for (const val of lobbiesSnap.docs) {
           const lobbyData = val.data();
           if (lobbyData.creatorId !== user.uid && val.id !== currentMatch.id) {
+            // Validate freshness: ignore stale / abandoned ghost matches (older than 20s without heartbeat)
+            const lastActive = lobbyData.lastHeartbeat || lobbyData.createdAt || 0;
+            if (Date.now() - lastActive > 20000) {
+              updateDoc(doc(db, 'compete_matches', val.id), { status: 'aborted' }).catch(() => {});
+              continue;
+            }
             foundLobby = { id: val.id, ...lobbyData };
             break;
           }
@@ -356,9 +367,19 @@ export default function Compete() {
       }
     }, 2000);
 
+    // Active heartbeat every 4 seconds to signal this client is live and prevent ghost matching
+    const heartbeatInterval = setInterval(() => {
+      if (currentMatch?.id && user?.uid === currentMatch.creatorId) {
+        updateDoc(doc(db, 'compete_matches', currentMatch.id), {
+          lastHeartbeat: Date.now()
+        }).catch(() => {});
+      }
+    }, 4000);
+
     return () => {
       clearInterval(countdownInterval);
       clearInterval(scanInterval);
+      clearInterval(heartbeatInterval);
     };
   }, [gameState, lobbyType, currentMatch?.id, selectedCourse?.id, selectedNumQuestions, user?.uid, profile]);
 
@@ -450,99 +471,6 @@ export default function Compete() {
       const snap = await getDoc(matchDocRef);
       if (!snap.exists()) return;
       const freshData = snap.data();
-
-      // TIME TRIAL CONCLUSION
-      if (freshData.gameMode === 'time_trial') {
-        const playersMap = freshData.players || {};
-        const playerList: any[] = Object.values(playersMap);
-        playerList.sort((a, b) => (b.points || 0) - (a.points || 0));
-
-        const total = playerList.length;
-        const durationSecs = freshData.durationSeconds || 180;
-        let firstStars = 3;
-        let secondStars = 2;
-        let thirdStars = 1;
-        if (durationSecs <= 120) {
-          firstStars = 2; secondStars = 1; thirdStars = 1;
-        } else if (durationSecs >= 600) {
-          firstStars = 8; secondStars = 5; thirdStars = 3;
-        } else if (durationSecs >= 300) {
-          firstStars = 5; secondStars = 3; thirdStars = 2;
-        }
-
-        const half = Math.max(1, Math.ceil(total / 2));
-        const standings = playerList.map((player, index) => {
-          let starsDelta = 0;
-          if (index === 0 && (player.points || 0) > 0) {
-            starsDelta = firstStars;
-          } else if (index === 1 && index < half && (player.points || 0) > 0) {
-            starsDelta = secondStars;
-          } else if (index === 2 && index < half && (player.points || 0) > 0) {
-            starsDelta = thirdStars;
-          } else if (index < half && (player.points || 0) > 0) {
-            starsDelta = 1;
-          }
-
-          // Last place player loses 1 star in matches with >= 2 players
-          if (index === total - 1 && total >= 2) {
-            starsDelta = -1;
-          }
-
-          return {
-            uid: player.uid,
-            username: player.username,
-            photoURL: player.photoURL || '',
-            points: player.points || 0,
-            rank: index + 1,
-            starsDelta
-          };
-        });
-
-        await updateDoc(matchDocRef, {
-          status: 'completed',
-          winnerId: playerList[0]?.uid || 'none',
-          standings,
-          endTime: Date.now()
-        });
-
-        // Award / deduct stars in leaderboard for Quick Matches during active season
-        if (freshData.type === 'quick_match' && activeSeasonId) {
-          for (const standing of standings) {
-            if (standing.uid.startsWith('bot_')) continue;
-            const leaderDocRef = doc(db, 'seasons', activeSeasonId, 'leaderboard', standing.uid);
-            const leaderSnap = await getDoc(leaderDocRef);
-            if (standing.starsDelta > 0) {
-              if (leaderSnap.exists()) {
-                await updateDoc(leaderDocRef, {
-                  stars: increment(standing.starsDelta),
-                  updatedAt: serverTimestamp()
-                });
-              } else {
-                await setDoc(leaderDocRef, {
-                  userId: standing.uid,
-                  username: standing.username || 'Anonymous User',
-                  photoURL: standing.photoURL || '',
-                  favoriteCourse: freshData.courseCode || 'GENERAL',
-                  stars: standing.starsDelta,
-                  updatedAt: serverTimestamp(),
-                  At: freshData.At || 'futo'
-                });
-              }
-            } else if (standing.starsDelta < 0 && leaderSnap.exists()) {
-              const curStars = leaderSnap.data()?.stars || 0;
-              if (curStars > 0) {
-                await updateDoc(leaderDocRef, {
-                  stars: increment(-1),
-                  updatedAt: serverTimestamp()
-                });
-              }
-            }
-          }
-        }
-
-        setGameState('results');
-        return;
-      }
 
       const creatorPoints = freshData.creatorPoints || 0;
       const opponentPoints = freshData.opponentPoints || 0;
@@ -772,120 +700,6 @@ export default function Compete() {
       // Scale overall match duration - 1.5 minutes per question (minimum 15 mins)
       const overallDurationMins = Math.max(15, Math.ceil(finalNumQuestions * 1.5));
 
-      const isTimeTrial = selectedGameMode === 'time_trial';
-      const myPlayerObj = {
-        uid: user?.uid,
-        username: profile?.username || user?.email || 'Student User',
-        photoURL: profile?.photoURL || '',
-        points: 0,
-        answersCount: 0,
-        correctCount: 0,
-        votedToStart: false,
-        isHost: true,
-      };
-
-      if (isTimeTrial) {
-        if (mode === 'quick') {
-          if (!activeSeasonId) {
-            toast.error("Quick Matches are locked as there is no active season currently. Play a custom private match!");
-            return;
-          }
-
-          setGameState('waiting');
-          setSearchCountdown(15);
-
-          // Find waiting time trial lobby
-          const lobbiesQuery = query(
-            collection(db, 'compete_matches'),
-            where('status', '==', 'waiting'),
-            where('type', '==', 'quick_match'),
-            where('gameMode', '==', 'time_trial'),
-            where('courseId', '==', selectedCourse.id),
-            where('durationSeconds', '==', timeTrialDuration)
-          );
-          const lobbiesSnap = await getDocs(lobbiesQuery);
-
-          let foundLobby: any = null;
-          for (const val of lobbiesSnap.docs) {
-            const lobbyData = val.data();
-            const pList = lobbyData.playersList || Object.keys(lobbyData.players || {});
-            if (pList.length < 6 && !pList.includes(user?.uid)) {
-              foundLobby = { id: val.id, ...lobbyData };
-              break;
-            }
-          }
-
-          if (foundLobby) {
-            const docRef = doc(db, 'compete_matches', foundLobby.id);
-            const joinedPlayer = { ...myPlayerObj, isHost: false };
-            const updatedList = [...(foundLobby.playersList || []), user?.uid];
-            await updateDoc(docRef, {
-              [`players.${user?.uid}`]: joinedPlayer,
-              playersList: updatedList
-            });
-            setCurrentMatch({
-              id: foundLobby.id,
-              ...foundLobby,
-              players: { ...foundLobby.players, [user?.uid as string]: joinedPlayer },
-              playersList: updatedList
-            });
-          } else {
-            const newMatchDoc = doc(collection(db, 'compete_matches'));
-            const matchPayload = {
-              courseId: selectedCourse.id,
-              courseCode: selectedCourse.code,
-              type: 'quick_match',
-              gameMode: 'time_trial',
-              duration: Math.ceil(timeTrialDuration / 60),
-              durationSeconds: timeTrialDuration,
-              status: 'waiting',
-              creatorId: user?.uid,
-              creatorUsername: profile?.username || user?.email || 'Student User',
-              creatorPhotoURL: profile?.photoURL || '',
-              creatorAt: profile?.At || 'futo',
-              At: profile?.At || 'futo',
-              players: { [user?.uid as string]: myPlayerObj },
-              playersList: [user?.uid],
-              maxPlayers: 6,
-              minPlayers: 2,
-              questions: selectedQuestions,
-              createdAt: Date.now()
-            };
-            await setDoc(newMatchDoc, matchPayload);
-            setCurrentMatch({ id: newMatchDoc.id, ...matchPayload });
-          }
-        } else if (mode === 'create') {
-          const roomCode = Math.random().toString(36).substring(2, 7).toUpperCase();
-          const newMatchDoc = doc(collection(db, 'compete_matches'));
-          const durationMins = Math.max(1, Math.min(60, customTimeTrialMinutes || 3));
-          const matchPayload = {
-            courseId: selectedCourse.id,
-            courseCode: selectedCourse.code,
-            type: 'custom_room',
-            gameMode: 'time_trial',
-            duration: durationMins,
-            durationSeconds: durationMins * 60,
-            status: 'waiting',
-            creatorId: user?.uid,
-            creatorUsername: profile?.username || user?.email || 'Student User',
-            creatorPhotoURL: profile?.photoURL || '',
-            creatorAt: profile?.At || 'futo',
-            At: profile?.At || 'futo',
-            roomCode,
-            players: { [user?.uid as string]: myPlayerObj },
-            playersList: [user?.uid],
-            maxPlayers: 6,
-            minPlayers: 2,
-            questions: selectedQuestions,
-            createdAt: Date.now()
-          };
-          await setDoc(newMatchDoc, matchPayload);
-          setCurrentMatch({ id: newMatchDoc.id, ...matchPayload });
-          setGameState('waiting');
-        }
-        return;
-      }
-
       if (mode === 'quick') {
         if (!activeSeasonId) {
           toast.error("Quick Matches are locked as there is no active season currently. Play a custom private match!");
@@ -910,6 +724,12 @@ export default function Compete() {
         for (const val of lobbiesSnap.docs) {
           const lobbyData = val.data();
           if (lobbyData.creatorId !== user?.uid) {
+            // Verify lobby is not stale/abandoned (older than 20s without heartbeat)
+            const lastActive = lobbyData.lastHeartbeat || lobbyData.createdAt || 0;
+            if (Date.now() - lastActive > 20000) {
+              updateDoc(doc(db, 'compete_matches', val.id), { status: 'aborted' }).catch(() => {});
+              continue;
+            }
             foundLobby = { id: val.id, ...lobbyData };
             break;
           }
@@ -962,7 +782,8 @@ export default function Compete() {
             opponentAnswers: {},
             finishGraceTime: null,
             firstFinishedUserId: null,
-            createdAt: Date.now()
+            createdAt: Date.now(),
+            lastHeartbeat: Date.now()
           };
           await setDoc(newMatchDoc, matchPayload);
           setCurrentMatch({ id: newMatchDoc.id, ...matchPayload });
@@ -995,7 +816,8 @@ export default function Compete() {
           opponentAnswers: {},
           finishGraceTime: null,
           firstFinishedUserId: null,
-          createdAt: Date.now()
+          createdAt: Date.now(),
+          lastHeartbeat: Date.now()
         };
         await setDoc(newMatchDoc, matchPayload);
         setCurrentMatch({ id: newMatchDoc.id, ...matchPayload });
@@ -1029,44 +851,9 @@ export default function Compete() {
       const matchDoc = snap.docs[0];
       const matchData = matchDoc.data();
 
-      // Check if Time Trial room
-      if (matchData.gameMode === 'time_trial') {
-        const pList = matchData.playersList || Object.keys(matchData.players || {});
-        if (pList.length >= 6) {
-          toast.error("This room is already full (maximum 6 players).");
-          return;
-        }
-        if (matchData.players?.[user?.uid as string]) {
-          setCurrentMatch({ id: matchDoc.id, ...matchData });
-          setGameState(matchData.status === 'active' ? 'playing' : 'waiting');
-          return;
-        }
-
-        const newPlayer = {
-          uid: user?.uid,
-          username: profile?.username || user?.email || 'Student User',
-          photoURL: profile?.photoURL || '',
-          points: 0,
-          answersCount: 0,
-          correctCount: 0,
-          votedToStart: false,
-          isHost: false,
-        };
-
-        const updatedList = [...pList, user?.uid];
-        await updateDoc(doc(db, 'compete_matches', matchDoc.id), {
-          [`players.${user?.uid}`]: newPlayer,
-          playersList: updatedList
-        });
-
-        setCurrentMatch({
-          id: matchDoc.id,
-          ...matchData,
-          players: { ...matchData.players, [user?.uid as string]: newPlayer },
-          playersList: updatedList
-        });
-        setGameState('waiting');
-        toast.success("Joined Time Trial room successfully!");
+      // Check if user was kicked from this room
+      if (matchData.kickedList?.includes(user?.uid)) {
+        toast.error("You have been removed from this private room by the host and cannot rejoin.");
         return;
       }
 
@@ -1075,14 +862,17 @@ export default function Compete() {
         return;
       }
 
-      // Join the room as the opponent
+      if (matchData.opponentId && matchData.opponentId !== user?.uid) {
+        toast.error("This room is already full with another opponent.");
+        return;
+      }
+
+      // Join the room as the opponent (keep status: 'waiting' so host can see who joined!)
       await updateDoc(doc(db, 'compete_matches', matchDoc.id), {
-        status: 'active',
         opponentId: user?.uid,
         opponentUsername: profile?.username || user?.email || 'Student User',
         opponentPhotoURL: profile?.photoURL || '',
         opponentAt: profile?.At || 'futo',
-        startTime: Date.now()
       });
 
       setCurrentMatch({ 
@@ -1092,42 +882,39 @@ export default function Compete() {
         opponentUsername: profile?.username || user?.email || 'Student User',
         opponentPhotoURL: profile?.photoURL || '',
         opponentAt: profile?.At || 'futo',
-        status: 'active' 
+        status: 'waiting'
       });
+      setGameState('waiting');
+      toast.success("Joined private room! Waiting for host to start...", { icon: '⏳' });
     } catch (err) {
       handleFirestoreError(err, OperationType.UPDATE, `compete_matches/${joinRoomCode}`);
     }
   };
 
-  const handleToggleVoteStart = async () => {
-    if (!currentMatch || !user) return;
-    const currentVoted = !!currentMatch.players?.[user.uid]?.votedToStart;
-    const nextVoted = !currentVoted;
-
-    const playersList: any[] = Object.values(currentMatch.players || {});
-    const totalCount = playersList.length;
-    const votedCount = playersList.filter(p => p.uid === user.uid ? nextVoted : p.votedToStart).length;
-
-    const shouldStart = totalCount >= 2 && votedCount > Math.floor(totalCount / 2);
+  const handleKickPlayer = async (targetUid: string, targetUsername?: string) => {
+    if (!currentMatch || !user || user.uid !== currentMatch.creatorId) return;
+    if (currentMatch.type !== 'custom_room') return;
+    if (targetUid === currentMatch.creatorId) return;
 
     try {
       await updateDoc(doc(db, 'compete_matches', currentMatch.id), {
-        [`players.${user.uid}.votedToStart`]: nextVoted,
-        ...(shouldStart ? { status: 'active', startTime: Date.now() } : {})
+        opponentId: null,
+        opponentUsername: null,
+        opponentPhotoURL: null,
+        opponentAt: null,
+        kickedList: arrayUnion(targetUid)
       });
-      if (shouldStart) {
-        toast.success("Majority votes reached! Starting match...", { icon: '🚀' });
-      }
+      toast.success(`Removed ${targetUsername || 'opponent'} from the room.`);
     } catch (err) {
-      console.error("Vote failed:", err);
+      console.error("Kick player failed:", err);
+      toast.error("Failed to kick player.");
     }
   };
 
   const handleHostStartMatch = async () => {
     if (!currentMatch || !user || user.uid !== currentMatch.creatorId) return;
-    const playersList: any[] = Object.values(currentMatch.players || {});
-    if (playersList.length < 2) {
-      toast.error("At least 2 players are required to start the match!");
+    if (!currentMatch.opponentId) {
+      toast.error("Waiting for an opponent to join before starting!");
       return;
     }
 
@@ -1151,51 +938,6 @@ export default function Compete() {
   const handleSubmitAnswer = async () => {
     if (!selectedOption || hasSubmittedAnswer || !currentMatch) return;
     setHasSubmittedAnswer(true);
-
-    // TIME TRIAL MODE SCORING: +1 for correct, -1 for incorrect, infinite sequence
-    if (currentMatch.gameMode === 'time_trial') {
-      const currentQuestion = matchQuestions[activeQuestionIndex];
-      const isCorrect = selectedOption === currentQuestion.correctAnswer;
-      const delta = isCorrect ? 1 : -1;
-
-      const timeSpentOnQuestion = Math.round((Date.now() - questionStartTime) / 1000);
-      setUserStats((prev) => ({
-        ...prev,
-        timeTaken: prev.timeTaken + timeSpentOnQuestion,
-        answersLog: [...prev.answersLog, { isCorrect, time: timeSpentOnQuestion, speedBonus: false }]
-      }));
-
-      try {
-        const pKey = `players.${user?.uid}`;
-        await updateDoc(doc(db, 'compete_matches', currentMatch.id), {
-          [`${pKey}.points`]: increment(delta),
-          [`${pKey}.answersCount`]: increment(1),
-          ...(isCorrect ? { [`${pKey}.correctCount`]: increment(1) } : {}),
-          [`answersLog.${user?.uid}.${currentQuestion.id || activeQuestionIndex}`]: {
-            selectedAnswer: selectedOption,
-            isCorrect,
-            answeredAt: Date.now(),
-            delta
-          }
-        });
-
-        if (isCorrect) {
-          toast.success("+1 Point! ⚡", { duration: 1200 });
-        } else {
-          toast.error("-1 Point! ⚠️", { duration: 1200 });
-        }
-
-        setTimeout(() => {
-          setActiveQuestionIndex((prev) => (prev + 1) % matchQuestions.length);
-          setSelectedOption(null);
-          setHasSubmittedAnswer(false);
-          setQuestionStartTime(Date.now());
-        }, 500);
-      } catch (err) {
-        console.error("Time trial answer submission error:", err);
-      }
-      return;
-    }
 
     const isCreator = user?.uid === currentMatch.creatorId;
     const opponentAnswers = isCreator ? currentMatch.opponentAnswers : currentMatch.creatorAnswers;
@@ -1291,7 +1033,48 @@ export default function Compete() {
     }
   };
 
-  const handleExitMatch = () => {
+  // Helper to cleanly cancel a waiting lobby in Firestore so other students don't ghost match
+  const cancelWaitingMatch = async (matchId?: string) => {
+    const targetMatch = currentMatch;
+    const targetId = matchId || targetMatch?.id;
+    if (!targetId || !user) return;
+    try {
+      if (user.uid === targetMatch?.creatorId) {
+        await updateDoc(doc(db, 'compete_matches', targetId), {
+          status: 'cancelled',
+          cancelledAt: Date.now()
+        });
+      } else if (user.uid === targetMatch?.opponentId) {
+        await updateDoc(doc(db, 'compete_matches', targetId), {
+          opponentId: null,
+          opponentUsername: null,
+          opponentPhotoURL: null,
+          opponentAt: null
+        });
+      }
+    } catch (e) {
+      console.error("Cancel waiting match failed:", e);
+    }
+  };
+
+  // Cancel waiting match if tab is closed or user leaves before matching
+  useEffect(() => {
+    const handleBeforeUnload = () => {
+      if (gameState === 'waiting' && currentMatch?.id && user?.uid === currentMatch.creatorId) {
+        updateDoc(doc(db, 'compete_matches', currentMatch.id), {
+          status: 'cancelled',
+          cancelledAt: Date.now()
+        }).catch(() => {});
+      }
+    };
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
+  }, [gameState, currentMatch?.id, user?.uid]);
+
+  const handleExitMatch = async () => {
+    if (gameState === 'waiting' && currentMatch?.id) {
+      await cancelWaitingMatch();
+    }
     setGameState('lobby');
     setCurrentMatch(null);
     setMatchQuestions([]);
@@ -1469,7 +1252,6 @@ export default function Compete() {
               <div 
                 className="group relative bg-card hover:bg-muted/40 transition-all border rounded-2xl p-6 cursor-pointer shadow-sm hover:shadow-md flex flex-col md:flex-row items-start md:items-center gap-6"
                 onClick={() => {
-                  setSelectedGameMode('points_grab');
                   setGameState('selecting_course');
                 }}
                 id="gamemode_points_grab"
@@ -1486,36 +1268,6 @@ export default function Compete() {
                   </div>
                   <p className="text-sm text-muted-foreground leading-relaxed">
                     Instantly matches you with real peers studying the same module. Get points for selecting the correct response, with a <strong className="text-primary font-bold">+1 speed bonus</strong> if answered correctly ahead of your opponent!
-                  </p>
-                </div>
-                <div className="self-end md:self-center">
-                  <Button variant="ghost" size="icon" className="group-hover:translate-x-1 transition-transform">
-                    <ChevronRight size={20} />
-                  </Button>
-                </div>
-              </div>
-
-              {/* TIME TRIAL GAME MODE CARD */}
-              <div 
-                className="group relative bg-card hover:bg-muted/40 transition-all border rounded-2xl p-6 cursor-pointer shadow-sm hover:shadow-md flex flex-col md:flex-row items-start md:items-center gap-6"
-                onClick={() => {
-                  setSelectedGameMode('time_trial');
-                  setGameState('selecting_course');
-                }}
-                id="gamemode_time_trial"
-              >
-                <div className="p-4 rounded-xl bg-amber-500/10 text-amber-500 group-hover:scale-110 transition-transform">
-                  <Hourglass size={32} className="fill-amber-500/20" />
-                </div>
-                <div className="flex-1">
-                  <div className="flex items-center gap-2 mb-1">
-                    <h3 className="text-lg font-bold">Time Trial</h3>
-                    <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-amber-500/10 text-amber-600 dark:text-amber-400">
-                      NEW • 2-6 PLAYERS
-                    </span>
-                  </div>
-                  <p className="text-sm text-muted-foreground leading-relaxed">
-                    Fast-paced speed race with up to 6 players! Infinite questions in identical order for everyone. Earn <strong className="text-emerald-500 font-bold">+1 point</strong> for correct answers, lose <strong className="text-rose-500 font-bold">-1 point</strong> for mistakes. Track real-time positions on the live leader slider!
                   </p>
                 </div>
                 <div className="self-end md:self-center">
@@ -1700,48 +1452,26 @@ export default function Compete() {
                   <Award size={18} className="text-primary" />
                 </CardTitle>
                 <CardDescription className="text-xs">
-                  {selectedGameMode === 'time_trial'
-                    ? `Join a live 2-6 player Time Trial race for ${selectedCourse.code}. Earn/lose stars based on final standings.`
-                    : `Join a real-time pool matching players for ${selectedCourse.code}. Wins award Stars to seasonal leaders.`
-                  }
+                  Join a real-time pool matching players for {selectedCourse.code}. Wins award Stars to seasonal leaders.
                 </CardDescription>
               </CardHeader>
               <CardContent className="space-y-4">
-                {selectedGameMode === 'time_trial' ? (
-                  <div>
-                    <label className="text-xs font-mono font-bold text-stone-400 block mb-2 uppercase">
-                      Select Match Duration (Infinite Questions)
-                    </label>
-                    <div className="grid grid-cols-4 gap-2">
-                      {([120, 180, 300, 600] as const).map((secs) => (
-                        <button
-                          key={secs}
-                          onClick={() => setTimeTrialDuration(secs)}
-                          className={`py-2 rounded-lg text-xs font-bold border transition-all ${timeTrialDuration === secs ? 'bg-primary border-primary text-white shadow-sm' : 'bg-muted border-stone-200 text-stone-600 hover:bg-stone-50 dark:hover:bg-stone-800'}`}
-                        >
-                          {secs / 60} Mins
-                        </button>
-                      ))}
-                    </div>
+                <div>
+                  <label className="text-xs font-mono font-bold text-stone-400 block mb-2 uppercase">
+                    Select Number of Questions
+                  </label>
+                  <div className="grid grid-cols-3 gap-2">
+                    {([10, 20, 30] as const).map((qCount) => (
+                      <button
+                        key={qCount}
+                        onClick={() => setSelectedNumQuestions(qCount)}
+                        className={`py-2 rounded-lg text-sm font-bold border transition-all ${selectedNumQuestions === qCount ? 'bg-primary border-primary text-white shadow-sm' : 'bg-muted border-stone-200 text-stone-600 hover:bg-stone-50 dark:hover:bg-stone-800'}`}
+                      >
+                        {qCount} Questions
+                      </button>
+                    ))}
                   </div>
-                ) : (
-                  <div>
-                    <label className="text-xs font-mono font-bold text-stone-400 block mb-2 uppercase">
-                      Select Number of Questions
-                    </label>
-                    <div className="grid grid-cols-3 gap-2">
-                      {([10, 20, 30] as const).map((qCount) => (
-                        <button
-                          key={qCount}
-                          onClick={() => setSelectedNumQuestions(qCount)}
-                          className={`py-2 rounded-lg text-sm font-bold border transition-all ${selectedNumQuestions === qCount ? 'bg-primary border-primary text-white shadow-sm' : 'bg-muted border-stone-200 text-stone-600 hover:bg-stone-50 dark:hover:bg-stone-800'}`}
-                        >
-                          {qCount} Questions
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                )}
+                </div>
 
                 <div className="pt-2">
                   <Button 
@@ -1752,9 +1482,7 @@ export default function Compete() {
                     id="trigger_quick_match"
                   >
                     {activeSeasonId 
-                      ? (selectedGameMode === 'time_trial' 
-                          ? `Find Quick Match (${timeTrialDuration / 60} Mins Time Trial)` 
-                          : `Find Quick Match (${selectedNumQuestions} Questions)`)
+                      ? `Find Quick Match (${selectedNumQuestions} Questions)`
                       : "Locked: Active Season Required for Quick Match"
                     }
                   </Button>
@@ -1777,83 +1505,29 @@ export default function Compete() {
                     <PlusCircle size={15} /> Host Match Room
                   </CardTitle>
                   <CardDescription className="text-[11px] leading-relaxed">
-                    {selectedGameMode === 'time_trial'
-                      ? "Create a 2-6 player Time Trial lobby and share entry code."
-                      : "Create a custom competitive arena and share a five-character entry key. No seasonal Ranking stars awarded."
-                    }
+                    Create a custom competitive arena and share a five-character entry key. No seasonal Ranking stars awarded.
                   </CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-4 pt-2 text-center">
-                  {selectedGameMode === 'time_trial' ? (
-                    <div className="space-y-2 text-left">
-                      <div className="flex items-center justify-between">
-                        <label className="text-xs font-mono font-bold text-stone-400 uppercase block">
-                          Match Time (Minutes)
-                        </label>
-                        <span className="text-xs font-mono font-bold text-primary">
-                          {customTimeTrialMinutes} {customTimeTrialMinutes === 1 ? 'Minute' : 'Minutes'}
-                        </span>
-                      </div>
-                      <div className="grid grid-cols-4 gap-1.5">
-                        {[1, 2, 3, 5, 10, 15, 20, 30].map((mins) => (
-                          <button
-                            key={mins}
-                            type="button"
-                            onClick={() => {
-                              setCustomTimeTrialMinutes(mins);
-                              setTimeTrialDuration(mins * 60);
-                            }}
-                            className={`py-1.5 rounded-lg text-xs font-bold border transition-all ${
-                              customTimeTrialMinutes === mins
-                                ? 'bg-primary text-white border-primary shadow-xs'
-                                : 'bg-muted text-stone-600 hover:bg-stone-100 dark:hover:bg-stone-800'
-                            }`}
-                          >
-                            {mins}m
-                          </button>
-                        ))}
-                      </div>
-                      <div className="flex items-center gap-2 pt-1">
-                        <span className="text-[11px] font-mono text-muted-foreground whitespace-nowrap">Custom (mins):</span>
-                        <Input
-                          type="number"
-                          min={1}
-                          max={60}
-                          value={customTimeTrialMinutes}
-                          onChange={(e) => {
-                            const val = parseInt(e.target.value);
-                            const clamped = isNaN(val) ? 1 : Math.max(1, Math.min(60, val));
-                            setCustomTimeTrialMinutes(clamped);
-                            setTimeTrialDuration(clamped * 60);
-                          }}
-                          className="h-8 text-center font-mono font-bold text-xs"
-                        />
-                      </div>
-                      <p className="text-[10px] text-muted-foreground">
-                        Set match length between 1 and 60 minutes.
-                      </p>
-                    </div>
-                  ) : (
-                    <div className="space-y-1.5 text-left">
-                      <label className="text-xs font-mono font-bold text-stone-400 uppercase block">
-                        Number of Questions
-                      </label>
-                      <Input 
-                        type="number"
-                        min={5}
-                        max={50}
-                        value={customNumQuestions}
-                        onChange={(e) => {
-                          const val = parseInt(e.target.value);
-                          setCustomNumQuestions(isNaN(val) ? 10 : val);
-                        }}
-                        className="text-center font-bold"
-                      />
-                      <p className="text-[10px] text-muted-foreground text-center">
-                        Enter between 5 and 50 questions
-                      </p>
-                    </div>
-                  )}
+                  <div className="space-y-1.5 text-left">
+                    <label className="text-xs font-mono font-bold text-stone-400 uppercase block">
+                      Number of Questions
+                    </label>
+                    <Input 
+                      type="number"
+                      min={5}
+                      max={50}
+                      value={customNumQuestions}
+                      onChange={(e) => {
+                        const val = parseInt(e.target.value);
+                        setCustomNumQuestions(isNaN(val) ? 10 : val);
+                      }}
+                      className="text-center font-bold"
+                    />
+                    <p className="text-[10px] text-muted-foreground text-center">
+                      Enter between 5 and 50 questions
+                    </p>
+                  </div>
                   <Button 
                     variant="outline"
                     className="w-full text-xs font-bold border-stone-200 hover:bg-stone-100"
@@ -1909,217 +1583,11 @@ export default function Compete() {
             initial={{ opacity: 0, scale: 0.95 }}
             animate={{ opacity: 1, scale: 1 }}
             exit={{ opacity: 0, scale: 0.95 }}
-            className={`mx-auto space-y-6 pt-6 ${currentMatch.gameMode === 'time_trial' ? 'max-w-2xl' : 'max-w-md text-center pt-12'}`}
+            className="mx-auto space-y-6 max-w-md text-center pt-12"
             id="matchmaking_wait_screen"
           >
-            {/* VOICE CHAT IN LOBBY */}
-            <div className="w-full">
-              <LyraVoiceChat
-                matchId={currentMatch.id}
-                userId={user?.uid || ''}
-                username={profile?.username || user?.email || 'Competitor'}
-              />
-            </div>
-
-            {currentMatch.gameMode === 'time_trial' ? (
-              /* TIME TRIAL MULTIPLAYER LOBBY */
-              <div className="bg-card rounded-2xl border shadow-sm p-6 space-y-6">
-                <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 border-b pb-4">
-                  <div>
-                    <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-bold bg-amber-500/10 text-amber-500 border border-amber-500/20 mb-1 font-mono">
-                      <Zap size={12} className="fill-amber-500" />
-                      Time Trial Race Lobby
-                    </span>
-                    <h2 className="text-xl font-black tracking-tight text-foreground">
-                      {selectedCourse?.code || currentMatch.courseCode} ({currentMatch.durationSeconds ? currentMatch.durationSeconds / 60 : 3} Mins)
-                    </h2>
-                    <p className="text-xs text-muted-foreground">
-                      {Object.keys(currentMatch.players || {}).length} of 6 players joined (min 2 required to start)
-                    </p>
-                  </div>
-
-                  {currentMatch.roomCode && (
-                    <div className="bg-primary/5 px-4 py-2 rounded-xl border border-primary/20 flex items-center gap-3">
-                      <div>
-                        <div className="text-[10px] font-mono font-bold text-muted-foreground uppercase">Room Code</div>
-                        <div className="text-xl font-black font-mono tracking-widest text-primary">{currentMatch.roomCode}</div>
-                      </div>
-                      <button
-                        onClick={() => {
-                          navigator.clipboard.writeText(currentMatch.roomCode);
-                          toast.success("Room code copied! Send it to your peers. 📋");
-                        }}
-                        className="p-1.5 text-primary hover:bg-primary/10 rounded-lg transition-all cursor-pointer"
-                        title="Copy Code"
-                      >
-                        <Copy size={16} className="stroke-[2.5]" />
-                      </button>
-                    </div>
-                  )}
-                </div>
-
-                {/* HOST DURATION CONTROLS */}
-                {user?.uid === currentMatch.creatorId && (
-                  <div className="p-4 rounded-xl bg-amber-500/5 border border-amber-500/20 flex flex-col md:flex-row md:items-center justify-between gap-3 text-left">
-                    <div className="flex items-center gap-2.5">
-                      <div className="p-2 rounded-lg bg-amber-500/10 text-amber-500 shrink-0">
-                        <Clock size={16} />
-                      </div>
-                      <div>
-                        <div className="text-xs font-mono font-bold uppercase text-foreground flex items-center gap-1.5">
-                          <span>Host Controls: Time Trial Duration</span>
-                          <span className="px-1.5 py-0.2 rounded text-[9px] font-bold bg-amber-500/20 text-amber-600 dark:text-amber-400">
-                            Host
-                          </span>
-                        </div>
-                        <p className="text-[11px] text-muted-foreground">
-                          Set the duration of this match in minutes for all competitors.
-                        </p>
-                      </div>
-                    </div>
-
-                    <div className="flex items-center gap-1.5 flex-wrap">
-                      {[1, 2, 3, 5, 10, 15, 20, 30].map((m) => {
-                        const currentMins = currentMatch.durationSeconds
-                          ? Math.round(currentMatch.durationSeconds / 60)
-                          : (currentMatch.duration || 3);
-                        const isSelected = currentMins === m;
-                        return (
-                          <button
-                            key={m}
-                            type="button"
-                            onClick={() => handleHostUpdateDuration(m)}
-                            className={`px-2.5 py-1 rounded-lg text-xs font-mono font-bold border transition-all ${
-                              isSelected
-                                ? 'bg-amber-500 text-white border-amber-600 shadow-xs'
-                                : 'bg-background hover:bg-muted text-stone-600 dark:text-stone-300 border-stone-200 dark:border-stone-800'
-                            }`}
-                          >
-                            {m}m
-                          </button>
-                        );
-                      })}
-                      <div className="flex items-center gap-1 ml-1">
-                        <input
-                          type="number"
-                          min={1}
-                          max={60}
-                          defaultValue={currentMatch.durationSeconds ? Math.round(currentMatch.durationSeconds / 60) : (currentMatch.duration || 3)}
-                          onBlur={(e) => {
-                            const val = parseInt(e.target.value);
-                            if (!isNaN(val) && val >= 1 && val <= 60) {
-                              handleHostUpdateDuration(val);
-                            }
-                          }}
-                          onKeyDown={(e) => {
-                            if (e.key === 'Enter') {
-                              const val = parseInt((e.target as HTMLInputElement).value);
-                              if (!isNaN(val) && val >= 1 && val <= 60) {
-                                handleHostUpdateDuration(val);
-                              }
-                            }
-                          }}
-                          className="w-12 h-7 px-1 text-center font-mono font-bold text-xs bg-background border rounded-lg"
-                          title="Type minutes and press Enter"
-                        />
-                        <span className="text-[10px] font-mono text-muted-foreground">min</span>
-                      </div>
-                    </div>
-                  </div>
-                )}
-
-                {/* PLAYERS LIST (2 to 6 slots) */}
-                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
-                  {Object.values(currentMatch.players || {}).map((player: any) => {
-                    const isYou = player.uid === user?.uid;
-                    const isHost = player.uid === currentMatch.creatorId;
-                    return (
-                      <div 
-                        key={player.uid} 
-                        className={`p-3 rounded-xl border flex items-center gap-3 transition-all ${isYou ? 'border-primary/40 bg-primary/5' : 'bg-muted/40'}`}
-                      >
-                        {player.photoURL ? (
-                          <img src={player.photoURL} alt="" referrerPolicy="no-referrer" className="h-10 w-10 rounded-full object-cover border" />
-                        ) : (
-                          <div className="h-10 w-10 rounded-full bg-primary/15 text-primary text-sm font-bold flex items-center justify-center border font-mono">
-                            {player.username?.substring(0, 1).toUpperCase()}
-                          </div>
-                        )}
-                        <div className="min-w-0 flex-1">
-                          <div className="flex items-center gap-1.5">
-                            <span className="text-xs font-bold text-foreground truncate">{player.username}</span>
-                            {isYou && <span className="text-[9px] font-mono text-primary font-bold">(You)</span>}
-                          </div>
-                          <div className="flex items-center gap-1 mt-0.5">
-                            {isHost && (
-                              <span className="text-[9px] px-1.5 py-0.2 rounded bg-amber-500/10 text-amber-500 font-bold border border-amber-500/20 font-mono">
-                                HOST
-                              </span>
-                            )}
-                            <span className={`text-[9px] font-bold font-mono ${player.votedToStart ? 'text-emerald-500' : 'text-stone-400'}`}>
-                              {player.votedToStart ? '● Ready' : '○ Waiting'}
-                            </span>
-                          </div>
-                        </div>
-                      </div>
-                    );
-                  })}
-
-                  {/* Empty slots placeholders */}
-                  {Array.from({ length: Math.max(0, 6 - Object.keys(currentMatch.players || {}).length) }).map((_, idx) => (
-                    <div 
-                      key={`empty_${idx}`} 
-                      className="p-3 rounded-xl border border-dashed border-stone-200 dark:border-stone-800 flex items-center justify-center text-xs text-muted-foreground font-mono"
-                    >
-                      + Open Slot
-                    </div>
-                  ))}
-                </div>
-
-                {/* BOT NOTICE IF QUICK MATCH */}
-                {currentMatch.type === 'quick_match' && Object.keys(currentMatch.players || {}).length < 2 && (
-                  <div className="bg-muted px-4 py-2.5 rounded-xl border text-center">
-                    <p className="text-xs text-muted-foreground font-medium">
-                      Searching for players... CoLearn Bot joins in <strong className="text-primary font-mono">{searchCountdown}s</strong> if queue empty.
-                    </p>
-                  </div>
-                )}
-
-                {/* ACTIONS */}
-                <div className="flex flex-col sm:flex-row items-center justify-between gap-3 pt-2 border-t">
-                  <Button 
-                    variant="outline"
-                    className="w-full sm:w-auto text-xs font-bold text-destructive hover:bg-destructive/10"
-                    onClick={handleExitMatch}
-                  >
-                    Leave Lobby
-                  </Button>
-
-                  <div className="flex items-center gap-2 w-full sm:w-auto justify-end">
-                    <Button
-                      variant="outline"
-                      className="text-xs font-bold"
-                      onClick={handleToggleVoteStart}
-                    >
-                      {currentMatch.players?.[user?.uid || '']?.votedToStart ? "✓ Ready to Race" : "Vote to Start Match"}
-                    </Button>
-
-                    {user?.uid === currentMatch.creatorId && (
-                      <Button
-                        className="text-xs font-bold"
-                        onClick={handleHostStartMatch}
-                        disabled={Object.keys(currentMatch.players || {}).length < 2}
-                      >
-                        Start Match ({Object.keys(currentMatch.players || {}).length}/6)
-                      </Button>
-                    )}
-                  </div>
-                </div>
-              </div>
-            ) : (
-              /* POINTS GRAB MATCHMAKING LOBBY */
-              <>
-                <div className="relative inline-flex items-center justify-center">
+            {/* POINTS GRAB MATCHMAKING LOBBY */}
+            <div className="relative inline-flex items-center justify-center">
                   <div className="h-24 w-24 rounded-full border-4 border-primary/20 bg-primary/5 animate-pulse flex items-center justify-center">
                     <Trophy size={40} className="text-primary animate-bounce" />
                   </div>
@@ -2147,30 +1615,121 @@ export default function Compete() {
                   </div>
                 )}
 
-                {/* IF CUSTOM ROOM SHOW THE SHARABLE CODE */}
+                {/* IF CUSTOM ROOM SHOW THE SHARABLE CODE & ROSTER */}
                 {currentMatch.type === 'custom_room' && (
-                  <div className="bg-primary/5 p-6 rounded-2xl border border-primary/20 space-y-2 max-w-sm mx-auto">
-                    <span className="text-xs font-mono font-black tracking-wider text-primary uppercase">
-                      SHARE ENTRY KEY
-                    </span>
-                    <div className="flex items-center justify-center gap-3">
-                      <div className="text-4xl font-extrabold font-mono tracking-widest text-primary select-all">
-                        {currentMatch.roomCode}
+                  <div className="bg-card p-6 rounded-2xl border space-y-4 max-w-md mx-auto shadow-sm text-left">
+                    <div className="bg-primary/5 p-4 rounded-xl border border-primary/20 text-center space-y-2">
+                      <span className="text-xs font-mono font-black tracking-wider text-primary uppercase">
+                        SHARE ENTRY KEY
+                      </span>
+                      <div className="flex items-center justify-center gap-3">
+                        <div className="text-4xl font-extrabold font-mono tracking-widest text-primary select-all">
+                          {currentMatch.roomCode}
+                        </div>
+                        <button
+                          onClick={() => {
+                            navigator.clipboard.writeText(currentMatch.roomCode);
+                            toast.success("Room key copied! Send it to your classmate. 📋");
+                          }}
+                          className="p-1.5 text-primary hover:bg-primary/10 rounded-lg transition-all cursor-pointer"
+                          title="Copy Code"
+                        >
+                          <Copy size={20} className="stroke-[2.5]" />
+                        </button>
                       </div>
-                      <button
-                        onClick={() => {
-                          navigator.clipboard.writeText(currentMatch.roomCode);
-                          toast.success("Room key copied! Send it to your classmate. 📋");
-                        }}
-                        className="p-1.5 text-primary hover:bg-primary/10 rounded-lg transition-all cursor-pointer"
-                        title="Copy Code"
-                      >
-                        <Copy size={20} className="stroke-[2.5]" />
-                      </button>
+                      <p className="text-[11px] text-muted-foreground">
+                        Give this code to a classmate. Once they enter the code, they will appear below.
+                      </p>
                     </div>
-                    <p className="text-[10px] text-muted-foreground">
-                      Give this code to a classmate. they will click &ldquo;Join Match Room&rdquo; on their dashboard and input this to begin.
-                    </p>
+
+                    {/* PARTICIPANTS ROSTER */}
+                    <div className="space-y-2.5 pt-1">
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs font-bold uppercase tracking-wider text-muted-foreground font-mono">
+                          MEMBERS ({currentMatch.opponentId ? '2/2' : '1/2'})
+                        </span>
+                        <span className="text-[11px] font-mono text-muted-foreground">
+                          {currentMatch.opponentId ? 'Ready to duel' : 'Waiting for opponent'}
+                        </span>
+                      </div>
+
+                      {/* Slot 1: Host */}
+                      <div className="p-3 rounded-xl border bg-muted/40 flex items-center justify-between">
+                        <div className="flex items-center gap-2.5 min-w-0">
+                          {currentMatch.creatorPhotoURL ? (
+                            <img src={currentMatch.creatorPhotoURL} alt="" referrerPolicy="no-referrer" className="h-9 w-9 rounded-full object-cover border shrink-0" />
+                          ) : (
+                            <div className="h-9 w-9 rounded-full bg-amber-500/15 text-amber-600 text-xs font-bold flex items-center justify-center border font-mono shrink-0">
+                              {currentMatch.creatorUsername?.substring(0, 1).toUpperCase()}
+                            </div>
+                          )}
+                          <div className="min-w-0">
+                            <div className="text-xs font-bold truncate">
+                              {currentMatch.creatorUsername} {user?.uid === currentMatch.creatorId ? '(You)' : ''}
+                            </div>
+                            <span className="text-[9px] px-1.5 py-0.2 rounded bg-amber-500/10 text-amber-500 font-bold font-mono">
+                              HOST
+                            </span>
+                          </div>
+                        </div>
+                        <span className="text-[10px] font-mono font-bold text-emerald-500">● Ready</span>
+                      </div>
+
+                      {/* Slot 2: Opponent */}
+                      {currentMatch.opponentId ? (
+                        <div className="p-3 rounded-xl border bg-muted/40 flex items-center justify-between">
+                          <div className="flex items-center gap-2.5 min-w-0 flex-1">
+                            {currentMatch.opponentPhotoURL ? (
+                              <img src={currentMatch.opponentPhotoURL} alt="" referrerPolicy="no-referrer" className="h-9 w-9 rounded-full object-cover border shrink-0" />
+                            ) : (
+                              <div className="h-9 w-9 rounded-full bg-primary/15 text-primary text-xs font-bold flex items-center justify-center border font-mono shrink-0">
+                                {currentMatch.opponentUsername?.substring(0, 1).toUpperCase()}
+                              </div>
+                            )}
+                            <div className="min-w-0 flex-1">
+                              <div className="text-xs font-bold truncate">
+                                {currentMatch.opponentUsername} {user?.uid === currentMatch.opponentId ? '(You)' : ''}
+                              </div>
+                              <span className="text-[10px] font-mono font-bold text-emerald-500">● Joined</span>
+                            </div>
+                          </div>
+
+                          {/* Host Kick option for private rooms */}
+                          {user?.uid === currentMatch.creatorId && (
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="text-destructive hover:bg-destructive/10 text-xs h-7 px-2 border border-destructive/20 ml-2"
+                              onClick={() => handleKickPlayer(currentMatch.opponentId, currentMatch.opponentUsername)}
+                              title={`Kick ${currentMatch.opponentUsername} from room`}
+                            >
+                              <UserMinus size={14} className="mr-1" /> Kick
+                            </Button>
+                          )}
+                        </div>
+                      ) : (
+                        <div className="p-3.5 rounded-xl border border-dashed border-stone-200 dark:border-stone-800 text-center text-xs text-muted-foreground font-mono">
+                          ⏳ Waiting for classmate to enter code...
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Host Start Match Button */}
+                    {user?.uid === currentMatch.creatorId && currentMatch.opponentId && (
+                      <Button
+                        className="w-full font-bold text-xs shadow-md mt-2"
+                        onClick={handleHostStartMatch}
+                      >
+                        Start 1v1 Match ⚔️
+                      </Button>
+                    )}
+
+                    {/* Opponent Waiting Notice */}
+                    {user?.uid === currentMatch.opponentId && (
+                      <div className="text-center p-2 rounded-lg bg-muted text-[11px] text-muted-foreground font-mono">
+                        Waiting for host to start the match...
+                      </div>
+                    )}
                   </div>
                 )}
 
@@ -2183,8 +1742,6 @@ export default function Compete() {
                     Quit Match Quest
                   </Button>
                 </div>
-              </>
-            )}
           </motion.div>
         )}
 
@@ -2197,28 +1754,13 @@ export default function Compete() {
             className="space-y-6"
             id="multiplayer-matchmaking-game-board"
           >
-            {/* VOICE CHAT BAR AT TOP */}
-            <LyraVoiceChat
-              matchId={currentMatch.id}
-              userId={user?.uid || ''}
-              username={profile?.username || user?.email || 'Competitor'}
-            />
-
-            {/* TIME TRIAL SLIDER LEADERBOARD HEADER */}
-            {currentMatch.gameMode === 'time_trial' && (
-              <TimeTrialSlider
-                players={currentMatch.players || {}}
-                currentUserId={user?.uid || ''}
-              />
-            )}
-
             <div className="grid grid-cols-1 lg:grid-cols-4 gap-8">
               {/* PROGRESS & LIVE UPDATING COMPETE STATS */}
               <div className="lg:col-span-1 space-y-4">
                 <Card className="rounded-2xl border shadow-sm">
                   <CardHeader className="bg-muted/40 pb-3">
                     <CardTitle className="text-sm font-mono font-bold uppercase tracking-wider text-muted-foreground flex items-center justify-between">
-                      <span>{currentMatch.gameMode === 'time_trial' ? 'RACE STATUS' : 'LOBBY CARD STATUS'}</span>
+                      <span>LOBBY CARD STATUS</span>
                       <Clock size={14} className="text-primary animate-pulse" />
                     </CardTitle>
                   </CardHeader>
@@ -2231,75 +1773,50 @@ export default function Compete() {
                       </div>
                     </div>
 
-                    {currentMatch.gameMode === 'time_trial' ? (
-                      /* TIME TRIAL LIVE PLAYERS STANDINGS */
-                      <div className="space-y-2 border-t pt-4">
-                        <span className="text-[10px] font-black text-stone-400 font-mono uppercase block">Live Standings</span>
-                        {Object.values(currentMatch.players || {})
-                          .sort((a: any, b: any) => (b.points || 0) - (a.points || 0))
-                          .map((p: any, idx: number) => {
-                            const isYou = p.uid === user?.uid;
-                            return (
-                              <div key={p.uid} className={`flex items-center justify-between p-2 rounded-lg border text-xs ${isYou ? 'bg-primary/10 border-primary/30 font-bold' : 'bg-muted/40'}`}>
-                                <div className="flex items-center gap-2 min-w-0">
-                                  <span className="font-mono text-stone-400 font-bold w-3">{idx + 1}.</span>
-                                  <span className="truncate max-w-[85px]">{p.username}</span>
-                                  {isYou && <span className="text-[9px] text-primary font-mono">(You)</span>}
-                                </div>
-                                <span className="font-mono font-black text-primary">{p.points || 0} pts</span>
-                              </div>
-                            );
-                          })}
-                      </div>
-                    ) : (
-                      /* POINTS GRAB LIVE SCORE */
-                      <div className="space-y-3.5 border-t pt-4">
-                        <span className="text-[10px] font-black text-stone-400 font-mono uppercase block">Live Points Status</span>
-                        
-                        {/* CREATOR SECTION */}
-                        <div className="flex items-center justify-between p-2.5 rounded-lg bg-stone-50 dark:bg-stone-850 border">
-                          <div className="flex items-center gap-2 min-w-0">
-                            {currentMatch.creatorPhotoURL ? (
-                              <img src={currentMatch.creatorPhotoURL} alt="" referrerPolicy="no-referrer" className="h-6 w-6 rounded-full" />
-                            ) : (
-                              <div className="h-6 w-6 rounded-full bg-primary/15 text-primary text-[10px] font-bold flex items-center justify-center">
-                                {currentMatch.creatorUsername?.substring(0, 1).toUpperCase()}
-                              </div>
-                            )}
-                            <span className="text-xs font-bold truncate max-w-[80px]" title={currentMatch.creatorUsername}>
-                              {currentMatch.creatorUsername}
-                            </span>
-                            {user?.uid === currentMatch.creatorId && <span className="text-[9px] font-black text-primary font-mono">(You)</span>}
-                          </div>
-                          <span className="text-sm font-black text-primary font-mono">{currentMatch.creatorPoints} pts</span>
+                    {/* POINTS GRAB LIVE SCORE */}
+                    <div className="space-y-3.5 border-t pt-4">
+                      <span className="text-[10px] font-black text-stone-400 font-mono uppercase block">Live Points Status</span>
+                      
+                      {/* CREATOR SECTION */}
+                      <div className="flex items-center justify-between p-2.5 rounded-lg bg-stone-50 dark:bg-stone-850 border">
+                        <div className="flex items-center gap-2 min-w-0">
+                          {currentMatch.creatorPhotoURL ? (
+                            <img src={currentMatch.creatorPhotoURL} alt="" referrerPolicy="no-referrer" className="h-6 w-6 rounded-full" />
+                          ) : (
+                            <div className="h-6 w-6 rounded-full bg-primary/15 text-primary text-[10px] font-bold flex items-center justify-center">
+                              {currentMatch.creatorUsername?.substring(0, 1).toUpperCase()}
+                            </div>
+                          )}
+                          <span className="text-xs font-bold truncate max-w-[80px]" title={currentMatch.creatorUsername}>
+                            {currentMatch.creatorUsername}
+                          </span>
+                          {user?.uid === currentMatch.creatorId && <span className="text-[9px] font-black text-primary font-mono">(You)</span>}
                         </div>
-
-                        {/* OPPONENT SECTION */}
-                        <div className="flex items-center justify-between p-2.5 rounded-lg bg-stone-50 dark:bg-stone-850 border">
-                          <div className="flex items-center gap-2 min-w-0">
-                            {currentMatch.opponentPhotoURL ? (
-                              <img src={currentMatch.opponentPhotoURL} alt="" referrerPolicy="no-referrer" className="h-6 w-6 rounded-full" />
-                            ) : (
-                              <div className="h-6 w-6 rounded-full bg-indigo-500/15 text-indigo-500 text-[10px] font-bold flex items-center justify-center">
-                                {currentMatch.opponentUsername?.substring(0, 1).toUpperCase()}
-                              </div>
-                            )}
-                            <span className="text-xs font-bold truncate max-w-[80px]" title={currentMatch.opponentUsername}>
-                              {currentMatch.opponentUsername || 'Opponent'}
-                            </span>
-                            {user?.uid === currentMatch.opponentId && <span className="text-[9px] font-black text-primary font-mono">(You)</span>}
-                          </div>
-                          <span className="text-sm font-black text-indigo-500 font-mono">{currentMatch.opponentPoints} pts</span>
-                        </div>
-
+                        <span className="text-sm font-black text-primary font-mono">{currentMatch.creatorPoints} pts</span>
                       </div>
-                    )}
+
+                      {/* OPPONENT SECTION */}
+                      <div className="flex items-center justify-between p-2.5 rounded-lg bg-stone-50 dark:bg-stone-850 border">
+                        <div className="flex items-center gap-2 min-w-0">
+                          {currentMatch.opponentPhotoURL ? (
+                            <img src={currentMatch.opponentPhotoURL} alt="" referrerPolicy="no-referrer" className="h-6 w-6 rounded-full" />
+                          ) : (
+                            <div className="h-6 w-6 rounded-full bg-indigo-500/15 text-indigo-500 text-[10px] font-bold flex items-center justify-center">
+                              {currentMatch.opponentUsername?.substring(0, 1).toUpperCase()}
+                            </div>
+                          )}
+                          <span className="text-xs font-bold truncate max-w-[80px]" title={currentMatch.opponentUsername}>
+                            {currentMatch.opponentUsername || 'Opponent'}
+                          </span>
+                          {user?.uid === currentMatch.opponentId && <span className="text-[9px] font-black text-primary font-mono">(You)</span>}
+                        </div>
+                        <span className="text-sm font-black text-indigo-500 font-mono">{currentMatch.opponentPoints} pts</span>
+                      </div>
+
+                    </div>
 
                     <div className="text-center pt-2 border-t text-[10px] leading-relaxed text-muted-foreground">
-                      {currentMatch.gameMode === 'time_trial'
-                        ? "⚡ +1 pt for correct answer, -1 pt for incorrect answer. Infinite continuous questions!"
-                        : "⚡ Correct + speed bonus (+1 point if opponent hasn't completed matching index)."
-                      }
+                      ⚡ Correct + speed bonus (+1 point if opponent hasn't completed matching index).
                     </div>
                   </CardContent>
                 </Card>
@@ -2319,10 +1836,7 @@ export default function Compete() {
                   <CardHeader className="bg-muted/30 pb-4 border-b">
                     <div className="flex items-center justify-between">
                       <span className="px-3 py-1 rounded-full text-[11px] font-mono font-bold bg-primary/10 text-primary border border-primary/20">
-                        {currentMatch.gameMode === 'time_trial' 
-                          ? `Question #${activeQuestionIndex + 1} (Continuous)` 
-                          : `Question ${activeQuestionIndex + 1} of ${matchQuestions.length}`
-                        }
+                        Question {activeQuestionIndex + 1} of {matchQuestions.length}
                       </span>
                       <span className="text-xs text-muted-foreground font-semibold">
                         Course: {currentMatch.courseCode}
@@ -2378,9 +1892,8 @@ export default function Compete() {
                   </CardContent>
                 </Card>
 
-                {/* LIVE PLAYERS STATUS METAR (POINTS GRAB ONLY) */}
-                {currentMatch.gameMode !== 'time_trial' && (
-                  <div className="flex gap-4" id="peer-live-game-tracker">
+                {/* LIVE PLAYERS STATUS METAR */}
+                <div className="flex gap-4" id="peer-live-game-tracker">
                     {(user?.uid === currentMatch.creatorId ? currentMatch.opponentAnswers : currentMatch.creatorAnswers) && (
                       <Card className="flex-1 p-4 rounded-xl bg-card border shadow-sm">
                         <div className="text-xs text-muted-foreground font-mono flex items-center gap-1">
@@ -2426,7 +1939,6 @@ export default function Compete() {
                       </div>
                     </Card>
                   </div>
-                )}
               </div>
             </div>
           </motion.div>
@@ -2442,93 +1954,34 @@ export default function Compete() {
             className="max-w-2xl mx-auto space-y-6 text-center pt-6"
             id="compete-match-results"
           >
-            {/* TIME TRIAL RESULTS */}
-            {currentMatch.gameMode === 'time_trial' ? (
-              <div className="space-y-6">
-                <div>
-                  <div className="inline-flex items-center justify-center h-24 w-24 rounded-full bg-amber-500/10 text-amber-500 border-2 border-amber-500/30 mb-4 relative animate-bounce">
-                    <Trophy size={48} className="fill-amber-500" />
-                  </div>
-                  <h1 className="text-3xl font-black tracking-tight text-foreground sm:text-4xl">
-                    Time Trial Concluded!
-                  </h1>
-                  <p className="text-sm mt-1 text-muted-foreground font-mono">
-                    Course: {currentMatch.courseCode} | Duration: {currentMatch.durationSeconds ? currentMatch.durationSeconds / 60 : 3} Minutes
-                  </p>
+            <div>
+              {currentMatch.winnerId === 'draw' ? (
+                <div className="inline-flex items-center justify-center h-20 w-20 rounded-full bg-stone-100 text-stone-500 border border-stone-200 mb-4 text-3xl font-mono">
+                  🤝
                 </div>
-
-                {/* STANDINGS LEADERBOARD TABLE */}
-                <Card className="rounded-2xl border shadow-sm overflow-hidden text-left">
-                  <CardHeader className="bg-muted/40 pb-3 border-b">
-                    <CardTitle className="text-sm font-mono font-black uppercase flex items-center justify-between">
-                      <span>FINAL RACE STANDINGS</span>
-                      <span className="text-xs text-muted-foreground font-normal">Ranked by Points</span>
-                    </CardTitle>
-                  </CardHeader>
-                  <CardContent className="p-0 divide-y font-mono text-xs">
-                    {(currentMatch.standings || Object.values(currentMatch.players || {}).sort((a: any, b: any) => (b.points || 0) - (a.points || 0))).map((player: any, idx: number) => {
-                      const isYou = player.uid === user?.uid;
-                      const rank = player.rank || idx + 1;
-                      return (
-                        <div key={player.uid} className={`p-4 flex items-center justify-between ${isYou ? 'bg-primary/5 font-bold' : ''}`}>
-                          <div className="flex items-center gap-3">
-                            <span className={`h-7 w-7 rounded-full flex items-center justify-center text-xs font-bold ${rank === 1 ? 'bg-amber-500 text-white' : rank === 2 ? 'bg-stone-300 dark:bg-stone-700 text-foreground' : rank === 3 ? 'bg-amber-700 text-white' : 'bg-muted text-muted-foreground'}`}>
-                              {rank}
-                            </span>
-                            <div>
-                              <div className="flex items-center gap-1.5">
-                                <span className="text-sm font-bold text-foreground">{player.username}</span>
-                                {isYou && <span className="text-[10px] text-primary font-mono">(You)</span>}
-                              </div>
-                            </div>
-                          </div>
-                          <div className="flex items-center gap-4">
-                            <span className="text-base font-black text-foreground font-mono">
-                              {player.points || 0} pts
-                            </span>
-                            {player.starsDelta !== undefined && player.starsDelta !== 0 && (
-                              <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${player.starsDelta > 0 ? 'bg-amber-500/10 text-amber-500 border border-amber-500/20' : 'bg-red-500/10 text-red-500 border border-red-500/20'}`}>
-                                {player.starsDelta > 0 ? `+${player.starsDelta} ★` : `${player.starsDelta} ★`}
-                              </span>
-                            )}
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </CardContent>
-                </Card>
-              </div>
-            ) : (
-              /* POINTS GRAB RESULTS */
-              <>
-                <div>
-                  {currentMatch.winnerId === 'draw' ? (
-                    <div className="inline-flex items-center justify-center h-20 w-20 rounded-full bg-stone-100 text-stone-500 border border-stone-200 mb-4 text-3xl font-mono">
-                      🤝
-                    </div>
-                  ) : currentMatch.winnerId === user?.uid ? (
-                    <div className="inline-flex items-center justify-center h-24 w-24 rounded-full bg-amber-500/10 text-amber-500 border-2 border-amber-500/30 mb-4 animate-bounce relative">
-                      <Trophy size={48} className="fill-amber-500" />
-                      <span className="absolute -top-1 -right-1 flex h-4 w-4 rounded-full bg-emerald-500" />
-                    </div>
-                  ) : (
-                    <div className="inline-flex items-center justify-center h-20 w-20 rounded-full bg-stone-100 text-stone-400 border border-stone-200 mb-4">
-                      <X size={40} />
-                    </div>
-                  )}
-                  
-                  <h1 className="text-3xl font-black tracking-tight text-foreground sm:text-4xl">
-                    {currentMatch.winnerId === 'draw' 
-                      ? "It's a Stand-off Draw!" 
-                      : currentMatch.winnerId === user?.uid 
-                        ? "Victory! You Won the Match! 🎉" 
-                        : "Defeat! Better Luck Next Round!"
-                    }
-                  </h1>
-                  <p className="text-sm mt-1 text-muted-foreground font-mono">
-                    Lobby Code: {currentMatch.type === 'quick_match' ? 'Quick Pool' : currentMatch.roomCode} | Course: {currentMatch.courseCode}
-                  </p>
+              ) : currentMatch.winnerId === user?.uid ? (
+                <div className="inline-flex items-center justify-center h-24 w-24 rounded-full bg-amber-500/10 text-amber-500 border-2 border-amber-500/30 mb-4 animate-bounce relative">
+                  <Trophy size={48} className="fill-amber-500" />
+                  <span className="absolute -top-1 -right-1 flex h-4 w-4 rounded-full bg-emerald-500" />
                 </div>
+              ) : (
+                <div className="inline-flex items-center justify-center h-20 w-20 rounded-full bg-stone-100 text-stone-400 border border-stone-200 mb-4">
+                  <X size={40} />
+                </div>
+              )}
+              
+              <h1 className="text-3xl font-black tracking-tight text-foreground sm:text-4xl">
+                {currentMatch.winnerId === 'draw' 
+                  ? "It's a Stand-off Draw!" 
+                  : currentMatch.winnerId === user?.uid 
+                    ? "Victory! You Won the Match! 🎉" 
+                    : "Defeat! Better Luck Next Round!"
+                }
+              </h1>
+              <p className="text-sm mt-1 text-muted-foreground font-mono">
+                Lobby Code: {currentMatch.type === 'quick_match' ? 'Quick Pool' : currentMatch.roomCode} | Course: {currentMatch.courseCode}
+              </p>
+            </div>
 
                 {/* LIVE SCORE STATS SCOREBOARD PANEL */}
                 <div className="grid grid-cols-2 bg-card border rounded-2xl items-stretch divide-x shadow-sm select-none">
@@ -2565,38 +2018,199 @@ export default function Compete() {
                     Friendly Match Outcome: No Prestige Stars are awarded for custom private lobby rooms.
                   </div>
                 )}
-              </>
-            )}
 
-            {/* DETAILED QUESTION RECAPLOG SHEETS */}
-            <Card className="rounded-2xl border text-left shadow-sm">
-              <CardHeader className="bg-muted/30 pb-3 border-b">
-                <CardTitle className="text-sm font-mono font-black uppercase">Your Performance Logs</CardTitle>
+            {/* DETAILED QUESTION REVIEW & CORRECTIONS */}
+            <Card className="rounded-2xl border text-left shadow-sm overflow-hidden">
+              <CardHeader className="bg-muted/30 pb-3 border-b flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                <div>
+                  <CardTitle className="text-sm font-mono font-black uppercase flex items-center gap-2">
+                    <BookOpen size={16} className="text-primary" /> Question Review & Corrections
+                  </CardTitle>
+                  <CardDescription className="text-xs mt-0.5">
+                    Review each question from this duel to analyze what you got right, what you got wrong, and learn from mistakes.
+                  </CardDescription>
+                </div>
+
+                {/* Filter buttons */}
+                {(() => {
+                  const questionsList = currentMatch.questions || matchQuestions || [];
+                  const isCreator = user?.uid === currentMatch.creatorId;
+                  const myAnswers = isCreator ? (currentMatch.creatorAnswers || {}) : (currentMatch.opponentAnswers || {});
+                  const mistakesCount = questionsList.filter((q: any, i: number) => {
+                    const qId = q.id || `q_${i}`;
+                    const ans = myAnswers[qId];
+                    return !ans || !ans.isCorrect;
+                  }).length;
+                  const correctCount = questionsList.filter((q: any, i: number) => {
+                    const qId = q.id || `q_${i}`;
+                    const ans = myAnswers[qId];
+                    return ans && ans.isCorrect;
+                  }).length;
+
+                  return (
+                    <div className="flex items-center gap-1.5 bg-muted/60 p-1 rounded-xl border shrink-0">
+                      <button
+                        onClick={() => setReviewFilter('all')}
+                        className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer ${reviewFilter === 'all' ? 'bg-background shadow-xs text-foreground' : 'text-muted-foreground hover:text-foreground'}`}
+                      >
+                        All ({questionsList.length})
+                      </button>
+                      <button
+                        onClick={() => setReviewFilter('mistakes')}
+                        className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer ${reviewFilter === 'mistakes' ? 'bg-destructive/15 text-destructive font-black' : 'text-muted-foreground hover:text-foreground'}`}
+                      >
+                        Mistakes ({mistakesCount})
+                      </button>
+                      <button
+                        onClick={() => setReviewFilter('correct')}
+                        className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer ${reviewFilter === 'correct' ? 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 font-black' : 'text-muted-foreground hover:text-foreground'}`}
+                      >
+                        Correct ({correctCount})
+                      </button>
+                    </div>
+                  );
+                })()}
               </CardHeader>
-              <CardContent className="p-0 divide-y font-mono text-xs max-h-64 overflow-y-auto">
-                {userStats.answersLog.map((log, index) => (
-                  <div key={index} className="p-4 flex items-center justify-between">
-                    <div>
-                      <span className="font-bold block text-foreground">
-                        Question index #{index + 1}
-                      </span>
-                      <span className="text-[10px] text-muted-foreground font-semibold">
-                        Elapsed response duration: {log.time} seconds
-                      </span>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      {log.speedBonus && (
-                        <span className="px-2 py-0.5 rounded text-[10px] bg-amber-500/10 text-amber-500 border border-amber-500/20 font-black">
-                          🔥 SPEED BONUS
-                        </span>
-                      )}
-                      <span className={`px-2.5 py-1 rounded-lg font-bold flex items-center gap-1.5 ${log.isCorrect ? 'bg-emerald-500/10 text-emerald-500 border border-emerald-500/20' : 'bg-red-500/10 text-red-500 border-red-500/20'}`}>
-                        {log.isCorrect ? <Check size={12} /> : <X size={12} />}
-                        {log.isCorrect ? (currentMatch.gameMode === 'time_trial' ? '+1 Point' : 'Correct') : (currentMatch.gameMode === 'time_trial' ? '-1 Point' : 'Incorrect')}
-                      </span>
-                    </div>
-                  </div>
-                ))}
+
+              <CardContent className="p-4 md:p-6 space-y-6 max-h-[520px] overflow-y-auto">
+                {(() => {
+                  const questionsList = currentMatch.questions || matchQuestions || [];
+                  const isCreator = user?.uid === currentMatch.creatorId;
+                  const myAnswers = isCreator ? (currentMatch.creatorAnswers || {}) : (currentMatch.opponentAnswers || {});
+                  const opAnswers = isCreator ? (currentMatch.opponentAnswers || {}) : (currentMatch.creatorAnswers || {});
+
+                  const filteredQuestions = questionsList.filter((q: any, idx: number) => {
+                    const qId = q.id || `q_${idx}`;
+                    const myAns = myAnswers[qId];
+                    if (reviewFilter === 'mistakes') return !myAns || !myAns.isCorrect;
+                    if (reviewFilter === 'correct') return myAns && myAns.isCorrect;
+                    return true;
+                  });
+
+                  if (filteredQuestions.length === 0) {
+                    return (
+                      <div className="py-12 text-center text-muted-foreground text-sm font-mono">
+                        {reviewFilter === 'mistakes' ? '🎉 Amazing! You made zero mistakes in this match!' : 'No questions match the selected filter.'}
+                      </div>
+                    );
+                  }
+
+                  return filteredQuestions.map((q: any, filteredIdx: number) => {
+                    const originalIdx = questionsList.findIndex((item: any) => (item.id || item.text) === (q.id || q.text));
+                    const displayIdx = originalIdx >= 0 ? originalIdx : filteredIdx;
+                    const qId = q.id || `q_${displayIdx}`;
+                    const myAns = myAnswers[qId];
+                    const opAns = opAnswers[qId];
+
+                    const options = q.options || [q.correctAnswer, ...(q.incorrectAnswers || [])];
+
+                    return (
+                      <div key={qId} className="p-5 rounded-2xl border bg-card/60 space-y-4 shadow-xs">
+                        {/* Question Header & Badges */}
+                        <div className="flex flex-wrap items-center justify-between gap-2 border-b pb-3">
+                          <span className="text-xs font-mono font-bold text-muted-foreground uppercase">
+                            Question #{displayIdx + 1}
+                          </span>
+                          <div className="flex flex-wrap items-center gap-2">
+                            {/* Player Status Badge */}
+                            {myAns ? (
+                              myAns.isCorrect ? (
+                                <span className="bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 text-xs px-2.5 py-0.5 rounded-full font-bold flex items-center gap-1">
+                                  <Check size={12} /> You: Correct {myAns.speedBonus ? '⚡ Speed Bonus' : ''}
+                                </span>
+                              ) : (
+                                <span className="bg-red-500/10 text-red-600 dark:text-red-400 border border-red-500/20 text-xs px-2.5 py-0.5 rounded-full font-bold flex items-center gap-1">
+                                  <X size={12} /> You: Incorrect
+                                </span>
+                              )
+                            ) : (
+                              <span className="bg-stone-500/10 text-stone-500 border border-stone-500/20 text-xs px-2.5 py-0.5 rounded-full font-bold">
+                                You: Unanswered
+                              </span>
+                            )}
+
+                            {/* Opponent Status Badge */}
+                            {opAns ? (
+                              <span className={`text-[11px] font-mono px-2 py-0.5 rounded-full border ${opAns.isCorrect ? 'bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border-indigo-500/20' : 'bg-stone-500/10 text-stone-500 border-stone-500/20'}`}>
+                                Opponent: {opAns.isCorrect ? '✓' : '✕'}
+                              </span>
+                            ) : (
+                              <span className="text-[11px] font-mono px-2 py-0.5 rounded-full border bg-stone-500/10 text-stone-400 border-stone-500/20">
+                                Opponent: -
+                              </span>
+                            )}
+                          </div>
+                        </div>
+
+                        {/* Question Text */}
+                        <div className="text-sm font-semibold text-foreground leading-relaxed">
+                          <MathMarkdown content={q.text || ''} />
+                        </div>
+
+                        {/* Options List with Corrections Highlight */}
+                        <div className="grid grid-cols-1 gap-2 pt-1">
+                          {options.map((option: string, optIdx: number) => {
+                            const isCorrectAnswer = option === q.correctAnswer;
+                            const isMyChoice = myAns?.selectedAnswer === option;
+                            const isOpChoice = opAns?.selectedAnswer === option;
+
+                            let optContainerClass = "p-3 rounded-xl border text-xs flex items-center justify-between gap-3 transition-colors ";
+                            if (isCorrectAnswer) {
+                              optContainerClass += "bg-emerald-500/10 border-emerald-500/40 text-emerald-900 dark:text-emerald-100 font-semibold";
+                            } else if (isMyChoice && !isCorrectAnswer) {
+                              optContainerClass += "bg-red-500/10 border-red-500/40 text-red-900 dark:text-red-100 font-semibold";
+                            } else {
+                              optContainerClass += "bg-muted/30 border-border text-muted-foreground";
+                            }
+
+                            return (
+                              <div key={optIdx} className={optContainerClass}>
+                                <div className="flex items-center gap-2.5 flex-1 min-w-0">
+                                  <span className={`h-6 w-6 rounded-lg text-[10px] font-mono font-bold flex items-center justify-center shrink-0 border ${isCorrectAnswer ? 'bg-emerald-500 text-white border-emerald-600' : isMyChoice ? 'bg-red-500 text-white border-red-600' : 'bg-muted text-muted-foreground border-border'}`}>
+                                    {String.fromCharCode(65 + optIdx)}
+                                  </span>
+                                  <div className="flex-1 min-w-0">
+                                    <MathMarkdown content={option} />
+                                  </div>
+                                </div>
+
+                                <div className="flex items-center gap-1.5 shrink-0">
+                                  {isCorrectAnswer && (
+                                    <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-700 dark:text-emerald-300 font-bold flex items-center gap-1">
+                                      <Check size={11} /> Correct Answer
+                                    </span>
+                                  )}
+                                  {isMyChoice && (
+                                    <span className={`text-[10px] font-mono px-2 py-0.5 rounded font-bold ${isCorrectAnswer ? 'bg-emerald-600 text-white' : 'bg-red-500/20 text-red-700 dark:text-red-300 flex items-center gap-1'}`}>
+                                      {isCorrectAnswer ? 'Your Choice ✓' : '✕ Your Choice'}
+                                    </span>
+                                  )}
+                                  {isOpChoice && (
+                                    <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-indigo-500/20 text-indigo-700 dark:text-indigo-300 font-bold">
+                                      Opponent Choice
+                                    </span>
+                                  )}
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+
+                        {/* Explanation (if available) */}
+                        {q.explanation && (
+                          <div className="p-3.5 rounded-xl bg-primary/5 border border-primary/20 text-xs space-y-1">
+                            <span className="font-mono font-bold uppercase tracking-wider text-primary flex items-center gap-1.5 text-[11px]">
+                              <HelpCircle size={13} /> Explanation & Solution Key
+                            </span>
+                            <div className="text-muted-foreground leading-relaxed">
+                              <MathMarkdown content={q.explanation} />
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  });
+                })()}
               </CardContent>
             </Card>
 

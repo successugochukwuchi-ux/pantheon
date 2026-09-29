@@ -58,7 +58,7 @@ export async function magicNoteCreator(fileData: { data: string, mimeType: strin
       );
     }
 
-    const modelId = config?.model || 'gemini-2.0-flash-lite';
+    const modelId = config?.model || 'gemini-3.8-flash';
 
     // Gemini REST API — supports both image/* and application/pdf natively
     const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${modelId}:generateContent?key=${apiKey}`;

@@ -103,6 +103,7 @@ export default function CbtExamScreen() {
   const [questions, setQuestions] = useState<any[]>([]);
   const [loadingQuestions, setLoadingQuestions] = useState(true);
   const [courseCode, setCourseCode] = useState('');
+  const sessionStartedRef = useRef(false);
 
   useEffect(() => {
     const localC = getLocalCourse(courseId);
@@ -118,7 +119,11 @@ export default function CbtExamScreen() {
     }
   }, [courseId, isOffline]);
 
+  // Load questions EXACTLY ONCE at session start. Do NOT re-fetch or re-shuffle if connectivity changes mid-exam!
   useEffect(() => {
+    if (sessionStartedRef.current) return;
+    sessionStartedRef.current = true;
+
     const loadQuestions = async () => {
       setLoadingQuestions(true);
       let qList: any[] = [];
@@ -130,7 +135,7 @@ export default function CbtExamScreen() {
           if (dbQs && dbQs.length > 0) {
             const shuffled = [...dbQs].sort(() => Math.random() - 0.5);
             qList = shuffled.slice(0, numQ).map((q, i) => ({ ...q, num: i + 1 }));
-            console.log("[CbtExam] Questions loaded from local SQLite database:", qList.length);
+            console.log("[CbtExam] Questions locked from local SQLite database:", qList.length);
           }
         }
       } catch (err) {
@@ -168,7 +173,7 @@ export default function CbtExamScreen() {
             if (flattened.length > 0) {
               const shuffled = flattened.sort(() => Math.random() - 0.5);
               qList = shuffled.slice(0, numQ).map((q, i) => ({ ...q, num: i + 1 }));
-              console.log("[CbtExam] Questions loaded from Firestore:", qList.length);
+              console.log("[CbtExam] Questions locked from Firestore:", qList.length);
             }
           }
         } catch (err) {
@@ -179,7 +184,7 @@ export default function CbtExamScreen() {
       // 3. Fallback to static QUESTION_BANK
       if (qList.length === 0) {
         qList = getQuestions(courseId, numQ);
-        console.log("[CbtExam] Questions loaded from static QUESTION_BANK:", qList.length);
+        console.log("[CbtExam] Questions locked from static QUESTION_BANK:", qList.length);
       }
 
       setQuestions(qList);
@@ -188,7 +193,7 @@ export default function CbtExamScreen() {
     };
 
     loadQuestions();
-  }, [courseId, numQ, isOffline]);
+  }, [courseId, numQ]);
 
   const [currentIdx, setCurrentIdx] = useState(0);
   const [answers, setAnswers] = useState<Record<number, number>>({});

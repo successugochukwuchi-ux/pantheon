@@ -29,7 +29,9 @@ import { db, auth } from '../lib/firebase';
 import { useAuth } from '../context/AuthContext';
 import { BirdIcon, CalculatorIcon } from '../components/Icons';
 import { NoteRenderer } from '../components/NoteRenderer';
-import { HermesMobileLiveOrb } from '../components/HermesMobileLiveOrb';
+import { Audio } from 'expo-av';
+import * as FileSystem from 'expo-file-system';
+import { getBackendUrls } from '../lib/backendConfig';
 import { F } from '../components/Theme';
 import { useTheme } from '../context/ThemeContext';
 import { getDatabase, isCourseDownloadedLocal, getLocalNotes, getLocalCourse } from '../lib/db';
@@ -789,7 +791,11 @@ export default function NoteViewerScreen() {
 
   const { noteId, courseId } = useLocalSearchParams<{ noteId: string; courseId: string }>();
   const [hermesOpen, setHermesOpen] = useState(false);
-  const [hermesCallOpen, setHermesCallOpen] = useState(false);
+  const [isRecordingVoice, setIsRecordingVoice] = useState(false);
+  const [isTranscribingVoice, setIsTranscribingVoice] = useState(false);
+  const [hermesVoiceOutputEnabled, setHermesVoiceOutputEnabled] = useState(true);
+  const [hermesSpeaking, setHermesSpeaking] = useState(false);
+  const recordingRef = useRef<Audio.Recording | null>(null);
   const [hermesMsg, setHermesMsg] = useState('');
   const [hermesChat, setHermesChat] = useState<ChatMessage[]>([
     { role: 'assistant', content: 'Hi! I am Hermes. Ask me anything about this note.' }
@@ -1379,15 +1385,146 @@ export default function NoteViewerScreen() {
     return `Error Code: ${errorCode}\nError Message: ${cleanMsg}\n\nPlease inform an administrator about this issue.`;
   };
 
-  const handleSendHermes = async () => {
-    if (!hermesMsg.trim() || hermesLoading) return;
+  const handleCloseHermes = async () => {
+    try {
+      if (recordingRef.current) {
+        await recordingRef.current.stopAndUnloadAsync();
+        recordingRef.current = null;
+      }
+      setIsRecordingVoice(false);
+      setIsTranscribingVoice(false);
+      if (hermesSpeaking) {
+        await stopSpeech();
+        setHermesSpeaking(false);
+      }
+    } catch {}
+    setHermesOpen(false);
+  };
+
+  const toggleVoiceRecording = async () => {
+    if (hermesSpeaking) {
+      try {
+        await stopSpeech();
+        setHermesSpeaking(false);
+      } catch {}
+    }
+
+    if (isRecordingVoice) {
+      // Stop and transcribe
+      setIsRecordingVoice(false);
+      setIsTranscribingVoice(true);
+      try {
+        if (!recordingRef.current) {
+          setIsTranscribingVoice(false);
+          return;
+        }
+        await recordingRef.current.stopAndUnloadAsync();
+        const uri = recordingRef.current.getURI();
+        recordingRef.current = null;
+
+        if (!uri) {
+          setIsTranscribingVoice(false);
+          return;
+        }
+
+        const base64Audio = await FileSystem.readAsStringAsync(uri, {
+          encoding: FileSystem.EncodingType.Base64,
+        });
+
+        if (!base64Audio || base64Audio.length < 50) {
+          setIsTranscribingVoice(false);
+          return;
+        }
+
+        let mimeType = 'audio/m4a';
+        const lower = uri.toLowerCase();
+        if (lower.endsWith('.wav')) mimeType = 'audio/wav';
+        else if (lower.endsWith('.mp3')) mimeType = 'audio/mp3';
+        else if (lower.endsWith('.aac')) mimeType = 'audio/aac';
+        else if (lower.endsWith('.3gp')) mimeType = 'audio/3gpp';
+        else if (lower.endsWith('.mp4')) mimeType = 'audio/mp4';
+
+        const backendUrls = getBackendUrls();
+        let transcribedText = '';
+
+        for (const baseUrl of backendUrls) {
+          try {
+            const res = await fetch(`${baseUrl}/api/hermes/transcribe`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                audio: base64Audio,
+                mimeType,
+              }),
+            });
+            if (res.ok) {
+              const data = await res.json();
+              if (data?.text) {
+                transcribedText = data.text.trim();
+                break;
+              }
+            }
+          } catch (err) {
+            console.warn(`Transcribe failed on ${baseUrl}:`, err);
+          }
+        }
+
+        setIsTranscribingVoice(false);
+
+        if (transcribedText) {
+          await handleSendHermes(transcribedText, true);
+        }
+      } catch (err) {
+        console.error('Audio transcription error:', err);
+        setIsTranscribingVoice(false);
+      }
+    } else {
+      // Start recording
+      try {
+        const perm = await Audio.requestPermissionsAsync();
+        if (!perm.granted) {
+          Alert.alert('Microphone Permission', 'Microphone access is required to speak to Hermes.');
+          return;
+        }
+
+        if (recordingRef.current) {
+          try {
+            await recordingRef.current.stopAndUnloadAsync();
+          } catch {}
+          recordingRef.current = null;
+        }
+
+        await Audio.setAudioModeAsync({
+          allowsRecordingIOS: true,
+          playsInSilentModeIOS: true,
+          staysActiveInBackground: false,
+          shouldDuckAndroid: true,
+          playThroughEarpieceAndroid: false,
+        });
+
+        const newRecording = new Audio.Recording();
+        await newRecording.prepareToRecordAsync(Audio.RecordingOptionsPresets.HIGH_QUALITY);
+        await newRecording.startAsync();
+
+        recordingRef.current = newRecording;
+        setIsRecordingVoice(true);
+      } catch (err) {
+        console.error('Failed to start recording:', err);
+        setIsRecordingVoice(false);
+      }
+    }
+  };
+
+  const handleSendHermes = async (overrideText?: string, speakReply?: boolean) => {
+    const textToSend = (overrideText !== undefined ? overrideText : hermesMsg).trim();
+    if (!textToSend || hermesLoading) return;
 
     if (aiConfig && aiConfig.isActive === false) {
       setHermesChat(prev => [...prev, { role: 'assistant', content: 'Hermes AI chatbot is currently inactive. Please enable it in the admin panel.' }]);
       return;
     }
 
-    const userMessage: ChatMessage = { role: 'user', content: hermesMsg };
+    const userMessage: ChatMessage = { role: 'user', content: textToSend };
     const extendedChat = [...hermesChat, userMessage];
     setHermesChat(extendedChat);
     setHermesMsg('');
@@ -1396,6 +1533,20 @@ export default function NoteViewerScreen() {
     try {
       const botResponse = await chatWithHermesMobile(extendedChat, note?.content || '', aiConfig || undefined);
       setHermesChat(prev => [...prev, { role: 'assistant', content: botResponse }]);
+
+      if (hermesVoiceOutputEnabled && speakReply) {
+        try {
+          await stopSpeech();
+          const cleanForTTS = stripDiagramsAndCleanForTTS(convertLatexToSpeakable(botResponse));
+          setHermesSpeaking(true);
+          await speakText(cleanForTTS, () => {
+            setHermesSpeaking(false);
+          });
+        } catch (e) {
+          console.warn('Hermes TTS speak error:', e);
+          setHermesSpeaking(false);
+        }
+      }
     } catch (err: any) {
       console.error('Hermes AI Chat Error:', err);
       const sanitizedErrorMsg = sanitizeHermesError(err.message);
@@ -1488,29 +1639,77 @@ export default function NoteViewerScreen() {
                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
                    <TouchableOpacity
                      onPress={() => {
-                       setHermesOpen(false);
-                       setHermesCallOpen(true);
+                       if (hermesSpeaking) {
+                         stopSpeech();
+                         setHermesSpeaking(false);
+                       }
+                       setHermesVoiceOutputEnabled(prev => !prev);
                      }}
                      style={{
                        flexDirection: 'row',
                        alignItems: 'center',
                        gap: 5,
-                       backgroundColor: '#06b6d425',
+                       backgroundColor: hermesVoiceOutputEnabled ? '#10b98125' : '#6b728025',
                        borderWidth: 1,
-                       borderColor: '#06b6d450',
+                       borderColor: hermesVoiceOutputEnabled ? '#10b98160' : '#6b728060',
                        paddingHorizontal: 9,
                        paddingVertical: 4,
                        borderRadius: 12,
                      }}
+                     hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
                    >
-                     <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: '#06b6d4' }} />
-                     <Text style={{ color: '#38bdf8', fontFamily: F.bold, fontSize: 11 }}>Live Call</Text>
+                     <Text style={{ fontSize: 13 }}>{hermesVoiceOutputEnabled ? '🔊' : '🔇'}</Text>
+                     <Text style={{ color: hermesVoiceOutputEnabled ? '#34d399' : '#9ca3af', fontFamily: F.bold, fontSize: 11 }}>
+                       {hermesVoiceOutputEnabled ? 'Voice ON' : 'Muted'}
+                     </Text>
                    </TouchableOpacity>
-                   <TouchableOpacity onPress={() => setHermesOpen(false)}>
+                   <TouchableOpacity onPress={handleCloseHermes}>
                      <Text style={{ color: '#fff', fontFamily: F.bold }}>Close</Text>
                    </TouchableOpacity>
                  </View>
               </View>
+
+              {/* Status bar if Hermes is speaking or recording */}
+              {hermesSpeaking && (
+                <View style={{ backgroundColor: '#10b98115', borderBottomWidth: 1, borderBottomColor: '#10b98130', paddingHorizontal: 16, paddingVertical: 6, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+                  <Text style={{ color: '#059669', fontFamily: F.medium, fontSize: 11 }}>
+                    Hermes is speaking...
+                  </Text>
+                  <TouchableOpacity
+                    onPress={() => {
+                      stopSpeech();
+                      setHermesSpeaking(false);
+                    }}
+                    style={{ backgroundColor: '#05966920', paddingHorizontal: 8, paddingVertical: 2, borderRadius: 6 }}
+                  >
+                    <Text style={{ color: '#059669', fontFamily: F.bold, fontSize: 10 }}>Stop ⏹️</Text>
+                  </TouchableOpacity>
+                </View>
+              )}
+
+              {isRecordingVoice && (
+                <View style={{ backgroundColor: '#ef444415', borderBottomWidth: 1, borderBottomColor: '#ef444430', paddingHorizontal: 16, paddingVertical: 6, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+                  <Text style={{ color: '#dc2626', fontFamily: F.bold, fontSize: 11 }}>
+                    🎙️ Listening... Tap mic to send
+                  </Text>
+                  <TouchableOpacity
+                    onPress={toggleVoiceRecording}
+                    style={{ backgroundColor: '#dc262620', paddingHorizontal: 8, paddingVertical: 2, borderRadius: 6 }}
+                  >
+                    <Text style={{ color: '#dc2626', fontFamily: F.bold, fontSize: 10 }}>Done ↵</Text>
+                  </TouchableOpacity>
+                </View>
+              )}
+
+              {isTranscribingVoice && (
+                <View style={{ backgroundColor: '#3b82f615', borderBottomWidth: 1, borderBottomColor: '#3b82f630', paddingHorizontal: 16, paddingVertical: 6, flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                  <ActivityIndicator size="small" color="#2563eb" />
+                  <Text style={{ color: '#2563eb', fontFamily: F.medium, fontSize: 11 }}>
+                    Transcribing your speech...
+                  </Text>
+                </View>
+              )}
+
               <ScrollView style={s.hermesChatScroll} contentContainerStyle={{ padding: 16 }}>
                 {hermesChat.map((m, i) => (
                   <View 
@@ -1535,19 +1734,43 @@ export default function NoteViewerScreen() {
                   </View>
                 )}
               </ScrollView>
-              <View style={[s.hermesInputRow, { borderTopColor: C.border }]}>
+              <View style={[s.hermesInputRow, { borderTopColor: C.border, alignItems: 'center' }]}>
+                {/* Microphone Button for Simple Text-To-Speech with Hermes */}
+                <TouchableOpacity
+                  style={{
+                    width: 38,
+                    height: 38,
+                    borderRadius: 19,
+                    backgroundColor: isRecordingVoice ? '#ef4444' : C.surface,
+                    borderWidth: 1,
+                    borderColor: isRecordingVoice ? '#dc2626' : C.border,
+                    justifyContent: 'center',
+                    alignItems: 'center',
+                    marginRight: 6,
+                  }}
+                  onPress={toggleVoiceRecording}
+                  disabled={isTranscribingVoice || hermesLoading}
+                  activeOpacity={0.8}
+                >
+                  {isTranscribingVoice ? (
+                    <ActivityIndicator size="small" color={C.ink} />
+                  ) : (
+                    <Text style={{ fontSize: 16 }}>{isRecordingVoice ? '⏹️' : '🎙️'}</Text>
+                  )}
+                </TouchableOpacity>
+
                 <TextInput 
-                  style={[s.hermesInput, { backgroundColor: C.surface, color: C.ink }]} 
-                  placeholder="Ask Hermes..." 
+                  style={[s.hermesInput, { backgroundColor: C.surface, color: C.ink, flex: 1 }]} 
+                  placeholder={isRecordingVoice ? "Listening... Speak now" : "Ask Hermes or tap mic to speak..."} 
                   value={hermesMsg}
                   onChangeText={setHermesMsg}
                   placeholderTextColor={C.inkLight}
-                  onSubmitEditing={handleSendHermes}
+                  onSubmitEditing={() => handleSendHermes()}
                 />
                 <TouchableOpacity 
                    style={[s.hermesSend, { backgroundColor: C.ink }]}
-                   onPress={handleSendHermes}
-                   disabled={hermesLoading}
+                   onPress={() => handleSendHermes()}
+                   disabled={hermesLoading || (!hermesMsg.trim() && !isRecordingVoice)}
                 >
                    {hermesLoading ? (
                      <ActivityIndicator size="small" color={C.bg} />
@@ -1698,23 +1921,21 @@ export default function NoteViewerScreen() {
           {note?.title || 'COLEARN'}
         </Text>
         <TouchableOpacity
-          onPress={() => setHermesCallOpen(prev => !prev)}
+          onPress={() => setHermesOpen(true)}
           activeOpacity={0.7}
           style={{
             width: 36,
             height: 36,
             borderRadius: 18,
-            backgroundColor: hermesCallOpen ? '#06b6d420' : C.border + '60',
+            backgroundColor: C.border + '60',
             borderWidth: 1,
-            borderColor: hermesCallOpen ? '#06b6d4' : C.border,
+            borderColor: C.border,
             justifyContent: 'center',
             alignItems: 'center',
           }}
           hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
         >
-          <Text style={{ fontSize: 16, color: hermesCallOpen ? '#06b6d4' : C.ink }}>
-            {hermesCallOpen ? '✦' : '🎙️'}
-          </Text>
+          <BirdIcon color={C.ink} />
         </TouchableOpacity>
       </View>
 
@@ -2001,34 +2222,6 @@ export default function NoteViewerScreen() {
           </View>
         </Modal>
       )}
-
-      {/* Hermes Mobile Live Call Glowing Orb Overlay */}
-      <HermesMobileLiveOrb
-        visible={hermesCallOpen}
-        onClose={() => setHermesCallOpen(false)}
-        onOpenChat={() => {
-          setHermesCallOpen(false);
-          setHermesOpen(true);
-        }}
-        noteTitle={note?.title || 'Current Note'}
-        noteContent={note?.content || ''}
-        onSendMessage={async (queryText: string, isVoiceCall: boolean) => {
-          return await chatWithHermesMobile(
-            [...hermesChat, { role: 'user', content: queryText }],
-            note?.content || '',
-            aiConfig || undefined,
-            isVoiceCall
-          );
-        }}
-        chatHistory={hermesChat}
-        onUpdateChatHistory={(userMsg: string, botResponse: string) => {
-          setHermesChat(prev => [
-            ...prev,
-            { role: 'user', content: userMsg },
-            { role: 'assistant', content: botResponse }
-          ]);
-        }}
-      />
 
       <Toolbar visible={toolbarVisible} onClose={() => setToolbarVisible(false)} s={s} C={C} />
     </SafeAreaView>

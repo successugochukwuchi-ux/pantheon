@@ -32,9 +32,12 @@ import {
   onSnapshot,
   increment,
   serverTimestamp,
+  deleteField,
+  arrayUnion,
 } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 import { getFilteredCoursesForStudent } from '../lib/courseFilter';
+import { getDownloadedCoursesLocal, getLocalQuestions } from '../lib/db';
 
 interface Course {
   id: string;
@@ -65,7 +68,8 @@ function shuffleArray<T>(array: T[]): T[] {
 
 export default function CompeteScreen() {
   const router = useRouter();
-  const { user, profile, systemConfig } = useAuth();
+  const { user, profile, systemConfig, isOffline } = useAuth();
+  const userProfile = profile;
   const { colors: C, themeName } = useTheme();
   const s = useMemo(() => createStyles(C, themeName), [C, themeName]);
 
@@ -79,24 +83,7 @@ export default function CompeteScreen() {
 
   const [selectedNumQuestions, setSelectedNumQuestions] = useState<10 | 20 | 30>(10);
   const [customNumQuestions, setCustomNumQuestions] = useState<number>(10);
-  const [selectedGameMode, setSelectedGameMode] = useState<'points_grab' | 'time_trial'>('points_grab');
-  const [customTimeTrialMinutes, setCustomTimeTrialMinutes] = useState<number>(3);
   const [joinRoomCode, setJoinRoomCode] = useState('');
-
-  const handleHostUpdateDuration = async (minutes: number) => {
-    if (!currentMatch?.id || user?.uid !== currentMatch.creatorId) return;
-    const validatedMins = Math.max(1, Math.min(60, minutes));
-    try {
-      await updateDoc(doc(db, 'compete_matches', currentMatch.id), {
-        duration: validatedMins,
-        durationSeconds: validatedMins * 60,
-      });
-      Alert.alert('Duration Updated', `Match time trial set to ${validatedMins} minute${validatedMins > 1 ? 's' : ''}.`);
-    } catch (err) {
-      console.error('Failed to update duration:', err);
-      Alert.alert('Error', 'Could not update match duration.');
-    }
-  };
 
   // Live Match variables
   const [currentMatch, setCurrentMatch] = useState<any>(null);
@@ -105,6 +92,7 @@ export default function CompeteScreen() {
   const [selectedOption, setSelectedOption] = useState<string | null>(null);
   const [hasSubmittedAnswer, setHasSubmittedAnswer] = useState(false);
   const [matchQuestions, setMatchQuestions] = useState<Question[]>([]);
+  const [reviewFilter, setReviewFilter] = useState<'all' | 'mistakes' | 'correct'>('all');
 
   // In-Game Live Timers
   const [timeLeft, setTimeLeft] = useState<number>(300);
@@ -141,6 +129,29 @@ export default function CompeteScreen() {
     if (!user) return;
 
     setLoadingCourses(true);
+
+    // Instant local offline courses check
+    try {
+      const localCourses = getDownloadedCoursesLocal();
+      if (localCourses && localCourses.length > 0) {
+        const mappedLocal = localCourses.map((c) => ({
+          id: c.id,
+          code: c.code || '',
+          title: c.title || '',
+          semester: c.semester || '1st',
+          level: c.level || '',
+        }));
+        getFilteredCoursesForStudent(mappedLocal, profile, true).then((filtered) => {
+          if (filtered && filtered.length > 0) {
+            setCourses(filtered);
+            setLoadingCourses(false);
+          }
+        });
+      }
+    } catch (e) {
+      console.log('Local courses fetch fallback in compete:', e);
+    }
+
     const coursesCol = collection(db, 'courses');
     getDocs(coursesCol)
       .then(async (snap) => {
@@ -150,7 +161,9 @@ export default function CompeteScreen() {
           semFiltered = list.filter((c) => c.semester === systemConfig.currentSemester);
         }
         const filtered = await getFilteredCoursesForStudent(semFiltered, profile, true);
-        setCourses(filtered);
+        if (filtered && filtered.length > 0) {
+          setCourses(filtered);
+        }
         setLoadingCourses(false);
       })
       .catch((err) => {
@@ -216,7 +229,29 @@ export default function CompeteScreen() {
 
     const unsubscribe = onSnapshot(doc(db, 'compete_matches', currentMatch.id), (docSnap) => {
       if (!docSnap.exists()) return;
-      const updatedMatch = { id: docSnap.id, ...docSnap.data() };
+      const updatedMatch: any = { id: docSnap.id, ...docSnap.data() };
+
+      // Check if current user was kicked from private room
+      if (user?.uid && updatedMatch.kickedList?.includes(user.uid)) {
+        setCurrentMatch(null);
+        setGameState('select_mode');
+        Alert.alert('Removed from Room', 'You have been removed from this private room by the host.');
+        return;
+      }
+
+      if (
+        user?.uid &&
+        updatedMatch.type === 'custom_room' &&
+        user.uid !== updatedMatch.creatorId &&
+        gameState === 'waiting' &&
+        updatedMatch.opponentId !== user.uid
+      ) {
+        setCurrentMatch(null);
+        setGameState('lobby');
+        Alert.alert('Removed from Room', 'You have been removed from this private room by the host.');
+        return;
+      }
+
       setCurrentMatch(updatedMatch);
 
       // Transition from matching waiting screen to game screen
@@ -310,10 +345,6 @@ export default function CompeteScreen() {
       const currentQObj = matchData.questions[currentQ];
       const qId = currentQObj.id || `q_${currentQ}`;
 
-      const options = currentQObj.options || [
-        currentQObj.correctAnswer,
-        ...(currentQObj.incorrectAnswers || []),
-      ];
       // 75% accuracy rate
       const answerCorrectly = Math.random() < 0.75;
       const chosenAnswer = answerCorrectly ? currentQObj.correctAnswer : currentQObj.incorrectAnswers[0];
@@ -368,7 +399,7 @@ export default function CompeteScreen() {
       });
     }, 1000);
 
-    // Resilient 2-second scan interval
+    // Resilient 2-second scan interval with freshness validation to prevent ghost matching
     const scanInterval = setInterval(async () => {
       if (!currentMatch?.id || !user?.uid || !selectedCourse?.id) return;
       try {
@@ -386,6 +417,12 @@ export default function CompeteScreen() {
         for (const val of lobbiesSnap.docs) {
           const lobbyData = val.data();
           if (lobbyData.creatorId !== user.uid && val.id !== currentMatch.id) {
+            // Verify lobby is not stale/abandoned (older than 20s without heartbeat)
+            const lastActive = lobbyData.lastHeartbeat || lobbyData.createdAt || 0;
+            if (Date.now() - lastActive > 20000) {
+              updateDoc(doc(db, 'compete_matches', val.id), { status: 'aborted' }).catch(() => {});
+              continue;
+            }
             foundLobby = { id: val.id, ...lobbyData };
             break;
           }
@@ -418,9 +455,19 @@ export default function CompeteScreen() {
       }
     }, 2000);
 
+    // Active heartbeat every 4 seconds to signal this client is live and prevent ghost matching
+    const heartbeatInterval = setInterval(() => {
+      if (currentMatch?.id && user?.uid === currentMatch.creatorId) {
+        updateDoc(doc(db, 'compete_matches', currentMatch.id), {
+          lastHeartbeat: Date.now(),
+        }).catch(() => {});
+      }
+    }, 4000);
+
     return () => {
       clearInterval(interval);
       clearInterval(scanInterval);
+      clearInterval(heartbeatInterval);
     };
   }, [gameState, lobbyType, currentMatch?.id, selectedCourse?.id, selectedNumQuestions, user?.uid, profile]);
 
@@ -455,10 +502,41 @@ export default function CompeteScreen() {
     if (!selectedCourse || !user) return;
 
     try {
-      // 1. Fetch questions for selected Course
-      const qQuery = query(collection(db, 'questions'), where('courseId', '==', selectedCourse.id));
-      const qSnap = await getDocs(qQuery);
-      let list = qSnap.docs.map((d) => ({ id: d.id, ...d.data() }) as Question);
+      // 1. Fetch questions for selected Course (try local SQLite first, then Firestore)
+      let list: Question[] = [];
+      try {
+        const localQs = getLocalQuestions(selectedCourse.id);
+        if (localQs && localQs.length > 0) {
+          list = localQs.map((q) => {
+            const corr = typeof q.answer === 'number' ? (q.opts[q.answer] || q.opts[0] || 'Option A') : (q.answer || q.opts[0] || 'Option A');
+            const incorr = typeof q.answer === 'number'
+              ? q.opts.filter((_: any, idx: number) => idx !== q.answer)
+              : q.opts.filter((o: any) => o !== corr);
+            return {
+              id: q.id,
+              sheetId: q.sheetId || 'sheet_1',
+              courseId: selectedCourse.id,
+              text: q.q,
+              correctAnswer: corr,
+              incorrectAnswers: incorr.length > 0 ? incorr : ['Option B', 'Option C', 'Option D'],
+            };
+          });
+        }
+      } catch (e) {
+        console.log('Local question fetch in compete:', e);
+      }
+
+      if (list.length === 0 && !isOffline) {
+        try {
+          const qQuery = query(collection(db, 'questions'), where('courseId', '==', selectedCourse.id));
+          const qSnap = await getDocs(qQuery);
+          if (!qSnap.empty) {
+            list = qSnap.docs.map((d) => ({ id: d.id, ...d.data() }) as Question);
+          }
+        } catch (e) {
+          console.log('Online questions fetch in compete:', e);
+        }
+      }
 
       const finalNumQuestions = mode === 'quick' ? selectedNumQuestions : customNumQuestions;
 
@@ -533,7 +611,7 @@ export default function CompeteScreen() {
         setGameState('waiting');
         setSearchCountdown(10);
 
-        // Look for existing lobbies
+        // Standard 1v1 quick match
         const lobbiesQuery = query(
           collection(db, 'compete_matches'),
           where('status', '==', 'waiting'),
@@ -544,18 +622,28 @@ export default function CompeteScreen() {
         );
         const lobbiesSnap = await getDocs(lobbiesQuery);
 
-        if (!lobbiesSnap.empty) {
-          // Join existing
-          const matchDoc = lobbiesSnap.docs[0];
-          const matchData = matchDoc.data();
-
+        let foundMatchDoc: any = null;
+        for (const docSnap of lobbiesSnap.docs) {
+          const matchData = docSnap.data();
           if (matchData.creatorId === user.uid) {
             // Already created by same user, just wait
-            setCurrentMatch({ id: matchDoc.id, ...matchData });
+            setCurrentMatch({ id: docSnap.id, ...matchData });
             return;
           }
+          // Validate freshness: ignore stale / abandoned ghost matches (older than 20s without heartbeat)
+          const lastActive = matchData.lastHeartbeat || matchData.createdAt || 0;
+          if (Date.now() - lastActive > 20000) {
+            updateDoc(doc(db, 'compete_matches', docSnap.id), { status: 'aborted' }).catch(() => {});
+            continue;
+          }
+          foundMatchDoc = docSnap;
+          break;
+        }
 
-          await updateDoc(doc(db, 'compete_matches', matchDoc.id), {
+        if (foundMatchDoc) {
+          // Join existing
+          const matchData = foundMatchDoc.data();
+          await updateDoc(doc(db, 'compete_matches', foundMatchDoc.id), {
             status: 'active',
             opponentId: user.uid,
             opponentUsername: profile?.username || user.email || 'Classmate',
@@ -563,7 +651,7 @@ export default function CompeteScreen() {
             startTime: Date.now(),
           });
 
-          setCurrentMatch({ id: matchDoc.id, ...matchData, status: 'active' });
+          setCurrentMatch({ id: foundMatchDoc.id, ...matchData, status: 'active' });
         } else {
           // Create new waiting quick match lobby
           const newMatchDoc = doc(collection(db, 'compete_matches'));
@@ -588,6 +676,7 @@ export default function CompeteScreen() {
             finishGraceTime: null,
             firstFinishedUserId: null,
             createdAt: Date.now(),
+            lastHeartbeat: Date.now(),
             At: profile?.At || 'futo',
           };
           await setDoc(newMatchDoc, matchPayload);
@@ -599,13 +688,14 @@ export default function CompeteScreen() {
         setGameState('waiting');
 
         const newMatchDoc = doc(collection(db, 'compete_matches'));
-        const durationMins = selectedGameMode === 'time_trial' ? Math.max(1, Math.min(60, customTimeTrialMinutes || 3)) : overallDurationMins;
+        const durationMins = overallDurationMins;
+
         const matchPayload = {
           id: newMatchDoc.id,
           courseId: selectedCourse.id,
           courseCode: selectedCourse.code,
           type: 'custom_room',
-          gameMode: selectedGameMode,
+          gameMode: 'points_grab',
           duration: durationMins,
           durationSeconds: durationMins * 60,
           numQuestions: customNumQuestions,
@@ -624,13 +714,16 @@ export default function CompeteScreen() {
           finishGraceTime: null,
           firstFinishedUserId: null,
           createdAt: Date.now(),
+          lastHeartbeat: Date.now(),
           At: profile?.At || 'futo',
         };
         await setDoc(newMatchDoc, matchPayload);
         setCurrentMatch(matchPayload);
       }
-    } catch (err) {
+    } catch (err: any) {
       console.error('Setup lobbymaking failed:', err);
+      Alert.alert('Arena Setup Error', err?.message || 'Could not start arena match. Please check your internet connection and try again.');
+      setGameState('selecting_lobby_type');
     }
   };
 
@@ -657,22 +750,111 @@ export default function CompeteScreen() {
       const matchDoc = snap.docs[0];
       const matchData = matchDoc.data();
 
+      if (matchData.kickedList?.includes(user.uid)) {
+        Alert.alert('Access Denied', 'You have been removed from this private room by the host and cannot rejoin.');
+        return;
+      }
+
       if (matchData.creatorId === user.uid) {
         Alert.alert('Error', 'You cannot join your own custom room as the opponent.');
         return;
       }
 
+      if (matchData.opponentId && matchData.opponentId !== user.uid) {
+        Alert.alert('Room Full', 'This room is already full with another opponent.');
+        return;
+      }
+
+      // Join the 1v1 room as opponent, keep status: 'waiting' so host can see who joined!
       await updateDoc(doc(db, 'compete_matches', matchDoc.id), {
-        status: 'active',
         opponentId: user.uid,
         opponentUsername: profile?.username || user.email || 'Student User',
         opponentPhotoURL: profile?.photoURL || '',
-        startTime: Date.now(),
       });
 
-      setCurrentMatch({ id: matchDoc.id, ...matchData, status: 'active' });
+      setCurrentMatch({
+        id: matchDoc.id,
+        ...matchData,
+        opponentId: user.uid,
+        opponentUsername: profile?.username || user.email || 'Student User',
+        opponentPhotoURL: profile?.photoURL || '',
+        status: 'waiting',
+      });
+      setGameState('waiting');
+      Alert.alert('Joined Private Room', 'Joined! Waiting for the host to start the match...');
     } catch (err) {
       console.error('Join custom room failed:', err);
+    }
+  };
+
+  const handleKickPlayer = async (targetUid: string, targetUsername: string) => {
+    if (!currentMatch || !user || user.uid !== currentMatch.creatorId) return;
+
+    Alert.alert(
+      'Remove Player',
+      `Are you sure you want to remove ${targetUsername || 'this player'} from the room?`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Remove',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              await updateDoc(doc(db, 'compete_matches', currentMatch.id), {
+                opponentId: null,
+                opponentUsername: null,
+                opponentPhotoURL: null,
+                kickedList: arrayUnion(targetUid),
+              });
+              Alert.alert('Player Removed', `${targetUsername || 'Player'} was removed from the room.`);
+            } catch (err) {
+              console.error('Kick player failed:', err);
+              Alert.alert('Error', 'Failed to remove player from room.');
+            }
+          },
+        },
+      ]
+    );
+  };
+
+  const handleHostStartMatch = async () => {
+    if (!currentMatch || !user || user.uid !== currentMatch.creatorId) return;
+    if (!currentMatch.opponentId) {
+      Alert.alert('Waiting for Opponent', 'Waiting for an opponent to join before starting!');
+      return;
+    }
+
+    try {
+      await updateDoc(doc(db, 'compete_matches', currentMatch.id), {
+        status: 'active',
+        startTime: Date.now(),
+      });
+    } catch (err) {
+      console.error('Host start match error:', err);
+    }
+  };
+
+  const handleToggleVoteStart = async () => {
+    if (!currentMatch || !user) return;
+    const currentVoted = !!currentMatch.players?.[user.uid]?.votedToStart;
+    const nextVoted = !currentVoted;
+
+    const playersList: any[] = Object.values(currentMatch.players || {});
+    const totalCount = playersList.length;
+    const votedCount = playersList.filter((p) => (p.uid === user.uid ? nextVoted : p.votedToStart)).length;
+
+    const shouldStart = totalCount >= 2 && votedCount > Math.floor(totalCount / 2);
+
+    try {
+      await updateDoc(doc(db, 'compete_matches', currentMatch.id), {
+        [`players.${user.uid}.votedToStart`]: nextVoted,
+        ...(shouldStart ? { status: 'active', startTime: Date.now() } : {}),
+      });
+      if (shouldStart) {
+        Alert.alert('Majority Reached', 'Majority votes reached! Starting match...');
+      }
+    } catch (err) {
+      console.error('Vote failed:', err);
     }
   };
 
@@ -685,11 +867,11 @@ export default function CompeteScreen() {
     if (!selectedOption || hasSubmittedAnswer || !currentMatch) return;
     setHasSubmittedAnswer(true);
 
-    const isCreator = user?.uid === currentMatch.creatorId;
-    const opponentAnswers = isCreator ? currentMatch.opponentAnswers : currentMatch.creatorAnswers;
-
     const currentQuestion = matchQuestions[activeQuestionIndex];
     const isCorrect = selectedOption === currentQuestion.correctAnswer;
+
+    const isCreator = user?.uid === currentMatch.creatorId;
+    const opponentAnswers = isCreator ? currentMatch.opponentAnswers : currentMatch.creatorAnswers;
     const qId = currentQuestion.id || `q_${activeQuestionIndex}`;
 
     // Speed bonus calculation
@@ -909,7 +1091,33 @@ export default function CompeteScreen() {
     );
   };
 
-  const handleExitMatch = () => {
+  // Helper to cleanly cancel a waiting lobby in Firestore to eliminate ghost matching
+  const cancelWaitingMatch = async (matchId?: string) => {
+    const targetMatch = currentMatch;
+    const targetId = matchId || targetMatch?.id;
+    if (!targetId || !user) return;
+    try {
+      if (user.uid === targetMatch?.creatorId) {
+        await updateDoc(doc(db, 'compete_matches', targetId), {
+          status: 'cancelled',
+          cancelledAt: Date.now(),
+        });
+      } else if (user.uid === targetMatch?.opponentId) {
+        await updateDoc(doc(db, 'compete_matches', targetId), {
+          opponentId: null,
+          opponentUsername: null,
+          opponentPhotoURL: null,
+        });
+      }
+    } catch (e) {
+      console.log('Cancel waiting match error:', e);
+    }
+  };
+
+  const handleExitMatch = async () => {
+    if (gameState === 'waiting' && currentMatch?.id) {
+      await cancelWaitingMatch();
+    }
     setGameState('lobby');
     setCurrentMatch(null);
     setMatchQuestions([]);
@@ -935,7 +1143,8 @@ export default function CompeteScreen() {
     } else if (gameState === 'selecting_lobby_type') {
       setGameState('selecting_course');
     } else if (gameState === 'waiting') {
-      // Prompt forfeit or lobby delete if custom room was created
+      // Cleanly cancel waiting room in Firestore
+      cancelWaitingMatch();
       setGameState('selecting_lobby_type');
       setCurrentMatch(null);
     } else if (gameState === 'playing') {
@@ -1217,122 +1426,20 @@ export default function CompeteScreen() {
 
                 <View style={[s.divider, { backgroundColor: C.border }]} />
 
-                {/* GAME MODE SELECTOR */}
-                <Text style={[s.choiceConfigLabel, { color: C.inkLight }]}>
-                  SELECT GAME MODE
-                </Text>
-                <View style={{ flexDirection: 'row', gap: 8, marginBottom: 8 }}>
-                  <TouchableOpacity
-                    style={[
-                      s.countBtn,
-                      { borderColor: C.border, backgroundColor: C.bgAlt },
-                      selectedGameMode === 'points_grab' && { backgroundColor: C.surfaceDark, borderColor: C.surfaceDark },
-                    ]}
-                    onPress={() => setSelectedGameMode('points_grab')}
-                  >
-                    <Text
-                      style={[
-                        s.countBtnText,
-                        { color: C.ink },
-                        selectedGameMode === 'points_grab' && { color: C.bg, fontFamily: F.bold },
-                      ]}
-                    >
-                      Points Grab
-                    </Text>
-                  </TouchableOpacity>
-
-                  <TouchableOpacity
-                    style={[
-                      s.countBtn,
-                      { borderColor: C.border, backgroundColor: C.bgAlt },
-                      selectedGameMode === 'time_trial' && { backgroundColor: C.surfaceDark, borderColor: C.surfaceDark },
-                    ]}
-                    onPress={() => setSelectedGameMode('time_trial')}
-                  >
-                    <Text
-                      style={[
-                        s.countBtnText,
-                        { color: C.ink },
-                        selectedGameMode === 'time_trial' && { color: C.bg, fontFamily: F.bold },
-                      ]}
-                    >
-                      ⚡ Time Trial
-                    </Text>
-                  </TouchableOpacity>
+                <View style={{ gap: 4, marginBottom: 8 }}>
+                  <Text style={[s.choiceConfigLabel, { color: C.inkLight }]}>
+                    CREATE: QUESTION LIMIT
+                  </Text>
+                  <TextInput
+                    keyboardType="number-pad"
+                    style={[s.textInput, { backgroundColor: C.bgAlt, color: C.ink, borderColor: C.border }]}
+                    value={String(customNumQuestions)}
+                    onChangeText={(val) => {
+                      const parsed = parseInt(val, 10);
+                      setCustomNumQuestions(isNaN(parsed) ? 10 : parsed);
+                    }}
+                  />
                 </View>
-
-                {selectedGameMode === 'time_trial' ? (
-                  <View style={{ gap: 8, marginBottom: 4 }}>
-                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-                      <Text style={[s.choiceConfigLabel, { color: C.inkLight }]}>
-                        MATCH TIME (MINUTES)
-                      </Text>
-                      <Text style={{ fontFamily: F.bold, fontSize: 13, color: C.ink }}>
-                        {customTimeTrialMinutes} {customTimeTrialMinutes === 1 ? 'Min' : 'Mins'}
-                      </Text>
-                    </View>
-
-                    <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
-                      {[1, 2, 3, 5, 10, 15, 20, 30].map((m) => (
-                        <TouchableOpacity
-                          key={m}
-                          style={[
-                            {
-                              paddingHorizontal: 12,
-                              paddingVertical: 6,
-                              borderRadius: 8,
-                              borderWidth: 1,
-                              borderColor: C.border,
-                              backgroundColor: C.bgAlt,
-                            },
-                            customTimeTrialMinutes === m && {
-                              backgroundColor: C.surfaceDark,
-                              borderColor: C.surfaceDark,
-                            },
-                          ]}
-                          onPress={() => setCustomTimeTrialMinutes(m)}
-                        >
-                          <Text
-                            style={[
-                              { fontFamily: F.bold, fontSize: 12, color: C.ink },
-                              customTimeTrialMinutes === m && { color: C.bg },
-                            ]}
-                          >
-                            {m}m
-                          </Text>
-                        </TouchableOpacity>
-                      ))}
-                    </View>
-
-                    <TextInput
-                      keyboardType="number-pad"
-                      placeholder="Custom minutes (1-60)"
-                      placeholderTextColor={C.inkLight}
-                      style={[s.textInput, { backgroundColor: C.bgAlt, color: C.ink, borderColor: C.border }]}
-                      value={String(customTimeTrialMinutes)}
-                      onChangeText={(val) => {
-                        const parsed = parseInt(val, 10);
-                        const clamped = isNaN(parsed) ? 1 : Math.max(1, Math.min(60, parsed));
-                        setCustomTimeTrialMinutes(clamped);
-                      }}
-                    />
-                  </View>
-                ) : (
-                  <View style={{ gap: 4, marginBottom: 4 }}>
-                    <Text style={[s.choiceConfigLabel, { color: C.inkLight }]}>
-                      CREATE: QUESTION LIMIT
-                    </Text>
-                    <TextInput
-                      keyboardType="number-pad"
-                      style={[s.textInput, { backgroundColor: C.bgAlt, color: C.ink, borderColor: C.border }]}
-                      value={String(customNumQuestions)}
-                      onChangeText={(val) => {
-                        const parsed = parseInt(val, 10);
-                        setCustomNumQuestions(isNaN(parsed) ? 10 : parsed);
-                      }}
-                    />
-                  </View>
-                )}
 
                 <TouchableOpacity
                   style={[s.secondaryBtn, { borderColor: C.ink }]}
@@ -1343,7 +1450,7 @@ export default function CompeteScreen() {
                   activeOpacity={0.8}
                 >
                   <Text style={[s.secondaryBtnText, { color: C.ink }]}>
-                    Create {selectedGameMode === 'time_trial' ? 'Time Trial' : 'Points Grab'} Arena
+                    Create Match Room
                   </Text>
                 </TouchableOpacity>
 
@@ -1376,6 +1483,20 @@ export default function CompeteScreen() {
           )}
 
           {/* WAITING STATE */}
+          {gameState === 'waiting' && !currentMatch && (
+            <View style={s.waitingStateContainer}>
+              <View style={[s.waitingCard, { backgroundColor: C.surface, borderColor: C.border }]}>
+                <ActivityIndicator size="large" color={C.ink} />
+                <Text style={[s.waitingTitle, { color: C.ink }]}>
+                  Connecting to Arena...
+                </Text>
+                <Text style={[s.waitingSub, { color: C.inkMid }]}>
+                  Preparing match lobby for {selectedCourse?.code || 'your course'}...
+                </Text>
+              </View>
+            </View>
+          )}
+
           {gameState === 'waiting' && currentMatch && (
             <View style={s.waitingStateContainer}>
               <View style={[s.waitingCard, { backgroundColor: C.surface, borderColor: C.border }]}>
@@ -1391,71 +1512,7 @@ export default function CompeteScreen() {
                     : 'Give this 5-character match code to a classmate in this class.'}
                 </Text>
 
-                {/* MATCH MODE & DURATION BADGE */}
-                {currentMatch.gameMode === 'time_trial' && (
-                  <View style={{ marginTop: 8, paddingHorizontal: 12, paddingVertical: 4, borderRadius: 20, backgroundColor: C.bgAlt, borderWidth: 1, borderColor: C.border, alignSelf: 'center' }}>
-                    <Text style={{ fontFamily: F.bold, fontSize: 12, color: C.ink }}>
-                      ⚡ Time Trial Race: {currentMatch.durationSeconds ? Math.round(currentMatch.durationSeconds / 60) : (currentMatch.duration || 3)} Minutes
-                    </Text>
-                  </View>
-                )}
-
-                {/* HOST TIME TRIAL DURATION CONTROLS */}
-                {currentMatch.gameMode === 'time_trial' && user?.uid === currentMatch.creatorId && (
-                  <View style={{ marginTop: 14, width: '100%', padding: 12, borderRadius: 12, backgroundColor: C.bgAlt, borderWidth: 1, borderColor: C.border, gap: 8 }}>
-                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-                      <Text style={{ fontFamily: F.bold, fontSize: 11, color: C.ink, letterSpacing: 0.5 }}>
-                        ⏱️ HOST: SET MATCH TIME
-                      </Text>
-                      <Text style={{ fontFamily: F.bold, fontSize: 11, color: C.inkLight }}>
-                        Host Only
-                      </Text>
-                    </View>
-                    <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
-                      {[1, 2, 3, 5, 10, 15, 20].map((m) => {
-                        const isCur = (currentMatch.durationSeconds ? Math.round(currentMatch.durationSeconds / 60) : currentMatch.duration) === m;
-                        return (
-                          <TouchableOpacity
-                            key={m}
-                            onPress={() => handleHostUpdateDuration(m)}
-                            style={[
-                              {
-                                paddingHorizontal: 10,
-                                paddingVertical: 5,
-                                borderRadius: 6,
-                                borderWidth: 1,
-                                borderColor: C.border,
-                                backgroundColor: C.surface,
-                              },
-                              isCur && {
-                                backgroundColor: C.surfaceDark,
-                                borderColor: C.surfaceDark,
-                              },
-                            ]}
-                          >
-                            <Text style={[{ fontFamily: F.bold, fontSize: 11, color: C.ink }, isCur && { color: C.bg }]}>
-                              {m}m
-                            </Text>
-                          </TouchableOpacity>
-                        );
-                      })}
-                    </View>
-                  </View>
-                )}
-
-                {/* WEBRTC VOICE CALL INDICATOR */}
-                <View style={{ marginTop: 12, width: '100%', padding: 10, borderRadius: 10, backgroundColor: C.bgAlt, borderWidth: 1, borderColor: C.border, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
-                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                    <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: '#22c55e' }} />
-                    <Text style={{ fontFamily: F.bold, fontSize: 11, color: C.ink }}>
-                      WebRTC Voice (Lyra 6kbps)
-                    </Text>
-                  </View>
-                  <Text style={{ fontFamily: F.body, fontSize: 10, color: C.inkLight }}>
-                    P2P Audio Ready
-                  </Text>
-                </View>
-
+                {/* CUSTOM ROOM CODE WITH COPY BUTTON */}
                 {currentMatch.type === 'custom_room' && (
                   <View style={s.customRoomCodeWrap}>
                     <Text style={[s.customRoomCode, { color: C.ink }]}>
@@ -1472,6 +1529,188 @@ export default function CompeteScreen() {
                   </View>
                 )}
 
+                {/* --- 1V1 ROOM PLAYERS ROSTER --- */}
+                {(() => {
+                  const isHost = user?.uid === currentMatch.creatorId;
+                  const isPrivateRoom = currentMatch.type === 'custom_room';
+                  const hasOpponent = !!currentMatch.opponentId;
+
+                  return (
+                    <View style={{ width: '100%', marginTop: 16, gap: 10 }}>
+                      <Text style={{ fontFamily: F.bold, fontSize: 12, color: C.ink, letterSpacing: 0.5 }}>
+                        👥 MATCH PARTICIPANTS (1v1)
+                      </Text>
+
+                      {/* Host slot */}
+                      <View
+                        style={{
+                          flexDirection: 'row',
+                          alignItems: 'center',
+                          justifyContent: 'space-between',
+                          padding: 12,
+                          borderRadius: 12,
+                          backgroundColor: isHost ? C.bgAlt : C.surface,
+                          borderWidth: 1,
+                          borderColor: isHost ? C.ink : C.border,
+                        }}
+                      >
+                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, flex: 1 }}>
+                          <View
+                            style={{
+                              width: 34,
+                              height: 34,
+                              borderRadius: 17,
+                              backgroundColor: C.surfaceDark,
+                              justifyContent: 'center',
+                              alignItems: 'center',
+                            }}
+                          >
+                            <Text style={{ fontFamily: F.bold, fontSize: 14, color: C.bg }}>
+                              {(currentMatch.creatorUsername || 'H')[0]?.toUpperCase()}
+                            </Text>
+                          </View>
+                          <View>
+                            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                              <Text style={{ fontFamily: F.bold, fontSize: 13, color: C.ink }}>
+                                {currentMatch.creatorUsername || 'Host'}
+                              </Text>
+                              {isHost && (
+                                <Text style={{ fontFamily: F.bold, fontSize: 11, color: C.inkMid }}>
+                                  (You)
+                                </Text>
+                              )}
+                            </View>
+                            <Text style={{ fontFamily: F.bold, fontSize: 10, color: '#D97706', marginTop: 2 }}>
+                              👑 HOST • READY
+                            </Text>
+                          </View>
+                        </View>
+                      </View>
+
+                      {/* Opponent slot */}
+                      {hasOpponent ? (
+                        <View
+                          style={{
+                            flexDirection: 'row',
+                            alignItems: 'center',
+                            justifyContent: 'space-between',
+                            padding: 12,
+                            borderRadius: 12,
+                            backgroundColor: !isHost ? C.bgAlt : C.surface,
+                            borderWidth: 1,
+                            borderColor: !isHost ? C.ink : C.border,
+                          }}
+                        >
+                          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, flex: 1 }}>
+                            <View
+                              style={{
+                                width: 34,
+                                height: 34,
+                                borderRadius: 17,
+                                backgroundColor: C.border,
+                                justifyContent: 'center',
+                                alignItems: 'center',
+                              }}
+                            >
+                              <Text style={{ fontFamily: F.bold, fontSize: 14, color: C.ink }}>
+                                {(currentMatch.opponentUsername || 'O')[0]?.toUpperCase()}
+                              </Text>
+                            </View>
+                            <View>
+                              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                                <Text style={{ fontFamily: F.bold, fontSize: 13, color: C.ink }}>
+                                  {currentMatch.opponentUsername || 'Classmate'}
+                                </Text>
+                                {!isHost && (
+                                  <Text style={{ fontFamily: F.bold, fontSize: 11, color: C.inkMid }}>
+                                    (You)
+                                  </Text>
+                                )}
+                              </View>
+                              <Text style={{ fontFamily: F.bold, fontSize: 10, color: '#27AE60', marginTop: 2 }}>
+                                ⚔️ READY TO BATTLE
+                              </Text>
+                            </View>
+                          </View>
+
+                          {/* Kick opponent button (host in private room only) */}
+                          {isHost && isPrivateRoom && (
+                            <TouchableOpacity
+                              onPress={() => handleKickPlayer(currentMatch.opponentId, currentMatch.opponentUsername)}
+                              style={{
+                                paddingHorizontal: 10,
+                                paddingVertical: 6,
+                                borderRadius: 8,
+                                backgroundColor: '#FADBD8',
+                                borderWidth: 1,
+                                borderColor: '#E74C3C',
+                              }}
+                            >
+                              <Text style={{ fontFamily: F.bold, fontSize: 11, color: '#C0392B' }}>
+                                Kick
+                              </Text>
+                            </TouchableOpacity>
+                          )}
+                        </View>
+                      ) : (
+                        <View
+                          style={{
+                            flexDirection: 'row',
+                            alignItems: 'center',
+                            padding: 12,
+                            borderRadius: 12,
+                            borderWidth: 1,
+                            borderColor: C.border,
+                            borderStyle: 'dashed',
+                            gap: 10,
+                          }}
+                        >
+                          <View
+                            style={{
+                              width: 34,
+                              height: 34,
+                              borderRadius: 17,
+                              backgroundColor: C.bgAlt,
+                              justifyContent: 'center',
+                              alignItems: 'center',
+                            }}
+                          >
+                            <Text style={{ fontFamily: F.bold, fontSize: 14, color: C.inkLight }}>⏳</Text>
+                          </View>
+                          <Text style={{ fontFamily: F.medium, fontSize: 12, color: C.inkLight }}>
+                            Waiting for classmate to enter code...
+                          </Text>
+                        </View>
+                      )}
+
+                      {/* Host Start 1v1 Button */}
+                      {isHost && (
+                        <TouchableOpacity
+                          style={[
+                            s.primaryBtn,
+                            { backgroundColor: C.surfaceDark, opacity: hasOpponent ? 1 : 0.5, marginTop: 6 },
+                          ]}
+                          onPress={handleHostStartMatch}
+                          disabled={!hasOpponent}
+                          activeOpacity={0.8}
+                        >
+                          <Text style={[s.primaryBtnText, { color: C.bg }]}>
+                            {hasOpponent ? 'Start 1v1 Match ⚔️' : 'Waiting for Opponent...'}
+                          </Text>
+                        </TouchableOpacity>
+                      )}
+
+                      {!isHost && hasOpponent && (
+                        <View style={{ padding: 10, borderRadius: 8, backgroundColor: C.bgAlt, alignItems: 'center' }}>
+                          <Text style={{ fontFamily: F.medium, fontSize: 12, color: C.inkMid }}>
+                            Waiting for the host to start the match...
+                          </Text>
+                        </View>
+                      )}
+                    </View>
+                  );
+                })()}
+
                 <TouchableOpacity
                   style={[s.forfeitBtn, { marginTop: 24 }]}
                   onPress={handleExitMatch}
@@ -1485,6 +1724,20 @@ export default function CompeteScreen() {
           )}
 
           {/* PLAYING ARENA STATE */}
+          {gameState === 'playing' && currentMatch && matchQuestions.length === 0 && (
+            <View style={s.waitingStateContainer}>
+              <View style={[s.waitingCard, { backgroundColor: C.surface, borderColor: C.border }]}>
+                <ActivityIndicator size="large" color={C.ink} />
+                <Text style={[s.waitingTitle, { color: C.ink }]}>
+                  Loading Questions...
+                </Text>
+                <Text style={[s.waitingSub, { color: C.inkMid }]}>
+                  Setting up match questions...
+                </Text>
+              </View>
+            </View>
+          )}
+
           {gameState === 'playing' && currentMatch && matchQuestions.length > 0 && (
             <View style={s.playingSectionContainer}>
               {/* Active Match top cells */}
@@ -1538,9 +1791,10 @@ export default function CompeteScreen() {
                 <Text style={[s.questionIndexLabel, { color: C.inkLight }]}>
                   QUESTION {activeQuestionIndex + 1} OF {matchQuestions.length}
                 </Text>
-                <Text style={[s.questionText, { color: C.ink }]}>
-                  {matchQuestions[activeQuestionIndex]?.text}
-                </Text>
+                <MathText
+                  text={matchQuestions[activeQuestionIndex]?.text || ''}
+                  style={[s.questionText, { color: C.ink }]}
+                />
               </View>
 
               {/* Option buttons */}
@@ -1580,7 +1834,7 @@ export default function CompeteScreen() {
                       disabled={hasSubmittedAnswer}
                       activeOpacity={0.8}
                     >
-                      <Text style={[s.optionBtnText, { color: optionText }]}>{option}</Text>
+                      <MathText text={option} style={[s.optionBtnText, { color: optionText }]} />
                     </TouchableOpacity>
                   );
                 })}
@@ -1733,6 +1987,263 @@ export default function CompeteScreen() {
                       </View>
                     )}
                   </View>
+
+                  {/* DETAILED QUESTION REVIEW & CORRECTIONS */}
+                  {(() => {
+                    const questionsList = currentMatch.questions || matchQuestions || [];
+                    const isCreator = user?.uid === currentMatch.creatorId;
+                    const myAnswers = isCreator ? (currentMatch.creatorAnswers || {}) : (currentMatch.opponentAnswers || {});
+                    const opAnswers = isCreator ? (currentMatch.opponentAnswers || {}) : (currentMatch.creatorAnswers || {});
+
+                    const mistakesCount = questionsList.filter((q: any, i: number) => {
+                      const qId = q.id || `q_${i}`;
+                      const ans = myAnswers[qId];
+                      return !ans || !ans.isCorrect;
+                    }).length;
+
+                    const correctCount = questionsList.filter((q: any, i: number) => {
+                      const qId = q.id || `q_${i}`;
+                      const ans = myAnswers[qId];
+                      return ans && ans.isCorrect;
+                    }).length;
+
+                    const filteredQuestions = questionsList.filter((q: any, idx: number) => {
+                      const qId = q.id || `q_${idx}`;
+                      const myAns = myAnswers[qId];
+                      if (reviewFilter === 'mistakes') return !myAns || !myAns.isCorrect;
+                      if (reviewFilter === 'correct') return myAns && myAns.isCorrect;
+                      return true;
+                    });
+
+                    return (
+                      <View style={{ marginTop: 18, borderTopWidth: 1, borderTopColor: C.border, paddingTop: 16 }}>
+                        <Text style={{ fontFamily: F.bold, color: C.ink, fontSize: 13, letterSpacing: 0.5, marginBottom: 4 }}>
+                          📖 QUESTION REVIEW & CORRECTIONS
+                        </Text>
+                        <Text style={{ fontFamily: F.body, color: C.inkMid, fontSize: 11, marginBottom: 12, lineHeight: 16 }}>
+                          Review each question from this match to examine what you got right or wrong and learn from your mistakes.
+                        </Text>
+
+                        {/* Filter Tabs */}
+                        <View style={{ flexDirection: 'row', gap: 6, marginBottom: 12 }}>
+                          <TouchableOpacity
+                            onPress={() => setReviewFilter('all')}
+                            style={{
+                              flex: 1,
+                              paddingVertical: 7,
+                              borderRadius: 8,
+                              alignItems: 'center',
+                              backgroundColor: reviewFilter === 'all' ? C.surfaceDark : C.bgAlt,
+                              borderWidth: 1,
+                              borderColor: reviewFilter === 'all' ? C.surfaceDark : C.border,
+                            }}
+                          >
+                            <Text style={{ fontFamily: F.bold, fontSize: 11, color: reviewFilter === 'all' ? C.bg : C.inkMid }}>
+                              All ({questionsList.length})
+                            </Text>
+                          </TouchableOpacity>
+
+                          <TouchableOpacity
+                            onPress={() => setReviewFilter('mistakes')}
+                            style={{
+                              flex: 1,
+                              paddingVertical: 7,
+                              borderRadius: 8,
+                              alignItems: 'center',
+                              backgroundColor: reviewFilter === 'mistakes' ? '#FADBD8' : C.bgAlt,
+                              borderWidth: 1,
+                              borderColor: reviewFilter === 'mistakes' ? '#E74C3C' : C.border,
+                            }}
+                          >
+                            <Text style={{ fontFamily: F.bold, fontSize: 11, color: reviewFilter === 'mistakes' ? '#C0392B' : C.inkMid }}>
+                              Mistakes ({mistakesCount})
+                            </Text>
+                          </TouchableOpacity>
+
+                          <TouchableOpacity
+                            onPress={() => setReviewFilter('correct')}
+                            style={{
+                              flex: 1,
+                              paddingVertical: 7,
+                              borderRadius: 8,
+                              alignItems: 'center',
+                              backgroundColor: reviewFilter === 'correct' ? '#E8F6EF' : C.bgAlt,
+                              borderWidth: 1,
+                              borderColor: reviewFilter === 'correct' ? '#27AE60' : C.border,
+                            }}
+                          >
+                            <Text style={{ fontFamily: F.bold, fontSize: 11, color: reviewFilter === 'correct' ? '#27AE60' : C.inkMid }}>
+                              Correct ({correctCount})
+                            </Text>
+                          </TouchableOpacity>
+                        </View>
+
+                        {/* Question list */}
+                        {filteredQuestions.length === 0 ? (
+                          <View style={{ padding: 20, alignItems: 'center', backgroundColor: C.bgAlt, borderRadius: 12 }}>
+                            <Text style={{ fontFamily: F.medium, fontSize: 12, color: C.inkMid, textAlign: 'center' }}>
+                              {reviewFilter === 'mistakes' ? '🎉 Brilliant! Zero mistakes in this duel!' : 'No questions match the selected filter.'}
+                            </Text>
+                          </View>
+                        ) : (
+                          filteredQuestions.map((q: any, filteredIdx: number) => {
+                            const originalIdx = questionsList.findIndex((item: any) => (item.id || item.text) === (q.id || q.text));
+                            const displayIdx = originalIdx >= 0 ? originalIdx : filteredIdx;
+                            const qId = q.id || `q_${displayIdx}`;
+                            const myAns = myAnswers[qId];
+                            const opAns = opAnswers[qId];
+                            const options = q.options || [q.correctAnswer, ...(q.incorrectAnswers || [])];
+
+                            return (
+                              <View
+                                key={qId}
+                                style={{
+                                  padding: 14,
+                                  borderRadius: 14,
+                                  borderWidth: 1,
+                                  borderColor: C.border,
+                                  backgroundColor: C.bgAlt,
+                                  marginBottom: 12,
+                                }}
+                              >
+                                {/* Header badge row */}
+                                <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+                                  <Text style={{ fontFamily: F.mono, fontSize: 11, color: C.inkLight, fontWeight: 'bold' }}>
+                                    QUESTION #{displayIdx + 1}
+                                  </Text>
+                                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                                    {myAns ? (
+                                      myAns.isCorrect ? (
+                                        <View style={{ paddingHorizontal: 7, paddingVertical: 2, borderRadius: 6, backgroundColor: '#E8F6EF', borderWidth: 1, borderColor: '#27AE60' }}>
+                                          <Text style={{ fontFamily: F.bold, fontSize: 10, color: '#27AE60' }}>
+                                            You: Correct ✓ {myAns.speedBonus ? '⚡' : ''}
+                                          </Text>
+                                        </View>
+                                      ) : (
+                                        <View style={{ paddingHorizontal: 7, paddingVertical: 2, borderRadius: 6, backgroundColor: '#FADBD8', borderWidth: 1, borderColor: '#C0392B' }}>
+                                          <Text style={{ fontFamily: F.bold, fontSize: 10, color: '#C0392B' }}>
+                                            You: Incorrect ✕
+                                          </Text>
+                                        </View>
+                                      )
+                                    ) : (
+                                      <View style={{ paddingHorizontal: 7, paddingVertical: 2, borderRadius: 6, backgroundColor: C.border }}>
+                                        <Text style={{ fontFamily: F.medium, fontSize: 10, color: C.inkLight }}>Unanswered</Text>
+                                      </View>
+                                    )}
+
+                                    {opAns && (
+                                      <View style={{ paddingHorizontal: 6, paddingVertical: 2, borderRadius: 6, backgroundColor: C.surface, borderWidth: 1, borderColor: C.border }}>
+                                        <Text style={{ fontFamily: F.mono, fontSize: 9, color: opAns.isCorrect ? '#27AE60' : C.inkLight }}>
+                                          Opp: {opAns.isCorrect ? '✓' : '✕'}
+                                        </Text>
+                                      </View>
+                                    )}
+                                  </View>
+                                </View>
+
+                                {/* Question text */}
+                                <MathText
+                                  text={q.text || q.q || ''}
+                                  style={{ fontFamily: F.bold, fontSize: 13, color: C.ink, lineHeight: 20, marginBottom: 10 }}
+                                />
+
+                                {/* Options breakdown */}
+                                <View style={{ gap: 6 }}>
+                                  {options.map((option: string, optIdx: number) => {
+                                    const isCorrectAnswer = option === q.correctAnswer;
+                                    const isMyChoice = myAns?.selectedAnswer === option;
+                                    const isOpChoice = opAns?.selectedAnswer === option;
+
+                                    let optBg = C.surface;
+                                    let optBorder = C.border;
+                                    let textColor = C.ink;
+
+                                    if (isCorrectAnswer) {
+                                      optBg = '#E8F6EF';
+                                      optBorder = '#27AE60';
+                                      textColor = '#1E8449';
+                                    } else if (isMyChoice && !isCorrectAnswer) {
+                                      optBg = '#FADBD8';
+                                      optBorder = '#C0392B';
+                                      textColor = '#922B21';
+                                    }
+
+                                    return (
+                                      <View
+                                        key={optIdx}
+                                        style={{
+                                          flexDirection: 'row',
+                                          alignItems: 'center',
+                                          justifyContent: 'space-between',
+                                          padding: 10,
+                                          borderRadius: 10,
+                                          borderWidth: 1,
+                                          borderColor: optBorder,
+                                          backgroundColor: optBg,
+                                        }}
+                                      >
+                                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, flex: 1, paddingRight: 6 }}>
+                                          <View
+                                            style={{
+                                              width: 22,
+                                              height: 22,
+                                              borderRadius: 11,
+                                              backgroundColor: isCorrectAnswer ? '#27AE60' : isMyChoice ? '#C0392B' : C.border,
+                                              justifyContent: 'center',
+                                              alignItems: 'center',
+                                            }}
+                                          >
+                                            <Text style={{ fontFamily: F.bold, fontSize: 10, color: isCorrectAnswer || isMyChoice ? '#fff' : C.inkMid }}>
+                                              {String.fromCharCode(65 + optIdx)}
+                                            </Text>
+                                          </View>
+                                          <View style={{ flex: 1 }}>
+                                            <MathText text={option} style={{ fontFamily: isCorrectAnswer ? F.bold : F.body, fontSize: 12, color: textColor }} />
+                                          </View>
+                                        </View>
+
+                                        {/* Status badges for this option */}
+                                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                                          {isCorrectAnswer && (
+                                            <View style={{ paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4, backgroundColor: '#27AE60' }}>
+                                              <Text style={{ fontFamily: F.bold, fontSize: 9, color: '#fff' }}>✓ Correct</Text>
+                                            </View>
+                                          )}
+                                          {isMyChoice && (
+                                            <View style={{ paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4, backgroundColor: isCorrectAnswer ? '#1E8449' : '#C0392B' }}>
+                                              <Text style={{ fontFamily: F.bold, fontSize: 9, color: '#fff' }}>
+                                                {isCorrectAnswer ? 'You ✓' : 'You ✕'}
+                                              </Text>
+                                            </View>
+                                          )}
+                                          {isOpChoice && (
+                                            <View style={{ paddingHorizontal: 5, paddingVertical: 2, borderRadius: 4, backgroundColor: C.border }}>
+                                              <Text style={{ fontFamily: F.mono, fontSize: 8, color: C.inkMid }}>Opponent</Text>
+                                            </View>
+                                          )}
+                                        </View>
+                                      </View>
+                                    );
+                                  })}
+                                </View>
+
+                                {/* Explanation */}
+                                {q.explanation && (
+                                  <View style={{ marginTop: 8, padding: 8, borderRadius: 8, backgroundColor: C.surface, borderWidth: 1, borderColor: C.border }}>
+                                    <Text style={{ fontFamily: F.bold, fontSize: 10, color: C.inkLight, marginBottom: 2 }}>
+                                      💡 EXPLANATION
+                                    </Text>
+                                    <MathText text={q.explanation} style={{ fontFamily: F.body, fontSize: 11, color: C.inkMid, lineHeight: 16 }} />
+                                  </View>
+                                )}
+                              </View>
+                            );
+                          })
+                        )}
+                      </View>
+                    );
+                  })()}
 
                   {currentMatch.type === 'quick_match' && activeSeasonId && (
                     <View style={[s.starNotice, { backgroundColor: C.bgAlt, marginTop: 4 }]}>

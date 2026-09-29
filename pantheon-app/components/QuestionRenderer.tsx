@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 import { StyleSheet, View, Text, TouchableOpacity } from 'react-native';
 import { useTheme } from '../context/ThemeContext';
 import { NoteRenderer } from './NoteRenderer';
@@ -84,11 +84,31 @@ export function QuestionRenderer({
 }: QuestionRendererProps) {
   const { colors: C } = useTheme();
 
+  const isQuestionJson = useMemo(() => {
+    if (!question || typeof question !== 'string') return false;
+    const trimmed = question.trim();
+    return trimmed.startsWith('[') && trimmed.endsWith(']');
+  }, [question]);
+
+  const isExplanationJson = useMemo(() => {
+    if (!explanation || typeof explanation !== 'string') return false;
+    const trimmed = explanation.trim();
+    return trimmed.startsWith('[') && trimmed.endsWith(']');
+  }, [explanation]);
+
   return (
     <View style={s.container}>
-      {/* Question Content inside standard NoteRenderer with touch events disabled */}
-      <View style={s.questionWrap} pointerEvents="none">
-        <NoteRenderer content={question} />
+      {/* Question Content */}
+      <View style={s.questionWrap}>
+        {isQuestionJson ? (
+          <View pointerEvents="none">
+            <NoteRenderer content={question} />
+          </View>
+        ) : (
+          <View style={[s.questionBox, { backgroundColor: C.surface, borderColor: C.border }]}>
+            <MathText text={question} style={[s.questionText, { color: C.ink }]} />
+          </View>
+        )}
       </View>
 
       {/* MCQ Options with native TouchableOpacity list */}
@@ -153,11 +173,17 @@ export function QuestionRenderer({
         })}
       </View>
 
-      {/* Explanation Display block with rich NoteRenderer */}
+      {/* Explanation Display block */}
       {isAnswered && explanation && (
-        <View style={[s.explanationCard, { backgroundColor: C.surface, borderColor: C.border }]} pointerEvents="none">
+        <View style={[s.explanationCard, { backgroundColor: C.surface, borderColor: C.border }]}>
           <Text style={[s.explanationTitle, { color: C.ink }]}>EXPLANATION</Text>
-          <NoteRenderer content={explanation} />
+          {isExplanationJson ? (
+            <View pointerEvents="none">
+              <NoteRenderer content={explanation} />
+            </View>
+          ) : (
+            <MathText text={explanation} style={[s.explanationText, { color: C.inkMid }]} />
+          )}
         </View>
       )}
     </View>
@@ -170,6 +196,22 @@ const s = StyleSheet.create({
   },
   questionWrap: {
     marginBottom: 8,
+  },
+  questionBox: {
+    padding: 16,
+    borderRadius: 16,
+    borderWidth: 1.5,
+    marginBottom: 4,
+  },
+  questionText: {
+    fontFamily: F.body,
+    fontSize: 16,
+    lineHeight: 24,
+  },
+  explanationText: {
+    fontFamily: F.body,
+    fontSize: 14,
+    lineHeight: 22,
   },
   optionsWrap: {
     gap: 10,

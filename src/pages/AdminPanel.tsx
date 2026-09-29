@@ -116,8 +116,8 @@ const RECOMMENDED_MODELS = {
     baseUrl: 'https://api.groq.com/openai/v1'
   },
   gemini: {
-    chat: 'gemini-2.0-flash-lite',
-    magicNote: 'gemini-2.0-flash-lite',
+    chat: 'gemini-3.8-flash',
+    magicNote: 'gemini-3.8-flash',
     baseUrl: ''
   },
   openrouter: {

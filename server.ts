@@ -2,6 +2,7 @@ import dotenv from "dotenv";
 dotenv.config();
 
 import express from "express";
+import http from "http";
 import path from "path";
 import fs from "fs";
 import { createServer as createViteServer } from "vite";
@@ -11,6 +12,7 @@ import { generateEdgeTTS, streamEdgeTTS, MICROSOFT_VOICES } from "./src/lib/edge
 async function startServer() {
   const app = express();
   const PORT = 3000;
+  const server = http.createServer(app);
 
   // Add Security Headers and CORS Middleware
   app.use((req, res, next) => {
@@ -271,33 +273,24 @@ async function startServer() {
     }
 
     // Strip full endpoint suffixes if mistakenly pasted
-    if (url.endsWith('/chat/completions')) {
-      url = url.replace(/\/chat\/completions$/, '');
-    }
+    url = url.replace(/\/+chat\/+completions$/i, '');
 
     // Provider specific canonical paths
-    if (/^https?:\/\/api\.openai\.com$/i.test(url)) {
+    if (/^https?:\/\/api\.openai\.com(\/v1)?$/i.test(url)) {
       url = 'https://api.openai.com/v1';
-    }
-    if (/^https?:\/\/api\.groq\.com$/i.test(url) || /^https?:\/\/api\.groq\.com\/v1$/i.test(url)) {
+    } else if (/^https?:\/\/api\.groq\.com(\/openai)?(\/v1)?$/i.test(url)) {
       url = 'https://api.groq.com/openai/v1';
-    }
-    if (/^https?:\/\/openrouter\.ai$/i.test(url) || /^https?:\/\/openrouter\.ai\/v1$/i.test(url) || /^https?:\/\/openrouter\.ai\/api$/i.test(url)) {
+    } else if (/^https?:\/\/openrouter\.ai(\/api)?(\/v1)?$/i.test(url)) {
       url = 'https://openrouter.ai/api/v1';
-    }
-    if (/^https?:\/\/api\.deepseek\.com$/i.test(url)) {
+    } else if (/^https?:\/\/api\.deepseek\.com(\/v1)?$/i.test(url)) {
       url = 'https://api.deepseek.com/v1';
-    }
-    if (/^https?:\/\/api\.together\.xyz$/i.test(url) || /^https?:\/\/api\.together\.ai$/i.test(url)) {
+    } else if (/^https?:\/\/api\.together\.(xyz|ai)(\/v1)?$/i.test(url)) {
       url = 'https://api.together.xyz/v1';
-    }
-    if (/^https?:\/\/api\.x\.ai$/i.test(url)) {
+    } else if (/^https?:\/\/api\.x\.ai(\/v1)?$/i.test(url)) {
       url = 'https://api.x.ai/v1';
-    }
-    if (/^https?:\/\/api\.mistral\.ai$/i.test(url)) {
+    } else if (/^https?:\/\/api\.mistral\.ai(\/v1)?$/i.test(url)) {
       url = 'https://api.mistral.ai/v1';
-    }
-    if (/^https?:\/\/api\.perplexity\.ai$/i.test(url)) {
+    } else if (/^https?:\/\/api\.perplexity\.ai$/i.test(url)) {
       url = 'https://api.perplexity.ai';
     }
 
@@ -306,13 +299,13 @@ async function startServer() {
 
   app.post("/api/hermes/chat", async (req, res) => {
     try {
-      const { messages, noteContent, config, isVoiceCall } = req.body;
+      const { messages, noteContent, config, isVoiceCall } = req.body || {};
       
-      const provider = config?.provider || 'groq';
+      const provider = config?.provider || 'gemini';
       let model = config?.model;
       
       if (!model) {
-        model = provider === 'groq' ? 'llama-3.3-70b-versatile' : provider === 'gemini' ? 'gemini-2.5-flash' : provider === 'openrouter' ? 'google/gemini-2.0-flash-001' : 'gpt-4o-mini';
+        model = provider === 'groq' ? 'llama-3.3-70b-versatile' : provider === 'gemini' ? 'gemini-3.8-flash' : provider === 'openrouter' ? 'google/gemini-2.0-flash-001' : 'gpt-4o-mini';
       }
       
       // Clean model ID for Groq
@@ -364,29 +357,51 @@ ${truncatedNote}
 `
       };
 
-      const latestUserMsg = slicedMessages.length > 0 ? slicedMessages[slicedMessages.length - 1].content : '';
+      const latestUserMsg = slicedMessages.length > 0 ? slicedMessages[slicedMessages.length - 1].content : 'Hello';
 
-      // Helper function to call Google Gemini using GenAI SDK
+      // Helper function to call Google Gemini using GenAI SDK with multi-model resiliency
       const callGeminiFallback = async (key: string, geminiModelName?: string) => {
         const aiGen = new GoogleGenAI({ apiKey: key });
-        const targetModel = geminiModelName && !geminiModelName.includes('1.5') && !geminiModelName.includes('2.0-flash-lite')
-          ? geminiModelName
-          : 'gemini-2.5-flash';
-        
-        const response = await aiGen.models.generateContent({
-          model: targetModel,
-          contents: [
-            {
-              role: 'user',
-              parts: [{ text: `SYSTEM INSTRUCTIONS:\n${systemPrompt.content}\n\nUSER QUESTION: ${latestUserMsg}` }]
+        const candidateModels = [
+          geminiModelName,
+          'gemini-3.8-flash',
+          'gemini-flash-latest',
+          'gemini-3.1-flash-lite',
+        ].filter(Boolean) as string[];
+
+        // Filter out deprecated 1.5, 2.0, 2.5 models
+        const validModels = Array.from(new Set(
+          candidateModels
+            .filter(m => !m.includes('1.5') && !m.includes('2.0') && !m.includes('2.5'))
+            .concat(['gemini-3.8-flash', 'gemini-flash-latest'])
+        ));
+
+        let lastErr: any = null;
+        for (const modelToTry of validModels) {
+          try {
+            const response = await aiGen.models.generateContent({
+              model: modelToTry,
+              contents: [
+                {
+                  role: 'user',
+                  parts: [{ text: `SYSTEM INSTRUCTIONS:\n${systemPrompt.content}\n\nUSER QUESTION: ${latestUserMsg}` }]
+                }
+              ]
+            });
+            if (response.text) {
+              return response.text;
             }
-          ]
-        });
-        return response.text || "I'm sorry, I couldn't generate a response.";
+          } catch (err: any) {
+            lastErr = err;
+            console.warn(`[Hermes Gemini Proxy] Model ${modelToTry} failed:`, err?.message || err);
+          }
+        }
+        throw lastErr || new Error("Failed to generate response from Gemini.");
       };
 
-      // ─── GOOGLE GEMINI (Direct REST / SDK when no custom Base URL is set) ────────────
-      if (provider === 'gemini' && !config?.baseUrl) {
+      // ─── GOOGLE GEMINI (Direct SDK handler) ───────────────────────────────────
+      const isGeminiProvider = provider === 'gemini' || !provider || (config?.baseUrl && config.baseUrl.includes('generativelanguage.googleapis.com'));
+      if (isGeminiProvider) {
         const activeGeminiKey = apiKey || serverGeminiKey;
         if (!activeGeminiKey) {
           return res.status(400).json({ error: 'Google Gemini Chat AI is not configured. Please set an API Key in the Admin Panel.' });
@@ -400,7 +415,7 @@ ${truncatedNote}
           // If custom key failed and server key is available, try server key
           if (apiKey && serverGeminiKey && apiKey !== serverGeminiKey) {
             try {
-              const fallbackContent = await callGeminiFallback(serverGeminiKey, 'gemini-2.5-flash');
+              const fallbackContent = await callGeminiFallback(serverGeminiKey, 'gemini-3.8-flash');
               return res.json({ content: fallbackContent });
             } catch (secErr: any) {
               console.error("Server fallback Gemini key also failed:", secErr);
@@ -414,7 +429,7 @@ ${truncatedNote}
       // If provider key is missing, seamlessly fallback to Gemini if server key exists
       if (!apiKey && serverGeminiKey) {
         try {
-          const content = await callGeminiFallback(serverGeminiKey, 'gemini-2.5-flash');
+          const content = await callGeminiFallback(serverGeminiKey, 'gemini-3.8-flash');
           return res.json({ content });
         } catch (err: any) {
           console.warn("Fallback to Gemini failed when API key was missing:", err);
@@ -444,15 +459,19 @@ ${truncatedNote}
         messages: [systemPrompt, ...slicedMessages],
       };
 
-      let response = await fetch(primaryEndpoint, {
-        method: 'POST',
-        headers,
-        body: JSON.stringify(payload),
-      });
+      let response: Response | null = null;
+      try {
+        response = await fetch(primaryEndpoint, {
+          method: 'POST',
+          headers,
+          body: JSON.stringify(payload),
+        });
+      } catch (fetchErr: any) {
+        console.warn(`Initial fetch to ${primaryEndpoint} failed:`, fetchErr?.message || fetchErr);
+      }
 
       // Automatic fallback retry for 404/405 (Method Not Allowed / Not Found)
-      // e.g. If url is https://server.com and needed /v1/chat/completions, or if url had /v1 and needed /chat/completions
-      if (!response.ok && (response.status === 404 || response.status === 405)) {
+      if (response && !response.ok && (response.status === 404 || response.status === 405)) {
         let fallbackEndpoint: string | null = null;
         if (!normalizedBaseUrl.endsWith('/v1') && !normalizedBaseUrl.includes('/v1/')) {
           fallbackEndpoint = `${normalizedBaseUrl}/v1/chat/completions`;
@@ -462,51 +481,56 @@ ${truncatedNote}
 
         if (fallbackEndpoint && fallbackEndpoint !== primaryEndpoint) {
           console.warn(`Hermes primary endpoint ${primaryEndpoint} returned ${response.status}. Retrying fallback: ${fallbackEndpoint}`);
-          const fallbackRes = await fetch(fallbackEndpoint, {
-            method: 'POST',
-            headers,
-            body: JSON.stringify(payload),
-          });
-          if (fallbackRes.ok) {
-            response = fallbackRes;
-            primaryEndpoint = fallbackEndpoint;
+          try {
+            const fallbackRes = await fetch(fallbackEndpoint, {
+              method: 'POST',
+              headers,
+              body: JSON.stringify(payload),
+            });
+            if (fallbackRes.ok) {
+              response = fallbackRes;
+              primaryEndpoint = fallbackEndpoint;
+            }
+          } catch (retryErr) {
+            console.warn(`Fallback endpoint ${fallbackEndpoint} failed:`, retryErr);
           }
         }
       }
 
-      if (!response.ok) {
-        const rawText = await response.text().catch(() => '');
+      if (!response || !response.ok) {
+        const rawText = response ? await response.text().catch(() => '') : 'Network Connection Error';
         let errInfo: any = {};
         try {
           errInfo = JSON.parse(rawText);
         } catch {
-          errInfo = { message: rawText || `HTTP ${response.status} from AI endpoint` };
+          errInfo = { message: rawText || (response ? `HTTP ${response.status} from AI endpoint` : 'Network Error') };
         }
 
         const nestedErr = errInfo.error?.error || errInfo.error || errInfo;
         const errMsg = typeof nestedErr === 'string' ? nestedErr : nestedErr.message || `Failed to connect to Hermes via ${provider}`;
-        const errCode = nestedErr.code || response.status;
+        const errCode = nestedErr.code || (response ? response.status : 500);
         
         console.error("Hermes Proxy Chat Error Details:", {
-          status: response.status,
+          status: response ? response.status : 'NO_RESPONSE',
           code: errCode,
           error: errInfo,
           provider,
           endpoint: primaryEndpoint
         });
 
-        // Fallback to server Gemini if third-party provider failed with 401/429/500 and server key exists
+        // Resilient Fallback: If third-party provider failed with 405, 404, 401, 429, 500 etc., fallback to server Gemini!
         if (serverGeminiKey) {
           try {
-            console.log("Attempting fallback to Gemini due to provider error...");
-            const fallbackContent = await callGeminiFallback(serverGeminiKey, 'gemini-2.5-flash');
+            console.log("Attempting fallback to Gemini 3.8 due to provider error...");
+            const fallbackContent = await callGeminiFallback(serverGeminiKey, 'gemini-3.8-flash');
             return res.json({ content: fallbackContent });
           } catch (fbErr) {
             console.error("Gemini fallback also failed:", fbErr);
           }
         }
 
-        return res.status(response.status).json({ error: `${errMsg} (Code: ${errCode})` });
+        const resStatus = response && response.status >= 400 && response.status < 600 ? response.status : 500;
+        return res.status(resStatus).json({ error: `${errMsg} (Code: ${errCode})` });
       }
 
       const data = await response.json();
@@ -514,7 +538,7 @@ ${truncatedNote}
         // Try fallback if choice is missing
         if (serverGeminiKey) {
           try {
-            const fallbackContent = await callGeminiFallback(serverGeminiKey, 'gemini-2.5-flash');
+            const fallbackContent = await callGeminiFallback(serverGeminiKey, 'gemini-3.8-flash');
             return res.json({ content: fallbackContent });
           } catch (e) {}
         }
@@ -529,7 +553,7 @@ ${truncatedNote}
         try {
           const aiGen = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
           const response = await aiGen.models.generateContent({
-            model: 'gemini-2.5-flash',
+            model: 'gemini-3.8-flash',
             contents: `You are Hermes, an academic assistant. Please answer the user: ${(req.body?.messages?.slice(-1)?.[0]?.content) || 'Hello'}`
           });
           if (response.text) {
@@ -543,43 +567,51 @@ ${truncatedNote}
 
   // Multimodal Voice Transcription for Hermes Live Voice Calls
   app.post("/api/hermes/transcribe", async (req, res) => {
-    try {
-      const { audio, mimeType, config } = req.body;
-      if (!audio || typeof audio !== 'string') {
-        return res.status(400).json({ error: 'Audio base64 data is required' });
-      }
-
-      // Clean base64 string
-      const cleanBase64 = audio.replace(/^data:audio\/[a-z0-9+-]+;base64,/, '').trim();
-      const cleanMime = mimeType || 'audio/m4a';
-
-      const apiKey = config?.apiKey || process.env.GEMINI_API_KEY || '';
-      if (!apiKey) {
-        return res.status(400).json({ error: 'No Gemini API key available for speech transcription' });
-      }
-
-      const aiGen = new GoogleGenAI({ apiKey });
-      const response = await aiGen.models.generateContent({
-        model: 'gemini-2.5-flash',
-        contents: [
-          {
-            inlineData: {
-              mimeType: cleanMime,
-              data: cleanBase64,
-            },
-          },
-          {
-            text: 'Listen carefully to this student asking a question in a voice call with their academic tutor. Transcribe the student\'s exact words. Output ONLY the transcribed text. Do NOT add quotes, markdown formatting, introductory labels, or commentary. If the recording is silence or inaudible, return an empty string.',
-          },
-        ],
-      });
-
-      const text = (response.text || '').trim();
-      return res.json({ text });
-    } catch (err: any) {
-      console.error('Error in /api/hermes/transcribe:', err);
-      return res.status(500).json({ error: err?.message || 'Failed to transcribe audio' });
+    const { audio, mimeType, config } = req.body || {};
+    if (!audio || typeof audio !== 'string') {
+      return res.status(400).json({ error: 'Audio base64 data is required' });
     }
+
+    // Clean base64 string
+    const cleanBase64 = audio.replace(/^data:audio\/[a-z0-9+-]+;base64,/, '').trim();
+    const cleanMime = mimeType || 'audio/m4a';
+
+    const apiKey = config?.apiKey || process.env.GEMINI_API_KEY || '';
+    if (!apiKey) {
+      return res.status(400).json({ error: 'No Gemini API key available for speech transcription' });
+    }
+
+    const transcribePrompt = "Listen carefully to this student asking a question in a voice call with their academic tutor. Transcribe the student's exact words. Output ONLY the transcribed text. Do NOT add quotes, markdown formatting, introductory labels, or commentary. If the recording is silence or inaudible, return an empty string.";
+
+    const modelsToTry = ['gemini-3.8-flash', 'gemini-3.1-flash-lite', 'gemini-flash-latest'];
+
+    for (const model of modelsToTry) {
+      try {
+        const aiGen = new GoogleGenAI({ apiKey });
+        const response = await aiGen.models.generateContent({
+          model,
+          contents: [
+            {
+              inlineData: {
+                mimeType: cleanMime,
+                data: cleanBase64,
+              },
+            },
+            {
+              text: transcribePrompt,
+            },
+          ],
+        });
+
+        const text = (response.text || '').trim();
+        return res.json({ text });
+      } catch (err: any) {
+        console.warn(`Error in /api/hermes/transcribe with model ${model}:`, err?.message || err);
+        // Continue to next model fallback
+      }
+    }
+
+    return res.status(500).json({ error: 'Failed to transcribe audio after trying available models.' });
   });
 
   app.get("/api/video-stream/:id", async (req, res) => {
@@ -832,7 +864,7 @@ ${truncatedNote}
     });
   }
 
-  app.listen(PORT, "0.0.0.0", () => {
+  server.listen(PORT, "0.0.0.0", () => {
     console.log(`Server running on http://localhost:${PORT}`);
   });
 }
