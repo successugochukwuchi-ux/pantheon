@@ -109,7 +109,11 @@ export function AIAssistant({ noteContent, noteTitle }: AIAssistantProps) {
         }).catch(() => setIsSpeaking(false));
       }
     } catch (error: any) {
-      setMessages(prev => [...prev, { role: 'assistant', content: `Error: ${error.message}` }]);
+      const raw = error?.message || 'Failed to connect to Hermes.';
+      const cleanMsg = raw.includes('405')
+        ? "Hermes is currently updating its study connection. Please ask again in a moment."
+        : raw;
+      setMessages(prev => [...prev, { role: 'assistant', content: cleanMsg }]);
     } finally {
       setIsLoading(false);
     }

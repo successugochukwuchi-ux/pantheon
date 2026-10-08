@@ -221,21 +221,21 @@ export default function StudyMaterials() {
               <div key={block.id}>
                 {block.type === 'h1' && (
                   <h1 className="text-3xl font-bold mb-4">
-                    <ReactMarkdown remarkPlugins={[remarkMath, remarkGfm]} rehypePlugins={[rehypeRaw, rehypeKatex]}>
+                    <ReactMarkdown remarkPlugins={[remarkMath, remarkGfm]} rehypePlugins={[rehypeRaw, [rehypeKatex, { throwOnError: false, strict: false }]]}>
                       {prepareMarkdownMath(block.content)}
                     </ReactMarkdown>
                   </h1>
                 )}
                 {block.type === 'h2' && (
                   <h2 className="text-2xl font-bold mb-3">
-                    <ReactMarkdown remarkPlugins={[remarkMath, remarkGfm]} rehypePlugins={[rehypeRaw, rehypeKatex]}>
+                    <ReactMarkdown remarkPlugins={[remarkMath, remarkGfm]} rehypePlugins={[rehypeRaw, [rehypeKatex, { throwOnError: false, strict: false }]]}>
                       {prepareMarkdownMath(block.content)}
                     </ReactMarkdown>
                   </h2>
                 )}
                 {block.type === 'text' && (
                   <div className="prose dark:prose-invert max-w-none">
-                    <ReactMarkdown remarkPlugins={[remarkMath, remarkGfm]} rehypePlugins={[rehypeRaw, rehypeKatex]}>
+                    <ReactMarkdown remarkPlugins={[remarkMath, remarkGfm]} rehypePlugins={[rehypeRaw, [rehypeKatex, { throwOnError: false, strict: false }]]}>
                       {prepareMarkdownMath(block.content)}
                     </ReactMarkdown>
                   </div>
@@ -256,7 +256,7 @@ export default function StudyMaterials() {
                               <tr key={rowIndex}>
                                 {row.map((cell, colIndex) => (
                                   <td key={colIndex} className="border p-4 text-sm min-w-[120px]">
-                                    <ReactMarkdown remarkPlugins={[remarkMath, remarkGfm]} rehypePlugins={[rehypeRaw, rehypeKatex]}>
+                                    <ReactMarkdown remarkPlugins={[remarkMath, remarkGfm]} rehypePlugins={[rehypeRaw, [rehypeKatex, { throwOnError: false, strict: false }]]}>
                                       {prepareMarkdownMath(cell)}
                                     </ReactMarkdown>
                                   </td>
@@ -301,7 +301,7 @@ export default function StudyMaterials() {
                             <HelpCircle className="h-4 w-4" /> Concept Check
                           </div>
                           <CardTitle className="text-lg mt-2">
-                            <ReactMarkdown remarkPlugins={[remarkMath, remarkGfm]} rehypePlugins={[rehypeRaw, rehypeKatex]}>
+                            <ReactMarkdown remarkPlugins={[remarkMath, remarkGfm]} rehypePlugins={[rehypeRaw, [rehypeKatex, { throwOnError: false, strict: false }]]}>
                               {prepareMarkdownMath(data.question)}
                             </ReactMarkdown>
                           </CardTitle>
@@ -315,7 +315,7 @@ export default function StudyMaterials() {
                               <div key={i} className="group relative">
                                 <div className="w-full flex items-center justify-between p-4 rounded-xl border border-border bg-background hover:bg-muted transition-all cursor-help">
                                   <span className="flex-1 text-sm">
-                                    <ReactMarkdown remarkPlugins={[remarkMath, remarkGfm]} rehypePlugins={[rehypeRaw, rehypeKatex]}>
+                                    <ReactMarkdown remarkPlugins={[remarkMath, remarkGfm]} rehypePlugins={[rehypeRaw, [rehypeKatex, { throwOnError: false, strict: false }]]}>
                                       {prepareMarkdownMath(opt.text)}
                                     </ReactMarkdown>
                                   </span>
@@ -336,7 +336,7 @@ export default function StudyMaterials() {
                                 <Wand2 className="h-3 w-3" /> Explanation
                               </div>
                               <div className="text-sm text-muted-foreground italic">
-                                <ReactMarkdown remarkPlugins={[remarkMath, remarkGfm]} rehypePlugins={[rehypeRaw, rehypeKatex]}>
+                                <ReactMarkdown remarkPlugins={[remarkMath, remarkGfm]} rehypePlugins={[rehypeRaw, [rehypeKatex, { throwOnError: false, strict: false }]]}>
                                   {prepareMarkdownMath(data.explanation)}
                                 </ReactMarkdown>
                               </div>

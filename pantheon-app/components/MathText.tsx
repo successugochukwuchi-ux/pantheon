@@ -53,6 +53,23 @@ function extractBalancedBraces(str: string, startIndex: number): { content: stri
 }
 
 /**
+ * Decodes HTML entities like &amp;, &lt;, &gt;, &quot;, &#39;, &nbsp; into real characters
+ */
+function decodeHtmlEntities(str: string): string {
+  if (!str) return '';
+  return str
+    .replace(/&amp;/gi, '&')
+    .replace(/&lt;/gi, '<')
+    .replace(/&gt;/gi, '>')
+    .replace(/&quot;/gi, '"')
+    .replace(/&#39;/gi, "'")
+    .replace(/&apos;/gi, "'")
+    .replace(/&nbsp;/gi, ' ')
+    .replace(/&#(\d+);/g, (_, dec) => String.fromCharCode(parseInt(dec, 10)))
+    .replace(/&#x([0-9a-f]+);/gi, (_, hex) => String.fromCharCode(parseInt(hex, 16)));
+}
+
+/**
  * Recursively parses LaTeX fractions (\frac{num}{den}, frac{num}{den}, frac(num,den), \frac 1 2, etc.) using balanced braces
  */
 function processLatexFractions(str: string): string {
@@ -221,6 +238,9 @@ export function formatLatexFormula(formula: string): string {
     f = f.slice(1, -1).trim();
   }
 
+  // Strip any accidental internal dollar signs
+  f = f.replace(/\$/g, '');
+
   // Normalize JSON double-backslashes (e.g. \\le -> \le, \\frac -> \frac)
   f = f.replace(/\\\\([a-zA-Z]+)/g, '\\$1');
 
@@ -231,6 +251,34 @@ export function formatLatexFormula(formula: string): string {
   f = f.replace(/'''/g, '‴');
   f = f.replace(/''/g, '″');
   f = f.replace(/'/g, '′');
+
+  // Decode HTML entities (&amp;, etc.)
+  f = decodeHtmlEntities(f);
+
+  // Blackboard bold sets: \mathbb{R}, \mathbb{N}, etc.
+  f = f.replace(/\\mathbb\s*\{\s*R\s*\}|\b\\mathbb\s+R\b/g, 'ℝ');
+  f = f.replace(/\\mathbb\s*\{\s*N\s*\}|\b\\mathbb\s+N\b/g, 'ℕ');
+  f = f.replace(/\\mathbb\s*\{\s*Z\s*\}|\b\\mathbb\s+Z\b/g, 'ℤ');
+  f = f.replace(/\\mathbb\s*\{\s*C\s*\}|\b\\mathbb\s+C\b/g, 'ℂ');
+  f = f.replace(/\\mathbb\s*\{\s*Q\s*\}|\b\\mathbb\s+Q\b/g, 'ℚ');
+
+  // Cases environment: \begin{cases} ... \end{cases}
+  f = f.replace(/\\begin\{cases\}([\s\S]*?)(?:\\end\{cases\}|$)/g, (_, content) => {
+    const lines = content
+      .split(/\\\\|\n/)
+      .map((line: string) => line.replace(/&/g, ', ').trim())
+      .filter(Boolean);
+    return `{ ${lines.join(' ; ')} }`;
+  });
+
+  // Matrices: \begin{matrix}, \begin{pmatrix}, \begin{bmatrix}
+  f = f.replace(/\\begin\{(?:p|b|v|V)?matrix\}([\s\S]*?)(?:\\end\{(?:p|b|v|V)?matrix\}|$)/g, (_, content) => {
+    const rows = content
+      .split(/\\\\|\n/)
+      .map((r: string) => r.replace(/&/g, '  ').trim())
+      .filter(Boolean);
+    return `[ ${rows.join(' | ')} ]`;
+  });
 
   // Remove styling tags
   f = f.replace(/\\(mathrm|mathbf|mathit|textbf|textit|text|bm|boldsymbol)\s*\{([^}]+)\}/g, '$2');
@@ -357,7 +405,25 @@ export function formatLatexFormula(formula: string): string {
  */
 function cleanPlainTextMathArtifacts(text: string): string {
   if (!text) return '';
-  let str = text;
+  let str = decodeHtmlEntities(text);
+  // Strip delimiters and inner dollar signs
+  str = str.replace(/\$/g, '');
+
+  // Blackboard bold sets: \mathbb{R}, \mathbb{N}, etc.
+  str = str.replace(/\\mathbb\s*\{\s*R\s*\}|\b\\mathbb\s+R\b/g, 'ℝ');
+  str = str.replace(/\\mathbb\s*\{\s*N\s*\}|\b\\mathbb\s+N\b/g, 'ℕ');
+  str = str.replace(/\\mathbb\s*\{\s*Z\s*\}|\b\\mathbb\s+Z\b/g, 'ℤ');
+  str = str.replace(/\\mathbb\s*\{\s*C\s*\}|\b\\mathbb\s+C\b/g, 'ℂ');
+  str = str.replace(/\\mathbb\s*\{\s*Q\s*\}|\b\\mathbb\s+Q\b/g, 'ℚ');
+
+  // Cases environment: \begin{cases} ... \end{cases}
+  str = str.replace(/\\begin\{cases\}([\s\S]*?)(?:\\end\{cases\}|$)/g, (_, content) => {
+    const lines = content
+      .split(/\\\\|\n/)
+      .map((line: string) => line.replace(/&/g, ', ').trim())
+      .filter(Boolean);
+    return `{ ${lines.join(' ; ')} }`;
+  });
 
   // 1. Process any leftover fractions
   str = processLatexFractions(str);
@@ -412,6 +478,9 @@ function cleanPlainTextMathArtifacts(text: string): string {
   str = str.replace(/\\/g, '');
   str = str.replace(/[\{\}]/g, '');
 
+  // 6. Ensure any stray 'frac' keywords are completely stripped
+  str = str.replace(/\bfrac\b\s*/gi, '');
+
   return str;
 }
 
@@ -425,15 +494,52 @@ export interface MathSegment {
  */
 export function parseMathSegments(text: string): MathSegment[] {
   if (!text) return [];
-  let str = String(text);
+  let str = decodeHtmlEntities(String(text));
 
   // Normalize JSON escaped backslashes (\\frac -> \frac)
   str = str.replace(/\\\\([a-zA-Z]+)/g, '\\$1');
 
-  // Pre-wrap any naked fractions, roots or math blocks if not already wrapped in $
-  // e.g. \frac{a}{b}, frac{a}{b}, \dfrac{...}{...}, \tfrac{...}{...}
-  str = str.replace(/(?<!\$)(?:\\?(?:frac|dfrac|tfrac)\s*\{[^{}]+\}\s*\{[^{}]+\})(?!\$)/g, (m) => `$${m}$`);
+  // Pre-wrap balanced fractions if not already wrapped in $
+  let preWrapped = '';
+  const fracPattern = /(?<!\$)(?:\\?(?:frac|dfrac|tfrac)\s*\{)/g;
+  let fracMatch: RegExpExecArray | null;
+  let fracLastIdx = 0;
+
+  while ((fracMatch = fracPattern.exec(str)) !== null) {
+    const startIdx = fracMatch.index;
+    const numOpen = fracMatch.index + fracMatch[0].length - 1;
+    const numRes = extractBalancedBraces(str, numOpen);
+    if (!numRes) {
+      preWrapped += str.slice(fracLastIdx, startIdx + fracMatch[0].length);
+      fracLastIdx = startIdx + fracMatch[0].length;
+      continue;
+    }
+
+    let denOpen = numRes.endIndex + 1;
+    while (denOpen < str.length && /\s/.test(str[denOpen])) denOpen++;
+
+    if (str[denOpen] === '{') {
+      const denRes = extractBalancedBraces(str, denOpen);
+      if (denRes) {
+        preWrapped += str.slice(fracLastIdx, startIdx);
+        preWrapped += `$${str.slice(startIdx, denRes.endIndex + 1)}$`;
+        fracLastIdx = denRes.endIndex + 1;
+        fracPattern.lastIndex = fracLastIdx;
+        continue;
+      }
+    }
+
+    preWrapped += str.slice(fracLastIdx, numRes.endIndex + 1);
+    fracLastIdx = numRes.endIndex + 1;
+  }
+  preWrapped += str.slice(fracLastIdx);
+  str = preWrapped;
+
+  // Pre-wrap single character fractions: \frac 1 2, frac 1 2, frac12
+  str = str.replace(/(?<!\$)(?:\\?(?:frac|dfrac|tfrac)\s*([0-9a-zA-Z])\s*([0-9a-zA-Z]))(?!\$)/g, (m) => `$${m}$`);
+  // Pre-wrap frac(num, den) format
   str = str.replace(/(?<!\$)(?:\\?(?:frac|dfrac|tfrac)\s*\([^,\)]+,\s*[^\)]+\))(?!\$)/g, (m) => `$${m}$`);
+  // Pre-wrap square roots
   str = str.replace(/(?<!\$)(?:\\?sqrt(?:\[[0-9a-zA-Z]+\])?\s*\{[^{}]+\})(?!\$)/g, (m) => `$${m}$`);
 
   const segments: MathSegment[] = [];

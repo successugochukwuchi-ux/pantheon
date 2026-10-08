@@ -8,6 +8,7 @@ import fs from "fs";
 import { createServer as createViteServer } from "vite";
 import { GoogleGenAI } from "@google/genai";
 import { generateEdgeTTS, streamEdgeTTS, MICROSOFT_VOICES } from "./src/lib/edge-tts";
+import { autoCorrectQuestionData, autoCorrectLatexSyntax, autoCorrectNoteContent } from "./src/lib/latexAutoCorrect";
 
 async function startServer() {
   const app = express();
@@ -258,6 +259,7 @@ async function startServer() {
   function normalizeOpenAIBaseUrl(rawUrl?: string, provider?: string): string {
     let url = (rawUrl || '').trim();
     if (!url) {
+      if (provider === 'deepseek') return 'https://api.deepseek.com/v1';
       if (provider === 'groq') return 'https://api.groq.com/openai/v1';
       if (provider === 'openrouter') return 'https://openrouter.ai/api/v1';
       if (provider === 'openai' || provider === 'custom') return 'https://api.openai.com/v1';
@@ -296,6 +298,14 @@ async function startServer() {
 
     return url.replace(/\/+$/, '');
   }
+
+  app.get("/api/hermes/chat", (req, res) => {
+    res.json({ status: "ok", service: "hermes-ai" });
+  });
+
+  app.options("/api/hermes/chat", (req, res) => {
+    res.sendStatus(200);
+  });
 
   app.post("/api/hermes/chat", async (req, res) => {
     try {
@@ -529,8 +539,11 @@ ${truncatedNote}
           }
         }
 
-        const resStatus = response && response.status >= 400 && response.status < 600 ? response.status : 500;
-        return res.status(resStatus).json({ error: `${errMsg} (Code: ${errCode})` });
+        const resStatus = response && response.status >= 400 && response.status < 600 && response.status !== 405 ? response.status : 500;
+        const cleanClientErr = String(errMsg || '').includes('405')
+          ? "Hermes AI is currently busy. Please try asking again shortly."
+          : `${errMsg} (Code: ${errCode === 405 || String(errCode) === '405' ? 'BUSY' : errCode})`;
+        return res.status(resStatus).json({ error: cleanClientErr });
       }
 
       const data = await response.json();
@@ -562,6 +575,370 @@ ${truncatedNote}
         } catch (e) {}
       }
       return res.status(500).json({ error: err.message || "Internal server error" });
+    }
+  });
+
+  // Module-level cooldown tracking for exhausted Gemini free tier quotas
+  let geminiQuotaExhaustedUntil = 0;
+
+  // Hermes AI LaTeX Auto-Correction & Healing Engine
+  app.post("/api/hermes/heal-latex", async (req, res) => {
+    try {
+      const { items, config } = req.body || {};
+      if (!Array.isArray(items) || items.length === 0) {
+        return res.json({ success: true, items: [], count: 0 });
+      }
+
+      const provider = config?.provider || 'gemini';
+      let model = config?.model;
+      if (!model) {
+        model = provider === 'groq' ? 'llama-3.3-70b-versatile' : provider === 'gemini' ? 'gemini-3.8-flash' : provider === 'openrouter' ? 'google/gemini-2.0-flash-001' : 'gpt-4o-mini';
+      }
+      if (provider === 'groq' && model.includes('/')) {
+        const parts = model.split('/');
+        model = parts[parts.length - 1];
+      }
+
+      const rawKey = config?.apiKey || '';
+      const apiKey = rawKey?.toString().replace(/\s+/g, '').replace(/['"]/g, '').replace(/[\u200B-\u200D\uFEFF]/g, '') || '';
+      const serverGeminiKey = process.env.GEMINI_API_KEY || '';
+
+      const promptInstructions = `You are the Hermes Academic LaTeX Auto-Correction and Healing Engine on CoLearn.
+Your objective is to fix and correct all broken, malformed, or unformatted LaTeX and mathematical expressions in the provided academic documents (past questions or notes).
+
+CRITICAL REQUIREMENTS:
+1. Preserve the exact academic text, wording, punctuation, tone, and logic of each question and option. Do not answer or change questions.
+2. Every mathematical formula, equation, variable, fraction, power, square root, Greek letter, calculus expression, and scientific symbol MUST be written in valid LaTeX wrapped in single dollar signs $...$ for inline math (e.g. $x$, $E=mc^2$, $\\frac{-b \\pm \\sqrt{b^2 - 4ac}}{2a}$, $\\alpha$, $\\beta$, $10^{-6}$) or double dollar signs $$...$$ for display equations.
+3. Auto-close all unclosed dollar signs (e.g., "$x + 2 where x is..." -> "$x + 2$ where $x$ is...").
+4. Fix bare fractions (e.g. "frac 1/2", "frac{1}{2}", "\\frac 1 2" without delimiters -> "$\\frac{1}{2}$").
+5. Convert unicode math characters (×, ÷, ±, ≤, ≥, ≠, √, ², ³, etc.) to standard LaTeX ($ \\times $, $ \\pm $, $ \\sqrt{} $, etc.).
+6. Balance all curly braces inside LaTeX macros.
+7. Return a strictly valid JSON array of objects with the exact same 'id' and the corrected fields. No markdown fences, no explanatory chatter.`;
+
+      // Helper function to heal items using Google Gemini
+      const healWithGemini = async (key: string, geminiModelName?: string) => {
+        if (Date.now() < geminiQuotaExhaustedUntil) {
+          throw new Error("Gemini free tier quota exhausted, switching directly to local engine.");
+        }
+
+        const aiGen = new GoogleGenAI({ apiKey: key });
+        const candidateModels = [
+          geminiModelName,
+          'gemini-3.8-flash',
+          'gemini-flash-latest',
+        ].filter(Boolean) as string[];
+
+        const validModels = Array.from(new Set(
+          candidateModels
+            .filter(m => !m.includes('1.5') && !m.includes('2.0') && !m.includes('2.5'))
+            .concat(['gemini-3.8-flash', 'gemini-flash-latest'])
+        ));
+
+        let lastErr: any = null;
+        for (const modelToTry of validModels) {
+          try {
+            const generatePromise = aiGen.models.generateContent({
+              model: modelToTry,
+              contents: `${promptInstructions}\n\nINPUT ITEMS JSON:\n${JSON.stringify(items, null, 2)}`,
+              config: {
+                responseMimeType: 'application/json',
+              }
+            });
+            const timeoutPromise = new Promise<never>((_, reject) => 
+              setTimeout(() => reject(new Error(`Timeout calling model ${modelToTry}`)), 18000)
+            );
+            const response = await Promise.race([generatePromise, timeoutPromise]);
+            if (response.text) {
+              const cleaned = response.text.replace(/```json\n?/, '').replace(/\n?```/, '').trim();
+              const parsed = JSON.parse(cleaned);
+              if (Array.isArray(parsed)) return parsed;
+              if (parsed.items && Array.isArray(parsed.items)) return parsed.items;
+            }
+          } catch (err: any) {
+            lastErr = err;
+            console.warn(`[Hermes Heal Gemini] Model ${modelToTry} failed:`, err?.message || err);
+            // If error is 429 RESOURCE_EXHAUSTED, all Gemini models on this key will fail! Set cooldown and break immediately!
+            if (err?.message?.includes('429') || err?.message?.includes('RESOURCE_EXHAUSTED') || err?.status === 429) {
+              geminiQuotaExhaustedUntil = Date.now() + 60 * 60 * 1000;
+              break;
+            }
+          }
+        }
+        throw lastErr || new Error("Failed to heal LaTeX with Gemini.");
+      };
+
+      // Helper function to heal items using OpenAI-compatible API
+      const healWithOpenAICompatible = async () => {
+        const activeKey = apiKey || serverGeminiKey;
+        const normalizedBaseUrl = normalizeOpenAIBaseUrl(config?.baseUrl, provider);
+        const endpoint = `${normalizedBaseUrl}/chat/completions`;
+
+        const payload: Record<string, any> = {
+          model: model,
+          messages: [
+            { role: 'system', content: promptInstructions },
+            { role: 'user', content: `Please heal and format all LaTeX in these academic items. Return ONLY a valid JSON array matching the input structure:\n${JSON.stringify(items, null, 2)}` }
+          ],
+          temperature: 0.1,
+          max_tokens: 8192,
+        };
+
+        const resAI = await fetch(endpoint, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            ...(activeKey ? { 'Authorization': `Bearer ${activeKey}` } : {}),
+            ...(provider === 'openrouter' ? {
+              'HTTP-Referer': req.headers.origin || 'https://ais-dev-iuwo2zt3vdgdkwbrhidmyy-184499856098.europe-west3.run.app',
+              'X-Title': 'Hermes LaTeX Healer'
+            } : {})
+          },
+          body: JSON.stringify(payload),
+          signal: AbortSignal.timeout(18000),
+        });
+
+        if (!resAI.ok) {
+          throw new Error(`AI Provider returned error ${resAI.status}`);
+        }
+        const data = await resAI.json();
+        const content = data.choices?.[0]?.message?.content;
+        if (!content) throw new Error("No content returned from AI provider.");
+        const cleaned = content.replace(/```json\n?/, '').replace(/\n?```/, '').trim();
+        const parsed = JSON.parse(cleaned);
+        if (Array.isArray(parsed)) return parsed;
+        if (parsed.items && Array.isArray(parsed.items)) return parsed.items;
+        throw new Error("Unexpected JSON format from AI provider");
+      };
+
+      let healedResult: any[] | null = null;
+      const isGemini = provider === 'gemini' || !provider || (config?.baseUrl && config.baseUrl.includes('generativelanguage.googleapis.com'));
+
+      try {
+        if (isGemini) {
+          const keyToUse = apiKey || serverGeminiKey;
+          if (keyToUse) {
+            healedResult = await healWithGemini(keyToUse, model);
+          }
+        } else {
+          healedResult = await healWithOpenAICompatible();
+        }
+      } catch (aiErr: any) {
+        console.warn("Hermes AI LaTeX healing provider call failed, attempting fallback:", aiErr?.message || aiErr);
+        // Fallback to server Gemini key if custom provider failed and Gemini is not exhausted
+        if (serverGeminiKey && Date.now() >= geminiQuotaExhaustedUntil) {
+          try {
+            healedResult = await healWithGemini(serverGeminiKey, 'gemini-3.8-flash');
+          } catch (secErr) {
+            console.warn("Server Gemini fallback also failed:", secErr);
+          }
+        }
+      }
+
+      // If AI succeeded and returned healed items:
+      if (Array.isArray(healedResult) && healedResult.length > 0) {
+        // Merge with original items to ensure all fields are preserved
+        const idMap = new Map(healedResult.map((item: any) => [item.id, item]));
+        const merged = items.map((orig: any) => {
+          const healed = idMap.get(orig.id) || {};
+          return {
+            ...orig,
+            ...healed,
+            text: healed.text ? autoCorrectLatexSyntax(healed.text) : (orig.text ? autoCorrectLatexSyntax(orig.text) : orig.text),
+            question: healed.question ? autoCorrectLatexSyntax(healed.question) : (orig.question ? autoCorrectLatexSyntax(orig.question) : orig.question),
+            correctAnswer: healed.correctAnswer ? autoCorrectLatexSyntax(healed.correctAnswer) : (orig.correctAnswer ? autoCorrectLatexSyntax(orig.correctAnswer) : orig.correctAnswer),
+            incorrectAnswers: Array.isArray(healed.incorrectAnswers) 
+              ? healed.incorrectAnswers.map((a: string) => autoCorrectLatexSyntax(a))
+              : (Array.isArray(orig.incorrectAnswers) ? orig.incorrectAnswers.map((a: string) => autoCorrectLatexSyntax(a)) : orig.incorrectAnswers),
+            options: Array.isArray(healed.options)
+              ? healed.options.map((a: string) => autoCorrectLatexSyntax(a))
+              : (Array.isArray(orig.options) ? orig.options.map((a: string) => autoCorrectLatexSyntax(a)) : orig.options),
+            explanation: healed.explanation ? autoCorrectLatexSyntax(healed.explanation) : (orig.explanation ? autoCorrectLatexSyntax(orig.explanation) : orig.explanation),
+          };
+        });
+        return res.json({ success: true, items: merged, count: merged.length, engine: 'hermes-ai' });
+      }
+
+      // Fallback: Run our robust regex auto-corrector on every item
+      const fallbackItems = items.map((item: any) => {
+        if (item.type === 'note' || item.content) {
+          const res = autoCorrectNoteContent(item.content);
+          return {
+            ...item,
+            title: item.title ? autoCorrectLatexSyntax(item.title) : item.title,
+            content: res.content,
+          };
+        }
+        return autoCorrectQuestionData(item).data;
+      });
+
+      return res.json({ success: true, items: fallbackItems, count: fallbackItems.length, engine: 'local-healer' });
+    } catch (globalErr: any) {
+      console.error("Critical error in /api/hermes/heal-latex:", globalErr);
+      return res.status(500).json({ error: globalErr.message || "Failed to heal LaTeX" });
+    }
+  });
+
+  // Helper function to parse healed PLX question blocks containing ID="..." attributes
+  function parsePLXQuestionBlocks(plxText: string): any[] {
+    const results: any[] = [];
+    if (!plxText || typeof plxText !== 'string') return results;
+
+    const quesRegex = /<QUES(?:\s+ID\s*=\s*["']?([^"'>\s]+)["']?)?>([\s\S]*?)<\/QUES>/gi;
+    let match: RegExpExecArray | null;
+
+    while ((match = quesRegex.exec(plxText)) !== null) {
+      const id = match[1] || '';
+      const body = match[2].trim();
+
+      // Extract COR
+      let correctAnswer = '';
+      const corAttrMatch = /<COR(?:\s*=\s*"([^"]*)"|\s*=\s*'([^']*)'|\s*=\s*([^>\s]+))?\s*>/i.exec(body);
+      if (corAttrMatch && (corAttrMatch[1] !== undefined || corAttrMatch[2] !== undefined || corAttrMatch[3] !== undefined)) {
+        correctAnswer = (corAttrMatch[1] ?? corAttrMatch[2] ?? corAttrMatch[3] ?? '').trim();
+      } else {
+        const corTagMatch = /<COR>([\s\S]*?)<\/COR>/i.exec(body);
+        if (corTagMatch) correctAnswer = corTagMatch[1].trim();
+      }
+
+      // Extract all INCs
+      const incorrectAnswers: string[] = [];
+      const incAttrRegex = /<INC(?:\s*=\s*"([^"]*)"|\s*=\s*'([^']*)'|\s*=\s*([^>\s]+))?\s*>/gi;
+      let incM: RegExpExecArray | null;
+      while ((incM = incAttrRegex.exec(body)) !== null) {
+        const val = (incM[1] ?? incM[2] ?? incM[3] ?? '').trim();
+        if (val) incorrectAnswers.push(val);
+      }
+      if (incorrectAnswers.length === 0) {
+        const incTagRegex = /<INC>([\s\S]*?)<\/INC>/gi;
+        while ((incM = incTagRegex.exec(body)) !== null) {
+          const val = incM[1].trim();
+          if (val) incorrectAnswers.push(val);
+        }
+      }
+
+      // Extract EXP
+      let explanation = '';
+      const expAttrMatch = /<EXP(?:\s*=\s*"([^"]*)"|\s*=\s*'([^']*)'|\s*=\s*([^>\s]+))?\s*>/i.exec(body);
+      if (expAttrMatch && (expAttrMatch[1] !== undefined || expAttrMatch[2] !== undefined || expAttrMatch[3] !== undefined)) {
+        explanation = (expAttrMatch[1] ?? expAttrMatch[2] ?? expAttrMatch[3] ?? '').trim();
+      } else {
+        const expTagMatch = /<EXP>([\s\S]*?)<\/EXP>/i.exec(body);
+        if (expTagMatch) explanation = expTagMatch[1].trim();
+      }
+
+      // Extract question text before the first answer tag
+      const firstTagIndex = body.search(/<(COR|INC|EXP)\b/i);
+      const rawQuestionText = firstTagIndex === -1 ? body : body.slice(0, firstTagIndex).trim();
+
+      if (id) {
+        const cleanedText = autoCorrectLatexSyntax(rawQuestionText);
+        const cleanedCor = autoCorrectLatexSyntax(correctAnswer);
+        const cleanedIncs = incorrectAnswers.map(a => autoCorrectLatexSyntax(a));
+        const cleanedExp = explanation ? autoCorrectLatexSyntax(explanation) : '';
+
+        results.push({
+          id,
+          text: cleanedText,
+          question: cleanedText,
+          correctAnswer: cleanedCor,
+          incorrectAnswers: cleanedIncs,
+          options: [cleanedCor, ...cleanedIncs],
+          explanation: cleanedExp
+        });
+      }
+    }
+    return results;
+  }
+
+  // Hermes AI PLX Question Batch Healer (Powered by DeepSeek / Hermes configuration)
+  app.post("/api/hermes/heal-plx", async (req, res) => {
+    try {
+      const { plx, config } = req.body || {};
+      if (!plx || typeof plx !== 'string' || !plx.includes('<QUES')) {
+        return res.json({ success: true, questions: [], count: 0 });
+      }
+
+      const provider = config?.provider || 'deepseek';
+      let model = config?.model;
+      if (!model) {
+        model = provider === 'deepseek' ? 'deepseek-chat' : provider === 'groq' ? 'llama-3.3-70b-versatile' : provider === 'openrouter' ? 'deepseek/deepseek-chat' : 'deepseek-chat';
+      }
+
+      const rawKey = config?.apiKey || process.env.DEEPSEEK_API_KEY || '';
+      const apiKey = rawKey?.toString().replace(/\s+/g, '').replace(/['"]/g, '').replace(/[\u200B-\u200D\uFEFF]/g, '') || '';
+
+      const systemPrompt = `You are the Hermes Academic LaTeX Auto-Correction Engine on CoLearn.
+Your objective is to fix and correct all broken, malformed, or unformatted LaTeX and mathematical expressions in the provided PLX document containing <QUES ID="..."> blocks according to standard PLX syntax.
+
+CRITICAL REQUIREMENTS:
+1. Return ONLY the valid <PLX> document containing all <QUES ID="..."> blocks. Do NOT output markdown fences (\`\`\`xml or \`\`\`plx) or conversational commentary.
+2. PRESERVE EVERY <QUES ID="..."> tag with its exact ID attribute completely intact (e.g. <QUES ID="question_id">). Do not delete, rename, skip, or reorder any IDs.
+3. Every mathematical formula, equation, variable, fraction, power, square root, Greek letter, calculus expression, and scientific symbol in the question text, <COR>, <INC>, and <EXP> tags MUST be written in valid LaTeX wrapped in single dollar signs $...$ for inline math (e.g. $x$, $E=mc^2$, $\\frac{-b \\pm \\sqrt{b^2 - 4ac}}{2a}$, $\\alpha$, $\\beta$, $10^{-6}$) or double dollar signs $$...$$ for display equations.
+4. Auto-close all unclosed dollar signs (e.g. "$x + 2 where x is..." -> "$x + 2$ where $x$ is...").
+5. Fix bare fractions (e.g. "frac 1/2", "frac{1}{2}", "\\frac 1 2" without delimiters -> "$\\frac{1}{2}$").
+6. Correct all piecewise functions and cases: ensure \\begin{cases} and \\end{cases} are matched and enclosed in $$ \\begin{cases} ... \\end{cases} $$.
+7. Escape unescaped percent signs inside math formulas as \\%.
+8. Balance all curly braces {} inside LaTeX macros.
+9. Carefully verify and correct the mathematical syntax in both the questions and their respective correct and incorrect answer choices according to the PLX syntax without losing or corrupting any question records.`;
+
+      const normalizedBaseUrl = normalizeOpenAIBaseUrl(config?.baseUrl, provider);
+      const endpoint = `${normalizedBaseUrl}/chat/completions`;
+
+      const payload: Record<string, any> = {
+        model,
+        messages: [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: `Please heal and format all LaTeX in these PLX questions. Return ONLY the healed <PLX> document:\n\n${plx}` }
+        ],
+        temperature: 0.1,
+        max_tokens: 8192,
+      };
+
+      let healedPlxText = '';
+      try {
+        const resAI = await fetch(endpoint, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            ...(apiKey ? { 'Authorization': `Bearer ${apiKey}` } : {}),
+            ...(provider === 'openrouter' ? {
+              'HTTP-Referer': req.headers.origin || 'https://ais-dev-iuwo2zt3vdgdkwbrhidmyy-184499856098.europe-west3.run.app',
+              'X-Title': 'Hermes PLX LaTeX Healer'
+            } : {})
+          },
+          body: JSON.stringify(payload),
+          signal: AbortSignal.timeout(60000),
+        });
+
+        if (resAI.ok) {
+          const data = await resAI.json();
+          const content = data.choices?.[0]?.message?.content;
+          if (content) {
+            healedPlxText = content.replace(/```(?:xml|plx|html)?\n?/gi, '').replace(/\n?```/g, '').trim();
+          }
+        } else {
+          const errDetail = await resAI.text().catch(() => '');
+          console.warn(`[Hermes PLX Heal] AI provider returned status ${resAI.status}: ${errDetail.slice(0, 300)}`);
+        }
+      } catch (callErr: any) {
+        console.warn("[Hermes PLX Heal] AI call error, falling back to local PLX parser:", callErr?.message || callErr);
+      }
+
+      // Parse the returned PLX text
+      let parsed = healedPlxText ? parsePLXQuestionBlocks(healedPlxText) : [];
+
+      // If AI didn't return or was incomplete, fallback to parsing input PLX with local high-speed healer
+      if (parsed.length === 0) {
+        parsed = parsePLXQuestionBlocks(plx);
+        return res.json({ success: true, questions: parsed, count: parsed.length, engine: 'local-healer' });
+      }
+
+      return res.json({ success: true, questions: parsed, count: parsed.length, engine: 'deepseek-hermes' });
+    } catch (err: any) {
+      console.error("Critical error in /api/hermes/heal-plx:", err);
+      // Failsafe: parse input PLX locally
+      const fallbackParsed = req.body?.plx ? parsePLXQuestionBlocks(req.body.plx) : [];
+      return res.json({ success: true, questions: fallbackParsed, count: fallbackParsed.length, engine: 'local-failsafe' });
     }
   });
 

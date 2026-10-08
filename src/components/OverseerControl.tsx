@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { collection, query, where, getDocs, doc, updateDoc, setDoc, addDoc, getDoc, orderBy } from 'firebase/firestore';
 import { db } from '../firebase';
 import { useAuth } from '../contexts/AuthContext';
@@ -7,10 +7,18 @@ import { Input } from './ui/input';
 import { Label } from './ui/label';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from './ui/card';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from './ui/dialog';
+import { Badge } from './ui/badge';
 import { toast } from 'sonner';
-import { ShieldCheck, School, BookOpen, DollarSign, Calendar, TrendingUp, Key, Plus, List, Eye, FileDown } from 'lucide-react';
+import { 
+  ShieldCheck, School, BookOpen, DollarSign, Calendar, TrendingUp, Key, Plus, 
+  List, Eye, FileDown, Loader2, Wand2, Sparkles, CheckCircle2, AlertTriangle, 
+  Terminal, RefreshCw, XCircle, FileText, HelpCircle, Bot, Cpu, StopCircle 
+} from 'lucide-react';
 import { jsPDF } from 'jspdf';
 import * as XLSX from 'xlsx';
+import { autoCorrectNoteContent, autoCorrectQuestionData, autoCorrectLatexSyntax } from '../lib/latexAutoCorrect';
+import { healLatexWithHermesAI, healQuestionsWithHermesPLX } from '../services/aiService';
 
 interface UniversityItem {
   id: string;
@@ -33,6 +41,27 @@ interface PriceHistoryRecord {
   updatedAt: string;
 }
 
+export interface LatexCorrectionProgress {
+  status: 'idle' | 'running' | 'completed' | 'error';
+  stage: string;
+  progressPercent: number;
+  notesScanned: number;
+  totalNotes: number;
+  notesCorrected: number;
+  sheetsScanned: number;
+  totalSheets: number;
+  sheetsCorrected: number;
+  questionsScanned: number;
+  totalQuestions: number;
+  questionsCorrected: number;
+  currentBatchNum?: number;
+  totalBatchesCount?: number;
+  currentDocument: string;
+  logs: string[];
+  errorMsg?: string;
+  completedAt?: string;
+}
+
 export default function OverseerControl() {
   const { profile, user } = useAuth();
 
@@ -40,6 +69,35 @@ export default function OverseerControl() {
   const [elevateStudentId, setElevateStudentId] = useState('');
   const [elevateLoading, setElevateLoading] = useState(false);
   const [migrating, setMigrating] = useState(false);
+  const [latexCorrecting, setLatexCorrecting] = useState(false);
+  const [showLatexConfirmModal, setShowLatexConfirmModal] = useState(false);
+  const [healingEngine, setHealingEngine] = useState<'hermes' | 'heuristic'>('hermes');
+  const [activeModelName, setActiveModelName] = useState('Hermes AI (from Firebase)');
+  const [latexProgress, setLatexProgress] = useState<LatexCorrectionProgress>({
+    status: 'idle',
+    stage: 'Idle',
+    progressPercent: 0,
+    notesScanned: 0,
+    totalNotes: 0,
+    notesCorrected: 0,
+    sheetsScanned: 0,
+    totalSheets: 0,
+    sheetsCorrected: 0,
+    questionsScanned: 0,
+    totalQuestions: 0,
+    questionsCorrected: 0,
+    currentDocument: '',
+    logs: []
+  });
+  const isCorrectingRef = useRef(false);
+  const logContainerRef = useRef<HTMLDivElement>(null);
+
+  // Auto-scroll logs to bottom whenever new log events arrive
+  useEffect(() => {
+    if (logContainerRef.current) {
+      logContainerRef.current.scrollTop = logContainerRef.current.scrollHeight;
+    }
+  }, [latexProgress.logs]);
 
   // University creation states
   const [uniName, setUniName] = useState('');
@@ -315,6 +373,379 @@ export default function OverseerControl() {
       toast.error(`Migration failed: ${err.message}`, { id: toastId });
     } finally {
       setMigrating(false);
+    }
+  };
+
+  const handleStopAutoCorrectLatex = () => {
+    isCorrectingRef.current = false;
+    setLatexCorrecting(false);
+    setLatexProgress(prev => ({
+      ...prev,
+      status: 'idle',
+      stage: 'Process stopped by user',
+      logs: [...prev.logs, `[${new Date().toLocaleTimeString()}] LaTeX auto-correction process stopped.`]
+    }));
+    toast.info("LaTeX auto-correction stopped.");
+  };
+
+  // Auto-correct all incorrect LaTeX syntax across published notes and past questions in Firestore with live status updates
+  const handleStartAutoCorrectLatex = async () => {
+    if (isCorrectingRef.current) return;
+    setShowLatexConfirmModal(false);
+    isCorrectingRef.current = true;
+    setLatexCorrecting(true);
+
+    const formatTime = () => new Date().toLocaleTimeString();
+
+    setLatexProgress({
+      status: 'running',
+      stage: `Initializing ${healingEngine === 'hermes' ? 'Hermes AI' : 'Local Heuristic'} LaTeX Engine...`,
+      progressPercent: 2,
+      notesScanned: 0,
+      totalNotes: 0,
+      notesCorrected: 0,
+      questionsScanned: 0,
+      totalQuestions: 0,
+      questionsCorrected: 0,
+      currentDocument: 'Connecting to Firestore & AI service...',
+      logs: [`[${formatTime()}] Initialized ${healingEngine === 'hermes' ? 'Hermes AI LaTeX Auto-Correction (using Firebase config)' : 'Local Heuristic LaTeX Healing'}.`]
+    });
+
+    const addLog = (msg: string) => {
+      setLatexProgress(prev => ({
+        ...prev,
+        logs: [...prev.logs.slice(-70), `[${formatTime()}] ${msg}`]
+      }));
+    };
+
+    const toastId = toast.loading(`LaTeX auto-correction started (${healingEngine === 'hermes' ? 'Hermes AI' : 'Local'})... Watching progress`);
+
+    try {
+      const { writeBatch } = await import('firebase/firestore');
+
+      // 0. Load Hermes Chat Configuration from Firestore if in AI mode
+      let hermesConfig: any = null;
+      if (healingEngine === 'hermes') {
+        try {
+          addLog("Connecting to Firebase to fetch Hermes AI Chat configuration (system/hermes)...");
+          const hermesSnap = await getDoc(doc(db, 'system', 'hermes'));
+          if (hermesSnap.exists()) {
+            hermesConfig = hermesSnap.data();
+            const prov = (hermesConfig.provider || 'gemini').toUpperCase();
+            const mod = hermesConfig.model || 'gemini-3.8-flash';
+            setActiveModelName(`Hermes AI (${prov}: ${mod})`);
+            addLog(`[Hermes Engine] Loaded active configuration from Firebase: Provider=${prov}, Model=${mod}`);
+          } else {
+            setActiveModelName('Hermes AI (Server Gemini 3.8 Flash)');
+            addLog("[Hermes Engine] No custom document at 'system/hermes'. Using server-side default Gemini 3.8 Flash engine.");
+          }
+        } catch (confErr: any) {
+          addLog(`[Hermes Engine] Notice: Could not read 'system/hermes' (${confErr.message}), will use server fallback AI.`);
+        }
+      }
+
+      // 1. Fetch note and question snapshots
+      addLog("Fetching published notes from 'notes' collection...");
+      const notesSnap = await getDocs(collection(db, 'notes'));
+      const totalNotes = notesSnap.docs.length;
+      addLog(`Found ${totalNotes} published notes in Firestore.`);
+
+      addLog("Fetching past questions from 'questions' collection...");
+      const questionsSnap = await getDocs(collection(db, 'questions'));
+      const totalQuestions = questionsSnap.docs.length;
+      addLog(`Found ${totalQuestions} past questions in Firestore.`);
+
+      const totalItems = totalNotes + totalQuestions || 1;
+
+      setLatexProgress(prev => ({
+        ...prev,
+        stage: `Scanning ${totalNotes} notes for broken LaTeX, unclosed $ and bare fractions...`,
+        totalNotes,
+        totalQuestions,
+        progressPercent: 5,
+        currentDocument: 'Preparing note scanner...'
+      }));
+
+      let notesFixed = 0;
+      let noteBatch = writeBatch(db);
+      let opCount = 0;
+
+      // 2. Scan and correct notes
+      for (let i = 0; i < totalNotes; i++) {
+        if (!isCorrectingRef.current) break;
+
+        const noteDoc = notesSnap.docs[i];
+        const data = noteDoc.data();
+        const noteTitle = data.title || `Note #${noteDoc.id.slice(0, 8)}`;
+        
+        let changed = false;
+        const updates: Record<string, any> = {};
+
+        if (typeof data.content === 'string') {
+          const res = autoCorrectNoteContent(data.content);
+          if (res.changed) {
+            updates.content = res.content;
+            changed = true;
+          }
+        }
+
+        if (typeof data.title === 'string') {
+          const correctedTitle = autoCorrectLatexSyntax(data.title);
+          if (correctedTitle !== data.title) {
+            updates.title = correctedTitle;
+            changed = true;
+          }
+        }
+
+        if (changed) {
+          noteBatch.update(doc(db, 'notes', noteDoc.id), updates);
+          notesFixed++;
+          opCount++;
+          addLog(`Healed LaTeX syntax in note: "${noteTitle}"`);
+
+          if (opCount >= 400) {
+            addLog("Committing batch of note updates to Firestore...");
+            await noteBatch.commit();
+            noteBatch = writeBatch(db);
+            opCount = 0;
+          }
+        }
+
+        // Check any videoQuestions subcollection under notes
+        try {
+          const vqSnap = await getDocs(collection(db, `notes/${noteDoc.id}/videoQuestions`));
+          for (const vqDoc of vqSnap.docs) {
+            const vqData = vqDoc.data();
+            const vqRes = autoCorrectQuestionData(vqData);
+            if (vqRes.changed) {
+              const cleanFields: Record<string, any> = {};
+              if (vqRes.data.text !== undefined) cleanFields.text = vqRes.data.text;
+              if (vqRes.data.correctAnswer !== undefined) cleanFields.correctAnswer = vqRes.data.correctAnswer;
+              if (vqRes.data.incorrectAnswers !== undefined) cleanFields.incorrectAnswers = vqRes.data.incorrectAnswers;
+              if (vqRes.data.explanation !== undefined) cleanFields.explanation = vqRes.data.explanation;
+
+              noteBatch.update(doc(db, `notes/${noteDoc.id}/videoQuestions`, vqDoc.id), cleanFields);
+              opCount++;
+              addLog(`Healed LaTeX in video question for note: "${noteTitle}"`);
+
+              if (opCount >= 400) {
+                await noteBatch.commit();
+                noteBatch = writeBatch(db);
+                opCount = 0;
+              }
+            }
+          }
+        } catch {
+          // ignore
+        }
+
+        const currentPct = Math.round(5 + ((i + 1) / totalItems) * 45);
+        setLatexProgress(prev => ({
+          ...prev,
+          notesScanned: i + 1,
+          notesCorrected: notesFixed,
+          progressPercent: currentPct,
+          currentDocument: `[Note ${i + 1}/${totalNotes}] ${noteTitle}`
+        }));
+
+        if (i % 8 === 0) {
+          await new Promise(r => setTimeout(r, 0));
+        }
+      }
+
+      if (opCount > 0) {
+        addLog("Committing final batch of note updates to Firestore...");
+        await noteBatch.commit();
+      }
+
+      addLog(`Completed note scanning. ${notesFixed} notes corrected.`);
+
+      // 3. Process questions in batches of 1,000 using strict PLX <QUES ID="..."> syntax
+      const BATCH_SIZE_1000 = 1000;
+      const total1000Batches = Math.ceil(totalQuestions / BATCH_SIZE_1000);
+
+      addLog(`Organizing ${totalQuestions} past questions into ${total1000Batches} batches of up to 1,000 questions each.`);
+      addLog(`Engine configured: ${healingEngine === 'hermes' ? activeModelName : 'Fast Local Heuristic'}`);
+
+      setLatexProgress(prev => ({
+        ...prev,
+        stage: `Healing ${totalQuestions} past questions in batches of 1,000...`,
+        totalBatchesCount: total1000Batches,
+        currentBatchNum: 0,
+        currentDocument: `Preparing ${total1000Batches} batches (1,000 questions per batch)...`
+      }));
+
+      let questionsFixed = 0;
+      let questionsProcessed = 0;
+
+      for (let bIdx = 0; bIdx < totalQuestions; bIdx += BATCH_SIZE_1000) {
+        if (!isCorrectingRef.current) {
+          addLog("[Cancelled] Auto-correction stopped by user.");
+          break;
+        }
+
+        const chunkDocs = questionsSnap.docs.slice(bIdx, bIdx + BATCH_SIZE_1000);
+        const batchNum = Math.floor(bIdx / BATCH_SIZE_1000) + 1;
+        const questionsInBatch = chunkDocs.map(d => ({ id: d.id, ...d.data() } as any));
+        const firstQId = questionsInBatch[0]?.id?.slice(0, 8) || '';
+        const lastQId = questionsInBatch[questionsInBatch.length - 1]?.id?.slice(0, 8) || '';
+
+        addLog(`[Batch ${batchNum}/${total1000Batches}] Loaded ${questionsInBatch.length} questions from Firebase (IDs: ${firstQId}... to ${lastQId}...). Formatting in PLX syntax...`);
+
+        setLatexProgress(prev => ({
+          ...prev,
+          stage: `Healing 1,000-Question Batch ${batchNum}/${total1000Batches} with ${healingEngine === 'hermes' ? activeModelName : 'Local Engine'}...`,
+          currentBatchNum: batchNum,
+          totalBatchesCount: total1000Batches,
+          currentDocument: `[Batch ${batchNum}/${total1000Batches}] Questions ${bIdx + 1} - ${Math.min(bIdx + BATCH_SIZE_1000, totalQuestions)} / ${totalQuestions}`
+        }));
+
+        // Sub-chunk into blocks of 30 questions to stay comfortably within DeepSeek's max 8,192 output token limit
+        const SUB_CHUNK_SIZE = 30;
+        const subChunks: any[][] = [];
+        for (let s = 0; s < questionsInBatch.length; s += SUB_CHUNK_SIZE) {
+          subChunks.push(questionsInBatch.slice(s, s + SUB_CHUNK_SIZE));
+        }
+
+        addLog(`[Batch ${batchNum}/${total1000Batches}] Dispatching ${subChunks.length} PLX streams to ${healingEngine === 'hermes' ? 'DeepSeek' : 'Local Healer'} (3 streams concurrently)...`);
+
+        const healedQuestionsFromBatch: any[] = [];
+        const CONCURRENCY = 3;
+        for (let i = 0; i < subChunks.length; i += CONCURRENCY) {
+          if (!isCorrectingRef.current) break;
+          const currentSlice = subChunks.slice(i, i + CONCURRENCY);
+          await Promise.all(currentSlice.map(async (subChunk, sliceOffset) => {
+            const streamIdx = i + sliceOffset + 1;
+            if (!isCorrectingRef.current) return;
+            try {
+              if (healingEngine === 'hermes') {
+                const healed = await healQuestionsWithHermesPLX(subChunk, hermesConfig);
+                healedQuestionsFromBatch.push(...healed);
+                addLog(`[Batch ${batchNum} Stream ${streamIdx}/${subChunks.length}] Healed ${healed.length} questions with PLX syntax.`);
+              } else {
+                const fallback = subChunk.map(q => autoCorrectQuestionData(q).data);
+                healedQuestionsFromBatch.push(...fallback);
+              }
+            } catch (err: any) {
+              addLog(`[Batch ${batchNum} Stream ${streamIdx}] Fallback applied: ${err.message || 'Error'}`);
+              const fallback = subChunk.map(q => autoCorrectQuestionData(q).data);
+              healedQuestionsFromBatch.push(...fallback);
+            }
+          }));
+
+          const subDone = Math.min(questionsInBatch.length, (i + CONCURRENCY) * SUB_CHUNK_SIZE);
+          setLatexProgress(prev => ({
+            ...prev,
+            questionsScanned: questionsProcessed + subDone,
+            currentDocument: `[Batch ${batchNum}/${total1000Batches}] Stream ${Math.min(i + CONCURRENCY, subChunks.length)}/${subChunks.length} completed`
+          }));
+        }
+
+        // Replace questions in Firebase by ID without losing data
+        addLog(`[Batch ${batchNum}/${total1000Batches}] Replacing healed questions in Firebase by document ID...`);
+        let qBatch = writeBatch(db);
+        let opCount = 0;
+        let batchUpdatedCount = 0;
+
+        const healedMap = new Map(healedQuestionsFromBatch.map(q => [q.id, q]));
+
+        for (const origDoc of chunkDocs) {
+          const origData = origDoc.data();
+          const healed = healedMap.get(origDoc.id);
+          if (!healed) continue;
+
+          const updates: Record<string, any> = {};
+          let changed = false;
+
+          if (healed.text && healed.text !== origData.text) {
+            updates.text = healed.text;
+            changed = true;
+          }
+          if (healed.question && healed.question !== origData.question) {
+            updates.question = healed.question;
+            changed = true;
+          }
+          if (healed.correctAnswer && healed.correctAnswer !== origData.correctAnswer) {
+            updates.correctAnswer = healed.correctAnswer;
+            changed = true;
+          }
+          if (healed.incorrectAnswers && JSON.stringify(healed.incorrectAnswers) !== JSON.stringify(origData.incorrectAnswers)) {
+            updates.incorrectAnswers = healed.incorrectAnswers;
+            changed = true;
+          }
+          if (healed.options && JSON.stringify(healed.options) !== JSON.stringify(origData.options)) {
+            updates.options = healed.options;
+            changed = true;
+          }
+          if (healed.explanation && healed.explanation !== origData.explanation) {
+            updates.explanation = healed.explanation;
+            changed = true;
+          }
+
+          if (changed) {
+            qBatch.update(doc(db, 'questions', origDoc.id), updates);
+            opCount++;
+            batchUpdatedCount++;
+            questionsFixed++;
+
+            if (opCount >= 400) {
+              await qBatch.commit();
+              qBatch = writeBatch(db);
+              opCount = 0;
+            }
+          }
+        }
+
+        if (opCount > 0) {
+          await qBatch.commit();
+        }
+
+        questionsProcessed += questionsInBatch.length;
+        addLog(`[Batch ${batchNum}/${total1000Batches}] Updated ${batchUpdatedCount} questions in Firebase. Total healed: ${questionsFixed}.`);
+
+        const currentPct = Math.min(99, Math.round(50 + (questionsProcessed / totalQuestions) * 45));
+        setLatexProgress(prev => ({
+          ...prev,
+          currentBatchNum: batchNum,
+          totalBatchesCount: total1000Batches,
+          questionsScanned: questionsProcessed,
+          questionsCorrected: questionsFixed,
+          progressPercent: currentPct,
+        }));
+
+        await new Promise(r => setTimeout(r, 20));
+      }
+
+      addLog(`Completed question healing. ${questionsFixed} questions healed across ${total1000Batches} batches of 1,000.`);
+      addLog(`[Done] Successfully healed ${notesFixed} notes and ${questionsFixed} questions in Firebase!`);
+
+      const finishTime = formatTime();
+      setLatexProgress(prev => ({
+        ...prev,
+        status: 'completed',
+        stage: 'All LaTeX Auto-Correction Complete!',
+        progressPercent: 100,
+        currentDocument: `Finished: ${notesFixed} notes and ${questionsFixed} questions healed in Firebase`,
+        completedAt: finishTime
+      }));
+
+      toast.success(
+        `LaTeX Autocorrection Complete (${healingEngine === 'hermes' ? 'DeepSeek / Hermes' : 'Local'})! Healed ${questionsFixed} questions and ${notesFixed} notes.`,
+        { id: toastId, duration: 8000 }
+      );
+    } catch (err: any) {
+      console.error("LaTeX autocorrection error:", err);
+      addLog(`[Error] ${err.message || 'Operation failed'}`);
+      setLatexProgress(prev => ({
+        ...prev,
+        status: 'error',
+        stage: 'Auto-Correction Failed',
+        errorMsg: err.message || 'Failed to auto-correct Firestore LaTeX'
+      }));
+      toast.error(`LaTeX autocorrection failed: ${err.message}`, { id: toastId });
+    } finally {
+      isCorrectingRef.current = false;
+      setLatexCorrecting(false);
     }
   };
 

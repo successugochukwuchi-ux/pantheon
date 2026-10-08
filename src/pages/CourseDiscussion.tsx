@@ -17,6 +17,7 @@ import remarkMath from 'remark-math';
 import rehypeKatex from 'rehype-katex';
 import remarkGfm from 'remark-gfm';
 import 'katex/dist/katex.min.css';
+import { prepareMarkdownMath } from '../components/SafeMathRenderer';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from '../components/ui/dialog';
 
 export default function CourseDiscussion() {
@@ -216,8 +217,8 @@ export default function CourseDiscussion() {
                         : "bg-muted rounded-tl-none"
                     )}>
                     <div className="prose dark:prose-invert max-w-none">
-                      <ReactMarkdown remarkPlugins={[remarkMath, remarkGfm]} rehypePlugins={[rehypeKatex]}>
-                        {msg.text}
+                      <ReactMarkdown remarkPlugins={[remarkMath, remarkGfm]} rehypePlugins={[[rehypeKatex, { throwOnError: false, strict: false }]]}>
+                        {prepareMarkdownMath(msg.text)}
                       </ReactMarkdown>
                     </div>
                       {refNote && (

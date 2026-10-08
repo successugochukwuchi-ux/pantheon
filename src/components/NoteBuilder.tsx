@@ -442,21 +442,21 @@ const SortableBlock = ({ block, onUpdate, onDelete, onFocus, isPreview }: Sortab
       <div className="mb-6">
         {block.type === 'h1' && (
           <h1 className="text-3xl font-bold mb-4">
-            <ReactMarkdown remarkPlugins={[remarkMath, remarkGfm]} rehypePlugins={[rehypeRaw, rehypeKatex]}>
+            <ReactMarkdown remarkPlugins={[remarkMath, remarkGfm]} rehypePlugins={[rehypeRaw, [rehypeKatex, { throwOnError: false, strict: false, errorColor: 'inherit' }]]}>
               {prepareMarkdownMath(block.content)}
             </ReactMarkdown>
           </h1>
         )}
         {block.type === 'h2' && (
           <h2 className="text-2xl font-bold mb-3">
-            <ReactMarkdown remarkPlugins={[remarkMath, remarkGfm]} rehypePlugins={[rehypeRaw, rehypeKatex]}>
+            <ReactMarkdown remarkPlugins={[remarkMath, remarkGfm]} rehypePlugins={[rehypeRaw, [rehypeKatex, { throwOnError: false, strict: false, errorColor: 'inherit' }]]}>
               {prepareMarkdownMath(block.content)}
             </ReactMarkdown>
           </h2>
         )}
         {block.type === 'text' && (
           <div className="prose dark:prose-invert max-w-none">
-            <ReactMarkdown remarkPlugins={[remarkMath, remarkGfm]} rehypePlugins={[rehypeRaw, rehypeKatex]}>
+            <ReactMarkdown remarkPlugins={[remarkMath, remarkGfm]} rehypePlugins={[rehypeRaw, [rehypeKatex, { throwOnError: false, strict: false, errorColor: 'inherit' }]]}>
               {prepareMarkdownMath(block.content)}
             </ReactMarkdown>
           </div>
@@ -477,7 +477,7 @@ const SortableBlock = ({ block, onUpdate, onDelete, onFocus, isPreview }: Sortab
                       <tr key={rowIndex}>
                         {row.map((cell, colIndex) => (
                           <td key={colIndex} className="border p-2 text-sm">
-                            <ReactMarkdown remarkPlugins={[remarkMath, remarkGfm]} rehypePlugins={[rehypeRaw, rehypeKatex]}>
+                            <ReactMarkdown remarkPlugins={[remarkMath, remarkGfm]} rehypePlugins={[rehypeRaw, [rehypeKatex, { throwOnError: false, strict: false, errorColor: 'inherit' }]]}>
                               {prepareMarkdownMath(cell)}
                             </ReactMarkdown>
                           </td>
@@ -517,7 +517,7 @@ const SortableBlock = ({ block, onUpdate, onDelete, onFocus, isPreview }: Sortab
         )}
         {(block.type === 'bullet-list' || block.type === 'numbered-list') && (
           <div className="prose dark:prose-invert max-w-none my-6">
-            <ReactMarkdown remarkPlugins={[remarkMath, remarkGfm]} rehypePlugins={[rehypeRaw, rehypeKatex]}>
+            <ReactMarkdown remarkPlugins={[remarkMath, remarkGfm]} rehypePlugins={[rehypeRaw, [rehypeKatex, { throwOnError: false, strict: false, errorColor: 'inherit' }]]}>
               {prepareMarkdownMath(block.content)}
             </ReactMarkdown>
           </div>
@@ -538,7 +538,7 @@ const SortableBlock = ({ block, onUpdate, onDelete, onFocus, isPreview }: Sortab
                   return (
                     <>
                       <div className="text-lg font-medium">
-                        <ReactMarkdown remarkPlugins={[remarkMath, remarkGfm]} rehypePlugins={[rehypeRaw, rehypeKatex]}>
+                        <ReactMarkdown remarkPlugins={[remarkMath, remarkGfm]} rehypePlugins={[rehypeRaw, [rehypeKatex, { throwOnError: false, strict: false, errorColor: 'inherit' }]]}>
                           {prepareMarkdownMath(data.question)}
                         </ReactMarkdown>
                       </div>
@@ -549,7 +549,7 @@ const SortableBlock = ({ block, onUpdate, onDelete, onFocus, isPreview }: Sortab
                               <CheckCircle2 className="h-4 w-4" />
                             </div>
                             <span className="text-sm">
-                               <ReactMarkdown remarkPlugins={[remarkMath, remarkGfm]} rehypePlugins={[rehypeRaw, rehypeKatex]}>
+                               <ReactMarkdown remarkPlugins={[remarkMath, remarkGfm]} rehypePlugins={[rehypeRaw, [rehypeKatex, { throwOnError: false, strict: false, errorColor: 'inherit' }]]}>
                                 {prepareMarkdownMath(data.correct)}
                               </ReactMarkdown>
                             </span>
@@ -561,7 +561,7 @@ const SortableBlock = ({ block, onUpdate, onDelete, onFocus, isPreview }: Sortab
                               <XCircle className="h-4 w-4" />
                             </div>
                             <span className="text-sm">
-                              <ReactMarkdown remarkPlugins={[remarkMath, remarkGfm]} rehypePlugins={[rehypeRaw, rehypeKatex]}>
+                              <ReactMarkdown remarkPlugins={[remarkMath, remarkGfm]} rehypePlugins={[rehypeRaw, [rehypeKatex, { throwOnError: false, strict: false, errorColor: 'inherit' }]]}>
                                 {prepareMarkdownMath(inc)}
                               </ReactMarkdown>
                             </span>
@@ -574,7 +574,7 @@ const SortableBlock = ({ block, onUpdate, onDelete, onFocus, isPreview }: Sortab
                             <Wand2 className="h-3 w-3" /> Explanation
                           </div>
                           <div className="text-sm text-muted-foreground italic">
-                            <ReactMarkdown remarkPlugins={[remarkMath, remarkGfm]} rehypePlugins={[rehypeRaw, rehypeKatex]}>
+                            <ReactMarkdown remarkPlugins={[remarkMath, remarkGfm]} rehypePlugins={[rehypeRaw, [rehypeKatex, { throwOnError: false, strict: false, errorColor: 'inherit' }]]}>
                               {prepareMarkdownMath(data.explanation)}
                             </ReactMarkdown>
                           </div>
@@ -1255,9 +1255,14 @@ export const NoteRenderer: React.FC<{ content: string }> = ({ content }) => {
   useEffect(() => {
     if (content) {
       try {
-        setBlocks(JSON.parse(content));
+        const parsed = JSON.parse(content);
+        if (Array.isArray(parsed)) {
+          setBlocks(parsed);
+        } else {
+          setBlocks([{ id: '1', type: 'text', content }]);
+        }
       } catch (e) {
-        setBlocks([{ id: '1', type: 'text', content: content }]);
+        setBlocks([{ id: '1', type: 'text', content }]);
       }
     }
   }, [content]);
@@ -1282,7 +1287,11 @@ export const NoteBuilder: React.FC<NoteBuilderProps> = ({ initialContent, onChan
   const [blocks, setBlocks] = useState<NoteBlock[]>(() => {
     if (initialContent) {
       try {
-        return JSON.parse(initialContent);
+        const parsed = JSON.parse(initialContent);
+        if (Array.isArray(parsed)) {
+          return parsed;
+        }
+        return [{ id: '1', type: 'text', content: initialContent }];
       } catch (e) {
         return [{ id: '1', type: 'text', content: initialContent }];
       }
@@ -1662,7 +1671,7 @@ export const NoteBuilder: React.FC<NoteBuilderProps> = ({ initialContent, onChan
         id: Math.random().toString(36).substr(2, 9)
       }));
       updateBlocks([...existingBlocks, ...uniqueBlocks]);
-      toast.success('Note added successfully!');
+      toast.success('Note loaded successfully!');
       setIsMagicDialogOpen(false);
 
     } catch (error: any) {
@@ -2407,13 +2416,14 @@ Save the final text as a file named "note.plx" (or .txt) then upload it.
                 Magic Note Creator
               </DialogTitle>
               <DialogDescription className="space-y-2">
-                <p>
+                <span>
                   Upload a <b>.plx</b> file (CoLearn Extensible Standard) to instantly build your note. 
                   You can also upload PDFs or images for AI-assisted note generation.
-                </p>
-                <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                </span>
+                <span className="flex flex-wrap items-center gap-x-2 gap-y-1">
                   <span className="text-[10px] text-muted-foreground italic">AI Strategy:</span>
                   <button 
+                    type="button"
                     onClick={downloadPLXStandard}
                     className="text-[10px] text-amber-600 dark:text-amber-500 font-bold hover:underline cursor-pointer"
                   >
@@ -2421,12 +2431,13 @@ Save the final text as a file named "note.plx" (or .txt) then upload it.
                   </button>
                   <span className="text-muted-foreground/30 text-[10px]">&bull;</span>
                   <button 
+                    type="button"
                     onClick={() => setIsAiPromptDialogOpen(true)}
                     className="text-[10px] text-purple-600 dark:text-purple-400 font-bold hover:underline cursor-pointer flex items-center gap-0.5"
                   >
                     <Sparkles className="h-3 w-3 inline" /> Copy DeepSeek Prompt
                   </button>
-                </div>
+                </span>
               </DialogDescription>
             </DialogHeader>
             

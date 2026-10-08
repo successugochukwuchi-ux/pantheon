@@ -15,6 +15,7 @@ import { WebView } from 'react-native-webview';
 import { BellIcon } from '../components/Icons';
 import { F } from '../components/Theme';
 import { useTheme } from '../context/ThemeContext';
+import { MathText } from '../components/MathText';
 import { collection, query, onSnapshot, doc } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 import { useAuth } from '../context/AuthContext';
@@ -420,7 +421,7 @@ export default function VideoViewerScreen() {
                 return (
                   <View key={q.id} style={[s.qCard, { backgroundColor: C.surface, borderColor: C.border }]}>
                     <Text style={[s.qIdxText, { color: C.inkLight }]}>QUESTION {idx + 1}</Text>
-                    <Text style={[s.qText, { color: C.ink }]}>{q.text}</Text>
+                    <MathText text={q.text} style={[s.qText, { color: C.ink }]} />
 
                     <View style={s.optionsList}>
                       {options.map((opt, oIdx) => {
@@ -451,6 +452,8 @@ export default function VideoViewerScreen() {
                           textC = C.ink;
                         }
 
+                        const prefix = showResults && isCorrectAnswer ? '✓ ' : showResults && isSelected ? '✗ ' : isSelected ? '● ' : '○ ';
+
                         return (
                           <TouchableOpacity
                             key={oIdx}
@@ -463,10 +466,14 @@ export default function VideoViewerScreen() {
                             activeOpacity={0.7}
                             disabled={showResults}
                           >
-                            <Text style={[s.optionText, { color: textC }, isSelected && { fontFamily: F.bold }]}>
-                              {showResults && isCorrectAnswer ? '✓ ' : showResults && isSelected ? '✗ ' : isSelected ? '● ' : '○ '}
-                              {opt}
-                            </Text>
+                            <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                              <Text style={{ color: textC, fontFamily: isSelected ? F.bold : F.body, marginRight: 4 }}>
+                                {prefix}
+                              </Text>
+                              <View style={{ flex: 1 }}>
+                                <MathText text={opt} style={[s.optionText, { color: textC }, isSelected && { fontFamily: F.bold }]} />
+                              </View>
+                            </View>
                           </TouchableOpacity>
                         );
                       })}

@@ -421,25 +421,24 @@ export default function Activate() {
               </div>
             </div>
             <DialogTitle className="text-2xl font-black text-center text-amber-600 dark:text-amber-400">CONGRATULATIONS!</DialogTitle>
-            <DialogDescription className="text-center text-base space-y-4 pt-4">
-              <p className="font-bold text-foreground">You have been successfully activated under the current PROMO MODE!</p>
-              
-              <div className="space-y-3 text-sm text-foreground/80 text-left bg-white/50 dark:bg-black/20 p-4 rounded-xl border">
-                <div className="flex gap-3">
-                  <div className="h-5 w-5 rounded-full bg-amber-500 flex items-center justify-center text-[10px] text-white shrink-0">1</div>
-                  <p>You now have full access to all lecture notes, Past Questions & CBT practice for this semester.</p>
-                </div>
-                <div className="flex gap-3">
-                  <div className="h-5 w-5 rounded-full bg-amber-500 flex items-center justify-center text-[10px] text-white shrink-0">2</div>
-                  <p>Please note that <strong>next semester will NOT be free</strong>. Plan accordingly!</p>
-                </div>
-                <div className="flex gap-3">
-                  <div className="h-5 w-5 rounded-full bg-amber-500 flex items-center justify-center text-[10px] text-white shrink-0">3</div>
-                  <p className="font-bold text-amber-600 dark:text-amber-500">PRO TIP: Refer 10 friends to earn an extra semester for FREE!</p>
-                </div>
-              </div>
+            <DialogDescription className="text-center text-base pt-2 font-bold text-foreground">
+              You have been successfully activated under the current PROMO MODE!
             </DialogDescription>
           </DialogHeader>
+          <div className="space-y-3 text-sm text-foreground/80 text-left bg-white/50 dark:bg-black/20 p-4 rounded-xl border my-2">
+            <div className="flex gap-3">
+              <div className="h-5 w-5 rounded-full bg-amber-500 flex items-center justify-center text-[10px] text-white shrink-0">1</div>
+              <p>You now have full access to all lecture notes, Past Questions & CBT practice for this semester.</p>
+            </div>
+            <div className="flex gap-3">
+              <div className="h-5 w-5 rounded-full bg-amber-500 flex items-center justify-center text-[10px] text-white shrink-0">2</div>
+              <p>Please note that <strong>next semester will NOT be free</strong>. Plan accordingly!</p>
+            </div>
+            <div className="flex gap-3">
+              <div className="h-5 w-5 rounded-full bg-amber-500 flex items-center justify-center text-[10px] text-white shrink-0">3</div>
+              <p className="font-bold text-amber-600 dark:text-amber-500">PRO TIP: Refer 10 friends to earn an extra semester for FREE!</p>
+            </div>
+          </div>
           <DialogFooter>
             <Button 
               className="w-full bg-amber-600 hover:bg-amber-700 text-white font-bold h-12" 

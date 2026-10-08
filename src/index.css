@@ -287,4 +287,19 @@
   em, i {
     font-style: italic;
   }
+
+  /* Prevent KaTeX parse errors from rendering in bright red or with red borders */
+  .katex-error, 
+  [class*="katex-error"],
+  span.katex-error,
+  span[style*="color:#cc0000"],
+  span[style*="color: #cc0000"],
+  span[style*="color:#CC0000"],
+  span[style*="color: #CC0000"] {
+    color: inherit !important;
+    background-color: transparent !important;
+    border: none !important;
+    outline: none !important;
+    font-family: inherit !important;
+  }
 }

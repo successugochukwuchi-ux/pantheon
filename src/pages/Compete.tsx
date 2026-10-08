@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { 
   Trophy, 
   Zap, 
@@ -21,7 +21,10 @@ import {
   Copy,
   Hourglass,
   Flame,
-  UserMinus
+  UserMinus,
+  Flag,
+  AlertTriangle,
+  Loader2
 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { db, handleFirestoreError, OperationType } from '../firebase';
@@ -49,6 +52,14 @@ import { Course, Question } from '../types';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '../components/ui/card';
+import { 
+  Dialog, 
+  DialogContent, 
+  DialogDescription, 
+  DialogFooter, 
+  DialogHeader, 
+  DialogTitle 
+} from '../components/ui/dialog';
 import { motion, AnimatePresence } from 'framer-motion';
 import { MathMarkdown } from '../components/MathMarkdown';
 
@@ -99,6 +110,13 @@ export default function Compete() {
   const [hasSubmittedAnswer, setHasSubmittedAnswer] = useState(false);
   const [matchQuestions, setMatchQuestions] = useState<Question[]>([]);
   const [reviewFilter, setReviewFilter] = useState<'all' | 'mistakes' | 'correct'>('all');
+  const [showForfeitModal, setShowForfeitModal] = useState(false);
+  const [isForfeiting, setIsForfeiting] = useState(false);
+  
+  const gameStateRef = useRef(gameState);
+  gameStateRef.current = gameState;
+  const currentMatchRef = useRef(currentMatch);
+  currentMatchRef.current = currentMatch;
   
   // In-Game Live Timers
   const [timeLeft, setTimeLeft] = useState<number>(300); // in seconds
@@ -300,10 +318,11 @@ export default function Compete() {
   useEffect(() => {
     if (gameState !== 'waiting' || lobbyType !== 'quick') return;
 
+    setSearchCountdown(60); // 1 full minute (60s) matchmaking window
     const countdownInterval = setInterval(() => {
       setSearchCountdown((prev) => {
         if (prev <= 1) {
-          // Search timeout: trigger fallback simulated bot
+          // Search timeout after 1 full minute: trigger fallback simulated bot
           triggerBotMatch();
           clearInterval(countdownInterval);
           return 0;
@@ -329,9 +348,9 @@ export default function Compete() {
         for (const val of lobbiesSnap.docs) {
           const lobbyData = val.data();
           if (lobbyData.creatorId !== user.uid && val.id !== currentMatch.id) {
-            // Validate freshness: ignore stale / abandoned ghost matches (older than 20s without heartbeat)
+            // Validate freshness: ignore stale / abandoned ghost matches (older than 45s without heartbeat)
             const lastActive = lobbyData.lastHeartbeat || lobbyData.createdAt || 0;
-            if (Date.now() - lastActive > 20000) {
+            if (Date.now() - lastActive > 45000) {
               updateDoc(doc(db, 'compete_matches', val.id), { status: 'aborted' }).catch(() => {});
               continue;
             }
@@ -707,7 +726,7 @@ export default function Compete() {
         }
 
         setGameState('waiting');
-        setSearchCountdown(10); // 10s search window, then triggers system Bot to keep it enjoyable
+        setSearchCountdown(60); // 1 full minute (60s) search window, then triggers system Bot
 
         // Look for waiting lobby matching the number of questions and university!
         const lobbiesQuery = query(
@@ -724,9 +743,9 @@ export default function Compete() {
         for (const val of lobbiesSnap.docs) {
           const lobbyData = val.data();
           if (lobbyData.creatorId !== user?.uid) {
-            // Verify lobby is not stale/abandoned (older than 20s without heartbeat)
+            // Verify lobby is not stale/abandoned (older than 45s without heartbeat)
             const lastActive = lobbyData.lastHeartbeat || lobbyData.createdAt || 0;
-            if (Date.now() - lastActive > 20000) {
+            if (Date.now() - lastActive > 45000) {
               updateDoc(doc(db, 'compete_matches', val.id), { status: 'aborted' }).catch(() => {});
               continue;
             }
@@ -1060,16 +1079,24 @@ export default function Compete() {
   // Cancel waiting match if tab is closed or user leaves before matching
   useEffect(() => {
     const handleBeforeUnload = () => {
-      if (gameState === 'waiting' && currentMatch?.id && user?.uid === currentMatch.creatorId) {
-        updateDoc(doc(db, 'compete_matches', currentMatch.id), {
+      if (gameStateRef.current === 'waiting' && currentMatchRef.current?.id && user?.uid === currentMatchRef.current.creatorId) {
+        updateDoc(doc(db, 'compete_matches', currentMatchRef.current.id), {
           status: 'cancelled',
           cancelledAt: Date.now()
         }).catch(() => {});
       }
     };
     window.addEventListener('beforeunload', handleBeforeUnload);
-    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
-  }, [gameState, currentMatch?.id, user?.uid]);
+    return () => {
+      window.removeEventListener('beforeunload', handleBeforeUnload);
+      if (gameStateRef.current === 'waiting' && currentMatchRef.current?.id && user?.uid === currentMatchRef.current.creatorId) {
+        updateDoc(doc(db, 'compete_matches', currentMatchRef.current.id), {
+          status: 'cancelled',
+          cancelledAt: Date.now()
+        }).catch(() => {});
+      }
+    };
+  }, [user?.uid]);
 
   const handleExitMatch = async () => {
     if (gameState === 'waiting' && currentMatch?.id) {
@@ -1084,9 +1111,14 @@ export default function Compete() {
     setUserStats({ timeTaken: 0, answersLog: [] });
   };
 
-  const handleForfeit = async () => {
+  const handleForfeit = () => {
     if (!currentMatch || !user) return;
-    if (!window.confirm("Are you sure you want to forfeit? Doing so will end the match immediately!")) return;
+    setShowForfeitModal(true);
+  };
+
+  const executeForfeit = async () => {
+    if (!currentMatch || !user) return;
+    setIsForfeiting(true);
 
     try {
       const matchDocRef = doc(db, 'compete_matches', currentMatch.id);
@@ -1104,70 +1136,89 @@ export default function Compete() {
 
       // Award or deduct stars ONLY for Quick Matches and when there is an active season
       if (currentMatch.type === 'quick_match' && activeSeasonId && remainingUserId && remainingUserId !== 'bot_colearn') {
-        const timeSpent = (Date.now() - (currentMatch.startTime || currentMatch.createdAt)) / 1000;
-        
-        // Get remaining user's answers to calculate if they have >= 25% correct
-        const remainingUserAnswers = isCreator ? (currentMatch.opponentAnswers || {}) : (currentMatch.creatorAnswers || {});
-        const totalQuestions = currentMatch.questions?.length || 10;
-        const correctCount = Object.values(remainingUserAnswers).filter((ans: any) => ans.isCorrect).length;
-        const is25PercentCorrect = (correctCount / totalQuestions) >= 0.25;
+        try {
+          const timeSpent = (Date.now() - (currentMatch.startTime || currentMatch.createdAt || Date.now())) / 1000;
+          
+          // Get remaining user's answers to calculate if they have >= 25% correct
+          const remainingUserAnswers = isCreator ? (currentMatch.opponentAnswers || {}) : (currentMatch.creatorAnswers || {});
+          const totalQuestions = currentMatch.questions?.length || 10;
+          const correctCount = Object.values(remainingUserAnswers).filter((ans: any) => ans?.isCorrect).length;
+          const is25PercentCorrect = totalQuestions > 0 && (correctCount / totalQuestions) >= 0.25;
 
-        if (timeSpent > 300 && is25PercentCorrect) {
-          // 1. Deduct star from forfeiter
-          const forfeiterLeaderDoc = doc(db, 'seasons', activeSeasonId, 'leaderboard', forfeiterId);
-          const fSnap = await getDoc(forfeiterLeaderDoc);
-          const forfeiterAt = forfeiterId === currentMatch.creatorId 
-            ? (currentMatch.creatorAt || currentMatch.At || 'futo') 
-            : (currentMatch.opponentAt || currentMatch.At || 'futo');
+          if (timeSpent > 300 && is25PercentCorrect) {
+            // 1. Deduct star from forfeiter
+            const forfeiterLeaderDoc = doc(db, 'seasons', activeSeasonId, 'leaderboard', forfeiterId);
+            const fSnap = await getDoc(forfeiterLeaderDoc);
+            const forfeiterAt = (forfeiterId === currentMatch.creatorId 
+              ? (currentMatch.creatorAt || currentMatch.At) 
+              : (currentMatch.opponentAt || currentMatch.At)) || 'futo';
 
-          if (fSnap.exists()) {
-            const currentStars = fSnap.data().stars || 0;
-            const newStars = Math.max(0, currentStars - 1);
-            await updateDoc(forfeiterLeaderDoc, {
-              stars: newStars,
-              updatedAt: serverTimestamp(),
-              At: forfeiterAt
-            });
-          }
+            if (fSnap.exists()) {
+              const currentStars = fSnap.data().stars || 0;
+              const newStars = Math.max(0, currentStars - 1);
+              await updateDoc(forfeiterLeaderDoc, {
+                stars: newStars,
+                updatedAt: serverTimestamp(),
+                At: forfeiterAt
+              });
+            }
 
-          // 2. Award star to remaining player
-          const remainingLeaderDoc = doc(db, 'seasons', activeSeasonId, 'leaderboard', remainingUserId);
-          const rSnap = await getDoc(remainingLeaderDoc);
-          const remainingAt = remainingUserId === currentMatch.creatorId 
-            ? (currentMatch.creatorAt || currentMatch.At || 'futo') 
-            : (currentMatch.opponentAt || currentMatch.At || 'futo');
+            // 2. Award star to remaining player
+            const remainingLeaderDoc = doc(db, 'seasons', activeSeasonId, 'leaderboard', remainingUserId);
+            const rSnap = await getDoc(remainingLeaderDoc);
+            const remainingAt = (remainingUserId === currentMatch.creatorId 
+              ? (currentMatch.creatorAt || currentMatch.At) 
+              : (currentMatch.opponentAt || currentMatch.At)) || 'futo';
 
-          if (rSnap.exists()) {
-            await updateDoc(remainingLeaderDoc, {
-              stars: increment(1),
-              updatedAt: serverTimestamp(),
-              At: remainingAt
-            });
+            if (rSnap.exists()) {
+              await updateDoc(remainingLeaderDoc, {
+                stars: increment(1),
+                updatedAt: serverTimestamp(),
+                At: remainingAt
+              });
+            } else {
+              const remainingUsername = isCreator ? currentMatch.opponentUsername : currentMatch.creatorUsername;
+              const remainingPhoto = isCreator ? currentMatch.opponentPhotoURL : currentMatch.creatorPhotoURL;
+              await setDoc(remainingLeaderDoc, {
+                userId: remainingUserId,
+                username: remainingUsername || 'Anonymous User',
+                photoURL: remainingPhoto || '',
+                favoriteCourse: currentMatch.courseCode || 'GENERAL',
+                stars: 1,
+                updatedAt: serverTimestamp(),
+                At: remainingAt
+              });
+            }
+
+            toast.info("A star was deducted from the forfeiter and awarded to the winner.");
           } else {
-            const remainingUsername = isCreator ? currentMatch.opponentUsername : currentMatch.creatorUsername;
-            const remainingPhoto = isCreator ? currentMatch.opponentPhotoURL : currentMatch.creatorPhotoURL;
-            await setDoc(remainingLeaderDoc, {
-              userId: remainingUserId,
-              username: remainingUsername || 'Anonymous User',
-              photoURL: remainingPhoto || '',
-              favoriteCourse: currentMatch.courseCode || 'GENERAL',
-              stars: 1,
-              updatedAt: serverTimestamp(),
-              At: remainingAt
-            });
+            toast.info("Match concluded without star adjustments (requires > 5m duration and >= 25% accuracy from the winner).");
           }
-
-          toast.info("A star was deducted from the forfeiter and awarded to the winner.");
-        } else {
-          toast.info("Match concluded without star adjustments (requires > 5m duration and >= 25% accuracy from the winner).");
+        } catch (seasonErr) {
+          console.warn("Season star update on forfeit encountered an issue:", seasonErr);
         }
       } else if (currentMatch.type !== 'quick_match') {
         toast.info("Match ended due to forfeit. No stars are adjusted for private custom matches.");
       }
 
+      // Optimistically update currentMatch so the results screen renders instantly with correct outcome
+      setCurrentMatch((prev: any) => prev ? {
+        ...prev,
+        status: 'completed',
+        winnerId: remainingUserId || 'none',
+        forfeitedBy: forfeiterId,
+        endTime: Date.now()
+      } : null);
+
+      setShowForfeitModal(false);
       setGameState('results');
+      toast.warning("You forfeited the match.", { icon: '⚠️' });
     } catch (err) {
+      console.error("Forfeit match error:", err);
+      toast.error("Failed to forfeit match. Please try again.");
       handleFirestoreError(err, OperationType.UPDATE, `compete_matches/${currentMatch.id}`);
+    } finally {
+      setIsForfeiting(false);
     }
   };
 
@@ -1610,7 +1661,7 @@ export default function Compete() {
                 {currentMatch.type === 'quick_match' && (
                   <div className="bg-muted px-4 py-3 rounded-xl border max-w-sm mx-auto">
                     <p className="text-xs font-semibold text-stone-600">
-                      Lobby scan active. Fallback System Bot will activate in <strong className="text-primary text-sm font-mono">{searchCountdown}s</strong> if no student is queueing this course.
+                      Searching for classmates. CoLearn Bot will activate in <strong className="text-primary text-sm font-mono">{searchCountdown}s</strong> if no opponent is found.
                     </p>
                   </div>
                 )}
@@ -1822,10 +1873,12 @@ export default function Compete() {
                 </Card>
 
                 <Button 
-                  variant="ghost" 
-                  className="w-full text-xs font-bold text-destructive hover:bg-destructive/10 cursor-pointer"
+                  variant="outline" 
+                  className="w-full text-xs font-bold text-destructive border-destructive/25 hover:bg-destructive/10 hover:border-destructive/40 cursor-pointer transition-all flex items-center justify-center gap-1.5"
                   onClick={handleForfeit}
+                  disabled={isForfeiting}
                 >
+                  <Flag size={13} />
                   Forfeit Match
                 </Button>
               </div>
@@ -1834,13 +1887,25 @@ export default function Compete() {
               <div className="lg:col-span-3 space-y-6">
                 <Card className="rounded-2xl border shadow-sm">
                   <CardHeader className="bg-muted/30 pb-4 border-b">
-                    <div className="flex items-center justify-between">
+                    <div className="flex items-center justify-between gap-3">
                       <span className="px-3 py-1 rounded-full text-[11px] font-mono font-bold bg-primary/10 text-primary border border-primary/20">
                         Question {activeQuestionIndex + 1} of {matchQuestions.length}
                       </span>
-                      <span className="text-xs text-muted-foreground font-semibold">
-                        Course: {currentMatch.courseCode}
-                      </span>
+                      <div className="flex items-center gap-2.5">
+                        <span className="text-xs text-muted-foreground font-semibold hidden sm:inline">
+                          Course: {currentMatch.courseCode}
+                        </span>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="h-7 px-2.5 text-xs text-destructive hover:text-destructive hover:bg-destructive/10 font-bold border border-destructive/20 hover:border-destructive/30"
+                          onClick={handleForfeit}
+                          disabled={isForfeiting}
+                        >
+                          <Flag size={12} className="mr-1" />
+                          Forfeit
+                        </Button>
+                      </div>
                     </div>
                   </CardHeader>
                   <CardContent className="p-6 md:p-8 space-y-8">
@@ -1974,10 +2039,20 @@ export default function Compete() {
                 {currentMatch.winnerId === 'draw' 
                   ? "It's a Stand-off Draw!" 
                   : currentMatch.winnerId === user?.uid 
-                    ? "Victory! You Won the Match! 🎉" 
-                    : "Defeat! Better Luck Next Round!"
+                    ? (currentMatch.forfeitedBy ? "Victory! Opponent Forfeited the Match! 🏆" : "Victory! You Won the Match! 🎉") 
+                    : (currentMatch.forfeitedBy === user?.uid ? "Match Forfeited" : "Defeat! Better Luck Next Round!")
                 }
               </h1>
+              {currentMatch.forfeitedBy && (
+                <div className="mt-2 inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-destructive/10 text-destructive border border-destructive/20">
+                  <Flag size={12} />
+                  <span>
+                    {currentMatch.forfeitedBy === user?.uid 
+                      ? "You forfeited this match early." 
+                      : "Opponent surrendered and forfeited the match early."}
+                  </span>
+                </div>
+              )}
               <p className="text-sm mt-1 text-muted-foreground font-mono">
                 Lobby Code: {currentMatch.type === 'quick_match' ? 'Quick Pool' : currentMatch.roomCode} | Course: {currentMatch.courseCode}
               </p>
@@ -2223,6 +2298,54 @@ export default function Compete() {
         )}
 
       </AnimatePresence>
+
+      {/* FORFEIT CONFIRMATION MODAL */}
+      <Dialog open={showForfeitModal} onOpenChange={setShowForfeitModal}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-destructive font-black text-lg">
+              <AlertTriangle size={20} className="text-destructive" />
+              Forfeit Match?
+            </DialogTitle>
+            <DialogDescription className="text-sm text-muted-foreground pt-2">
+              Are you sure you want to forfeit this match? Doing so will conclude the match immediately as a loss.
+              {currentMatch?.type === 'quick_match' && (
+                <span className="block mt-2.5 p-2 rounded-lg bg-amber-500/10 border border-amber-500/20 font-mono text-xs text-amber-700 dark:text-amber-300">
+                  ⚠️ Note: Forfeiting after 5 minutes may deduct a season star if your opponent achieved at least 25% accuracy.
+                </span>
+              )}
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="mt-4 gap-2 sm:gap-2">
+            <Button 
+              variant="outline" 
+              onClick={() => setShowForfeitModal(false)}
+              disabled={isForfeiting}
+              className="font-semibold"
+            >
+              Keep Playing
+            </Button>
+            <Button 
+              variant="destructive" 
+              onClick={executeForfeit}
+              disabled={isForfeiting}
+              className="font-bold flex items-center gap-2"
+            >
+              {isForfeiting ? (
+                <>
+                  <Loader2 size={16} className="animate-spin" />
+                  Forfeiting...
+                </>
+              ) : (
+                <>
+                  <Flag size={15} />
+                  Yes, Forfeit Match
+                </>
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
     </div>
   );

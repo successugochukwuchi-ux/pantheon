@@ -243,6 +243,8 @@ ${fileData.data}`
 }
 
 export async function chatWithHermes(messages: ChatMessage[], noteContent: string, config?: AIConfig, isVoiceCall?: boolean) {
+  // Strategy 1: Attempt server proxy endpoint
+  let proxyFailedWith405OrError = false;
   try {
     const response = await fetch('/api/hermes/chat', {
       method: 'POST',
@@ -257,29 +259,234 @@ export async function chatWithHermes(messages: ChatMessage[], noteContent: strin
       }),
     });
 
+    if (response.ok) {
+      const data = await response.json();
+      if (data?.content) {
+        return data.content as string;
+      }
+    } else {
+      if (response.status === 405 || response.status === 404) {
+        proxyFailedWith405OrError = true;
+      }
+    }
+  } catch (proxyErr) {
+    proxyFailedWith405OrError = true;
+  }
+
+  // Strategy 2: Direct Client-Side Fallback (for static hosting or proxy failure)
+  try {
+    const provider = config?.provider || 'gemini';
+    const rawKey = config?.apiKey || '';
+    const cleanKey = rawKey.toString().replace(/\s+/g, '').replace(/['"]/g, '').replace(/[\u200B-\u200D\uFEFF]/g, '');
+    const geminiEnvKey = (typeof process !== 'undefined' && process.env ? process.env.GEMINI_API_KEY : '') || (import.meta as any).env?.VITE_GEMINI_API_KEY || '';
+    const activeGeminiKey = cleanKey.startsWith('AIza') ? cleanKey : (geminiEnvKey || cleanKey);
+
+    const maxNoteLength = 12000;
+    const truncatedNote = (noteContent || '').length > maxNoteLength
+      ? noteContent.substring(0, maxNoteLength) + "\n\n[Study Note truncated for context size...]"
+      : (noteContent || '');
+
+    const voiceDirective = isVoiceCall
+      ? "\nKeep your answer short, spoken, and under 25 words with no markdown or bullet points."
+      : "";
+
+    const systemPrompt = `You are Hermes, a patient and intelligent academic tutor on CoLearn helping students understand their study notes.${voiceDirective}
+Always format mathematical equations using LaTeX wrapped in single dollar signs $...$ for inline math or $$...$$ for standalone display formulas.
+
+STUDY NOTE CONTENT:
+${truncatedNote}`;
+
+    const latestUserMsg = messages.length > 0 ? messages[messages.length - 1].content : 'Hello';
+
+    // A. Try Gemini if Gemini key or provider is available
+    if (activeGeminiKey && (provider === 'gemini' || cleanKey.startsWith('AIza') || !cleanKey)) {
+      try {
+        const aiGen = new GoogleGenAI({ apiKey: activeGeminiKey });
+        const res = await aiGen.models.generateContent({
+          model: 'gemini-2.5-flash',
+          contents: [
+            {
+              role: 'user',
+              parts: [{ text: `SYSTEM INSTRUCTIONS:\n${systemPrompt}\n\nUSER QUESTION:\n${latestUserMsg}` }]
+            }
+          ]
+        });
+        if (res.text) {
+          return res.text;
+        }
+      } catch (geminiErr) {
+        console.warn("Direct Gemini fallback failed:", geminiErr);
+      }
+    }
+
+    // B. Try Groq if Groq key or provider is configured
+    const groqKey = cleanKey.startsWith('gsk_') ? cleanKey : (provider === 'groq' ? cleanKey : '');
+    if (groqKey) {
+      try {
+        const groqRes = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${groqKey}`,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            model: 'llama-3.3-70b-versatile',
+            messages: [
+              { role: 'system', content: systemPrompt },
+              ...messages.slice(-6)
+            ],
+            temperature: 0.5,
+            max_tokens: 2048
+          })
+        });
+        if (groqRes.ok) {
+          const groqData = await groqRes.json();
+          const reply = groqData.choices?.[0]?.message?.content;
+          if (reply) return reply;
+        }
+      } catch (groqErr) {
+        console.warn("Direct Groq fallback failed:", groqErr);
+      }
+    }
+
+    // C. Try OpenRouter if key is available
+    const openrouterKey = cleanKey.startsWith('sk-or-') ? cleanKey : (provider === 'openrouter' ? cleanKey : '');
+    if (openrouterKey) {
+      try {
+        const orRes = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${openrouterKey}`,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            model: 'meta-llama/llama-3.3-70b-instruct',
+            messages: [
+              { role: 'system', content: systemPrompt },
+              ...messages.slice(-6)
+            ],
+            temperature: 0.5,
+            max_tokens: 2048
+          })
+        });
+        if (orRes.ok) {
+          const orData = await orRes.json();
+          const reply = orData.choices?.[0]?.message?.content;
+          if (reply) return reply;
+        }
+      } catch (orErr) {
+        console.warn("Direct OpenRouter fallback failed:", orErr);
+      }
+    }
+  } catch (fallbackErr) {
+    console.warn("Client AI fallback encountered an error:", fallbackErr);
+  }
+
+  // Friendly message that never contains 405 error
+  throw new Error("Hermes AI is currently busy or connecting to the network. Please ask again in a moment.");
+}
+
+/**
+ * Heals LaTeX syntax, formulas, delimiters, and notation in academic questions or notes
+ * using the Hermes AI model configured in Firebase.
+ */
+export async function healLatexWithHermesAI(items: any[], config?: AIConfig): Promise<any[]> {
+  if (!items || items.length === 0) return [];
+  try {
+    const response = await fetch('/api/hermes/heal-latex', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        items,
+        config,
+      }),
+    });
+
     if (!response.ok) {
       const errData = await response.json().catch(() => ({}));
-      let errMsg = '';
-      if (typeof errData?.error === 'string') {
-        errMsg = errData.error;
-      } else if (typeof errData?.error?.message === 'string') {
-        errMsg = errData.error.message;
-      } else if (typeof errData?.message === 'string') {
-        errMsg = errData.message;
-      } else {
-        errMsg = `Hermes AI error (${response.status})`;
-      }
-      throw new Error(errMsg);
+      throw new Error(errData?.error || `Hermes LaTeX Healing failed with status ${response.status}`);
     }
 
     const data = await response.json();
-    if (!data?.content) {
-      throw new Error("Invalid response format received from proxy server.");
+    return data.items || [];
+  } catch (err: any) {
+    console.error("Hermes AI LaTeX healing request failed:", err);
+    throw err;
+  }
+}
+
+/**
+ * Serializes an array of questions into strict PLX <QUES ID="..."> format
+ */
+export function serializeQuestionsToPLX(questions: any[]): string {
+  let plx = "<PLX>\n";
+  for (const q of questions) {
+    const qId = q.id || '';
+    plx += `  <QUES ID="${qId}">\n`;
+    plx += `    ${q.text || q.question || ''}\n`;
+    if (q.correctAnswer) {
+      plx += `    <COR ="${q.correctAnswer}">\n`;
+    }
+    const incs = q.incorrectAnswers || [];
+    if (Array.isArray(incs)) {
+      for (const inc of incs) {
+        if (inc) plx += `    <INC ="${inc}">\n`;
+      }
+    }
+    if (q.explanation) {
+      plx += `    <EXP ="${q.explanation}">\n`;
+    }
+    plx += `  </QUES>\n\n`;
+  }
+  plx += "</PLX>";
+  return plx;
+}
+
+/**
+ * Heals an array of questions by converting to PLX format with ID="..." attributes,
+ * sending to DeepSeek / Hermes AI, and returning the structured questions.
+ */
+export async function healQuestionsWithHermesPLX(questions: any[], config?: AIConfig): Promise<any[]> {
+  if (!questions || questions.length === 0) return [];
+  const plx = serializeQuestionsToPLX(questions);
+
+  try {
+    const response = await fetch('/api/hermes/heal-plx', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        plx,
+        config,
+      }),
+    });
+
+    if (!response.ok) {
+      const errData = await response.json().catch(() => ({}));
+      throw new Error(errData?.error || `PLX Healing failed with status ${response.status}`);
     }
 
-    return data.content as string;
+    const data = await response.json();
+    return data.questions || [];
   } catch (err: any) {
-    console.error("Failed to talk to Hermes via server proxy:", err);
-    throw new Error(err.message || "Failed to connect to Hermes.");
+    console.error("Hermes PLX healing request failed:", err);
+    throw err;
+  }
+}
+
+/**
+ * Heals a single LaTeX text string or formula using Hermes AI
+ */
+export async function healSingleTextWithHermesAI(text: string, config?: AIConfig): Promise<string> {
+  if (!text) return '';
+  try {
+    const res = await healLatexWithHermesAI([{ id: 'single', text }], config);
+    return res?.[0]?.text || text;
+  } catch (e) {
+    console.warn("Single text healing failed, returning original:", e);
+    return text;
   }
 }

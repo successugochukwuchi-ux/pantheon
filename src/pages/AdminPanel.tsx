@@ -84,6 +84,7 @@ import remarkMath from 'remark-math';
 import rehypeKatex from 'rehype-katex';
 import remarkGfm from 'remark-gfm';
 import 'katex/dist/katex.min.css';
+import { prepareMarkdownMath } from '../components/SafeMathRenderer';
 import { DEPARTMENTS } from '../constants/departments';
 import { 
   BarChart, 
@@ -1214,9 +1215,9 @@ export default function AdminPanel() {
           if (questionText && correctAnswer) {
             importedQuestions.push({
               text: questionText,
-              correctAnswer,
+              correctAnswer: correctAnswer,
               incorrectAnswers: incorrectAnswers.slice(0, 3),
-              explanation
+              explanation: explanation || ''
             });
           }
         }
@@ -1355,9 +1356,9 @@ export default function AdminPanel() {
           if (questionText && correctAnswer) {
             importedQuestions.push({
               text: questionText,
-              correctAnswer,
+              correctAnswer: correctAnswer,
               incorrectAnswers: incorrectAnswers.slice(0, 3),
-              explanation
+              explanation: explanation || ''
             });
           }
         }
@@ -2936,8 +2937,8 @@ export default function AdminPanel() {
                         </div>
                         <div className="p-3 bg-white/50 dark:bg-black/20 rounded-lg border border-dashed text-sm">
                           <p className="text-[10px] font-bold uppercase text-muted-foreground mb-1">Text Preview</p>
-                          <ReactMarkdown remarkPlugins={[remarkMath, remarkGfm]} rehypePlugins={[rehypeKatex]}>
-                            {newVideoQuestion.text || '_No preview_'}
+                          <ReactMarkdown remarkPlugins={[remarkMath, remarkGfm]} rehypePlugins={[[rehypeKatex, { throwOnError: false, strict: false }]]}>
+                            {prepareMarkdownMath(newVideoQuestion.text || '_No preview_')}
                           </ReactMarkdown>
                         </div>
                       </div>
@@ -2970,8 +2971,8 @@ export default function AdminPanel() {
                         <div key={q.id} className="p-3 border rounded-lg space-y-2">
                           <div className="flex justify-between items-start gap-2">
                             <div className="text-sm font-medium prose prose-sm dark:prose-invert">
-                              <ReactMarkdown remarkPlugins={[remarkMath, remarkGfm]} rehypePlugins={[rehypeKatex]}>
-                                {q.text}
+                              <ReactMarkdown remarkPlugins={[remarkMath, remarkGfm]} rehypePlugins={[[rehypeKatex, { throwOnError: false, strict: false }]]}>
+                                {prepareMarkdownMath(q.text)}
                               </ReactMarkdown>
                             </div>
                             <Button variant="ghost" size="icon" className="h-6 w-6 text-destructive" onClick={() => handleDeleteVideoQuestion(selectedVideoNote.id, q.id)}>
@@ -4122,8 +4123,8 @@ export default function AdminPanel() {
                           </div>
                         </div>
                         <div className="mt-2 prose dark:prose-invert">
-                          <ReactMarkdown remarkPlugins={[remarkMath, remarkGfm]} rehypePlugins={[rehypeKatex]}>
-                            {q.text}
+                          <ReactMarkdown remarkPlugins={[remarkMath, remarkGfm]} rehypePlugins={[[rehypeKatex, { throwOnError: false, strict: false }]]}>
+                            {prepareMarkdownMath(q.text)}
                           </ReactMarkdown>
                         </div>
                       </CardHeader>
@@ -4144,8 +4145,8 @@ export default function AdminPanel() {
                           <div className="mt-4 p-3 bg-blue-50 dark:bg-blue-900/20 rounded-lg text-sm border border-blue-100 dark:border-blue-900/30">
                             <p className="font-bold text-blue-700 dark:text-blue-400 mb-1">Explanation:</p>
                             <div className="text-muted-foreground prose dark:prose-invert max-w-none">
-                              <ReactMarkdown remarkPlugins={[remarkMath, remarkGfm]} rehypePlugins={[rehypeKatex]}>
-                                {q.explanation}
+                              <ReactMarkdown remarkPlugins={[remarkMath, remarkGfm]} rehypePlugins={[[rehypeKatex, { throwOnError: false, strict: false }]]}>
+                                {prepareMarkdownMath(q.explanation)}
                               </ReactMarkdown>
                             </div>
                           </div>
@@ -4230,8 +4231,8 @@ export default function AdminPanel() {
                       <div className="p-3 bg-muted/50 rounded-lg border border-dashed">
                         <p className="text-[10px] font-bold uppercase text-muted-foreground mb-2">Live Preview</p>
                         <div className="prose prose-sm dark:prose-invert max-w-none">
-                          <ReactMarkdown remarkPlugins={[remarkMath, remarkGfm]} rehypePlugins={[rehypeKatex]}>
-                            {editingQuestion.text || '_No text entered_'}
+                          <ReactMarkdown remarkPlugins={[remarkMath, remarkGfm]} rehypePlugins={[[rehypeKatex, { throwOnError: false, strict: false }]]}>
+                            {prepareMarkdownMath(editingQuestion.text || '_No text entered_')}
                           </ReactMarkdown>
                         </div>
                       </div>
@@ -4270,8 +4271,8 @@ export default function AdminPanel() {
                       <div className="p-3 bg-blue-50 dark:bg-blue-900/10 rounded-lg border border-blue-100 dark:border-blue-900/20">
                         <p className="text-[10px] font-bold uppercase text-blue-600 mb-2">Explanation Preview</p>
                         <div className="prose prose-sm dark:prose-invert max-w-none">
-                          <ReactMarkdown remarkPlugins={[remarkMath, remarkGfm]} rehypePlugins={[rehypeKatex]}>
-                            {editingQuestion.explanation || '_No explanation provided_'}
+                          <ReactMarkdown remarkPlugins={[remarkMath, remarkGfm]} rehypePlugins={[[rehypeKatex, { throwOnError: false, strict: false }]]}>
+                            {prepareMarkdownMath(editingQuestion.explanation || '_No explanation provided_')}
                           </ReactMarkdown>
                         </div>
                       </div>

@@ -323,8 +323,8 @@ export default function CBTPractice() {
                   <CardHeader className="pb-3">
                     <div className="flex items-start justify-between gap-4">
                       <div className="prose dark:prose-invert font-medium max-w-none">
-                        <ReactMarkdown remarkPlugins={[remarkMath, remarkGfm]} rehypePlugins={[rehypeRaw, rehypeKatex]}>
-                          {prepareMarkdownMath(`${i + 1}. ${q.text}`)}
+                        <ReactMarkdown remarkPlugins={[remarkMath, remarkGfm]} rehypePlugins={[rehypeRaw, [rehypeKatex, { throwOnError: false, strict: false, errorColor: 'inherit' }]]}>
+                          {prepareMarkdownMath(`${i + 1}. ${q.text || (q as any).question || ''}`)}
                         </ReactMarkdown>
                       </div>
                       {userAnswers[q.id] === q.correctAnswer ? (
@@ -339,7 +339,7 @@ export default function CBTPractice() {
                       <div className={`p-3 rounded-lg flex items-center gap-3 ${userAnswers[q.id] === q.correctAnswer ? "bg-green-50 text-green-700 dark:bg-green-900/20 dark:text-green-400" : "bg-red-50 text-red-700 dark:bg-red-900/20 dark:text-red-400"}`}>
                         <div className="font-bold shrink-0">Your Choice:</div>
                         <div className="prose dark:prose-invert max-w-none text-current">
-                          <ReactMarkdown remarkPlugins={[remarkMath, remarkGfm]} rehypePlugins={[rehypeRaw, rehypeKatex]}>
+                          <ReactMarkdown remarkPlugins={[remarkMath, remarkGfm]} rehypePlugins={[rehypeRaw, [rehypeKatex, { throwOnError: false, strict: false, errorColor: 'inherit' }]]}>
                             {prepareMarkdownMath(userAnswers[q.id] || 'Not answered')}
                           </ReactMarkdown>
                         </div>
@@ -348,7 +348,7 @@ export default function CBTPractice() {
                         <div className="p-3 rounded-lg bg-green-50 text-green-700 dark:bg-green-900/20 dark:text-green-400 flex items-center gap-3">
                           <div className="font-bold shrink-0">Correct:</div>
                           <div className="prose dark:prose-invert max-w-none text-current">
-                            <ReactMarkdown remarkPlugins={[remarkMath, remarkGfm]} rehypePlugins={[rehypeRaw, rehypeKatex]}>
+                            <ReactMarkdown remarkPlugins={[remarkMath, remarkGfm]} rehypePlugins={[rehypeRaw, [rehypeKatex, { throwOnError: false, strict: false, errorColor: 'inherit' }]]}>
                               {prepareMarkdownMath(q.correctAnswer)}
                             </ReactMarkdown>
                           </div>
@@ -359,7 +359,7 @@ export default function CBTPractice() {
                       <div className="mt-2 p-4 bg-muted/30 rounded-lg text-sm italic border-l-2 border-primary/30">
                         <div className="prose dark:prose-invert max-w-none text-muted-foreground">
                           <strong className="not-italic text-foreground block mb-1">Explanation:</strong>
-                          <ReactMarkdown remarkPlugins={[remarkMath, remarkGfm]} rehypePlugins={[rehypeRaw, rehypeKatex]}>
+                          <ReactMarkdown remarkPlugins={[remarkMath, remarkGfm]} rehypePlugins={[rehypeRaw, [rehypeKatex, { throwOnError: false, strict: false, errorColor: 'inherit' }]]}>
                             {prepareMarkdownMath(q.explanation)}
                           </ReactMarkdown>
                         </div>
@@ -408,6 +408,36 @@ export default function CBTPractice() {
         />
       </div>
 
+      {/* Top Question Selector Scrollbar (CBT mode: answered vs unanswered only) */}
+      <div className="w-full overflow-x-auto pb-1 -mt-2 scrollbar-thin">
+        <div className="flex items-center gap-1.5 min-w-max py-1 px-0.5">
+          {questions.map((q, i) => {
+            const isCurrent = currentQuestionIndex === i;
+            const isAnswered = userAnswers[q.id] !== undefined;
+
+            return (
+              <button
+                key={q.id}
+                type="button"
+                onClick={() => setCurrentQuestionIndex(i)}
+                className={`h-8 min-w-[34px] px-2 rounded-lg text-xs font-bold transition-all border-2 flex items-center justify-center ${
+                  isCurrent
+                    ? 'border-primary shadow-sm ring-1 ring-primary/30 scale-105'
+                    : 'border-transparent'
+                } ${
+                  isAnswered
+                    ? 'bg-primary text-primary-foreground shadow-sm'
+                    : 'bg-muted/70 text-muted-foreground hover:bg-muted'
+                }`}
+                title={`Question ${i + 1}: ${isAnswered ? 'Answered' : 'Unanswered'}`}
+              >
+                {i + 1}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
       <AnimatePresence mode="wait">
         <motion.div
           key={currentQuestionIndex}
@@ -420,14 +450,14 @@ export default function CBTPractice() {
             <CardHeader className="pb-8">
               <div className="prose dark:prose-invert max-w-none text-2xl leading-relaxed">
                 <div className="py-4">
-                  <ReactMarkdown remarkPlugins={[remarkMath, remarkGfm]} rehypePlugins={[rehypeRaw, rehypeKatex]}>
-                    {prepareMarkdownMath(currentQuestion.text)}
+                  <ReactMarkdown remarkPlugins={[remarkMath, remarkGfm]} rehypePlugins={[rehypeRaw, [rehypeKatex, { throwOnError: false, strict: false, errorColor: 'inherit' }]]}>
+                    {prepareMarkdownMath(currentQuestion.text || (currentQuestion as any).question || '')}
                   </ReactMarkdown>
                 </div>
               </div>
             </CardHeader>
             <CardContent className="flex-1 space-y-4">
-              {(currentQuestion as any).options.map((option: string, idx: number) => (
+              {((currentQuestion as any).options || [currentQuestion.correctAnswer, ...(currentQuestion.incorrectAnswers || [])]).map((option: string, idx: number) => (
                 <button
                   key={idx}
                   onClick={() => handleAnswer(currentQuestion.id, option)}
@@ -445,7 +475,7 @@ export default function CBTPractice() {
                     {optionLabels[idx]}
                   </span>
                   <span className="font-semibold text-lg flex-1">
-                    <ReactMarkdown remarkPlugins={[remarkMath, remarkGfm]} rehypePlugins={[rehypeRaw, rehypeKatex]}>
+                    <ReactMarkdown remarkPlugins={[remarkMath, remarkGfm]} rehypePlugins={[rehypeRaw, [rehypeKatex, { throwOnError: false, strict: false, errorColor: 'inherit' }]]}>
                       {prepareMarkdownMath(option)}
                     </ReactMarkdown>
                   </span>

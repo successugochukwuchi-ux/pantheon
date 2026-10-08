@@ -16,6 +16,7 @@ import remarkGfm from 'remark-gfm';
 import 'katex/dist/katex.min.css';
 import { ScientificCalculator } from '../components/ScientificCalculator';
 import { VideoPlayer } from '../components/VideoPlayer';
+import { prepareMarkdownMath } from '../components/SafeMathRenderer';
 
 import { getFilteredCoursesForStudent } from '../lib/courseFilter';
 
@@ -239,8 +240,8 @@ export default function VideoLibrary() {
                           <CardHeader className="bg-muted/20 pb-4">
                             <span className="text-xs font-bold text-primary uppercase tracking-widest mb-2 block">Question {idx + 1}</span>
                             <CardTitle className="text-lg leading-relaxed">
-                              <ReactMarkdown remarkPlugins={[remarkMath, remarkGfm]} rehypePlugins={[rehypeKatex]}>
-                                {q.text}
+                              <ReactMarkdown remarkPlugins={[remarkMath, remarkGfm]} rehypePlugins={[[rehypeKatex, { throwOnError: false, strict: false }]]}>
+                                {prepareMarkdownMath(q.text)}
                               </ReactMarkdown>
                             </CardTitle>
                           </CardHeader>
@@ -269,8 +270,8 @@ export default function VideoLibrary() {
                                     className={buttonClass}
                                   >
                                     <span className="flex-1">
-                                      <ReactMarkdown remarkPlugins={[remarkMath, remarkGfm]} rehypePlugins={[rehypeKatex]}>
-                                        {opt}
+                                      <ReactMarkdown remarkPlugins={[remarkMath, remarkGfm]} rehypePlugins={[[rehypeKatex, { throwOnError: false, strict: false }]]}>
+                                        {prepareMarkdownMath(opt)}
                                       </ReactMarkdown>
                                     </span>
                                     {showResults && isCorrect && <CheckCircle2 className="h-5 w-5 shrink-0" />}

@@ -13,6 +13,7 @@ import { MathJax } from 'better-react-mathjax';
 import ReactMarkdown from 'react-markdown';
 import remarkMath from 'remark-math';
 import rehypeKatex from 'rehype-katex';
+import rehypeRaw from 'rehype-raw';
 import remarkGfm from 'remark-gfm';
 import 'katex/dist/katex.min.css';
 import { useTitle } from '../hooks/useTitle';
@@ -132,8 +133,12 @@ export default function PastQuestions() {
   const currentQuestion = questions[currentIndex];
   const randomizedOptions = useMemo(() => {
     if (!currentQuestion) return [];
-    const options = [currentQuestion.correctAnswer, ...currentQuestion.incorrectAnswers];
-    // Custom seed-based shuffle would be better, but simple math random for now
+    if (Array.isArray(currentQuestion.options) && currentQuestion.options.length > 0) {
+      return currentQuestion.options;
+    }
+    const incorrect = Array.isArray(currentQuestion.incorrectAnswers) ? currentQuestion.incorrectAnswers : [];
+    const correct = currentQuestion.correctAnswer || '';
+    const options = correct ? [correct, ...incorrect] : [...incorrect];
     return options.sort(() => Math.random() - 0.5);
   }, [currentQuestion?.id]);
 
@@ -241,6 +246,35 @@ export default function PastQuestions() {
         />
       </div>
 
+      {/* Question Selector Pills for quick jump and skip review */}
+      <div className="flex items-center gap-1.5 overflow-x-auto pb-1 py-1">
+        {questions.map((q, idx) => {
+          const isCurrent = idx === currentIndex;
+          const answered = showFeedback[q.id];
+          const isCorrect = userAnswers[q.id] === q.correctAnswer;
+          
+          let pillStyle = "bg-muted/60 text-muted-foreground hover:bg-muted border-transparent";
+          if (answered) {
+            if (isCorrect) pillStyle = "bg-green-500/15 text-green-600 dark:text-green-400 border-green-500/30 font-bold";
+            else pillStyle = "bg-red-500/15 text-red-600 dark:text-red-400 border-red-500/30 font-bold";
+          }
+          if (isCurrent) {
+            pillStyle += " ring-2 ring-primary ring-offset-1 font-black";
+          }
+
+          return (
+            <button
+              key={q.id || idx}
+              onClick={() => setCurrentIndex(idx)}
+              className={`h-8 min-w-[32px] px-2 rounded-lg text-xs font-mono transition-all border flex items-center justify-center shrink-0 cursor-pointer ${pillStyle}`}
+              title={`Jump to Question ${idx + 1}`}
+            >
+              {idx + 1}
+            </button>
+          );
+        })}
+      </div>
+
       <AnimatePresence mode="wait">
         <motion.div
           key={currentIndex}
@@ -252,8 +286,8 @@ export default function PastQuestions() {
             <CardHeader>
               <div className="prose dark:prose-invert max-w-none text-xl leading-relaxed">
                 <div className="py-4">
-                  <ReactMarkdown remarkPlugins={[remarkMath, remarkGfm]} rehypePlugins={[rehypeKatex]}>
-                    {prepareMarkdownMath(currentQuestion.text)}
+                  <ReactMarkdown remarkPlugins={[remarkMath, remarkGfm]} rehypePlugins={[rehypeRaw, [rehypeKatex, { throwOnError: false, strict: false, errorColor: 'inherit' }]]}>
+                    {prepareMarkdownMath(currentQuestion.text || (currentQuestion as any).question || '')}
                   </ReactMarkdown>
                 </div>
               </div>
@@ -284,7 +318,7 @@ export default function PastQuestions() {
                           {String.fromCharCode(65 + idx)}
                         </span>
                         <span className="font-medium">
-                          <ReactMarkdown remarkPlugins={[remarkMath, remarkGfm]} rehypePlugins={[rehypeKatex]}>
+                          <ReactMarkdown remarkPlugins={[remarkMath, remarkGfm]} rehypePlugins={[rehypeRaw, [rehypeKatex, { throwOnError: false, strict: false, errorColor: 'inherit' }]]}>
                             {prepareMarkdownMath(option)}
                           </ReactMarkdown>
                         </span>
@@ -304,14 +338,14 @@ export default function PastQuestions() {
                 >
                   <p className="font-bold text-sm uppercase tracking-wider text-primary">Explanation</p>
                   <div className="text-muted-foreground prose dark:prose-invert max-w-none text-sm font-medium">
-                    <ReactMarkdown remarkPlugins={[remarkMath, remarkGfm]} rehypePlugins={[rehypeKatex]}>
+                    <ReactMarkdown remarkPlugins={[remarkMath, remarkGfm]} rehypePlugins={[rehypeRaw, [rehypeKatex, { throwOnError: false, strict: false, errorColor: 'inherit' }]]}>
                       {prepareMarkdownMath(currentQuestion.explanation || "No explanation provided for this question.")}
                     </ReactMarkdown>
                   </div>
                 </motion.div>
               )}
             </CardContent>
-            <CardFooter className="border-t p-6 flex justify-between">
+            <CardFooter className="border-t p-6 flex items-center justify-between gap-3">
               <Button 
                 variant="ghost" 
                 onClick={() => {
@@ -322,17 +356,41 @@ export default function PastQuestions() {
                 <ArrowLeft className="mr-2 h-4 w-4" /> Previous
               </Button>
 
-              {showFeedback[currentQuestion.id] && (
-                currentIndex === questions.length - 1 ? (
-                  <Button onClick={() => setExamStarted(false)} variant="secondary">
-                    <RotateCcw className="mr-2 h-4 w-4" /> Finish Review
+              <div className="flex items-center gap-2">
+                {!showFeedback[currentQuestion.id] && (
+                  <Button 
+                    variant="outline" 
+                    onClick={() => {
+                      if (currentIndex < questions.length - 1) {
+                        setCurrentIndex(prev => prev + 1);
+                      } else {
+                        // At the last question: jump to first unanswered or finish review
+                        const firstUnanswered = questions.findIndex(q => !showFeedback[q.id]);
+                        if (firstUnanswered !== -1 && firstUnanswered !== currentIndex) {
+                          setCurrentIndex(firstUnanswered);
+                        } else {
+                          setExamStarted(false);
+                        }
+                      }
+                    }}
+                    className="font-medium"
+                  >
+                    {currentIndex === questions.length - 1 ? 'Skip & Finish' : 'Skip Question'} <ArrowRight className="ml-2 h-4 w-4" />
                   </Button>
-                ) : (
-                  <Button onClick={() => setCurrentIndex(prev => prev + 1)}>
-                    Next Question <ArrowRight className="ml-2 h-4 w-4" />
-                  </Button>
-                )
-              )}
+                )}
+
+                {showFeedback[currentQuestion.id] && (
+                  currentIndex === questions.length - 1 ? (
+                    <Button onClick={() => setExamStarted(false)} variant="secondary">
+                      <RotateCcw className="mr-2 h-4 w-4" /> Finish Review
+                    </Button>
+                  ) : (
+                    <Button onClick={() => setCurrentIndex(prev => prev + 1)}>
+                      Next Question <ArrowRight className="ml-2 h-4 w-4" />
+                    </Button>
+                  )
+                )}
+              </div>
             </CardFooter>
           </Card>
         </motion.div>

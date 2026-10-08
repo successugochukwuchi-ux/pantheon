@@ -294,7 +294,7 @@ export default function PastQuestionsScreen() {
           return {
             id: doc.id,
             courseId: data.courseId,
-            q: data.q || data.text || '',
+            q: data.q || data.text || data.question || '',
             opts: optsArray,
             answer: correctIdx,
             sheetId: data.sheetId,
@@ -437,6 +437,56 @@ export default function PastQuestionsScreen() {
           </View>
         </View>
 
+        {/* Question Selector Pills for quick jump and skip */}
+        <View style={{ paddingHorizontal: 16, paddingVertical: 6, backgroundColor: C.surface, borderBottomWidth: 1, borderBottomColor: C.border }}>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 6, alignItems: 'center' }}>
+            {questions.map((q, idx) => {
+              const isCurrent = idx === currentIndex;
+              const answered = userAnswers[idx] !== undefined;
+              const isCorrect = userAnswers[idx] === q.answer;
+              
+              let bg = C.bgAlt;
+              let border = C.border;
+              let textC = C.inkMid;
+
+              if (answered) {
+                if (isCorrect) {
+                  bg = '#E6F4EA';
+                  border = '#137333';
+                  textC = '#137333';
+                } else {
+                  bg = '#FCE8E6';
+                  border = '#C5221F';
+                  textC = '#C5221F';
+                }
+              }
+
+              return (
+                <TouchableOpacity
+                  key={idx}
+                  onPress={() => setCurrentIndex(idx)}
+                  activeOpacity={0.7}
+                  style={{
+                    height: 28,
+                    minWidth: 28,
+                    paddingHorizontal: 6,
+                    borderRadius: 6,
+                    justifyContent: 'center',
+                    alignItems: 'center',
+                    backgroundColor: bg,
+                    borderWidth: isCurrent ? 2 : 1,
+                    borderColor: isCurrent ? C.ink : border,
+                  }}
+                >
+                  <Text style={{ fontFamily: isCurrent ? F.bold : F.medium, fontSize: 11, color: isCurrent ? C.ink : textC }}>
+                    {idx + 1}
+                  </Text>
+                </TouchableOpacity>
+              );
+            })}
+          </ScrollView>
+        </View>
+
         <ScrollView style={s.scroll} contentContainerStyle={s.scrollContentExam} showsVerticalScrollIndicator={false}>
           {/* Question Slide Card */}
           <Animated.View style={[s.examCard, { opacity: questionAnim }]}>
@@ -481,7 +531,7 @@ export default function PastQuestionsScreen() {
             </TouchableOpacity>
 
             <TouchableOpacity 
-              style={[s.navPageBtn, currentIndex === questions.length - 1 && s.navPageBtnDisabled, { borderColor: C.border }]}
+              style={[s.navPageBtn, { borderColor: C.border }]}
               onPress={() => {
                 if (currentIndex === questions.length - 1) {
                   setExamStarted(false);
@@ -491,8 +541,10 @@ export default function PastQuestionsScreen() {
               }}
               activeOpacity={0.7}
             >
-              <Text style={[s.navPageBtnText, { color: C.ink }]}>
-                {currentIndex === questions.length - 1 ? 'Finish review' : 'Next Question ▶'}
+              <Text style={[s.navPageBtnText, { color: C.ink, fontFamily: !isAnswered ? F.bold : F.medium }]}>
+                {currentIndex === questions.length - 1 
+                  ? (!isAnswered ? 'Skip & Finish' : 'Finish review') 
+                  : (!isAnswered ? 'Skip Question ⏭' : 'Next Question ▶')}
               </Text>
             </TouchableOpacity>
           </View>

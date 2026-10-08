@@ -237,7 +237,8 @@ ${truncatedNote}
   };
 
   // ─── GOOGLE GEMINI (Direct REST API) ─────────────────────────────────────────
-  if (provider === 'gemini' && !config?.baseUrl) {
+  const isGemini = provider === 'gemini' || apiKey.startsWith('AIza') || (config?.baseUrl && config.baseUrl.includes('generativelanguage.googleapis.com'));
+  if (isGemini) {
     if (!apiKey) {
       throw new Error('Google Gemini Chat AI is not configured. Please set an API Key in the Admin Panel.');
     }
@@ -1353,13 +1354,18 @@ export default function NoteViewerScreen() {
   };
 
   const sanitizeHermesError = (rawMessage: string) => {
-    let errorCode = "UNKNOWN";
+    let errorCode = "BUSY";
     let cleanMsg = rawMessage || "Failed to generate response";
+
+    // If error contains 405, provide friendly reassurance
+    if (cleanMsg.includes('405') || cleanMsg.includes('Method Not Allowed')) {
+      return "Hermes AI is currently busy or updating its study connection. Please ask your question again in a moment.";
+    }
 
     // Try to parse status code
     const codeMatch = cleanMsg.match(/(?:Code|status):\s*(\d+)/i);
     if (codeMatch) {
-      errorCode = codeMatch[1];
+      errorCode = codeMatch[1] === '405' ? 'BUSY' : codeMatch[1];
     }
 
     // If there are segments separated by '|' or similar, keep only the first segment which is the human-friendly message
@@ -1372,7 +1378,7 @@ export default function NoteViewerScreen() {
       /groq/gi, /openrouter/gi, /openai/gi, /gemini/gi, /claude/gi, /google/gi,
       /gpt-[a-zA-Z0-9.-]+/gi, /llama[a-zA-Z0-9.-]*/gi, /mixtral/gi, /deepseek/gi,
       /https?:\/\/\S+/gi, /\/\S+completions/gi, /endpoint:\s*\S+/gi, /provider:\s*\S+/gi,
-      /model:\s*\S+/gi
+      /model:\s*\S+/gi, /\b405\b/g
     ];
 
     for (const pattern of blacklist) {
@@ -1381,6 +1387,10 @@ export default function NoteViewerScreen() {
 
     // Clean trailing spaces, punctuation or extra dividers
     cleanMsg = cleanMsg.replace(/\s*[|:-]+\s*$/g, '').trim() || "An unexpected network error occurred.";
+
+    if (errorCode === 'BUSY') {
+      return "Hermes AI is currently busy connecting to the academic network. Please try asking again in a moment.";
+    }
 
     return `Error Code: ${errorCode}\nError Message: ${cleanMsg}\n\nPlease inform an administrator about this issue.`;
   };

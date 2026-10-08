@@ -202,6 +202,17 @@ export default function CbtExamScreen() {
   const [started] = useState(Date.now());
 
   const slideAnim = useRef(new Animated.Value(0)).current;
+  const selectorScrollRef = useRef<ScrollView>(null);
+
+  // Keep horizontal question selector centered on active question
+  useEffect(() => {
+    if (selectorScrollRef.current && questions.length > 0) {
+      selectorScrollRef.current.scrollTo({
+        x: Math.max(0, currentIdx * 38 - 120),
+        animated: true,
+      });
+    }
+  }, [currentIdx, questions.length]);
 
   // Timer
   useEffect(() => {
@@ -325,6 +336,76 @@ export default function CbtExamScreen() {
             </Text>
           </View>
         )}
+      </View>
+
+      {/* Progress Bar */}
+      <View style={{ paddingHorizontal: 16, paddingTop: 6, paddingBottom: 4, backgroundColor: C.surface }}>
+        <View style={{ height: 4, borderRadius: 2, overflow: 'hidden', backgroundColor: C.tabBg }}>
+          <View 
+            style={{ 
+              height: '100%',
+              backgroundColor: C.activeText,
+              width: `${((currentIdx + 1) / questions.length) * 100}%` 
+            }} 
+          />
+        </View>
+      </View>
+
+      {/* Top Question Selector Pills (CBT mode: answered vs unanswered only, no answers revealed) */}
+      <View style={{ paddingHorizontal: 16, paddingVertical: 8, backgroundColor: C.surface, borderBottomWidth: 1, borderBottomColor: C.border }}>
+        <ScrollView 
+          ref={selectorScrollRef}
+          horizontal 
+          showsHorizontalScrollIndicator={false} 
+          contentContainerStyle={{ gap: 6, alignItems: 'center' }}
+        >
+          {questions.map((_, idx) => {
+            const isCurrent = idx === currentIdx;
+            const isAnswered = answers[idx] !== undefined;
+            const isFlagged = flagged.has(idx);
+
+            let bg = C.bgAlt;
+            let border = C.border;
+            let textC = C.inkMid;
+
+            if (isAnswered) {
+              // Answered in CBT practice mode: indicate answered state clearly, NEVER reveal if correct or incorrect
+              bg = C.ink;
+              border = C.ink;
+              textC = C.bg;
+            }
+
+            return (
+              <TouchableOpacity
+                key={idx}
+                onPress={() => goTo(idx)}
+                activeOpacity={0.7}
+                style={{
+                  height: 30,
+                  minWidth: 30,
+                  paddingHorizontal: 8,
+                  borderRadius: 8,
+                  justifyContent: 'center',
+                  alignItems: 'center',
+                  backgroundColor: bg,
+                  borderWidth: isCurrent ? 2 : 1,
+                  borderColor: isCurrent ? (isAnswered ? C.activeText : C.ink) : border,
+                }}
+              >
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 2 }}>
+                  <Text style={{ fontFamily: isCurrent ? F.bold : F.medium, fontSize: 11, color: isCurrent && !isAnswered ? C.ink : textC }}>
+                    {idx + 1}
+                  </Text>
+                  {isFlagged && (
+                    <Text style={{ fontSize: 9, color: isAnswered ? '#FFD700' : '#E67E22', marginTop: -1 }}>
+                      ⚑
+                    </Text>
+                  )}
+                </View>
+              </TouchableOpacity>
+            );
+          })}
+        </ScrollView>
       </View>
 
       <ScrollView style={s.scroll} contentContainerStyle={s.scrollContent} showsVerticalScrollIndicator={false}>

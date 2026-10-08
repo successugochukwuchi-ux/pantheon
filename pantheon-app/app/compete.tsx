@@ -94,6 +94,23 @@ export default function CompeteScreen() {
   const [matchQuestions, setMatchQuestions] = useState<Question[]>([]);
   const [reviewFilter, setReviewFilter] = useState<'all' | 'mistakes' | 'correct'>('all');
 
+  const gameStateRef = useRef(gameState);
+  gameStateRef.current = gameState;
+  const currentMatchRef = useRef(currentMatch);
+  currentMatchRef.current = currentMatch;
+
+  // Cleanly cancel waiting match if user navigates away or screen unmounts to prevent ghost matching
+  useEffect(() => {
+    return () => {
+      if (gameStateRef.current === 'waiting' && currentMatchRef.current?.id && user?.uid === currentMatchRef.current.creatorId) {
+        updateDoc(doc(db, 'compete_matches', currentMatchRef.current.id), {
+          status: 'cancelled',
+          cancelledAt: Date.now(),
+        }).catch(() => {});
+      }
+    };
+  }, [user?.uid]);
+
   // In-Game Live Timers
   const [timeLeft, setTimeLeft] = useState<number>(300);
   const [questionStartTime, setQuestionStartTime] = useState<number>(0);
@@ -383,11 +400,11 @@ export default function CompeteScreen() {
     setTimeout(postBotAnswer, Math.floor(Math.random() * 5000) + 4000);
   };
 
-  // Searching match timeout hook ( triggers bot after 10 seconds if no human lobby ) AND periodic 2-second scan
+  // Searching match timeout hook ( triggers bot after 1 full minute (60s) if no human lobby ) AND periodic 2-second scan
   useEffect(() => {
     if (gameState !== 'waiting' || lobbyType !== 'quick' || !currentMatch?.id) return;
 
-    setSearchCountdown(10);
+    setSearchCountdown(60);
     const interval = setInterval(async () => {
       setSearchCountdown((prev) => {
         if (prev <= 1) {
@@ -417,9 +434,9 @@ export default function CompeteScreen() {
         for (const val of lobbiesSnap.docs) {
           const lobbyData = val.data();
           if (lobbyData.creatorId !== user.uid && val.id !== currentMatch.id) {
-            // Verify lobby is not stale/abandoned (older than 20s without heartbeat)
+            // Verify lobby is not stale/abandoned (older than 45s without heartbeat)
             const lastActive = lobbyData.lastHeartbeat || lobbyData.createdAt || 0;
-            if (Date.now() - lastActive > 20000) {
+            if (Date.now() - lastActive > 45000) {
               updateDoc(doc(db, 'compete_matches', val.id), { status: 'aborted' }).catch(() => {});
               continue;
             }
@@ -609,7 +626,7 @@ export default function CompeteScreen() {
         }
 
         setGameState('waiting');
-        setSearchCountdown(10);
+        setSearchCountdown(60); // 1 full minute (60s) matchmaking window
 
         // Standard 1v1 quick match
         const lobbiesQuery = query(
@@ -630,9 +647,9 @@ export default function CompeteScreen() {
             setCurrentMatch({ id: docSnap.id, ...matchData });
             return;
           }
-          // Validate freshness: ignore stale / abandoned ghost matches (older than 20s without heartbeat)
+          // Validate freshness: ignore stale / abandoned ghost matches (older than 45s without heartbeat)
           const lastActive = matchData.lastHeartbeat || matchData.createdAt || 0;
-          if (Date.now() - lastActive > 20000) {
+          if (Date.now() - lastActive > 45000) {
             updateDoc(doc(db, 'compete_matches', docSnap.id), { status: 'aborted' }).catch(() => {});
             continue;
           }
@@ -1508,7 +1525,7 @@ export default function CompeteScreen() {
                 </Text>
                 <Text style={[s.waitingSub, { color: C.inkMid }]}>
                   {currentMatch.type === 'quick_match'
-                    ? `Matching for ${selectedCourse?.code || 'course'}. CoLearn bot activates in ${searchCountdown}s.`
+                    ? `Matching for ${selectedCourse?.code || 'course'}. CoLearn bot activates in ${searchCountdown}s if no opponent is found.`
                     : 'Give this 5-character match code to a classmate in this class.'}
                 </Text>
 
