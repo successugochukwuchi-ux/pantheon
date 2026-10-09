@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { getBackendCandidates } from '../lib/backendConfig';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from './ui/card';
 import { Button } from './ui/button';
 import { Label } from './ui/label';
@@ -398,10 +399,7 @@ export const VideoWorkshop: React.FC = () => {
     }
 
     // EdgeTTS provider
-    const endpoints = [
-      '/api/tts',
-      'https://colearn-backend-tzo9.onrender.com/api/tts'
-    ];
+    const endpoints = getBackendCandidates('/api/tts');
 
     let lastError: Error | null = null;
 

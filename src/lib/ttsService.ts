@@ -1,3 +1,5 @@
+import { getBackendCandidates } from './backendConfig';
+
 export interface TTSVoice {
   id: string;
   name: string;
@@ -203,10 +205,7 @@ async function fetchChunkAudio(
   signal: AbortSignal,
   onPreparing?: (progressPercent: number) => void
 ): Promise<string> {
-  const backendEndpoints = [
-    '/api/tts',
-    'https://colearn-backend-tzo9.onrender.com/api/tts'
-  ];
+  const backendEndpoints = getBackendCandidates('/api/tts');
 
   let lastError: any = null;
 

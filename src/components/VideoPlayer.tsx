@@ -19,6 +19,7 @@ import {
 import { Button } from './ui/button';
 import { Slider } from './ui/slider';
 import { cn } from '../lib/utils';
+import { RENDER_BACKEND_URL, isStaticHost } from '../lib/backendConfig';
 
 interface VideoPlayerProps {
   url: string;
@@ -173,7 +174,8 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({ url, title }) => {
     if (urlStr.includes('drive.google.com')) {
       const fileId = getDriveFileId(urlStr);
       if (fileId) {
-        return `/api/video-stream/${fileId}`;
+        const path = `/api/video-stream/${fileId}`;
+        return isStaticHost() ? `${RENDER_BACKEND_URL}${path}` : path;
       }
     }
     return urlStr;

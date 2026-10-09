@@ -1,5 +1,6 @@
 import { GoogleGenAI, Type } from "@google/genai";
 import { AIConfig } from '../types';
+import { getBackendCandidates } from '../lib/backendConfig';
 
 const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY || '' });
 
@@ -243,34 +244,41 @@ ${fileData.data}`
 }
 
 export async function chatWithHermes(messages: ChatMessage[], noteContent: string, config?: AIConfig, isVoiceCall?: boolean) {
-  // Strategy 1: Attempt server proxy endpoint
-  let proxyFailedWith405OrError = false;
-  try {
-    const response = await fetch('/api/hermes/chat', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        messages,
-        noteContent,
-        config,
-        isVoiceCall: Boolean(isVoiceCall),
-      }),
-    });
+  // Strategy 1: Attempt candidate backend proxies (local or Render backend for static hosts like Wasmer)
+  const candidateUrls = getBackendCandidates('/api/hermes/chat');
+  for (const endpoint of candidateUrls) {
+    try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 35000);
 
-    if (response.ok) {
-      const data = await response.json();
-      if (data?.content) {
-        return data.content as string;
+      const response = await fetch(endpoint, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          messages,
+          noteContent,
+          config,
+          isVoiceCall: Boolean(isVoiceCall),
+        }),
+        signal: controller.signal,
+      });
+      clearTimeout(timeoutId);
+
+      const contentType = response.headers.get('content-type') || '';
+      // Ensure the response is valid JSON and not an HTML SPA fallback page (like Wasmer static-server returns for routes)
+      if (response.ok && contentType.includes('application/json')) {
+        const data = await response.json();
+        if (data?.content) {
+          return data.content as string;
+        }
+      } else {
+        console.warn(`Backend candidate ${endpoint} returned status ${response.status} with content-type: ${contentType}`);
       }
-    } else {
-      if (response.status === 405 || response.status === 404) {
-        proxyFailedWith405OrError = true;
-      }
+    } catch (proxyErr) {
+      console.warn(`Backend candidate ${endpoint} unavailable:`, proxyErr);
     }
-  } catch (proxyErr) {
-    proxyFailedWith405OrError = true;
   }
 
   // Strategy 2: Direct Client-Side Fallback (for static hosting or proxy failure)
@@ -298,12 +306,58 @@ ${truncatedNote}`;
 
     const latestUserMsg = messages.length > 0 ? messages[messages.length - 1].content : 'Hello';
 
-    // A. Try Gemini if Gemini key or provider is available
+    // A. Direct Custom / OpenAI-Compatible Provider Fallback (handles Xiaomi MIMO, DeepSeek, Together, OpenAI, etc.)
+    let customBaseUrl = config?.baseUrl || '';
+    if (!customBaseUrl) {
+      const p = (provider as string).toLowerCase();
+      if (p === 'openai') customBaseUrl = 'https://api.openai.com/v1';
+      else if (p === 'deepseek') customBaseUrl = 'https://api.deepseek.com/v1';
+      else if (p === 'together') customBaseUrl = 'https://api.together.xyz/v1';
+      else if (p === 'mistral') customBaseUrl = 'https://api.mistral.ai/v1';
+      else if (p === 'xai') customBaseUrl = 'https://api.x.ai/v1';
+    }
+
+    if (customBaseUrl && cleanKey) {
+      try {
+        const cleanBaseUrl = customBaseUrl.replace(/\/+$/, '');
+        const targetUrl = cleanBaseUrl.endsWith('/chat/completions')
+          ? cleanBaseUrl
+          : `${cleanBaseUrl}/chat/completions`;
+
+        const customRes = await fetch(targetUrl, {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${cleanKey}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            model: config?.model || 'gpt-4o-mini',
+            messages: [
+              { role: 'system', content: systemPrompt },
+              ...messages.slice(-6)
+            ],
+            temperature: 0.5,
+          }),
+        });
+
+        const contentType = customRes.headers.get('content-type') || '';
+        if (customRes.ok && contentType.includes('application/json')) {
+          const customData = await customRes.json();
+          const reply = customData.choices?.[0]?.message?.content;
+          if (reply) return reply;
+        }
+      } catch (customErr) {
+        console.warn("Direct Custom/OpenAI provider fallback failed:", customErr);
+      }
+    }
+
+    // B. Try Gemini if Gemini key or provider is available
     if (activeGeminiKey && (provider === 'gemini' || cleanKey.startsWith('AIza') || !cleanKey)) {
       try {
         const aiGen = new GoogleGenAI({ apiKey: activeGeminiKey });
+        const geminiModel = config?.model || 'gemini-3.8-flash';
         const res = await aiGen.models.generateContent({
-          model: 'gemini-2.5-flash',
+          model: geminiModel,
           contents: [
             {
               role: 'user',
@@ -319,10 +373,11 @@ ${truncatedNote}`;
       }
     }
 
-    // B. Try Groq if Groq key or provider is configured
+    // C. Try Groq if Groq key or provider is configured
     const groqKey = cleanKey.startsWith('gsk_') ? cleanKey : (provider === 'groq' ? cleanKey : '');
     if (groqKey) {
       try {
+        const groqModel = config?.model?.includes('/') ? config.model.split('/').pop() : (config?.model || 'llama-3.3-70b-versatile');
         const groqRes = await fetch('https://api.groq.com/openai/v1/chat/completions', {
           method: 'POST',
           headers: {
@@ -330,7 +385,7 @@ ${truncatedNote}`;
             'Content-Type': 'application/json'
           },
           body: JSON.stringify({
-            model: 'llama-3.3-70b-versatile',
+            model: groqModel,
             messages: [
               { role: 'system', content: systemPrompt },
               ...messages.slice(-6)
@@ -349,7 +404,7 @@ ${truncatedNote}`;
       }
     }
 
-    // C. Try OpenRouter if key is available
+    // D. Try OpenRouter if key is available
     const openrouterKey = cleanKey.startsWith('sk-or-') ? cleanKey : (provider === 'openrouter' ? cleanKey : '');
     if (openrouterKey) {
       try {
@@ -357,10 +412,12 @@ ${truncatedNote}`;
           method: 'POST',
           headers: {
             'Authorization': `Bearer ${openrouterKey}`,
-            'Content-Type': 'application/json'
+            'Content-Type': 'application/json',
+            'HTTP-Referer': typeof window !== 'undefined' ? window.location.origin : 'https://colearn.app',
+            'X-Title': 'Hermes Chat',
           },
           body: JSON.stringify({
-            model: 'meta-llama/llama-3.3-70b-instruct',
+            model: config?.model || 'meta-llama/llama-3.3-70b-instruct',
             messages: [
               { role: 'system', content: systemPrompt },
               ...messages.slice(-6)
@@ -392,29 +449,30 @@ ${truncatedNote}`;
  */
 export async function healLatexWithHermesAI(items: any[], config?: AIConfig): Promise<any[]> {
   if (!items || items.length === 0) return [];
-  try {
-    const response = await fetch('/api/hermes/heal-latex', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        items,
-        config,
-      }),
-    });
+  const candidates = getBackendCandidates('/api/hermes/heal-latex');
+  for (const endpoint of candidates) {
+    try {
+      const response = await fetch(endpoint, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          items,
+          config,
+        }),
+      });
 
-    if (!response.ok) {
-      const errData = await response.json().catch(() => ({}));
-      throw new Error(errData?.error || `Hermes LaTeX Healing failed with status ${response.status}`);
+      const contentType = response.headers.get('content-type') || '';
+      if (response.ok && contentType.includes('application/json')) {
+        const data = await response.json();
+        return data.items || [];
+      }
+    } catch (err: any) {
+      console.warn(`Hermes LaTeX healing candidate ${endpoint} failed:`, err);
     }
-
-    const data = await response.json();
-    return data.items || [];
-  } catch (err: any) {
-    console.error("Hermes AI LaTeX healing request failed:", err);
-    throw err;
   }
+  return items;
 }
 
 /**
@@ -452,29 +510,31 @@ export async function healQuestionsWithHermesPLX(questions: any[], config?: AICo
   if (!questions || questions.length === 0) return [];
   const plx = serializeQuestionsToPLX(questions);
 
-  try {
-    const response = await fetch('/api/hermes/heal-plx', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        plx,
-        config,
-      }),
-    });
+  const candidates = getBackendCandidates('/api/hermes/heal-plx');
+  for (const endpoint of candidates) {
+    try {
+      const response = await fetch(endpoint, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          plx,
+          config,
+        }),
+      });
 
-    if (!response.ok) {
-      const errData = await response.json().catch(() => ({}));
-      throw new Error(errData?.error || `PLX Healing failed with status ${response.status}`);
+      const contentType = response.headers.get('content-type') || '';
+      if (response.ok && contentType.includes('application/json')) {
+        const data = await response.json();
+        return data.questions || [];
+      }
+    } catch (err: any) {
+      console.warn(`Hermes PLX healing candidate ${endpoint} failed:`, err);
     }
-
-    const data = await response.json();
-    return data.questions || [];
-  } catch (err: any) {
-    console.error("Hermes PLX healing request failed:", err);
-    throw err;
   }
+
+  return questions;
 }
 
 /**
