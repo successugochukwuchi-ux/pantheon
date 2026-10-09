@@ -1,12 +1,49 @@
 import { GoogleGenAI, Type } from "@google/genai";
 import { AIConfig } from '../types';
-import { getBackendCandidates } from '../lib/backendConfig';
+import { getBackendCandidates, isStaticHost, probeEndpoint, RENDER_BACKEND_URL } from '../lib/backendConfig';
 
 const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY || '' });
+
+export interface HermesAttemptLog {
+  target: string;
+  strategy: 'backend_proxy' | 'client_direct_fallback';
+  status?: number;
+  statusText?: string;
+  contentType?: string;
+  durationMs: number;
+  error?: string;
+  responseSnippet?: string;
+  success: boolean;
+}
+
+export interface HermesDiagnostics {
+  timestamp: string;
+  appHostname: string;
+  isStaticHost: boolean;
+  provider: string;
+  model: string;
+  hasApiKey: boolean;
+  maskedKey: string;
+  baseUrl?: string;
+  primaryCause: string;
+  recommendation: string;
+  attempts: HermesAttemptLog[];
+}
+
+export class HermesChatError extends Error {
+  diagnostics: HermesDiagnostics;
+  constructor(message: string, diagnostics: HermesDiagnostics) {
+    super(message);
+    this.name = 'HermesChatError';
+    this.diagnostics = diagnostics;
+  }
+}
 
 export interface ChatMessage {
   role: 'user' | 'assistant' | 'system';
   content: string;
+  diagnostics?: HermesDiagnostics;
+  isError?: boolean;
 }
 
 const GROQ_API_KEY = ''; // To be set in Admin Panel
@@ -244,12 +281,16 @@ ${fileData.data}`
 }
 
 export async function chatWithHermes(messages: ChatMessage[], noteContent: string, config?: AIConfig, isVoiceCall?: boolean) {
-  // Strategy 1: Attempt candidate backend proxies (local or Render backend for static hosts like Wasmer)
+  const attempts: HermesAttemptLog[] = [];
   const candidateUrls = getBackendCandidates('/api/hermes/chat');
+
+  // Strategy 1: Attempt candidate backend proxies (local dev or Render backend for static hosts like Wasmer)
   for (const endpoint of candidateUrls) {
+    const start = Date.now();
     try {
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 35000);
+      // Allow 45s to accommodate Render free-tier cold boot if sleeping
+      const timeoutId = setTimeout(() => controller.abort(), 45000);
 
       const response = await fetch(endpoint, {
         method: 'POST',
@@ -267,180 +308,474 @@ export async function chatWithHermes(messages: ChatMessage[], noteContent: strin
       clearTimeout(timeoutId);
 
       const contentType = response.headers.get('content-type') || '';
-      // Ensure the response is valid JSON and not an HTML SPA fallback page (like Wasmer static-server returns for routes)
+      const durationMs = Date.now() - start;
+
+      // Ensure response is JSON and not an HTML SPA fallback page (like Wasmer static-server returns for routes)
       if (response.ok && contentType.includes('application/json')) {
         const data = await response.json();
         if (data?.content) {
+          attempts.push({
+            target: endpoint,
+            strategy: 'backend_proxy',
+            status: response.status,
+            statusText: response.statusText,
+            contentType,
+            durationMs,
+            success: true,
+          });
           return data.content as string;
         }
-      } else {
-        console.warn(`Backend candidate ${endpoint} returned status ${response.status} with content-type: ${contentType}`);
       }
-    } catch (proxyErr) {
-      console.warn(`Backend candidate ${endpoint} unavailable:`, proxyErr);
+
+      // Read response snippet for pinpointing diagnostics
+      let snippet = '';
+      try {
+        snippet = (await response.text()).slice(0, 200);
+      } catch {}
+
+      const isHtml = contentType.includes('text/html') || snippet.startsWith('<!DOCTYPE') || snippet.startsWith('<html');
+      let stepErr = '';
+      if (isHtml) {
+        stepErr = 'Wasmer static-server returned index.html SPA page. Static hosts cannot execute backend Express endpoints.';
+      } else if (response.status === 405) {
+        stepErr = 'HTTP 405 Method Not Allowed (Route not served by host).';
+      } else if (response.status === 404) {
+        stepErr = 'HTTP 404 Not Found.';
+      } else if (!response.ok) {
+        stepErr = `HTTP ${response.status} ${response.statusText}${snippet ? `: ${snippet}` : ''}`;
+      } else {
+        stepErr = `Unexpected content-type "${contentType || 'none'}" without JSON content.`;
+      }
+
+      attempts.push({
+        target: endpoint,
+        strategy: 'backend_proxy',
+        status: response.status,
+        statusText: response.statusText,
+        contentType,
+        durationMs,
+        responseSnippet: snippet.slice(0, 150),
+        error: stepErr,
+        success: false,
+      });
+    } catch (proxyErr: any) {
+      const isTimeout = proxyErr?.name === 'AbortError';
+      const durationMs = Date.now() - start;
+      const errMsg = isTimeout
+        ? 'Timed out after 45s (Render instance may be waking from cold sleep)'
+        : (proxyErr?.message || String(proxyErr));
+
+      attempts.push({
+        target: endpoint,
+        strategy: 'backend_proxy',
+        status: 0,
+        statusText: isTimeout ? 'Timed Out' : 'Network/Fetch Error',
+        contentType: '',
+        durationMs,
+        error: errMsg,
+        success: false,
+      });
     }
   }
 
   // Strategy 2: Direct Client-Side Fallback (for static hosting or proxy failure)
-  try {
-    const provider = config?.provider || 'gemini';
-    const rawKey = config?.apiKey || '';
-    const cleanKey = rawKey.toString().replace(/\s+/g, '').replace(/['"]/g, '').replace(/[\u200B-\u200D\uFEFF]/g, '');
-    const geminiEnvKey = (typeof process !== 'undefined' && process.env ? process.env.GEMINI_API_KEY : '') || (import.meta as any).env?.VITE_GEMINI_API_KEY || '';
-    const activeGeminiKey = cleanKey.startsWith('AIza') ? cleanKey : (geminiEnvKey || cleanKey);
+  const provider = config?.provider || 'gemini';
+  const rawKey = config?.apiKey || '';
+  const cleanKey = rawKey.toString().replace(/\s+/g, '').replace(/['"]/g, '').replace(/[\u200B-\u200D\uFEFF]/g, '');
+  const geminiEnvKey = (typeof process !== 'undefined' && process.env ? process.env.GEMINI_API_KEY : '') || (import.meta as any).env?.VITE_GEMINI_API_KEY || '';
+  const activeGeminiKey = cleanKey.startsWith('AIza') ? cleanKey : (geminiEnvKey || cleanKey);
 
-    const maxNoteLength = 12000;
-    const truncatedNote = (noteContent || '').length > maxNoteLength
-      ? noteContent.substring(0, maxNoteLength) + "\n\n[Study Note truncated for context size...]"
-      : (noteContent || '');
+  const maxNoteLength = 12000;
+  const truncatedNote = (noteContent || '').length > maxNoteLength
+    ? noteContent.substring(0, maxNoteLength) + "\n\n[Study Note truncated for context size...]"
+    : (noteContent || '');
 
-    const voiceDirective = isVoiceCall
-      ? "\nKeep your answer short, spoken, and under 25 words with no markdown or bullet points."
-      : "";
+  const voiceDirective = isVoiceCall
+    ? "\nKeep your answer short, spoken, and under 25 words with no markdown or bullet points."
+    : "";
 
-    const systemPrompt = `You are Hermes, a patient and intelligent academic tutor on CoLearn helping students understand their study notes.${voiceDirective}
+  const systemPrompt = `You are Hermes, a patient and intelligent academic tutor on CoLearn helping students understand their study notes.${voiceDirective}
 Always format mathematical equations using LaTeX wrapped in single dollar signs $...$ for inline math or $$...$$ for standalone display formulas.
 
 STUDY NOTE CONTENT:
 ${truncatedNote}`;
 
-    const latestUserMsg = messages.length > 0 ? messages[messages.length - 1].content : 'Hello';
+  const latestUserMsg = messages.length > 0 ? messages[messages.length - 1].content : 'Hello';
 
-    // A. Direct Custom / OpenAI-Compatible Provider Fallback (handles Xiaomi MIMO, DeepSeek, Together, OpenAI, etc.)
-    let customBaseUrl = config?.baseUrl || '';
-    if (!customBaseUrl) {
-      const p = (provider as string).toLowerCase();
-      if (p === 'openai') customBaseUrl = 'https://api.openai.com/v1';
-      else if (p === 'deepseek') customBaseUrl = 'https://api.deepseek.com/v1';
-      else if (p === 'together') customBaseUrl = 'https://api.together.xyz/v1';
-      else if (p === 'mistral') customBaseUrl = 'https://api.mistral.ai/v1';
-      else if (p === 'xai') customBaseUrl = 'https://api.x.ai/v1';
-    }
-
-    if (customBaseUrl && cleanKey) {
-      try {
-        const cleanBaseUrl = customBaseUrl.replace(/\/+$/, '');
-        const targetUrl = cleanBaseUrl.endsWith('/chat/completions')
-          ? cleanBaseUrl
-          : `${cleanBaseUrl}/chat/completions`;
-
-        const customRes = await fetch(targetUrl, {
-          method: 'POST',
-          headers: {
-            'Authorization': `Bearer ${cleanKey}`,
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            model: config?.model || 'gpt-4o-mini',
-            messages: [
-              { role: 'system', content: systemPrompt },
-              ...messages.slice(-6)
-            ],
-            temperature: 0.5,
-          }),
-        });
-
-        const contentType = customRes.headers.get('content-type') || '';
-        if (customRes.ok && contentType.includes('application/json')) {
-          const customData = await customRes.json();
-          const reply = customData.choices?.[0]?.message?.content;
-          if (reply) return reply;
-        }
-      } catch (customErr) {
-        console.warn("Direct Custom/OpenAI provider fallback failed:", customErr);
-      }
-    }
-
-    // B. Try Gemini if Gemini key or provider is available
-    if (activeGeminiKey && (provider === 'gemini' || cleanKey.startsWith('AIza') || !cleanKey)) {
-      try {
-        const aiGen = new GoogleGenAI({ apiKey: activeGeminiKey });
-        const geminiModel = config?.model || 'gemini-3.8-flash';
-        const res = await aiGen.models.generateContent({
-          model: geminiModel,
-          contents: [
-            {
-              role: 'user',
-              parts: [{ text: `SYSTEM INSTRUCTIONS:\n${systemPrompt}\n\nUSER QUESTION:\n${latestUserMsg}` }]
-            }
-          ]
-        });
-        if (res.text) {
-          return res.text;
-        }
-      } catch (geminiErr) {
-        console.warn("Direct Gemini fallback failed:", geminiErr);
-      }
-    }
-
-    // C. Try Groq if Groq key or provider is configured
-    const groqKey = cleanKey.startsWith('gsk_') ? cleanKey : (provider === 'groq' ? cleanKey : '');
-    if (groqKey) {
-      try {
-        const groqModel = config?.model?.includes('/') ? config.model.split('/').pop() : (config?.model || 'llama-3.3-70b-versatile');
-        const groqRes = await fetch('https://api.groq.com/openai/v1/chat/completions', {
-          method: 'POST',
-          headers: {
-            'Authorization': `Bearer ${groqKey}`,
-            'Content-Type': 'application/json'
-          },
-          body: JSON.stringify({
-            model: groqModel,
-            messages: [
-              { role: 'system', content: systemPrompt },
-              ...messages.slice(-6)
-            ],
-            temperature: 0.5,
-            max_tokens: 2048
-          })
-        });
-        if (groqRes.ok) {
-          const groqData = await groqRes.json();
-          const reply = groqData.choices?.[0]?.message?.content;
-          if (reply) return reply;
-        }
-      } catch (groqErr) {
-        console.warn("Direct Groq fallback failed:", groqErr);
-      }
-    }
-
-    // D. Try OpenRouter if key is available
-    const openrouterKey = cleanKey.startsWith('sk-or-') ? cleanKey : (provider === 'openrouter' ? cleanKey : '');
-    if (openrouterKey) {
-      try {
-        const orRes = await fetch('https://openrouter.ai/api/v1/chat/completions', {
-          method: 'POST',
-          headers: {
-            'Authorization': `Bearer ${openrouterKey}`,
-            'Content-Type': 'application/json',
-            'HTTP-Referer': typeof window !== 'undefined' ? window.location.origin : 'https://colearn.app',
-            'X-Title': 'Hermes Chat',
-          },
-          body: JSON.stringify({
-            model: config?.model || 'meta-llama/llama-3.3-70b-instruct',
-            messages: [
-              { role: 'system', content: systemPrompt },
-              ...messages.slice(-6)
-            ],
-            temperature: 0.5,
-            max_tokens: 2048
-          })
-        });
-        if (orRes.ok) {
-          const orData = await orRes.json();
-          const reply = orData.choices?.[0]?.message?.content;
-          if (reply) return reply;
-        }
-      } catch (orErr) {
-        console.warn("Direct OpenRouter fallback failed:", orErr);
-      }
-    }
-  } catch (fallbackErr) {
-    console.warn("Client AI fallback encountered an error:", fallbackErr);
+  // A. Direct Custom / OpenAI-Compatible Provider Fallback (Xiaomi MIMO, DeepSeek, Together, OpenAI, etc.)
+  let customBaseUrl = config?.baseUrl || '';
+  if (!customBaseUrl) {
+    const p = (provider as string).toLowerCase();
+    if (p === 'openai') customBaseUrl = 'https://api.openai.com/v1';
+    else if (p === 'deepseek') customBaseUrl = 'https://api.deepseek.com/v1';
+    else if (p === 'together') customBaseUrl = 'https://api.together.xyz/v1';
+    else if (p === 'mistral') customBaseUrl = 'https://api.mistral.ai/v1';
+    else if (p === 'xai') customBaseUrl = 'https://api.x.ai/v1';
   }
 
-  // Friendly message that never contains 405 error
-  throw new Error("Hermes AI is currently busy or connecting to the network. Please ask again in a moment.");
+  if (customBaseUrl && cleanKey) {
+    const start = Date.now();
+    const cleanBaseUrl = customBaseUrl.replace(/\/+$/, '');
+    const targetUrl = cleanBaseUrl.endsWith('/chat/completions')
+      ? cleanBaseUrl
+      : `${cleanBaseUrl}/chat/completions`;
+
+    try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 25000);
+
+      const customRes = await fetch(targetUrl, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${cleanKey}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          model: config?.model || 'gpt-4o-mini',
+          messages: [
+            { role: 'system', content: systemPrompt },
+            ...messages.slice(-6)
+          ],
+          temperature: 0.5,
+        }),
+        signal: controller.signal,
+      });
+      clearTimeout(timeoutId);
+
+      const contentType = customRes.headers.get('content-type') || '';
+      const durationMs = Date.now() - start;
+
+      if (customRes.ok && contentType.includes('application/json')) {
+        const customData = await customRes.json();
+        const reply = customData.choices?.[0]?.message?.content;
+        if (reply) {
+          attempts.push({
+            target: targetUrl,
+            strategy: 'client_direct_fallback',
+            status: customRes.status,
+            statusText: customRes.statusText,
+            contentType,
+            durationMs,
+            success: true,
+          });
+          return reply;
+        }
+      }
+
+      let snippet = '';
+      try { snippet = (await customRes.text()).slice(0, 200); } catch {}
+      attempts.push({
+        target: targetUrl,
+        strategy: 'client_direct_fallback',
+        status: customRes.status,
+        statusText: customRes.statusText,
+        contentType,
+        durationMs,
+        responseSnippet: snippet.slice(0, 150),
+        error: `Custom Provider HTTP ${customRes.status}: ${snippet || customRes.statusText}`,
+        success: false,
+      });
+    } catch (customErr: any) {
+      const isTimeout = customErr?.name === 'AbortError';
+      const durationMs = Date.now() - start;
+      const isCors = customErr?.name === 'TypeError' || String(customErr).includes('fetch');
+      attempts.push({
+        target: targetUrl,
+        strategy: 'client_direct_fallback',
+        status: 0,
+        statusText: isTimeout ? 'Timed Out' : 'Direct Fetch Failed',
+        contentType: '',
+        durationMs,
+        error: isCors
+          ? `Browser direct call blocked (likely CORS policy on provider endpoint ${customBaseUrl}): ${customErr.message}`
+          : (customErr?.message || String(customErr)),
+        success: false,
+      });
+    }
+  }
+
+  // B. Try Gemini if Gemini key or provider is available
+  if (activeGeminiKey && (provider === 'gemini' || cleanKey.startsWith('AIza') || !cleanKey)) {
+    const start = Date.now();
+    try {
+      const aiGen = new GoogleGenAI({ apiKey: activeGeminiKey });
+      const geminiModel = config?.model || 'gemini-3.8-flash';
+      const res = await aiGen.models.generateContent({
+        model: geminiModel,
+        contents: [
+          {
+            role: 'user',
+            parts: [{ text: `SYSTEM INSTRUCTIONS:\n${systemPrompt}\n\nUSER QUESTION:\n${latestUserMsg}` }]
+          }
+        ]
+      });
+      if (res.text) {
+        attempts.push({
+          target: `GoogleGenAI (${geminiModel})`,
+          strategy: 'client_direct_fallback',
+          status: 200,
+          statusText: 'OK',
+          contentType: 'application/json',
+          durationMs: Date.now() - start,
+          success: true,
+        });
+        return res.text;
+      }
+    } catch (geminiErr: any) {
+      attempts.push({
+        target: `GoogleGenAI (${config?.model || 'gemini-3.8-flash'})`,
+        strategy: 'client_direct_fallback',
+        status: 0,
+        statusText: 'SDK Error',
+        contentType: '',
+        durationMs: Date.now() - start,
+        error: `Gemini client call failed: ${geminiErr?.message || String(geminiErr)}`,
+        success: false,
+      });
+    }
+  }
+
+  // C. Try Groq if Groq key or provider is configured
+  const groqKey = cleanKey.startsWith('gsk_') ? cleanKey : (provider === 'groq' ? cleanKey : '');
+  if (groqKey) {
+    const start = Date.now();
+    try {
+      const groqModel = config?.model?.includes('/') ? config.model.split('/').pop() : (config?.model || 'llama-3.3-70b-versatile');
+      const groqRes = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${groqKey}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          model: groqModel,
+          messages: [
+            { role: 'system', content: systemPrompt },
+            ...messages.slice(-6)
+          ],
+          temperature: 0.5,
+          max_tokens: 2048
+        })
+      });
+      if (groqRes.ok) {
+        const groqData = await groqRes.json();
+        const reply = groqData.choices?.[0]?.message?.content;
+        if (reply) {
+          attempts.push({
+            target: 'https://api.groq.com/openai/v1/chat/completions',
+            strategy: 'client_direct_fallback',
+            status: groqRes.status,
+            statusText: 'OK',
+            durationMs: Date.now() - start,
+            success: true,
+          });
+          return reply;
+        }
+      }
+      let snippet = '';
+      try { snippet = (await groqRes.text()).slice(0, 150); } catch {}
+      attempts.push({
+        target: 'https://api.groq.com/openai/v1/chat/completions',
+        strategy: 'client_direct_fallback',
+        status: groqRes.status,
+        statusText: groqRes.statusText,
+        durationMs: Date.now() - start,
+        error: `Groq HTTP ${groqRes.status}: ${snippet}`,
+        success: false,
+      });
+    } catch (groqErr: any) {
+      attempts.push({
+        target: 'https://api.groq.com/openai/v1/chat/completions',
+        strategy: 'client_direct_fallback',
+        status: 0,
+        statusText: 'Fetch Error',
+        durationMs: Date.now() - start,
+        error: `Groq call failed: ${groqErr?.message || String(groqErr)}`,
+        success: false,
+      });
+    }
+  }
+
+  // D. Try OpenRouter if key is available
+  const openrouterKey = cleanKey.startsWith('sk-or-') ? cleanKey : (provider === 'openrouter' ? cleanKey : '');
+  if (openrouterKey) {
+    const start = Date.now();
+    try {
+      const orRes = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${openrouterKey}`,
+          'Content-Type': 'application/json',
+          'HTTP-Referer': typeof window !== 'undefined' ? window.location.origin : 'https://colearn.app',
+          'X-Title': 'Hermes Chat',
+        },
+        body: JSON.stringify({
+          model: config?.model || 'meta-llama/llama-3.3-70b-instruct',
+          messages: [
+            { role: 'system', content: systemPrompt },
+            ...messages.slice(-6)
+          ],
+          temperature: 0.5,
+          max_tokens: 2048
+        })
+      });
+      if (orRes.ok) {
+        const orData = await orRes.json();
+        const reply = orData.choices?.[0]?.message?.content;
+        if (reply) {
+          attempts.push({
+            target: 'https://openrouter.ai/api/v1/chat/completions',
+            strategy: 'client_direct_fallback',
+            status: orRes.status,
+            statusText: 'OK',
+            durationMs: Date.now() - start,
+            success: true,
+          });
+          return reply;
+        }
+      }
+      let snippet = '';
+      try { snippet = (await orRes.text()).slice(0, 150); } catch {}
+      attempts.push({
+        target: 'https://openrouter.ai/api/v1/chat/completions',
+        strategy: 'client_direct_fallback',
+        status: orRes.status,
+        statusText: orRes.statusText,
+        durationMs: Date.now() - start,
+        error: `OpenRouter HTTP ${orRes.status}: ${snippet}`,
+        success: false,
+      });
+    } catch (orErr: any) {
+      attempts.push({
+        target: 'https://openrouter.ai/api/v1/chat/completions',
+        strategy: 'client_direct_fallback',
+        status: 0,
+        statusText: 'Fetch Error',
+        durationMs: Date.now() - start,
+        error: `OpenRouter call failed: ${orErr?.message || String(orErr)}`,
+        success: false,
+      });
+    }
+  }
+
+  // Synthesize root cause and actionable recommendation
+  const staticSpaAttempt = attempts.find(a => a.strategy === 'backend_proxy' && (a.contentType?.includes('text/html') || a.error?.includes('Wasmer static-server')));
+  const renderProxyAttempt = attempts.find(a => a.target.includes('onrender.com'));
+  const directAttempt = attempts.find(a => a.strategy === 'client_direct_fallback');
+
+  let primaryCause = '';
+  let recommendation = '';
+
+  if (staticSpaAttempt && renderProxyAttempt && !renderProxyAttempt.success) {
+    if (renderProxyAttempt.error?.includes('Timed out')) {
+      primaryCause = `Wasmer static host has no backend Express server, and the live Render backend proxy timed out after 45s (Render free-tier cold sleep).`;
+      recommendation = `The Render backend instance was asleep and spinning up. Please click "Retry" in 20-30 seconds now that it is awake.`;
+    } else if (renderProxyAttempt.status === 0 || renderProxyAttempt.error?.includes('Network') || renderProxyAttempt.error?.includes('fetch')) {
+      primaryCause = `Wasmer static server cannot handle backend routes, and connecting to the live Render backend failed (${renderProxyAttempt.error || 'Network error'}).`;
+      recommendation = `Ensure the Render backend (https://colearn-backend-tzo9.onrender.com) is online, or test direct provider connectivity below.`;
+    } else {
+      primaryCause = `Wasmer static server returned HTML (SPA fallback), and Render backend returned HTTP ${renderProxyAttempt.status} (${renderProxyAttempt.error || renderProxyAttempt.statusText}).`;
+      recommendation = `Verify your AI Provider credentials in Admin Panel > Level 4 > Hermes AI Configuration.`;
+    }
+  } else if (!cleanKey && !activeGeminiKey) {
+    primaryCause = `No API key is configured for Hermes AI provider "${provider}".`;
+    recommendation = `Go to Admin Panel > Level 4 > Hermes AI Configuration and save a valid API key.`;
+  } else if (directAttempt && (directAttempt.error?.includes('CORS') || directAttempt.error?.includes('Failed to fetch'))) {
+    primaryCause = `Browser direct call to AI provider was blocked by CORS policy, and backend proxies failed.`;
+    recommendation = `Direct browser calls to third-party endpoints (${customBaseUrl || provider}) require proxying because the provider restricts browser origins. The Render backend must be reachable.`;
+  } else {
+    primaryCause = `All ${attempts.length} connection attempts failed across backend proxies and client fallbacks.`;
+    recommendation = `Inspect the detailed attempt trace below and check your network connection or API credentials in Admin Panel.`;
+  }
+
+  const diagnostics: HermesDiagnostics = {
+    timestamp: new Date().toISOString(),
+    appHostname: typeof window !== 'undefined' ? window.location.hostname : 'unknown',
+    isStaticHost: isStaticHost(),
+    provider: config?.provider || 'gemini',
+    model: config?.model || 'default',
+    hasApiKey: Boolean(cleanKey || activeGeminiKey),
+    maskedKey: getMaskedKey(cleanKey || activeGeminiKey),
+    baseUrl: config?.baseUrl,
+    primaryCause,
+    recommendation,
+    attempts,
+  };
+
+  throw new HermesChatError(primaryCause, diagnostics);
+}
+
+/**
+ * Runs a standalone health check across candidate endpoints and provider connectivity.
+ */
+export async function runHermesHealthCheck(config?: AIConfig): Promise<HermesDiagnostics> {
+  const attempts: HermesAttemptLog[] = [];
+  const candidateUrls = getBackendCandidates('/api/hermes/chat');
+
+  for (const endpoint of candidateUrls) {
+    const probe = await probeEndpoint(endpoint, 12000);
+    let stepErr = '';
+    if (probe.isHtmlSpa) {
+      stepErr = 'Host returned SPA index.html (Wasmer static-server). Static hosts cannot execute backend Express endpoints.';
+    } else if (probe.status === 405) {
+      stepErr = 'HTTP 405 Method Not Allowed.';
+    } else if (!probe.ok && probe.error) {
+      stepErr = probe.error;
+    }
+
+    attempts.push({
+      target: endpoint,
+      strategy: 'backend_proxy',
+      status: probe.status,
+      statusText: probe.statusText,
+      contentType: probe.contentType,
+      durationMs: probe.durationMs,
+      error: stepErr || probe.error,
+      success: probe.ok,
+    });
+  }
+
+  const rawKey = config?.apiKey || '';
+  const cleanKey = rawKey.toString().replace(/\s+/g, '').replace(/['"]/g, '');
+  const baseUrl = config?.baseUrl || '';
+  const provider = config?.provider || 'gemini';
+
+  if (baseUrl) {
+    const probe = await probeEndpoint(baseUrl, 8000);
+    attempts.push({
+      target: baseUrl,
+      strategy: 'client_direct_fallback',
+      status: probe.status,
+      statusText: probe.statusText,
+      contentType: probe.contentType,
+      durationMs: probe.durationMs,
+      error: probe.ok ? undefined : (probe.error || `HTTP ${probe.status}`),
+      success: probe.ok || probe.status === 200 || probe.status === 401 || probe.status === 405,
+    });
+  }
+
+  const anyProxyOk = attempts.some(a => a.strategy === 'backend_proxy' && a.success);
+  const primaryCause = anyProxyOk
+    ? 'Backend proxy is responsive and available.'
+    : 'No healthy backend proxy responding with JSON API status.';
+
+  const recommendation = anyProxyOk
+    ? 'Backend is online. If chat fails, check AI Provider credentials in Admin Panel.'
+    : 'Check Render backend status (https://colearn-backend-tzo9.onrender.com) or configure a CORS-enabled provider.';
+
+  return {
+    timestamp: new Date().toISOString(),
+    appHostname: typeof window !== 'undefined' ? window.location.hostname : 'unknown',
+    isStaticHost: isStaticHost(),
+    provider,
+    model: config?.model || 'default',
+    hasApiKey: Boolean(cleanKey),
+    maskedKey: getMaskedKey(cleanKey),
+    baseUrl,
+    primaryCause,
+    recommendation,
+    attempts,
+  };
 }
 
 /**

@@ -1,11 +1,12 @@
 
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Bird, Send, X, Loader2, MinusCircle, Maximize2, Mic, MicOff, Volume2, VolumeX, Square } from 'lucide-react';
+import { Bird, Send, X, Loader2, MinusCircle, Maximize2, Mic, MicOff, Volume2, VolumeX, Square, Activity } from 'lucide-react';
 import { Button } from './ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Input } from './ui/input';
-import { chatWithHermes, ChatMessage } from '../services/aiService';
+import { chatWithHermes, ChatMessage, runHermesHealthCheck } from '../services/aiService';
+import { HermesDiagnosticCard } from './HermesDiagnosticCard';
 import { doc, onSnapshot } from 'firebase/firestore';
 import { db } from '../firebase';
 import { AIConfig } from '../types';
@@ -41,6 +42,7 @@ export function AIAssistant({ noteContent, noteTitle }: AIAssistantProps) {
   const recognitionRef = useRef<any>(null);
   const isHoldingRef = useRef(false);
   const holdTranscriptRef = useRef('');
+  const lastUserMsgRef = useRef<string>('');
 
   useEffect(() => {
     const unsub = onSnapshot(doc(db, 'system', 'hermes'), (snapshot) => {
@@ -81,6 +83,25 @@ export function AIAssistant({ noteContent, noteTitle }: AIAssistantProps) {
     setIsSpeaking(false);
   }, []);
 
+  const handleHeaderHealthCheck = async () => {
+    toast.info("Running Hermes backend probe...");
+    try {
+      const diag = await runHermesHealthCheck(aiConfig || undefined);
+      setMessages(prev => [
+        ...prev,
+        {
+          role: 'assistant',
+          content: diag.primaryCause,
+          diagnostics: diag,
+          isError: !diag.attempts.some(a => a.strategy === 'backend_proxy' && a.success),
+        }
+      ]);
+      toast.success("Probe complete! View diagnostic results in chat.");
+    } catch (err: any) {
+      toast.error("Probe failed: " + (err?.message || "Error"));
+    }
+  };
+
   const handleSend = async (overrideText?: string, isVoice = false) => {
     const textToSend = (overrideText !== undefined ? overrideText : input).trim();
     if (!textToSend || isLoading) return;
@@ -88,6 +109,7 @@ export function AIAssistant({ noteContent, noteTitle }: AIAssistantProps) {
     // Interrupt any ongoing speech
     interruptSpeech();
 
+    lastUserMsgRef.current = textToSend;
     const userMessage: ChatMessage = { role: 'user', content: textToSend };
     setMessages(prev => [...prev, userMessage]);
     if (overrideText === undefined) {
@@ -109,11 +131,17 @@ export function AIAssistant({ noteContent, noteTitle }: AIAssistantProps) {
         }).catch(() => setIsSpeaking(false));
       }
     } catch (error: any) {
+      const diag = error?.diagnostics;
       const raw = error?.message || 'Failed to connect to Hermes.';
-      const cleanMsg = raw.includes('405')
-        ? "Hermes is currently updating its study connection. Please ask again in a moment."
-        : raw;
-      setMessages(prev => [...prev, { role: 'assistant', content: cleanMsg }]);
+      setMessages(prev => [
+        ...prev,
+        {
+          role: 'assistant',
+          content: raw,
+          diagnostics: diag,
+          isError: true,
+        }
+      ]);
     } finally {
       setIsLoading(false);
     }
@@ -248,11 +276,11 @@ export function AIAssistant({ noteContent, noteTitle }: AIAssistantProps) {
               opacity: 1, 
               scale: 1, 
               y: 0,
-              height: isMinimized ? '60px' : '520px',
-              width: '360px'
+              height: isMinimized ? '60px' : '560px',
+              width: isMinimized ? '320px' : '400px'
             }}
             exit={{ opacity: 0, scale: 0.9, y: 20 }}
-            className="shadow-2xl rounded-2xl overflow-hidden border bg-background flex flex-col"
+            className="shadow-2xl rounded-2xl overflow-hidden border bg-background flex flex-col max-w-[calc(100vw-24px)]"
           >
             <Card className="border-none shadow-none h-full flex flex-col rounded-none">
               <CardHeader className="p-4 bg-primary text-primary-foreground flex flex-row items-center justify-between space-y-0">
@@ -261,6 +289,16 @@ export function AIAssistant({ noteContent, noteTitle }: AIAssistantProps) {
                   Hermes - {noteTitle}
                 </CardTitle>
                 <div className="flex items-center gap-1">
+                  {/* Connection Probe */}
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-7 w-7 text-primary-foreground hover:bg-primary-foreground/20"
+                    title="Test Hermes backend & AI connectivity"
+                    onClick={handleHeaderHealthCheck}
+                  >
+                    <Activity className="h-4 w-4" />
+                  </Button>
                   {/* Toggle Voice Output */}
                   <Button
                     variant="ghost"
@@ -340,22 +378,37 @@ export function AIAssistant({ noteContent, noteTitle }: AIAssistantProps) {
                             key={i}
                             className={`flex ${m.role === 'user' ? 'justify-end' : 'justify-start'}`}
                           >
-                            <div
-                              className={`max-w-[85%] rounded-2xl px-3 py-2 text-sm ${
-                                m.role === 'user'
-                                  ? 'bg-primary text-primary-foreground rounded-tr-none'
-                                  : 'bg-muted rounded-tl-none'
-                              }`}
-                            >
-                              <div className="markdown-body prose dark:prose-invert prose-sm max-w-none">
-                                <ReactMarkdown 
-                                  remarkPlugins={[remarkMath, remarkGfm]} 
-                                  rehypePlugins={[rehypeMathjax]}
-                                >
-                                  {m.content}
-                                </ReactMarkdown>
+                            {m.isError || m.diagnostics ? (
+                              <div className="w-full max-w-[96%]">
+                                <HermesDiagnosticCard
+                                  diagnostics={m.diagnostics}
+                                  errorMessage={m.content}
+                                  onRetry={() => {
+                                    if (lastUserMsgRef.current) {
+                                      handleSend(lastUserMsgRef.current);
+                                    }
+                                  }}
+                                  aiConfig={aiConfig}
+                                />
                               </div>
-                            </div>
+                            ) : (
+                              <div
+                                className={`max-w-[85%] rounded-2xl px-3 py-2 text-sm ${
+                                  m.role === 'user'
+                                    ? 'bg-primary text-primary-foreground rounded-tr-none'
+                                    : 'bg-muted rounded-tl-none'
+                                }`}
+                              >
+                                <div className="markdown-body prose dark:prose-invert prose-sm max-w-none">
+                                  <ReactMarkdown 
+                                    remarkPlugins={[remarkMath, remarkGfm]} 
+                                    rehypePlugins={[rehypeMathjax]}
+                                  >
+                                    {m.content}
+                                  </ReactMarkdown>
+                                </div>
+                              </div>
+                            )}
                           </div>
                         ))}
                         {isLoading && (
