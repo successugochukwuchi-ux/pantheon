@@ -321,7 +321,7 @@ function speakWithBrowserSynthesis(text: string, options?: SpeakOptions) {
  * Strips all raw backslashes and LaTeX formatting so the TTS sounds like an educated professor,
  * never pronouncing "backslash" or code syntax.
  */
-function cleanMathFormula(formula: string): string {
+function cleanMathFormula(formula: string, isMathContext = false): string {
   if (!formula) return '';
   let m = formula;
 
@@ -538,7 +538,25 @@ function cleanMathFormula(formula: string): string {
 
   // Norms and factorials
   m = m.replace(/\\\|([^{}|]+)\\\|/g, ' norm of $1 ');
-  m = m.replace(/(\b\w+)!/g, ' $1 factorial ');
+
+  if (isMathContext) {
+    // In explicit mathematical context ($...$, $$...$$, MathJax blocks):
+    // 1. Numbers: e.g. 5!, 0!, 12!
+    m = m.replace(/(\b\d+)!/g, ' $1 factorial ');
+    // 2. Parenthesized expressions: e.g. (n+1)!, (n-k)!, (2n)!
+    m = m.replace(/(\([^)]+\))!/g, ' $1 factorial ');
+    // 3. Single-letter math variables: e.g. n!, k!, r!, x!, m!, a!, b!
+    // Multi-letter English words like "Hello!", "Welcome!", "Important!" are NEVER matched
+    m = m.replace(/(?<=[\s(=+\-*/^]|^)([a-zA-Z])!(?=[^a-zA-Z]|$)/g, ' $1 factorial ');
+  } else {
+    // Outside explicit math delimiters (general conversation, greetings, prose):
+    // Only numbers or explicit parenthesized math expressions like 5! or (n-1)!
+    // Regular English words (e.g. "Hello!", "Welcome!", "Nice!") are NEVER pronounced as factorial
+    m = m.replace(/(\b\d+)!/g, ' $1 factorial ');
+    m = m.replace(/(\([^)]+\))!/g, ' $1 factorial ');
+    // Single lowercase math variables commonly used for factorials preceded by math operators (=, +, -, *)
+    m = m.replace(/(?<=[=+\-*/]\s*)([a-km-z])!(?=[^a-zA-Z]|$)/gi, ' $1 factorial ');
+  }
 
   // Remove any remaining backslash followed by letters (e.g. \displaystyle, \over)
   m = m.replace(/\\([a-zA-Z]+)/g, ' $1 ');
@@ -570,16 +588,16 @@ export function convertLatexToSpeakable(text: string): string {
   s = s.replace(/\\\\\(([\s\S]+?)\\\\\)/g, ' $ $1 $ ');
   s = s.replace(/\\\(([\s\S]+?)\\\)/g, ' $ $1 $ ');
 
-  // 4. Process math inside $$ ... $$ and $ ... $
+  // 4. Process math inside $$ ... $$ and $ ... $ (explicit mathematical context)
   s = s.replace(/\$\$([\s\S]+?)\$\$/g, (_, formula) => {
-    return ` ${cleanMathFormula(formula)} `;
+    return ` ${cleanMathFormula(formula, true)} `;
   });
   s = s.replace(/(?<!\$)\$([^\$\n]+?)\$(?!\$)/g, (_, formula) => {
-    return ` ${cleanMathFormula(formula)} `;
+    return ` ${cleanMathFormula(formula, true)} `;
   });
 
   // 5. Process any remaining bare math/LaTeX formulas that were outside delimiters
-  s = cleanMathFormula(s);
+  s = cleanMathFormula(s, false);
 
   // Guarantee no remaining stray backslashes survive
   s = s.replace(/\\/g, ' ');

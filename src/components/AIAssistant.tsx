@@ -1,11 +1,11 @@
 
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Bird, Send, X, Loader2, MinusCircle, Maximize2, Mic, MicOff, Volume2, VolumeX, Square, Activity } from 'lucide-react';
+import { Bird, Send, X, Loader2, MinusCircle, Maximize2, Mic, MicOff, Volume2, VolumeX, Square } from 'lucide-react';
 import { Button } from './ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Input } from './ui/input';
-import { chatWithHermes, ChatMessage, runHermesHealthCheck } from '../services/aiService';
+import { chatWithHermes, ChatMessage } from '../services/aiService';
 import { HermesDiagnosticCard } from './HermesDiagnosticCard';
 import { doc, onSnapshot } from 'firebase/firestore';
 import { db } from '../firebase';
@@ -82,25 +82,6 @@ export function AIAssistant({ noteContent, noteTitle }: AIAssistantProps) {
     }
     setIsSpeaking(false);
   }, []);
-
-  const handleHeaderHealthCheck = async () => {
-    toast.info("Running Hermes backend probe...");
-    try {
-      const diag = await runHermesHealthCheck(aiConfig || undefined);
-      setMessages(prev => [
-        ...prev,
-        {
-          role: 'assistant',
-          content: diag.primaryCause,
-          diagnostics: diag,
-          isError: !diag.attempts.some(a => a.strategy === 'backend_proxy' && a.success),
-        }
-      ]);
-      toast.success("Probe complete! View diagnostic results in chat.");
-    } catch (err: any) {
-      toast.error("Probe failed: " + (err?.message || "Error"));
-    }
-  };
 
   const handleSend = async (overrideText?: string, isVoice = false) => {
     const textToSend = (overrideText !== undefined ? overrideText : input).trim();
@@ -289,16 +270,6 @@ export function AIAssistant({ noteContent, noteTitle }: AIAssistantProps) {
                   Hermes - {noteTitle}
                 </CardTitle>
                 <div className="flex items-center gap-1">
-                  {/* Connection Probe */}
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="h-7 w-7 text-primary-foreground hover:bg-primary-foreground/20"
-                    title="Test Hermes backend & AI connectivity"
-                    onClick={handleHeaderHealthCheck}
-                  >
-                    <Activity className="h-4 w-4" />
-                  </Button>
                   {/* Toggle Voice Output */}
                   <Button
                     variant="ghost"
