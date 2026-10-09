@@ -340,6 +340,15 @@ async function startServer() {
         ? messages.slice(-maxHistoryCount)
         : (messages || []);
 
+      // Sanitize and clean message history to strict { role, content } objects
+      const sanitizedMessages = (slicedMessages || [])
+        .filter((m: any) => m && typeof m.content === 'string' && m.content.trim().length > 0)
+        .map((m: any) => ({
+          role: m.role === 'assistant' ? 'assistant' : 'user',
+          content: String(m.content).trim()
+        }))
+        .filter((m: any) => !m.content.includes('Hermes Connection Diagnostic') && !m.content.includes('Hermes AI is currently busy'));
+
       const voiceCallDirective = isVoiceCall
         ? `\n\nCRITICAL LIVE VOICE CALL DIRECTIVE (GEMINI LIVE STYLE):
 - You are currently speaking with the student on a LIVE REAL-TIME PHONE/VOICE CALL.
@@ -367,7 +376,7 @@ ${truncatedNote}
 `
       };
 
-      const latestUserMsg = slicedMessages.length > 0 ? slicedMessages[slicedMessages.length - 1].content : 'Hello';
+      const latestUserMsg = sanitizedMessages.length > 0 ? sanitizedMessages[sanitizedMessages.length - 1].content : 'Hello';
 
       // Helper function to call Google Gemini using GenAI SDK with multi-model resiliency
       const callGeminiFallback = async (key: string, geminiModelName?: string) => {
@@ -466,7 +475,7 @@ ${truncatedNote}
 
       const payload = {
         model: model,
-        messages: [systemPrompt, ...slicedMessages],
+        messages: [systemPrompt, ...sanitizedMessages],
       };
 
       let response: Response | null = null;

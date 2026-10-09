@@ -1,6 +1,8 @@
 import { GoogleGenAI, Type } from "@google/genai";
 import { AIConfig } from '../types';
 import { getBackendCandidates, isStaticHost, probeEndpoint, RENDER_BACKEND_URL } from '../lib/backendConfig';
+import { doc, getDoc } from 'firebase/firestore';
+import { db } from '../firebase';
 
 const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY || '' });
 
@@ -284,6 +286,28 @@ export async function chatWithHermes(messages: ChatMessage[], noteContent: strin
   const attempts: HermesAttemptLog[] = [];
   const candidateUrls = getBackendCandidates('/api/hermes/chat');
 
+  // Auto-fetch activeConfig directly from Firestore if not provided or missing API key
+  let activeConfig = config;
+  if (!activeConfig || !activeConfig.apiKey) {
+    try {
+      const snap = await getDoc(doc(db, 'system', 'hermes'));
+      if (snap.exists()) {
+        activeConfig = snap.data() as AIConfig;
+      }
+    } catch (e) {
+      console.warn("Direct Firestore fetch for system/hermes fallback failed:", e);
+    }
+  }
+
+  // Sanitize message history to strict { role, content } format, stripping internal diagnostic objects
+  const cleanMessagesPayload = (messages || [])
+    .filter(m => !m.isError && m.role !== 'system')
+    .map(m => ({
+      role: m.role === 'assistant' ? 'assistant' : 'user',
+      content: String(m.content || '').trim()
+    }))
+    .filter(m => m.content.length > 0 && !m.content.includes('Hermes Connection Diagnostic') && !m.content.includes('Hermes AI is currently busy'));
+
   // Strategy 1: Attempt candidate backend proxies (local dev or Render backend for static hosts like Wasmer)
   for (const endpoint of candidateUrls) {
     const start = Date.now();
@@ -298,9 +322,9 @@ export async function chatWithHermes(messages: ChatMessage[], noteContent: strin
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          messages,
+          messages: cleanMessagesPayload,
           noteContent,
-          config,
+          config: activeConfig,
           isVoiceCall: Boolean(isVoiceCall),
         }),
         signal: controller.signal,
@@ -379,8 +403,8 @@ export async function chatWithHermes(messages: ChatMessage[], noteContent: strin
   }
 
   // Strategy 2: Direct Client-Side Fallback (for static hosting or proxy failure)
-  const provider = config?.provider || 'gemini';
-  const rawKey = config?.apiKey || '';
+  const provider = activeConfig?.provider || 'gemini';
+  const rawKey = activeConfig?.apiKey || '';
   const cleanKey = rawKey.toString().replace(/\s+/g, '').replace(/['"]/g, '').replace(/[\u200B-\u200D\uFEFF]/g, '');
   const geminiEnvKey = (typeof process !== 'undefined' && process.env ? process.env.GEMINI_API_KEY : '') || (import.meta as any).env?.VITE_GEMINI_API_KEY || '';
   const activeGeminiKey = cleanKey.startsWith('AIza') ? cleanKey : (geminiEnvKey || cleanKey);
@@ -400,10 +424,10 @@ Always format mathematical equations using LaTeX wrapped in single dollar signs 
 STUDY NOTE CONTENT:
 ${truncatedNote}`;
 
-  const latestUserMsg = messages.length > 0 ? messages[messages.length - 1].content : 'Hello';
+  const latestUserMsg = cleanMessagesPayload.length > 0 ? cleanMessagesPayload[cleanMessagesPayload.length - 1].content : 'Hello';
 
   // A. Direct Custom / OpenAI-Compatible Provider Fallback (Xiaomi MIMO, DeepSeek, Together, OpenAI, etc.)
-  let customBaseUrl = config?.baseUrl || '';
+  let customBaseUrl = activeConfig?.baseUrl || '';
   if (!customBaseUrl) {
     const p = (provider as string).toLowerCase();
     if (p === 'openai') customBaseUrl = 'https://api.openai.com/v1';
@@ -431,10 +455,10 @@ ${truncatedNote}`;
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          model: config?.model || 'gpt-4o-mini',
+          model: activeConfig?.model || 'gpt-4o-mini',
           messages: [
             { role: 'system', content: systemPrompt },
-            ...messages.slice(-6)
+            ...cleanMessagesPayload.slice(-6)
           ],
           temperature: 0.5,
         }),
@@ -551,7 +575,7 @@ ${truncatedNote}`;
           model: groqModel,
           messages: [
             { role: 'system', content: systemPrompt },
-            ...messages.slice(-6)
+            ...cleanMessagesPayload.slice(-6)
           ],
           temperature: 0.5,
           max_tokens: 2048
@@ -610,10 +634,10 @@ ${truncatedNote}`;
           'X-Title': 'Hermes Chat',
         },
         body: JSON.stringify({
-          model: config?.model || 'meta-llama/llama-3.3-70b-instruct',
+          model: activeConfig?.model || 'meta-llama/llama-3.3-70b-instruct',
           messages: [
             { role: 'system', content: systemPrompt },
-            ...messages.slice(-6)
+            ...cleanMessagesPayload.slice(-6)
           ],
           temperature: 0.5,
           max_tokens: 2048

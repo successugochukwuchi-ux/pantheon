@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import { 
   AlertTriangle, 
   Copy, 
@@ -10,7 +10,8 @@ import {
   Server, 
   Globe, 
   Key, 
-  ExternalLink 
+  ExternalLink,
+  FileText
 } from 'lucide-react';
 import { Button } from './ui/button';
 import { HermesDiagnostics, runHermesHealthCheck } from '../services/aiService';
@@ -24,6 +25,42 @@ interface HermesDiagnosticCardProps {
   aiConfig?: AIConfig | null;
 }
 
+async function copyToClipboard(text: string): Promise<boolean> {
+  // 1. Try modern navigator.clipboard API if available and document is focused
+  if (typeof navigator !== 'undefined' && navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {
+    try {
+      await navigator.clipboard.writeText(text);
+      return true;
+    } catch (e) {
+      console.warn("navigator.clipboard.writeText failed, trying execCommand fallback:", e);
+    }
+  }
+
+  // 2. Robust fallback for mobile browsers (Android Chrome, iOS Safari) & iframes
+  try {
+    const textarea = document.createElement('textarea');
+    textarea.value = text;
+    textarea.style.position = 'fixed';
+    textarea.style.left = '-9999px';
+    textarea.style.top = '0';
+    textarea.style.opacity = '0';
+    textarea.setAttribute('readonly', '');
+    document.body.appendChild(textarea);
+
+    textarea.focus();
+    textarea.select();
+    textarea.setSelectionRange(0, textarea.value.length);
+
+    const successful = document.execCommand('copy');
+    document.body.removeChild(textarea);
+    if (successful) return true;
+  } catch (err) {
+    console.warn("execCommand copy fallback failed:", err);
+  }
+
+  return false;
+}
+
 export function HermesDiagnosticCard({
   diagnostics,
   errorMessage,
@@ -32,8 +69,10 @@ export function HermesDiagnosticCard({
 }: HermesDiagnosticCardProps) {
   const [isCopied, setIsCopied] = useState(false);
   const [isExpanded, setIsExpanded] = useState(true);
+  const [showRawText, setShowRawText] = useState(false);
   const [isChecking, setIsChecking] = useState(false);
   const [liveHealth, setLiveHealth] = useState<HermesDiagnostics | null>(null);
+  const rawTextRef = useRef<HTMLTextAreaElement>(null);
 
   const activeDiag = liveHealth || diagnostics;
 
@@ -66,14 +105,23 @@ export function HermesDiagnosticCard({
   };
 
   const handleCopy = async () => {
-    try {
-      const text = generateDiagnosticMarkdown();
-      await navigator.clipboard.writeText(text);
+    const text = generateDiagnosticMarkdown();
+    const success = await copyToClipboard(text);
+
+    if (success) {
       setIsCopied(true);
-      toast.success('Diagnostic report copied to clipboard! Paste it to share what went wrong.');
+      toast.success('Diagnostic report copied to clipboard! You can paste it in the chat.');
       setTimeout(() => setIsCopied(false), 2500);
-    } catch {
-      toast.error('Failed to copy to clipboard.');
+    } else {
+      // Auto-open raw text box if browser clipboard permissions are blocked on mobile
+      setShowRawText(true);
+      toast.info('Clipboard access restricted. Select and copy from the text box below.');
+      setTimeout(() => {
+        if (rawTextRef.current) {
+          rawTextRef.current.focus();
+          rawTextRef.current.select();
+        }
+      }, 100);
     }
   };
 
@@ -119,7 +167,7 @@ export function HermesDiagnosticCard({
         )}
       </div>
 
-      {/* Action Buttons: Copy, Retry, Run Health Check */}
+      {/* Action Buttons: Copy, Retry, Run Health Check, View Raw Text */}
       <div className="flex flex-wrap items-center gap-1.5 pt-1">
         <Button
           type="button"
@@ -164,6 +212,28 @@ export function HermesDiagnosticCard({
           type="button"
           size="sm"
           variant="ghost"
+          onClick={() => {
+            setShowRawText(!showRawText);
+            if (!showRawText) {
+              setTimeout(() => {
+                if (rawTextRef.current) {
+                  rawTextRef.current.focus();
+                  rawTextRef.current.select();
+                }
+              }, 100);
+            }
+          }}
+          className="h-7 px-2 text-[11px] text-muted-foreground hover:text-foreground flex items-center gap-1"
+          title="View raw diagnostic text to select/copy"
+        >
+          <FileText className="h-3 w-3" />
+          <span>{showRawText ? 'Hide Text' : 'View Text'}</span>
+        </Button>
+
+        <Button
+          type="button"
+          size="sm"
+          variant="ghost"
           onClick={() => setIsExpanded(!isExpanded)}
           className="h-7 px-1.5 text-[11px] ml-auto text-muted-foreground hover:text-foreground"
         >
@@ -171,6 +241,37 @@ export function HermesDiagnosticCard({
           {isExpanded ? <ChevronUp className="h-3 w-3 ml-0.5" /> : <ChevronDown className="h-3 w-3 ml-0.5" />}
         </Button>
       </div>
+
+      {/* Selectable Raw Text Area (for mobile browsers where clipboard permission is blocked) */}
+      {showRawText && (
+        <div className="space-y-1.5 p-2 bg-background dark:bg-zinc-900 rounded-lg border border-border/70 animate-in fade-in">
+          <div className="flex items-center justify-between text-[11px] font-semibold text-foreground">
+            <span>Diagnostic Text (Tap to Select):</span>
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              className="h-6 px-2 text-[10px] bg-background"
+              onClick={() => {
+                if (rawTextRef.current) {
+                  rawTextRef.current.focus();
+                  rawTextRef.current.select();
+                  toast.info("All text selected! Press Copy on your menu.");
+                }
+              }}
+            >
+              Select All
+            </Button>
+          </div>
+          <textarea
+            ref={rawTextRef}
+            readOnly
+            value={generateDiagnosticMarkdown()}
+            onClick={(e) => (e.target as HTMLTextAreaElement).select()}
+            className="w-full h-36 p-2 font-mono text-[10px] bg-muted/60 text-foreground rounded border border-input resize-y focus:outline-none focus:ring-1 focus:ring-primary leading-tight select-all"
+          />
+        </div>
+      )}
 
       {/* Expandable Technical Trace */}
       {isExpanded && activeDiag && (

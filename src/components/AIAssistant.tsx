@@ -391,14 +391,14 @@ export function AIAssistant({ noteContent, noteTitle }: AIAssistantProps) {
                                   aiConfig={aiConfig}
                                 />
                               </div>
+                            ) : m.role === 'user' ? (
+                              <div className="max-w-[85%] rounded-2xl rounded-tr-none px-4 py-2.5 text-sm bg-primary shadow-sm border border-primary/20 select-text">
+                                <p className="text-white font-medium text-sm leading-relaxed whitespace-pre-wrap break-words m-0 p-0">
+                                  {m.content}
+                                </p>
+                              </div>
                             ) : (
-                              <div
-                                className={`max-w-[85%] rounded-2xl px-3 py-2 text-sm ${
-                                  m.role === 'user'
-                                    ? 'bg-primary text-primary-foreground rounded-tr-none'
-                                    : 'bg-muted rounded-tl-none'
-                                }`}
-                              >
+                              <div className="max-w-[88%] rounded-2xl rounded-tl-none px-3.5 py-2.5 text-sm bg-muted text-foreground">
                                 <div className="markdown-body prose dark:prose-invert prose-sm max-w-none">
                                   <ReactMarkdown 
                                     remarkPlugins={[remarkMath, remarkGfm]} 
