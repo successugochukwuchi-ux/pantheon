@@ -413,7 +413,7 @@ const createStyles = (C: any) => StyleSheet.create({
     elevation: 1,
   },
   bubbleMe: {
-    backgroundColor: C.ink,
+    backgroundColor: C.surfaceDark,
     borderBottomRightRadius: 4,
   },
   bubbleThem: {

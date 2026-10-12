@@ -141,49 +141,95 @@ export interface SpeakOptions {
 
 function splitTextToSentences(text: string): string[] {
   return text
-    .replace(/([.?!;])\s+/g, "$1\n")
-    .split("\n")
+    .replace(/([.?!;]+)\s+/g, '$1\n')
+    .split('\n')
     .map(s => s.trim())
     .filter(s => s.length > 0);
 }
 
+function splitLongSentenceIntoSmallParts(sentence: string, maxLen: number): string[] {
+  const results: string[] = [];
+  const clauses = sentence
+    .split(/(?<=[,:\-—;])\s+|\s+(?=(?:and|or|but|because|where|which|that|while|whereas|therefore|however)\b)/i)
+    .map(c => c.trim())
+    .filter(Boolean);
+
+  let current = '';
+  for (const clause of clauses) {
+    const candidate = current ? `${current} ${clause}` : clause;
+    if (candidate.length <= maxLen) {
+      current = candidate;
+    } else {
+      if (current.trim().length > 0) {
+        results.push(current.trim());
+        current = '';
+      }
+      if (clause.length <= maxLen) {
+        current = clause;
+      } else {
+        let remaining = clause.trim();
+        while (remaining.length > maxLen) {
+          let splitAt = remaining.lastIndexOf(' ', maxLen);
+          if (splitAt <= 0) splitAt = maxLen;
+          results.push(remaining.substring(0, splitAt).trim());
+          remaining = remaining.substring(splitAt).trim();
+        }
+        current = remaining;
+      }
+    }
+  }
+
+  if (current.trim().length > 0) {
+    results.push(current.trim());
+  }
+
+  return results;
+}
+
 /**
- * Splits text into small, natural conversational sentence chunks (max ~220 characters).
- * Small chunks synthesize in 150-300ms, enabling instant audio start and seamless background pre-fetching.
+ * Splits text into small, fast-synthesizing chunks for the orderly Render queue:
+ * - Chunk 0: max ~95 chars (synthesizes in ~150-220ms for near-instant audio start)
+ * - Chunk 1: max ~135 chars
+ * - Chunks 2+: max ~165 chars (1-2 sentences each)
  */
-function splitTextIntoChunks(text: string, maxChunkLength = 220): string[] {
+export function splitTextIntoChunks(text: string): string[] {
   if (!text) return [];
   const clean = text.trim();
-  if (clean.length <= maxChunkLength) return [clean];
+  if (!clean) return [];
+
+  const getTargetMaxLen = (chunkIdx: number): number => {
+    if (chunkIdx === 0) return 95;
+    if (chunkIdx === 1) return 135;
+    return 165;
+  };
+
+  if (clean.length <= getTargetMaxLen(0)) return [clean];
 
   const sentences = splitTextToSentences(clean);
   const chunks: string[] = [];
   let currentChunk = '';
 
   for (const sentence of sentences) {
-    if ((currentChunk + ' ' + sentence).trim().length <= maxChunkLength) {
-      currentChunk = currentChunk ? `${currentChunk} ${sentence}` : sentence;
+    const targetLimit = getTargetMaxLen(chunks.length);
+    const candidate = currentChunk ? `${currentChunk} ${sentence}` : sentence;
+
+    if (candidate.length <= targetLimit) {
+      currentChunk = candidate;
     } else {
       if (currentChunk.trim().length > 0) {
         chunks.push(currentChunk.trim());
+        currentChunk = '';
       }
-      // If a single sentence exceeds maxChunkLength, split on commas, colons, or dashes
-      if (sentence.length > maxChunkLength) {
-        const clauses = sentence.split(/(?<=[,:\-—])\s+/);
-        let currentSub = '';
-        for (const clause of clauses) {
-          if ((currentSub + ' ' + clause).trim().length <= maxChunkLength) {
-            currentSub = currentSub ? `${currentSub} ${clause}` : clause;
-          } else {
-            if (currentSub.trim().length > 0) {
-              chunks.push(currentSub.trim());
-            }
-            currentSub = clause;
-          }
-        }
-        currentChunk = currentSub;
-      } else {
+
+      const nextLimit = getTargetMaxLen(chunks.length);
+      if (sentence.length <= nextLimit) {
         currentChunk = sentence;
+      } else {
+        const subParts = splitLongSentenceIntoSmallParts(sentence, nextLimit);
+        for (let i = 0; i < subParts.length - 1; i++) {
+          chunks.push(subParts[i]);
+        }
+        currentChunk = subParts[subParts.length - 1] || '';
       }
     }
   }
@@ -195,8 +241,28 @@ function splitTextIntoChunks(text: string, maxChunkLength = 220): string[] {
   return chunks.length > 0 ? chunks : [clean];
 }
 
+// LRU Blob cache so downloaded chunks are never re-synthesized
+const MAX_WEB_CACHED_CHUNKS = 80;
+const chunkBlobCache = new Map<string, Blob>();
+const inFlightWebDownloads = new Map<string, Promise<Blob>>();
+
+function getWebChunkCacheKey(voice: string, rate: string | undefined, text: string): string {
+  return `${voice}|${rate || ''}|${text}`;
+}
+
+function storeWebChunkBlob(key: string, blob: Blob): void {
+  if (chunkBlobCache.has(key)) {
+    chunkBlobCache.delete(key);
+  }
+  chunkBlobCache.set(key, blob);
+  if (chunkBlobCache.size > MAX_WEB_CACHED_CHUNKS) {
+    const oldestKey = chunkBlobCache.keys().next().value;
+    if (oldestKey) chunkBlobCache.delete(oldestKey);
+  }
+}
+
 /**
- * Robust fetch for TTS chunks with automatic retries and multi-endpoint fallback
+ * Robust fetch for TTS chunks with automatic retries, multi-endpoint fallback, and Blob caching
  */
 async function fetchChunkAudio(
   text: string,
@@ -205,63 +271,125 @@ async function fetchChunkAudio(
   signal: AbortSignal,
   onPreparing?: (progressPercent: number) => void
 ): Promise<string> {
-  const backendEndpoints = getBackendCandidates('/api/tts');
+  const cacheKey = getWebChunkCacheKey(voice, rate, text);
+  const cachedBlob = chunkBlobCache.get(cacheKey);
+  if (cachedBlob && cachedBlob.size > 100) {
+    onPreparing?.(100);
+    return URL.createObjectURL(cachedBlob);
+  }
 
-  let lastError: any = null;
-
-  // Try each endpoint with up to 2 attempts for network resilience
-  for (const endpoint of backendEndpoints) {
-    for (let attempt = 0; attempt < 2; attempt++) {
+  const existingInFlight = inFlightWebDownloads.get(cacheKey);
+  if (existingInFlight) {
+    try {
+      const blob = await existingInFlight;
       if (signal.aborted) throw new DOMException('Aborted', 'AbortError');
-
-      // 1. Try POST request with JSON
-      try {
-        if (onPreparing) onPreparing(attempt === 0 ? 15 : 30);
-        const response = await fetch(endpoint, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ text, voice, rate }),
-          signal,
-        });
-
-        if (response.ok) {
-          if (onPreparing) onPreparing(70);
-          const blob = await response.blob();
-          if (blob && blob.size > 100) {
-            if (onPreparing) onPreparing(100);
-            return URL.createObjectURL(blob);
-          }
-        }
-      } catch (err: any) {
-        if (err.name === 'AbortError') throw err;
-        lastError = err;
-      }
-
-      // 2. Try GET request with URL params as fallback
-      try {
-        const getUrl = `${endpoint}?text=${encodeURIComponent(text)}&voice=${encodeURIComponent(voice)}${rate ? `&rate=${encodeURIComponent(rate)}` : ''}`;
-        if (onPreparing) onPreparing(40);
-        const response = await fetch(getUrl, {
-          method: 'GET',
-          signal,
-        });
-
-        if (response.ok) {
-          if (onPreparing) onPreparing(85);
-          const blob = await response.blob();
-          if (blob && blob.size > 100) {
-            if (onPreparing) onPreparing(100);
-            return URL.createObjectURL(blob);
-          }
-        }
-      } catch (err: any) {
-        if (err.name === 'AbortError') throw err;
-        lastError = err;
-      }
+      onPreparing?.(100);
+      return URL.createObjectURL(blob);
+    } catch (e: any) {
+      if (signal.aborted || e?.name === 'AbortError') throw e;
     }
   }
 
-  throw lastError || new Error('Failed to generate natural TTS audio from available servers');
+  const downloadBlobPromise = (async (): Promise<Blob> => {
+    const backendEndpoints = getBackendCandidates('/api/tts');
+    let lastError: any = null;
+
+    for (const endpoint of backendEndpoints) {
+      for (let attempt = 0; attempt < 2; attempt++) {
+        if (signal.aborted) throw new DOMException('Aborted', 'AbortError');
+
+        // 1. Try POST request with JSON
+        try {
+          if (onPreparing) onPreparing(attempt === 0 ? 20 : 35);
+          const response = await fetch(endpoint, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ text, voice, rate }),
+            signal,
+          });
+
+          if (response.ok) {
+            if (onPreparing) onPreparing(75);
+            const blob = await response.blob();
+            if (blob && blob.size > 100) {
+              storeWebChunkBlob(cacheKey, blob);
+              if (onPreparing) onPreparing(100);
+              return blob;
+            }
+          }
+        } catch (err: any) {
+          if (err.name === 'AbortError') throw err;
+          lastError = err;
+        }
+
+        // 2. Try GET request with URL params as fallback
+        try {
+          const getUrl = `${endpoint}?text=${encodeURIComponent(text)}&voice=${encodeURIComponent(voice)}${rate ? `&rate=${encodeURIComponent(rate)}` : ''}`;
+          if (onPreparing) onPreparing(45);
+          const response = await fetch(getUrl, {
+            method: 'GET',
+            signal,
+          });
+
+          if (response.ok) {
+            if (onPreparing) onPreparing(85);
+            const blob = await response.blob();
+            if (blob && blob.size > 100) {
+              storeWebChunkBlob(cacheKey, blob);
+              if (onPreparing) onPreparing(100);
+              return blob;
+            }
+          }
+        } catch (err: any) {
+          if (err.name === 'AbortError') throw err;
+          lastError = err;
+        }
+      }
+    }
+
+    throw lastError || new Error('Failed to generate natural TTS audio from available servers');
+  })();
+
+  inFlightWebDownloads.set(cacheKey, downloadBlobPromise);
+  try {
+    const blob = await downloadBlobPromise;
+    return URL.createObjectURL(blob);
+  } finally {
+    if (inFlightWebDownloads.get(cacheKey) === downloadBlobPromise) {
+      inFlightWebDownloads.delete(cacheKey);
+    }
+  }
+}
+
+/**
+ * Silently pre-downloads the first 2 small chunks of a note into memory cache
+ * so audio starts immediately when the user clicks "Listen Note".
+ */
+export async function prefetchNoteAudio(
+  rawText: string,
+  voiceId?: string,
+  rate?: string
+): Promise<void> {
+  try {
+    if (!rawText || !rawText.trim()) return;
+    const cleaned = stripDiagramsAndCleanForTTS(rawText);
+    if (!cleaned) return;
+    const chunks = splitTextIntoChunks(cleaned);
+    if (chunks.length === 0) return;
+
+    const voice = voiceId || (await getDefaultVoice());
+    const ctrl = new AbortController();
+
+    const url0 = await fetchChunkAudio(chunks[0], voice, rate, ctrl.signal);
+    URL.revokeObjectURL(url0);
+
+    if (chunks.length > 1) {
+      const url1 = await fetchChunkAudio(chunks[1], voice, rate, ctrl.signal);
+      URL.revokeObjectURL(url1);
+    }
+  } catch {
+    // Ignore background prefetch errors
+  }
 }
 
 /**
@@ -680,7 +808,9 @@ export function stripDiagramsAndCleanForTTS(text: string): string {
     .replace(/`([^`]+)`/g, '$1')
     .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
     .replace(/\\/g, ' ') // Strip all stray backslashes
+    .replace(/([^\.\?\!\;\:\s])\s*\n+/g, '$1. ')
     .replace(/\n+/g, ' ')
+    .replace(/\.{2,}/g, '.')
     .replace(/\s{2,}/g, ' ')
     .trim();
 
@@ -689,6 +819,14 @@ export function stripDiagramsAndCleanForTTS(text: string): string {
   cleaned = cleaned.replace(/\s{2,}/g, ' ').trim();
 
   return cleaned;
+}
+
+interface WebQueuedChunk {
+  index: number;
+  text: string;
+  status: 'pending' | 'downloading' | 'ready' | 'failed';
+  blobUrl?: string | null;
+  fetchPromise?: Promise<string>;
 }
 
 export async function speakText(
@@ -709,7 +847,7 @@ export async function speakText(
   const abortController = new AbortController();
   currentAbortController = abortController;
 
-  const chunks = splitTextIntoChunks(text, 220);
+  const chunks = splitTextIntoChunks(text);
   const totalChunks = chunks.length;
 
   if (totalChunks === 0) {
@@ -717,101 +855,140 @@ export async function speakText(
     return;
   }
 
-  // Pre-fetch state maps and queues
-  const blobUrls: (string | null)[] = new Array(totalChunks).fill(null);
-  const fetchPromises: (Promise<string> | null)[] = new Array(totalChunks).fill(null);
+  const queue: WebQueuedChunk[] = chunks.map((chunkText, index) => ({
+    index,
+    text: chunkText,
+    status: 'pending',
+  }));
 
-  // Helper to start fetching a specific chunk
-  const startFetchingChunk = (index: number) => {
-    if (index >= totalChunks || fetchPromises[index]) return;
-    
-    fetchPromises[index] = fetchChunkAudio(
-      chunks[index],
+  let currentIndex = 0;
+  let activeDownloads = 0;
+  const MAX_CONCURRENT_DOWNLOADS = 2;
+  const MAX_BUFFER_AHEAD = 6;
+
+  const startFetchingChunk = (index: number): Promise<string> => {
+    const item = queue[index];
+    if (item.fetchPromise) return item.fetchPromise;
+
+    item.status = 'downloading';
+    activeDownloads++;
+
+    const p = fetchChunkAudio(
+      item.text,
       voice,
       options?.rate,
       abortController.signal,
       index === 0 ? options?.onPreparing : undefined
-    ).then((url) => {
-      blobUrls[index] = url;
-      return url;
-    });
+    )
+      .then((url) => {
+        item.blobUrl = url;
+        item.status = 'ready';
+        return url;
+      })
+      .catch((err) => {
+        item.status = 'failed';
+        throw err;
+      })
+      .finally(() => {
+        activeDownloads = Math.max(0, activeDownloads - 1);
+        if (!abortController.signal.aborted) {
+          pumpDownloadQueue();
+        }
+      });
+
+    item.fetchPromise = p;
+    return p;
+  };
+
+  // Orderly queue pump: prioritizes Chunk 0 first, then downloads subsequent chunks in strict sequential order
+  const pumpDownloadQueue = () => {
+    if (abortController.signal.aborted) return;
+
+    if (queue[0].status === 'pending') {
+      startFetchingChunk(0);
+      return;
+    }
+    if (queue[0].status === 'downloading') {
+      return;
+    }
+
+    const maxIndex = Math.min(totalChunks - 1, currentIndex + MAX_BUFFER_AHEAD);
+    for (let i = currentIndex; i <= maxIndex; i++) {
+      if (activeDownloads >= MAX_CONCURRENT_DOWNLOADS) break;
+      if (queue[i].status === 'pending') {
+        startFetchingChunk(i);
+      }
+    }
   };
 
   try {
-    options?.onPreparing?.(0);
-    // Start fetching first chunk immediately
-    startFetchingChunk(0);
+    options?.onPreparing?.(15);
+    pumpDownloadQueue();
 
-    // Pre-fetch second chunk immediately for zero-latency continuation
-    if (totalChunks > 1) {
-      startFetchingChunk(1);
-    }
-
-    let currentIndex = 0;
-
-    // Play each chunk sequentially
+    // Play each chunk sequentially from the orderly queue
     while (currentIndex < totalChunks) {
       if (abortController.signal.aborted) return;
 
-      startFetchingChunk(currentIndex);
+      const currentItem = queue[currentIndex];
+      const fetchPromise = currentItem.fetchPromise || startFetchingChunk(currentIndex);
 
       let currentUrl: string | null = null;
       try {
-        currentUrl = await fetchPromises[currentIndex]!;
+        currentUrl = await fetchPromise;
       } catch (chunkErr: any) {
         if (abortController.signal.aborted) return;
         console.warn(`[ttsService] Chunk ${currentIndex} failed to fetch:`, chunkErr);
-        // If the first chunk fails, re-throw to allow error handlers
         if (currentIndex === 0 && totalChunks === 1) {
           throw chunkErr;
         }
-        // If a subsequent chunk fails, skip to next chunk so speech doesn't cut off completely
         currentIndex++;
         continue;
       }
 
       if (abortController.signal.aborted || !currentUrl) return;
 
-      // Pre-fetch next 2 chunks in parallel to ensure continuous buffer
-      if (currentIndex + 1 < totalChunks) {
-        startFetchingChunk(currentIndex + 1);
-      }
-      if (currentIndex + 2 < totalChunks) {
-        startFetchingChunk(currentIndex + 2);
-      }
+      // Ensure background download queue continues buffering upcoming chunks
+      pumpDownloadQueue();
 
       const audio = getOrCreateAudioElement();
       audio.src = currentUrl;
       activeAudio = audio;
 
-      currentSpokenChunkText = chunks[currentIndex];
-      options?.onChunkStart?.(currentIndex, totalChunks, chunks[currentIndex]);
+      currentSpokenChunkText = currentItem.text;
+      options?.onChunkStart?.(currentIndex, totalChunks, currentItem.text);
 
       if (currentIndex === 0) {
         options?.onPreparing?.(100);
         options?.onStart?.();
       }
 
+      const playingIdx = currentIndex;
       await new Promise<void>((resolve) => {
         const onEnded = () => {
           audio.onended = null;
           audio.onerror = null;
           audio.ontimeupdate = null;
           try {
-            if (currentUrl) URL.revokeObjectURL(currentUrl);
+            if (currentUrl) {
+              URL.revokeObjectURL(currentUrl);
+              currentItem.blobUrl = null;
+            }
           } catch {}
           resolve();
         };
 
         const onError = (e: any) => {
-          console.warn(`[ttsService] Audio element playback error on chunk ${currentIndex}:`, e);
+          console.warn(`[ttsService] Audio element playback error on chunk ${playingIdx}:`, e);
           audio.onended = null;
           audio.onerror = null;
           audio.ontimeupdate = null;
           try {
-            if (currentUrl) URL.revokeObjectURL(currentUrl);
+            if (currentUrl) {
+              URL.revokeObjectURL(currentUrl);
+              currentItem.blobUrl = null;
+            }
           } catch {}
-          resolve(); // Resolve to let subsequent chunks play rather than halting
+          resolve();
         };
 
         audio.onended = onEnded;
@@ -821,7 +998,7 @@ export async function speakText(
           if (audio.duration && !isNaN(audio.duration)) {
             const chunkWeight = 100 / totalChunks;
             const currentChunkProgress = (audio.currentTime / audio.duration) * chunkWeight;
-            const overallPct = Math.min(100, Math.round(currentIndex * chunkWeight + currentChunkProgress));
+            const overallPct = Math.min(100, Math.round(playingIdx * chunkWeight + currentChunkProgress));
             options?.onPlaybackProgress?.(overallPct);
           }
         };
@@ -834,6 +1011,7 @@ export async function speakText(
 
     currentSpokenChunkText = '';
     activeAudio = null;
+    options?.onPlaybackProgress?.(100);
     options?.onDone?.();
   } catch (err: any) {
     currentSpokenChunkText = '';
@@ -846,7 +1024,6 @@ export async function speakText(
       return;
     }
     console.warn('Edge TTS streaming encountered error, attempting SpeechSynthesis fallback:', err);
-    // Graceful fallback to browser speech synthesis
     try {
       speakWithBrowserSynthesis(text, options);
     } catch (fallbackErr) {
@@ -854,10 +1031,11 @@ export async function speakText(
       options?.onError?.(err);
     }
   } finally {
-    blobUrls.forEach((url) => {
-      if (url) {
+    queue.forEach((item) => {
+      if (item.blobUrl) {
         try {
-          URL.revokeObjectURL(url);
+          URL.revokeObjectURL(item.blobUrl);
+          item.blobUrl = null;
         } catch {}
       }
     });

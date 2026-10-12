@@ -212,10 +212,11 @@ export default function AdminPanel() {
   const [refreshTrigger, setRefreshTrigger] = useState(0);
   const triggerRefresh = () => setRefreshTrigger(prev => prev + 1);
 
-  const isLevel5 = profile?.level === '5' || profile?.email === 'successugochukwuchi@gmail.com' || user?.email === 'successugochukwuchi@gmail.com';
-  const isLevel4 = profile?.level === '4' || profile?.level === '5' || isLevel5;
-  const isAtLeastLevel3 = profile?.level === '3' || profile?.level === '4' || profile?.level === '5' || isLevel5;
-  const isLevel2 = profile?.level === '2';
+  const isLevel5 = profile?.level === '5' || String(profile?.level) === '5' || profile?.email?.toLowerCase() === 'successugochukwuchi@gmail.com' || user?.email?.toLowerCase() === 'successugochukwuchi@gmail.com';
+  const isLevel4 = profile?.level === '4' || String(profile?.level) === '4' || isLevel5;
+  const isAtLeastLevel3 = profile?.level === '3' || String(profile?.level) === '3' || isLevel4;
+  const isLevel2 = profile?.level === '2' || String(profile?.level) === '2';
+  const canManageSeasons = isLevel5 || isLevel4;
 
   // User Management State
   const [targetUid, setTargetUid] = useState('');
@@ -378,6 +379,7 @@ export default function AdminPanel() {
 
   // CoLearn Compete Season State
   const [newSeasonName, setNewSeasonName] = useState('');
+  const [confirmEndSeasonOpen, setConfirmEndSeasonOpen] = useState(false);
 
   // Telegram State
   const [telegramConfig, setTelegramConfig] = useState<TelegramConfig | null>(null);
@@ -2277,8 +2279,8 @@ export default function AdminPanel() {
 
   const handleStartSeason = async () => {
     if (!user) return;
-    if (!isLevel5) {
-      toast.error("Only Level 5 Admins can start a competition season.");
+    if (!canManageSeasons) {
+      toast.error("Only Level 4 or Level 5 Admins can start a competition season.");
       return;
     }
     if (!newSeasonName.trim()) {
@@ -2309,21 +2311,39 @@ export default function AdminPanel() {
       toast.success(`Season "${newSeasonName}" started successfully!`);
       setNewSeasonName('');
     } catch (err: any) {
+      handleFirestoreError(err, OperationType.WRITE, 'system/config');
       toast.error(`Failed to start season: ${err.message}`);
     } finally {
       setLoading(false);
     }
   };
 
-  const handleEndSeason = async () => {
+  const executeEndSeason = async () => {
     if (!user) return;
-    if (!isLevel5) {
-      toast.error("Only Level 5 Admins can end a competition season.");
+    if (!canManageSeasons) {
+      toast.error("Only Level 4 or Level 5 Admins can end a competition season.");
       return;
     }
-    if (!window.confirm("Are you sure you want to end the current season? Quick Match mode will be locked and the leaderboard will be reset!")) return;
     setLoading(true);
     try {
+      const currentSeasonId = systemConfig?.activeSeasonId;
+      const currentSeasonName = systemConfig?.activeSeasonName;
+
+      // 1. If there is an active season document, mark it as ended
+      if (currentSeasonId) {
+        try {
+          const seasonRef = doc(db, 'seasons', currentSeasonId);
+          await setDoc(seasonRef, {
+            status: 'ended',
+            endedAt: new Date().toISOString(),
+            endedBy: user.uid
+          }, { merge: true });
+        } catch (seasonErr) {
+          console.warn("Could not mark season doc as ended:", seasonErr);
+        }
+      }
+
+      // 2. Clear active season from system/config
       const configRef = doc(db, 'system', 'config');
       await setDoc(configRef, {
         activeSeasonId: null,
@@ -2332,8 +2352,10 @@ export default function AdminPanel() {
         updatedAt: new Date().toISOString()
       }, { merge: true });
 
-      toast.success("Competition season has been ended and the leaderboard has reset.");
+      setConfirmEndSeasonOpen(false);
+      toast.success(`Season "${currentSeasonName || ''}" ended successfully. Leaderboard reset and Quick Matches locked.`);
     } catch (err: any) {
+      handleFirestoreError(err, OperationType.WRITE, 'system/config');
       toast.error(`Failed to end season: ${err.message}`);
     } finally {
       setLoading(false);
@@ -5444,11 +5466,11 @@ export default function AdminPanel() {
                         <Button 
                           size="sm" 
                           variant="destructive" 
-                          onClick={handleEndSeason}
-                          disabled={loading || !isLevel5}
+                          onClick={() => setConfirmEndSeasonOpen(true)}
+                          disabled={loading || !canManageSeasons}
                           className="w-full text-xs font-semibold h-9"
                         >
-                          {!isLevel5 ? "End Season (Requires Level 5 Admin)" : "End Season & Reset Leaderboard"}
+                          {!canManageSeasons ? "End Season (Requires Admin)" : "End Season & Reset Leaderboard"}
                         </Button>
                       </div>
                     ) : (
@@ -5460,22 +5482,57 @@ export default function AdminPanel() {
                             value={newSeasonName} 
                             onChange={(e) => setNewSeasonName(e.target.value)}
                             onKeyDown={(e) => e.key === 'Enter' && e.preventDefault()}
-                            disabled={!isLevel5}
+                            disabled={!canManageSeasons}
                             className="h-9 text-xs"
                           />
                         </div>
                         <Button 
-                          size="sm"
+                          size="sm" 
                           onClick={handleStartSeason}
-                          disabled={loading || !newSeasonName.trim() || !isLevel5}
+                          disabled={loading || !newSeasonName.trim() || !canManageSeasons}
                           className="w-full text-xs font-semibold h-9"
                         >
-                          {!isLevel5 ? "Start Season (Requires Level 5 Admin)" : "Start New Season"}
+                          {!canManageSeasons ? "Start Season (Requires Admin)" : "Start New Season"}
                         </Button>
                       </div>
                     )}
                   </CardContent>
                 </Card>
+
+                {/* End Season Confirmation Dialog */}
+                <Dialog open={confirmEndSeasonOpen} onOpenChange={setConfirmEndSeasonOpen}>
+                  <DialogContent className="sm:max-w-[425px]">
+                    <DialogHeader>
+                      <DialogTitle className="flex items-center gap-2 text-destructive">
+                        <AlertTriangle className="h-5 w-5" />
+                        End Competition Season
+                      </DialogTitle>
+                      <DialogDescription className="pt-2 text-xs text-muted-foreground leading-relaxed">
+                        Are you sure you want to end <strong className="text-foreground font-semibold">{systemConfig?.activeSeasonName || 'the active tournament season'}</strong>?
+                        <br /><br />
+                        This will immediately lock Quick Match matchmaking for all students across the platform and close the seasonal leaderboard.
+                      </DialogDescription>
+                    </DialogHeader>
+                    <DialogFooter className="gap-2 sm:gap-0 mt-4">
+                      <Button
+                        type="button"
+                        variant="outline"
+                        onClick={() => setConfirmEndSeasonOpen(false)}
+                        disabled={loading}
+                      >
+                        Cancel
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="destructive"
+                        onClick={executeEndSeason}
+                        disabled={loading}
+                      >
+                        {loading ? "Ending Season..." : "End Season Now"}
+                      </Button>
+                    </DialogFooter>
+                  </DialogContent>
+                </Dialog>
               </div>
             </div>
 

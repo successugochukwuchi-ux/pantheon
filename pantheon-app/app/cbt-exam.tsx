@@ -648,5 +648,5 @@ const createStyles = (C: any) => StyleSheet.create({
     justifyContent: 'center', alignItems: 'center',
   },
   studyTitle: { fontFamily: F.bold, fontSize: 12, color: '#fff', letterSpacing: 1, marginBottom: 3 },
-  studySub: { fontFamily: F.body, fontSize: 12, color: 'rgba(255,255,255,0.5)' },
+  studySub: { fontFamily: F.body, fontSize: 12, color: 'rgba(255,255,255,0.8)' },
 });

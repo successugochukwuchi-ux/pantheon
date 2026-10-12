@@ -5,7 +5,7 @@ import { Card, CardContent } from './ui/card';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
 import { Slider } from './ui/slider';
 import { Badge } from './ui/badge';
-import { speakText, stopSpeech, pauseSpeech, resumeSpeech, getDefaultVoice, setDefaultVoice, unlockAudioContext, MICROSOFT_VOICES, convertLatexToSpeakable, stripDiagramsAndCleanForTTS } from '../lib/ttsService';
+import { speakText, stopSpeech, pauseSpeech, resumeSpeech, getDefaultVoice, setDefaultVoice, unlockAudioContext, MICROSOFT_VOICES, convertLatexToSpeakable, stripDiagramsAndCleanForTTS, prefetchNoteAudio } from '../lib/ttsService';
 
 export { convertLatexToSpeakable };
 
@@ -165,6 +165,10 @@ export function TextToSpeechReader({ noteContent, noteTitle }: TextToSpeechReade
         .trim();
       
       cleanTextRef.current = convertLatexToSpeakable(strippedMarkdown);
+    }
+
+    if (cleanTextRef.current) {
+      prefetchNoteAudio(cleanTextRef.current);
     }
   }, [noteContent, noteTitle]);
 

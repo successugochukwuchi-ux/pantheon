@@ -1,7 +1,7 @@
 
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Bird, Send, X, Loader2, MinusCircle, Maximize2, Mic, MicOff, Volume2, VolumeX, Square } from 'lucide-react';
+import { Bird, Send, X, Loader2, MinusCircle, Maximize2, Mic, MicOff } from 'lucide-react';
 import { Button } from './ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Input } from './ui/input';
@@ -11,7 +11,6 @@ import { doc, onSnapshot } from 'firebase/firestore';
 import { db } from '../firebase';
 import { AIConfig } from '../types';
 import { useAuth } from '../contexts/AuthContext';
-import { speakText, stopSpeech } from '../lib/ttsService';
 import { toast } from 'sonner';
 import ReactMarkdown from 'react-markdown';
 import remarkMath from 'remark-math';
@@ -33,14 +32,11 @@ export function AIAssistant({ noteContent, noteTitle }: AIAssistantProps) {
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [aiConfig, setAiConfig] = useState<AIConfig | null>(null);
-  const [isSpeaking, setIsSpeaking] = useState(false);
-  const [voiceEnabled, setVoiceEnabled] = useState(true);
   const [isRecording, setIsRecording] = useState(false);
   const [recordingTranscript, setRecordingTranscript] = useState('');
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const recognitionRef = useRef<any>(null);
-  const isHoldingRef = useRef(false);
   const holdTranscriptRef = useRef('');
   const lastUserMsgRef = useRef<string>('');
 
@@ -59,13 +55,9 @@ export function AIAssistant({ noteContent, noteTitle }: AIAssistantProps) {
     }
   }, [messages, isLoading, recordingTranscript]);
 
-  // Clean up speech and recognition on unmount
+  // Clean up speech recognition on unmount
   useEffect(() => {
     return () => {
-      stopSpeech();
-      if (typeof window !== 'undefined' && window.speechSynthesis) {
-        window.speechSynthesis.cancel();
-      }
       if (recognitionRef.current) {
         try {
           recognitionRef.current.abort();
@@ -74,21 +66,9 @@ export function AIAssistant({ noteContent, noteTitle }: AIAssistantProps) {
     };
   }, []);
 
-  // Barge-in: user interruption immediately cuts off any active speech
-  const interruptSpeech = useCallback(() => {
-    stopSpeech();
-    if (typeof window !== 'undefined' && window.speechSynthesis) {
-      window.speechSynthesis.cancel();
-    }
-    setIsSpeaking(false);
-  }, []);
-
-  const handleSend = async (overrideText?: string, isVoice = false) => {
+  const handleSend = async (overrideText?: string) => {
     const textToSend = (overrideText !== undefined ? overrideText : input).trim();
     if (!textToSend || isLoading) return;
-
-    // Interrupt any ongoing speech
-    interruptSpeech();
 
     lastUserMsgRef.current = textToSend;
     const userMessage: ChatMessage = { role: 'user', content: textToSend };
@@ -99,18 +79,8 @@ export function AIAssistant({ noteContent, noteTitle }: AIAssistantProps) {
     setIsLoading(true);
 
     try {
-      const response = await chatWithHermes([...messages, userMessage], noteContent, aiConfig || undefined, isVoice);
+      const response = await chatWithHermes([...messages, userMessage], noteContent, aiConfig || undefined, false);
       setMessages(prev => [...prev, { role: 'assistant', content: response }]);
-
-      // Speak response if voice is enabled or user spoke with hold-to-speak
-      if (voiceEnabled || isVoice) {
-        setIsSpeaking(true);
-        speakText(response, {
-          onStart: () => setIsSpeaking(true),
-          onDone: () => setIsSpeaking(false),
-          onError: () => setIsSpeaking(false),
-        }).catch(() => setIsSpeaking(false));
-      }
     } catch (error: any) {
       const diag = error?.diagnostics;
       const raw = error?.message || 'Failed to connect to Hermes.';
@@ -151,15 +121,12 @@ export function AIAssistant({ noteContent, noteTitle }: AIAssistantProps) {
     setRecordingTranscript('');
 
     if (finalSpokenText) {
-      handleSend(finalSpokenText, true);
+      handleSend(finalSpokenText);
     }
   }, [handleSend]);
 
   // Start speech recognition for Tap-to-Talk
   const startRecording = useCallback(() => {
-    // 1. Instant barge-in interruption of any active speech
-    interruptSpeech();
-
     isRecordingRef.current = true;
     holdTranscriptRef.current = '';
     setRecordingTranscript('');
@@ -233,7 +200,7 @@ export function AIAssistant({ noteContent, noteTitle }: AIAssistantProps) {
       setIsRecording(false);
       isRecordingRef.current = false;
     }
-  }, [interruptSpeech, stopRecordingAndSend]);
+  }, [stopRecordingAndSend]);
 
   // Toggle Tap-To-Talk: Tap to start listening, tap again to finish and send
   const toggleTapToTalk = () => {
@@ -270,19 +237,6 @@ export function AIAssistant({ noteContent, noteTitle }: AIAssistantProps) {
                   Hermes - {noteTitle}
                 </CardTitle>
                 <div className="flex items-center gap-1">
-                  {/* Toggle Voice Output */}
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="h-7 w-7 text-primary-foreground hover:bg-primary-foreground/20"
-                    title={voiceEnabled ? "Mute Voice Output" : "Enable Voice Output"}
-                    onClick={() => {
-                      if (isSpeaking) interruptSpeech();
-                      setVoiceEnabled(!voiceEnabled);
-                    }}
-                  >
-                    {voiceEnabled ? <Volume2 className="h-4 w-4" /> : <VolumeX className="h-4 w-4 opacity-60" />}
-                  </Button>
                   <Button
                     variant="ghost"
                     size="icon"
@@ -295,10 +249,7 @@ export function AIAssistant({ noteContent, noteTitle }: AIAssistantProps) {
                     variant="ghost"
                     size="icon"
                     className="h-7 w-7 text-primary-foreground hover:bg-primary-foreground/20"
-                    onClick={() => {
-                      interruptSpeech();
-                      setIsOpen(false);
-                    }}
+                    onClick={() => setIsOpen(false)}
                   >
                     <X className="h-4 w-4" />
                   </Button>
@@ -308,28 +259,6 @@ export function AIAssistant({ noteContent, noteTitle }: AIAssistantProps) {
               {!isMinimized && (
                 <>
                   <CardContent className="flex-1 p-0 overflow-hidden flex flex-col">
-                    {/* Active Speech Bar / Interruption Banner */}
-                    {isSpeaking && (
-                      <div className="bg-emerald-500/10 border-b border-emerald-500/20 px-3 py-1.5 flex items-center justify-between text-xs text-emerald-600 dark:text-emerald-400">
-                        <div className="flex items-center gap-2">
-                          <span className="relative flex h-2 w-2">
-                            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
-                            <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
-                          </span>
-                          <span className="font-medium">Hermes is speaking</span>
-                        </div>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={interruptSpeech}
-                          className="h-6 px-2 text-[11px] text-destructive hover:bg-destructive/10"
-                        >
-                          <Square className="h-3 w-3 mr-1 fill-current" />
-                          Interrupt
-                        </Button>
-                      </div>
-                    )}
-
                     {/* Messages Container */}
                     <div className="flex-1 p-4 overflow-y-auto" ref={scrollRef}>
                       {messages.length === 0 && (
@@ -339,7 +268,7 @@ export function AIAssistant({ noteContent, noteTitle }: AIAssistantProps) {
                             Hello! I'm Hermes. Ask me anything about your note on <span className="font-semibold text-primary">"{noteTitle}"</span>.
                           </p>
                           <p className="text-xs text-muted-foreground/75">
-                            Hold the mic button below to talk with me directly.
+                            Tap the mic button below to dictate your question or type below.
                           </p>
                         </div>
                       )}
@@ -469,7 +398,6 @@ export function AIAssistant({ noteContent, noteTitle }: AIAssistantProps) {
           className="h-14 w-14 rounded-full shadow-lg ring-4 ring-primary/20"
           onClick={() => {
             if (isOpen) {
-              interruptSpeech();
               setIsOpen(false);
             } else {
               setIsOpen(true);

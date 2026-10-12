@@ -696,7 +696,7 @@ export default function ChatRoomScreen() {
                 )}
                 <View style={[s.msgContentArea, isMe && { alignItems: 'flex-end' }]}>
                    {!isMe && <Text style={[s.msgSender, { color: C.inkMid }]}>{item.senderName}</Text>}
-                   <View style={[s.msgBubble, { backgroundColor: C.surface, borderColor: C.border }, isMe && [s.msgBubbleMe, { backgroundColor: C.ink, borderColor: C.ink }]]}>
+                   <View style={[s.msgBubble, { backgroundColor: C.surface, borderColor: C.border }, isMe && [s.msgBubbleMe, { backgroundColor: C.surfaceDark, borderColor: C.surfaceDark }]]}>
                      {item.replyTo && (
                        <View style={[s.replyBar, { borderLeftColor: C.inkLight }, isMe && { borderLeftColor: 'rgba(255,255,255,0.4)' }]}>
                           <Text style={[s.replySender, { color: C.ink }, isMe && { color: 'rgba(255,255,255,0.7)' }]}>@{item.replyTo.senderName}</Text>
@@ -706,7 +706,7 @@ export default function ChatRoomScreen() {
                        </View>
                      )}
                      
-                     <Text style={[s.msgText, { color: C.ink }, isMe && { color: C.bg }]}>{item.text}</Text>
+                     <Text style={[s.msgText, { color: C.ink }, isMe && { color: '#FFFFFF' }]}>{item.text}</Text>
                      <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 6, gap: 12, borderTopWidth: 0.5, borderTopColor: isMe ? 'rgba(255,255,255,0.2)' : (C.border || 'rgba(0,0,0,0.1)'), paddingTop: 4, justifyContent: isMe ? 'flex-end' : 'flex-start' }}>
                        <Text style={{ fontSize: 9, color: isMe ? 'rgba(255,255,255,0.7)' : C.inkMid }}>
                          {new Date(item.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}

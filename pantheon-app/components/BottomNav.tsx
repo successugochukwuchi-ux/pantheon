@@ -4,11 +4,12 @@ import { useRouter } from 'expo-router';
 import { useTheme } from '../context/ThemeContext';
 import { C, F } from './Theme';
 import { HomeIcon, NotesIcon, SocialIcon, CbtIcon, SettingsIcon, ChatIcon } from './Icons';
+import { stopSpeech } from '../lib/ttsService';
 
 type TabId = 'home' | 'notes' | 'social' | 'chat' | 'cbt' | 'profile' | 'settings';
 
 interface BottomNavProps {
-  active: TabId;
+  active?: TabId;
 }
 
 export function BottomNav({ active }: BottomNavProps) {
@@ -32,10 +33,13 @@ export function BottomNav({ active }: BottomNavProps) {
           <TouchableOpacity
             key={tab.id}
             style={[s.navTab, isActive && [s.navTabActive, { backgroundColor: C.surfaceDark }]]}
-            onPress={() => router.push(tab.route as any)}
+            onPress={() => {
+              stopSpeech().catch(() => {});
+              router.push(tab.route as any);
+            }}
             activeOpacity={0.7}
           >
-            <Icon color={isActive ? C.surface : C.navInactive} />
+            <Icon color={isActive ? '#FFFFFF' : C.navInactive} />
             {!isActive && <Text style={[s.navLabel, { color: C.navInactive }]}>{tab.label}</Text>}
           </TouchableOpacity>
         );

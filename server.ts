@@ -191,10 +191,7 @@ async function startServer() {
         );
       }
 
-      res.setHeader('Content-Type', 'audio/mpeg');
-      res.setHeader('Cache-Control', 'public, max-age=86400');
-      res.setHeader('X-Text-Length', String(text.length));
-
+      const audioChunks: Buffer[] = [];
       await streamEdgeTTS(
         {
           text,
@@ -202,11 +199,20 @@ async function startServer() {
           rate: typeof rate === 'string' ? rate : undefined,
         },
         (chunk) => {
-          res.write(chunk);
+          audioChunks.push(chunk);
         }
       );
 
-      return res.end();
+      const fullAudio = Buffer.concat(audioChunks);
+      if (fullAudio.length === 0) {
+        return res.status(502).json({ error: 'Empty TTS audio stream returned' });
+      }
+
+      res.setHeader('Content-Type', 'audio/mpeg');
+      res.setHeader('Content-Length', String(fullAudio.length));
+      res.setHeader('Cache-Control', 'public, max-age=86400');
+      res.setHeader('X-Text-Length', String(text.length));
+      return res.send(fullAudio);
     } catch (err: any) {
       console.error('TTS GET endpoint error:', err);
       if (!res.headersSent) {
@@ -234,18 +240,24 @@ async function startServer() {
         );
       }
 
-      res.setHeader('Content-Type', 'audio/mpeg');
-      res.setHeader('Cache-Control', 'public, max-age=86400');
-      res.setHeader('X-Text-Length', String(text.length));
-
+      const audioChunks: Buffer[] = [];
       await streamEdgeTTS(
         { text, voice, rate },
         (chunk) => {
-          res.write(chunk);
+          audioChunks.push(chunk);
         }
       );
 
-      return res.end();
+      const fullAudio = Buffer.concat(audioChunks);
+      if (fullAudio.length === 0) {
+        return res.status(502).json({ error: 'Empty TTS audio stream returned' });
+      }
+
+      res.setHeader('Content-Type', 'audio/mpeg');
+      res.setHeader('Content-Length', String(fullAudio.length));
+      res.setHeader('Cache-Control', 'public, max-age=86400');
+      res.setHeader('X-Text-Length', String(text.length));
+      return res.send(fullAudio);
     } catch (err: any) {
       console.error('TTS endpoint error:', err);
       if (!res.headersSent) {
@@ -958,22 +970,74 @@ CRITICAL REQUIREMENTS:
       return res.status(400).json({ error: 'Audio base64 data is required' });
     }
 
-    // Clean base64 string
     const cleanBase64 = audio.replace(/^data:audio\/[a-z0-9+-]+;base64,/, '').trim();
     const cleanMime = mimeType || 'audio/m4a';
 
-    const apiKey = config?.apiKey || process.env.GEMINI_API_KEY || '';
-    if (!apiKey) {
-      return res.status(400).json({ error: 'No Gemini API key available for speech transcription' });
+    // 1. Try Groq Whisper if a Groq API key is provided or configured
+    const candidateGroqKey =
+      (config?.groqKey && String(config.groqKey).trim()) ||
+      (config?.apiKey && String(config.apiKey).trim().startsWith('gsk_') ? String(config.apiKey).trim() : '') ||
+      process.env.GROQ_API_KEY ||
+      '';
+
+    if (candidateGroqKey) {
+      try {
+        const audioBuffer = Buffer.from(cleanBase64, 'base64');
+        const ext = cleanMime.includes('wav')
+          ? 'wav'
+          : cleanMime.includes('mp3') || cleanMime.includes('mpeg')
+          ? 'mp3'
+          : cleanMime.includes('webm')
+          ? 'webm'
+          : 'm4a';
+        const form = new FormData();
+        const blob = new Blob([audioBuffer], { type: cleanMime });
+        form.append('file', blob, `speech.${ext}`);
+        form.append('model', 'whisper-large-v3-turbo');
+        form.append('response_format', 'json');
+        form.append('language', 'en');
+
+        const groqRes = await fetch('https://api.groq.com/openai/v1/audio/transcriptions', {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${candidateGroqKey}`,
+          },
+          body: form as any,
+        });
+
+        if (groqRes.ok) {
+          const data: any = await groqRes.json();
+          if (typeof data?.text === 'string') {
+            return res.json({ text: data.text.trim() });
+          }
+        } else {
+          const errTxt = await groqRes.text().catch(() => '');
+          console.warn('Groq Whisper transcribe error:', groqRes.status, errTxt);
+        }
+      } catch (groqErr: any) {
+        console.warn('Groq Whisper transcribe exception:', groqErr?.message || groqErr);
+      }
     }
 
-    const transcribePrompt = "Listen carefully to this student asking a question in a voice call with their academic tutor. Transcribe the student's exact words. Output ONLY the transcribed text. Do NOT add quotes, markdown formatting, introductory labels, or commentary. If the recording is silence or inaudible, return an empty string.";
+    // 2. Try Gemini multimodal transcription
+    const geminiKey =
+      (config?.geminiKey && String(config.geminiKey).trim()) ||
+      (config?.apiKey && String(config.apiKey).trim().startsWith('AIza') ? String(config.apiKey).trim() : '') ||
+      process.env.GEMINI_API_KEY ||
+      '';
 
-    const modelsToTry = ['gemini-3.8-flash', 'gemini-3.1-flash-lite', 'gemini-flash-latest'];
+    if (!geminiKey) {
+      return res.status(400).json({ error: 'No speech transcription API key available' });
+    }
+
+    const transcribePrompt =
+      "Listen carefully to this student asking a question in a voice call with their academic tutor. Transcribe the student's exact words. Output ONLY the transcribed text. Do NOT add quotes, markdown formatting, introductory labels, or commentary. If the recording is silence or inaudible, return an empty string.";
+
+    const modelsToTry = ['gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-flash-latest'];
 
     for (const model of modelsToTry) {
       try {
-        const aiGen = new GoogleGenAI({ apiKey });
+        const aiGen = new GoogleGenAI({ apiKey: geminiKey });
         const response = await aiGen.models.generateContent({
           model,
           contents: [
@@ -993,7 +1057,6 @@ CRITICAL REQUIREMENTS:
         return res.json({ text });
       } catch (err: any) {
         console.warn(`Error in /api/hermes/transcribe with model ${model}:`, err?.message || err);
-        // Continue to next model fallback
       }
     }
 

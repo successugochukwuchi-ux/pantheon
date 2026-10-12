@@ -115,13 +115,40 @@ export function NoteRenderer({
   const htmlContent = useMemo(() => {
     const formatTags = (str: string) => {
       if (!str) return '';
-      return str
+      // 1. Protect inline and display math blocks so * or _ inside LaTeX math are never altered
+      const mathPlaceholders: string[] = [];
+      let s = str.replace(
+        /(\$\$[\s\S]+?\$\$|\\\[[\s\S]+?\\\]|(?<!\$)\$(?!\$)([^\$\n]+?)\$(?!\$)|\\\([\s\S]+?\\\))/g,
+        (match) => {
+          const id = `@@MATH_TOKEN_${mathPlaceholders.length}@@`;
+          mathPlaceholders.push(match);
+          return id;
+        }
+      );
+
+      // 2. Format PLX & bracket tags
+      s = s
         .replace(/<B>([\s\S]*?)<\/B>/gi, '<strong>$1</strong>')
         .replace(/<I>([\s\S]*?)<\/I>/gi, '<em>$1</em>')
         .replace(/<U>([\s\S]*?)<\/U>/gi, '<u>$1</u>')
         .replace(/\[B\]([\s\S]*?)\[\/B\]/gi, '<strong>$1</strong>')
         .replace(/\[I\]([\s\S]*?)\[\/I\]/gi, '<em>$1</em>')
         .replace(/\[U\]([\s\S]*?)\[\/U\]/gi, '<u>$1</u>');
+
+      // 3. Format Markdown double-asterisk **bold** and double-underscore __bold__
+      s = s.replace(/\*\*([\s\S]+?)\*\*/g, '<strong>$1</strong>');
+      s = s.replace(/(^|[^\w])__([\s\S]+?)__(?=[^\w]|$)/g, '$1<strong>$2</strong>');
+
+      // 4. Format Markdown single-asterisk *italic* (when not part of **)
+      s = s.replace(/(?<!\*)\*([^\*\n]+?)\*(?!\*)/g, '<em>$1</em>');
+
+      // 5. Format inline code `code`
+      s = s.replace(/`([^`\n]+)`/g, '<code>$1</code>');
+
+      // 6. Restore protected math blocks
+      s = s.replace(/@@MATH_TOKEN_(\d+)@@/g, (_, idx) => mathPlaceholders[Number(idx)] || '');
+
+      return s;
     };
 
     const renderedBlocks = blocks.map(block => {
@@ -139,7 +166,7 @@ export function NoteRenderer({
           try {
             const data = JSON.parse(block.content);
             let tableHtml = `<div class="block-table"><table>`;
-            data.forEach((row: string[], ri: number) => {
+            data.forEach((row: string[]) => {
               tableHtml += `<tr>`;
               row.forEach((cell) => {
                 tableHtml += `<td class="markdown-body">${formatTags(cell)}</td>`;
@@ -155,12 +182,12 @@ export function NoteRenderer({
         case 'numbered-list':
           const items = block.content.split('\n').filter(Boolean);
           const listType = block.type === 'bullet-list' ? 'ul' : 'ol';
-          return `<div class="block-list"><${listType}>${items.map(i => `<li class="markdown-body">${formatTags(i.replace(/^[\*\-\+\d\.]+\s+/, ''))}</li>`).join('')}</${listType}></div>`;
+          return `<div class="block-list"><${listType}>${items.map(i => `<li class="markdown-body">${formatTags(i.replace(/^\s*(?:[\*\-\+](?!\*)|\d+\.)\s+/, ''))}</li>`).join('')}</${listType}></div>`;
         case 'diagram':
           const escapedDiagram = block.content.replace(/\\/g, '\\\\').replace(/"/g, '\\"').replace(/'/g, "\\'");
           return `<div class="block-diagram" onclick="window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'focus', blockType: 'diagram', content: '${escapedDiagram}' }))">
             <img src="${block.content}" style="transform: scaleX(${block.settings?.flipX ? -1 : 1}) scaleY(${block.settings?.flipY ? -1 : 1});" />
-            ${block.settings?.caption ? `<p class="caption">${block.settings.caption}</p>` : ''}
+            ${block.settings?.caption ? `<p class="caption">${formatTags(block.settings.caption)}</p>` : ''}
           </div>`;
         case 'video':
           return `<div class="block-video">🎥 Video: ${block.content}<br/><small>(Available on desktop)</small></div>`;
@@ -187,7 +214,7 @@ export function NoteRenderer({
       <html>
         <head>
           <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-          <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+          <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js" defer></script>
           <script>
             window.MathJax = {
               tex: {
@@ -263,7 +290,7 @@ export function NoteRenderer({
               box-sizing: border-box;
             }
             u { text-decoration: underline; text-underline-offset: 3px; }
-            strong, b { font-weight: 700; }
+            strong, b { font-weight: 700; color: ${inkOverride || C.ink}; }
             em, i { font-style: italic; }
             
             /* Dedicated math block styling */
@@ -379,8 +406,8 @@ export function NoteRenderer({
             .q-label { font-size: 10px; font-weight: bold; color: ${C.inkLight}; letter-spacing: 2.5px; margin-bottom: 14px; text-transform: uppercase; }
             .q-text { font-size: 18px; font-weight: bold; color: ${C.ink}; line-height: 1.5; margin-bottom: 20px; word-wrap: break-word; overflow-wrap: break-word; }
             .q-opt { padding: 14px; border-radius: 12px; border: 1px solid ${C.border}; background: ${C.bg}; color: ${C.inkMid}; font-size: 14px; margin-bottom: 10px; word-wrap: break-word; overflow-wrap: break-word; }
-            .q-correct { border-color: #27AE60; background: #E8F6EF; color: #27AE60; font-weight: bold; }
-            .q-exp { margin-top: 18px; padding-top: 18px; border-top: 1px solid rgba(0,0,0,0.05); font-size: 14px; font-style: italic; color: ${C.inkLight}; line-height: 1.6; word-wrap: break-word; overflow-wrap: break-word; }
+            .q-correct { border-color: ${C.activeText}; background: ${C.activeBg}; color: ${C.activeText}; font-weight: bold; }
+            .q-exp { margin-top: 18px; padding-top: 18px; border-top: 1px solid ${C.border}; font-size: 14px; font-style: italic; color: ${C.inkLight}; line-height: 1.6; word-wrap: break-word; overflow-wrap: break-word; }
             
             .header-meta { margin-bottom: 24px; padding-bottom: 16px; border-bottom: 1px solid ${C.border}; }
             .course-pill { display: inline-block; padding: 4px 10px; border-radius: 9999px; background-color: ${C.tagBg || C.surface}; font-size: 11px; font-weight: 700; color: ${C.inkLight}; letter-spacing: 0.5px; text-transform: uppercase; margin-bottom: 12px; }
@@ -440,14 +467,14 @@ export function NoteRenderer({
               font-style: italic;
             }
           </style>
-          <link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display&display=swap" rel="stylesheet">
+          <link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display&display=swap" rel="stylesheet" media="print" onload="this.media='all'">
         </head>
         <body oncontextmenu="return false;">
           <div id="content">
             ${headerMeta ? `
               <div class="header-meta">
                 ${headerMeta.courseCode ? `<div class="course-pill">${headerMeta.courseCode}</div>` : ''}
-                ${headerMeta.title ? `<h1 class="note-title">${headerMeta.title}</h1>` : ''}
+                ${headerMeta.title ? `<h1 class="note-title">${formatTags(headerMeta.title)}</h1>` : ''}
                 ${headerMeta.date ? `<div class="note-date">${headerMeta.date}</div>` : ''}
               </div>
             ` : ''}
@@ -458,7 +485,7 @@ export function NoteRenderer({
               <div class="summary-wrap">
                 <div class="summary-label">SUMMARY</div>
                 <div class="summary-bar"></div>
-                <div class="summary-text">${summary}</div>
+                <div class="summary-text markdown-body">${formatTags(summary)}</div>
               </div>
             ` : ''}
 
@@ -717,6 +744,7 @@ export function NoteRenderer({
               s = s.replace(/<b>([\s\S]*?)<\/b>/gi, '<strong>$1</strong>');
               s = s.replace(/<i>([\s\S]*?)<\/i>/gi, '<em>$1</em>');
               s = s.replace(/<u>([\s\S]*?)<\/u>/gi, '<u>$1</u>');
+              s = s.replace(/\\*\\*([\\s\\S]+?)\\*\\*/g, '<strong>$1</strong>');
               return s;
             }
 
@@ -733,10 +761,9 @@ export function NoteRenderer({
                   html = html.replace(/^# (.*$)/gim, '<h1>$1</h1>');
                   
                   // Bold and italics
-                  html = html.replace(/\\*\\*(.*?)\\*\\*/g, '<strong>$1</strong>');
-                  html = html.replace(/\\*(.*?)\\*/g, '<em>$1</em>');
-                  html = html.replace(/__(.*?)__/g, '<strong>$1</strong>');
-                  html = html.replace(/_(.*?)_/g, '<em>$1</em>');
+                  html = html.replace(/\\*\\*([\\s\\S]+?)\\*\\*/g, '<strong>$1</strong>');
+                  html = html.replace(/(?<!\\*)\\*([^\\*\\n]+?)\\*(?!\\*)/g, '<em>$1</em>');
+                  html = html.replace(/(^|[^\\w])__([\\s\\S]+?)__(?=[^\\w]|$)/g, '$1<strong>$2</strong>');
                   
                   // Code blocks / inline code
                   html = html.replace(/\x60([^\x60]+)\x60/g, '<code>$1</code>');
@@ -770,6 +797,8 @@ export function NoteRenderer({
               var parser = (typeof marked !== 'undefined') ? marked : myMarked;
 
               document.querySelectorAll('.markdown-body').forEach(function(el) {
+                if (el.getAttribute('data-md-done') === '1') return;
+                el.setAttribute('data-md-done', '1');
                 var mathMap = new Map();
                 var counter = 0;
 
@@ -777,7 +806,7 @@ export function NoteRenderer({
                   return text
                     .replace(/\\$\\$([\\s\\S]+?)\\$\\$/g, function(m) { var id = 'MATHJAXPH' + (counter++) + 'PH'; mathMap.set(id, m); return id; })
                     .replace(/\\\\\\[([\\s\\S]+?)\\\\\\]/g, function(m) { var id = 'MATHJAXPH' + (counter++) + 'PH'; mathMap.set(id, m); return id; })
-                    .replace(/\\$([^\\s\\$][^\\$\\n]*?)\\$/g, function(m) { var id = 'MATHJAXPH' + (counter++) + 'PH'; mathMap.set(id, m); return id; })
+                    .replace(/\\$([^\\$\\n]+?)\\$/g, function(m) { var id = 'MATHJAXPH' + (counter++) + 'PH'; mathMap.set(id, m); return id; })
                     .replace(/\\\\\\((.+?)\\\\\\)/g, function(m) { var id = 'MATHJAXPH' + (counter++) + 'PH'; mathMap.set(id, m); return id; });
                 }
 
@@ -787,13 +816,13 @@ export function NoteRenderer({
                   return result;
                 }
 
-                var raw = el.textContent || '';
+                var raw = el.innerHTML || '';
                 try {
-                  el.innerHTML = formatPLX(unprotect(parser.parse(protect(formatPLX(raw))))));
+                  el.innerHTML = formatPLX(unprotect(parser.parse(protect(formatPLX(raw)))));
                 } catch (e) {
                   console.error('Markdown processing failed:', e);
                   try {
-                    el.innerHTML = formatPLX(unprotect(myMarked.parse(protect(formatPLX(raw))))));
+                    el.innerHTML = formatPLX(unprotect(myMarked.parse(protect(formatPLX(raw)))));
                   } catch (err) {
                     el.innerHTML = formatPLX(raw);
                   }
@@ -852,8 +881,15 @@ export function NoteRenderer({
               }
             }
 
+            // Immediate synchronous first-paint so lecture notes appear in <30ms
+            try {
+              renderMarkdown();
+              sendHeight();
+            } catch (e) {}
+
             document.addEventListener('DOMContentLoaded', function() {
               renderMarkdown();
+              sendHeight();
               
               // Give MathJax a small window to load asynchronously.
               // If it doesn't load/start up, trigger offline fallback typesetting.
@@ -863,7 +899,7 @@ export function NoteRenderer({
                 } else {
                   fallbackMath();
                 }
-              }, 400);
+              }, 200);
 
               // Setup ResizeObserver to report height and scale dynamically
               if (window.ResizeObserver) {

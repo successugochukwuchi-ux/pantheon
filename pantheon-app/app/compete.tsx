@@ -1276,7 +1276,7 @@ export default function CompeteScreen() {
                   onPress={() => setGameState('selecting_course')}
                   activeOpacity={0.8}
                 >
-                  <Text style={[s.primaryBtnText, { color: C.bg }]}>Enter Competition Arena</Text>
+                  <Text style={[s.primaryBtnText, { color: '#FFFFFF' }]}>Enter Competition Arena</Text>
                 </TouchableOpacity>
               </View>
 
@@ -1411,7 +1411,7 @@ export default function CompeteScreen() {
                         style={[
                           s.countBtnText,
                           { color: C.ink },
-                          selectedNumQuestions === count && { color: C.bg, fontFamily: F.bold },
+                          selectedNumQuestions === count && { color: '#FFFFFF', fontFamily: F.bold },
                         ]}
                       >
                         {count} questions
@@ -1428,7 +1428,7 @@ export default function CompeteScreen() {
                   }}
                   activeOpacity={0.8}
                 >
-                  <Text style={[s.primaryBtnText, { color: C.bg }]}>
+                  <Text style={[s.primaryBtnText, { color: '#FFFFFF' }]}>
                     Find Match ({selectedNumQuestions} Qs)
                   </Text>
                 </TouchableOpacity>
@@ -1539,7 +1539,7 @@ export default function CompeteScreen() {
                       onPress={copyRoomCodeToClipboard}
                       style={[s.copyBtn, { backgroundColor: C.surfaceDark }]}
                     >
-                      <Text style={{ color: C.bg, fontFamily: F.bold, fontSize: 12 }}>
+                      <Text style={{ color: '#FFFFFF', fontFamily: F.bold, fontSize: 12 }}>
                         {copiedCode ? 'Copied' : 'Copy Code'}
                       </Text>
                     </TouchableOpacity>
@@ -1582,7 +1582,7 @@ export default function CompeteScreen() {
                               alignItems: 'center',
                             }}
                           >
-                            <Text style={{ fontFamily: F.bold, fontSize: 14, color: C.bg }}>
+                            <Text style={{ fontFamily: F.bold, fontSize: 14, color: '#FFFFFF' }}>
                               {(currentMatch.creatorUsername || 'H')[0]?.toUpperCase()}
                             </Text>
                           </View>
@@ -1711,7 +1711,7 @@ export default function CompeteScreen() {
                           disabled={!hasOpponent}
                           activeOpacity={0.8}
                         >
-                          <Text style={[s.primaryBtnText, { color: C.bg }]}>
+                          <Text style={[s.primaryBtnText, { color: '#FFFFFF' }]}>
                             {hasOpponent ? 'Start 1v1 Match ⚔️' : 'Waiting for Opponent...'}
                           </Text>
                         </TouchableOpacity>
@@ -1839,7 +1839,7 @@ export default function CompeteScreen() {
                     }
                   } else if (isSelected) {
                     optionBg = C.surfaceDark;
-                    optionText = C.bg;
+                    optionText = '#FFFFFF';
                     borderCol = C.surfaceDark;
                   }
 
@@ -1868,7 +1868,7 @@ export default function CompeteScreen() {
                   disabled={!selectedOption}
                   activeOpacity={0.8}
                 >
-                  <Text style={[s.primaryBtnText, { color: C.bg }]}>Submit Selection</Text>
+                  <Text style={[s.primaryBtnText, { color: '#FFFFFF' }]}>Submit Selection</Text>
                 </TouchableOpacity>
               ) : (
                 <View style={[s.feedbackMsgBox, { backgroundColor: selectedOption === matchQuestions[activeQuestionIndex].correctAnswer ? '#E8F6EF' : '#FADBD8' }]}>
@@ -2055,7 +2055,7 @@ export default function CompeteScreen() {
                               borderColor: reviewFilter === 'all' ? C.surfaceDark : C.border,
                             }}
                           >
-                            <Text style={{ fontFamily: F.bold, fontSize: 11, color: reviewFilter === 'all' ? C.bg : C.inkMid }}>
+                            <Text style={{ fontFamily: F.bold, fontSize: 11, color: reviewFilter === 'all' ? '#FFFFFF' : C.inkMid }}>
                               All ({questionsList.length})
                             </Text>
                           </TouchableOpacity>
@@ -2279,7 +2279,7 @@ export default function CompeteScreen() {
                     onPress={handleExitMatch}
                     activeOpacity={0.8}
                   >
-                    <Text style={[s.primaryBtnText, { color: C.bg }]}>Back to Lounge</Text>
+                    <Text style={[s.primaryBtnText, { color: '#FFFFFF' }]}>Back to Lounge</Text>
                   </TouchableOpacity>
                 </View>
               </View>

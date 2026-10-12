@@ -12,9 +12,10 @@ import {
   TextInput,
   ActivityIndicator,
   Image,
+  Alert,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useRouter, useLocalSearchParams } from 'expo-router';
+import { useRouter, useLocalSearchParams, usePathname } from 'expo-router';
 import { 
   doc, 
   getDoc, 
@@ -27,15 +28,35 @@ import {
 } from 'firebase/firestore';
 import { db, auth } from '../lib/firebase';
 import { useAuth } from '../context/AuthContext';
-import { BirdIcon, CalculatorIcon } from '../components/Icons';
+import { BirdIcon, CalculatorIcon, MicIcon, StopIcon, SendIcon } from '../components/Icons';
 import { NoteRenderer } from '../components/NoteRenderer';
+import { HermesMessageContent } from '../components/HermesMessageContent';
+import { MathText } from '../components/MathText';
 import { Audio } from 'expo-av';
 import * as FileSystem from 'expo-file-system';
 import { getBackendUrls } from '../lib/backendConfig';
 import { F } from '../components/Theme';
 import { useTheme } from '../context/ThemeContext';
 import { getDatabase, isCourseDownloadedLocal, getLocalNotes, getLocalCourse } from '../lib/db';
-import { speakText, stopSpeech, pauseSpeech, resumeSpeech, convertLatexToSpeakable, stripDiagramsAndCleanForTTS } from '../lib/ttsService';
+import {
+  speakText,
+  stopSpeech,
+  pauseSpeech,
+  resumeSpeech,
+  addSpeechStopListener,
+  extractSpeakableNoteText,
+  prefetchNoteAudio,
+} from '../lib/ttsService';
+import {
+  getCachedNoteById,
+  getCachedNoteByIdAsync,
+  setCachedNoteById,
+  getCachedCourseById,
+  getCachedCourseNotesSync,
+  setCachedCourseNotes,
+  sortNotesAlphabetically,
+} from '../lib/noteCache';
+import { transcribeHermesAudio } from '../lib/hermesService';
 import * as Speech from 'expo-speech';
 import { WebView } from 'react-native-webview';
 
@@ -344,430 +365,6 @@ ${truncatedNote}
   return data.choices[0].message.content as string;
 }
 
-// ── Math & LaTeX Formatting Engine for Hermes ────────────────────────────────
-const SUPERSCRIPTS: Record<string, string> = {
-  '0': '⁰', '1': '¹', '2': '²', '3': '³', '4': '⁴',
-  '5': '⁵', '6': '⁶', '7': '⁷', '8': '⁸', '9': '⁹',
-  '+': '⁺', '-': '⁻', '=': '⁼', '(': '⁽', ')': '⁾',
-  'n': 'ⁿ', 'i': 'ⁱ', 'x': 'ˣ', 'y': 'ʸ', 't': 'ᵗ',
-  'a': 'ᵃ', 'b': 'ᵇ', 'c': 'ᶜ', 'd': 'ᵈ', 'e': 'ᵉ',
-  'f': 'ᶠ', 'g': 'ᵍ', 'h': 'ʰ', 'j': 'ʲ', 'k': 'ᵏ',
-  'l': 'ˡ', 'm': 'ᵐ', 'o': 'ᵒ', 'p': 'ᵖ', 'r': 'ʳ',
-  's': 'ˢ', 'u': 'ᵘ', 'v': 'ᵛ', 'w': 'ʷ', 'z': 'ᶻ',
-  'T': 'ᵀ', 'A': 'ᴬ', 'B': 'ᴮ', 'D': 'ᴰ', 'E': 'ᴱ',
-  'G': 'ᴳ', 'H': 'ᴴ', 'I': 'ᴵ', 'J': 'ᴶ', 'K': 'ᴷ',
-  'L': 'ᴸ', 'M': 'ᴹ', 'N': 'ᴺ', 'O': 'ᴼ', 'P': 'ᴾ',
-  'R': 'ᴿ', 'U': 'ᵁ', 'V': 'ⱽ', 'W': 'ᵂ', 'c': 'ᶜ'
-};
-
-const SUBSCRIPTS: Record<string, string> = {
-  '0': '₀', '1': '₁', '2': '₂', '3': '₃', '4': '₄',
-  '5': '₅', '6': '₆', '7': '₇', '8': '₈', '9': '₉',
-  '+': '₊', '-': '₋', '=': '₌', '(': '₍', ')': '₎',
-  'a': 'ₐ', 'e': 'ₑ', 'h': 'ₕ', 'i': 'ᵢ', 'j': 'ⱼ',
-  'k': 'ₖ', 'l': 'ₗ', 'm': 'ₘ', 'n': 'ₙ', 'o': 'ₒ',
-  'p': 'ₚ', 'r': 'ᵣ', 's': 'ₛ', 't': 'ₜ', 'u': 'ᵤ',
-  'v': 'ᵥ', 'x': 'ₓ'
-};
-
-function toSuperscript(str: string): string {
-  return str.split('').map(c => SUPERSCRIPTS[c] || c).join('');
-}
-
-function toSubscript(str: string): string {
-  return str.split('').map(c => SUBSCRIPTS[c] || c).join('');
-}
-
-function formatLatexMath(raw: string): string {
-  if (!raw) return '';
-  let str = raw.trim();
-
-  // Strip enclosing math delimiters
-  str = str.replace(/^\$\$|^\\\[|^\$|^\\\(/, '').replace(/\$\$$|\\\]$|\$$|\\\)$/, '').trim();
-
-  // Blackboard bold sets
-  str = str.replace(/\\mathbb\{([A-Z])\}|\\mathbf\{([A-Z])\}/g, (_, c1, c2) => {
-    const c = c1 || c2;
-    const bb: Record<string, string> = { R: 'ℝ', N: 'ℕ', Z: 'ℤ', Q: 'ℚ', C: 'ℂ', H: 'ℍ' };
-    return bb[c] || c;
-  });
-
-  // Text commands
-  str = str.replace(/\\(?:text|mathrm|mathbf|mathit|mathtt)\{([^}]+)\}/g, '$1');
-
-  // Fractions: \frac{a}{b} or \dfrac{a}{b} (loop to resolve any nested fractions)
-  let prevFractionStr = '';
-  while (prevFractionStr !== str && /\\d?frac\{([^{}]+)\}\{([^{}]+)\}/.test(str)) {
-    prevFractionStr = str;
-    str = str.replace(/\\d?frac\{([^{}]+)\}\{([^{}]+)\}/g, (_, num, den) => {
-      const n = num.trim();
-      const d = den.trim();
-      return `(${n}) / (${d})`;
-    });
-  }
-
-  // Roots: \sqrt[n]{x} or \sqrt{x}
-  str = str.replace(/\\sqrt\[([^\]]+)\]\{([^{}]+)\}/g, (_, n, x) => `${toSuperscript(n)}√(${x.trim()})`);
-  str = str.replace(/\\sqrt\{([^{}]+)\}/g, (_, x) => `√(${x.trim()})`);
-  str = str.replace(/\\sqrt\s*([0-9a-zA-Z])/g, (_, x) => `√${x}`);
-
-  // Set operations, logic, relations, and Greek symbols
-  const symbolMap: [RegExp, string][] = [
-    [/\\cap\b/g, '∩'],
-    [/\\cup\b/g, '∪'],
-    [/\\setminus\b/g, ' \\ '],
-    [/\\subset\b/g, '⊂'],
-    [/\\subseteq\b/g, '⊆'],
-    [/\\supset\b/g, '⊃'],
-    [/\\supseteq\b/g, '⊇'],
-    [/\\in\b/g, '∈'],
-    [/\\notin\b/g, '∉'],
-    [/\\emptyset\b|\\varnothing\b/g, '∅'],
-    [/\\Delta\b/g, 'Δ'],
-    [/\\forall\b/g, '∀'],
-    [/\\exists\b/g, '∃'],
-    [/\\nexists\b/g, '∄'],
-    [/\\complement\b/g, '∁'],
-    [/\\land\b/g, '∧'],
-    [/\\lor\b/g, '∨'],
-    [/\\neg\b|\\lnot\b/g, '¬'],
-    [/\\implies\b|\\Rightarrow\b/g, '⇒'],
-    [/\\iff\b|\\Leftrightarrow\b/g, '⇔'],
-    [/\\to\b|\\rightarrow\b/g, '→'],
-    [/\\leftarrow\b/g, '←'],
-    [/\\leftrightarrow\b/g, '↔'],
-    [/\\pm\b/g, '±'],
-    [/\\mp\b/g, '∓'],
-    [/\\times\b/g, '×'],
-    [/\\div\b/g, '÷'],
-    [/\\cdot\b/g, '·'],
-    [/\\ast\b|\\star\b/g, '∗'],
-    [/\\circ\b/g, '∘'],
-    [/\\bullet\b/g, '•'],
-    [/\\neq\b|\\ne\b/g, '≠'],
-    [/\\leq\b|\\le\b/g, '≤'],
-    [/\\geq\b|\\ge\b/g, '≥'],
-    [/\\approx\b/g, '≈'],
-    [/\\equiv\b/g, '≡'],
-    [/\\sim\b/g, '∼'],
-    [/\\simeq\b/g, '≃'],
-    [/\\cong\b/g, '≅'],
-    [/\\propto\b/g, '∝'],
-    [/\\infty\b/g, '∞'],
-    [/\\partial\b/g, '∂'],
-    [/\\nabla\b/g, '∇'],
-    [/\\int\b/g, '∫'],
-    [/\\iint\b/g, '∬'],
-    [/\\iiint\b/g, '∭'],
-    [/\\oint\b/g, '∮'],
-    [/\\sum\b/g, '∑'],
-    [/\\prod\b/g, '∏'],
-    [/\\coprod\b/g, '∐'],
-    [/\\angle\b/g, '∠'],
-    [/\\perp\b/g, '⊥'],
-    [/\\parallel\b/g, '∥'],
-    [/\\triangle\b/g, '△'],
-    [/\\degree\b/g, '°'],
-    [/\\alpha\b/g, 'α'],
-    [/\\beta\b/g, 'β'],
-    [/\\gamma\b/g, 'γ'],
-    [/\\Gamma\b/g, 'Γ'],
-    [/\\delta\b/g, 'δ'],
-    [/\\epsilon\b|\\varepsilon\b/g, 'ε'],
-    [/\\zeta\b/g, 'ζ'],
-    [/\\eta\b/g, 'η'],
-    [/\\theta\b|\\vartheta\b/g, 'θ'],
-    [/\\Theta\b/g, 'Θ'],
-    [/\\iota\b/g, 'ι'],
-    [/\\kappa\b/g, 'κ'],
-    [/\\lambda\b/g, 'λ'],
-    [/\\Lambda\b/g, 'Λ'],
-    [/\\mu\b/g, 'μ'],
-    [/\\nu\b/g, 'ν'],
-    [/\\xi\b/g, 'ξ'],
-    [/\\Xi\b/g, 'Ξ'],
-    [/\\pi\b|\\varpi\b/g, 'π'],
-    [/\\Pi\b/g, 'Π'],
-    [/\\rho\b|\\varrho\b/g, 'ρ'],
-    [/\\sigma\b|\\varsigma\b/g, 'σ'],
-    [/\\Sigma\b/g, 'Σ'],
-    [/\\tau\b/g, 'τ'],
-    [/\\upsilon\b/g, 'υ'],
-    [/\\Upsilon\b/g, 'Υ'],
-    [/\\phi\b|\\varphi\b/g, 'φ'],
-    [/\\Phi\b/g, 'Φ'],
-    [/\\chi\b/g, 'χ'],
-    [/\\psi\b/g, 'ψ'],
-    [/\\Psi\b/g, 'Ψ'],
-    [/\\omega\b/g, 'ω'],
-    [/\\Omega\b/g, 'Ω'],
-    [/\\left\(/g, '('],
-    [/\\right\)/g, ')'],
-    [/\\left\[/g, '['],
-    [/\\right\]/g, ']'],
-    [/\\left\\\{/g, '{'],
-    [/\\right\\\}/g, '}'],
-    [/\\\{/g, '{'],
-    [/\\\}/g, '}'],
-    [/\\quad\b/g, '  '],
-    [/\\qquad\b/g, '    '],
-    [/\\,|\\;|\\:|\\!/g, ' '],
-    [/\\overline\{([^}]+)\}/g, '$1\u0305'],
-    [/\\bar\{([^}]+)\}/g, '$1\u0305'],
-    [/\\hat\{([^}]+)\}/g, '$1\u0302'],
-    [/\\vec\{([^}]+)\}/g, '$1\u20D7'],
-    [/\\dot\{([^}]+)\}/g, '$1\u0307'],
-    [/\\ddot\{([^}]+)\}/g, '$1\u0308'],
-  ];
-
-  for (const [pattern, replacement] of symbolMap) {
-    str = str.replace(pattern, replacement);
-  }
-
-  // Superscripts ^{...} and ^x
-  str = str.replace(/\^\{([^{}]+)\}/g, (_, exp) => toSuperscript(exp));
-  str = str.replace(/\^([0-9a-zA-Z+\-=()])/g, (_, exp) => toSuperscript(exp));
-
-  // Subscripts _{...} and _x
-  str = str.replace(/_\{([^{}]+)\}/g, (_, sub) => toSubscript(sub));
-  str = str.replace(/_([0-9a-zA-Z+\-=()])/g, (_, sub) => toSubscript(sub));
-
-  // Clean remaining stray backslashes
-  str = str.replace(/\\([a-zA-Z]+)/g, '$1');
-
-  return str.trim();
-}
-
-// ── Automatic Math Delimiter Wrapper for Hermes ───────────────────────────────
-function autoWrapLatexMath(text: string): string {
-  if (!text) return '';
-
-  // 1. Temporarily protect already delimited math blocks and code tags
-  const protectedChunks: string[] = [];
-  const placeholder = '___PX_MTH_HLD_' + Math.random().toString(36).substring(2, 7) + '___';
-
-  let sanitized = text.replace(
-    /(\$\$[\s\S]*?\$\$|\$[^\$\n]+\$|\\\[[\s\S]*?\\\]|\\\([\s\S]*?\\\)|\`[^\`]+\`)/g,
-    (match) => {
-      protectedChunks.push(match);
-      return `${placeholder}${protectedChunks.length - 1}___`;
-    }
-  );
-
-  // 2. Wrap naked fractions: \frac{...}{...}, \dfrac{...}{...}
-  sanitized = sanitized.replace(/\\d?frac\s*\{[^{}]+\}\s*\{[^{}]+\}/g, (m) => `$${m}$`);
-
-  // 3. Wrap naked roots: \sqrt[...]{...}, \sqrt{...}
-  sanitized = sanitized.replace(/\\sqrt(?:\[[^\]]+\])?\{[^{}]+\}/g, (m) => `$${m}$`);
-
-  // 4. Wrap naked sums, integrals, products, limits with sub/super-scripts
-  sanitized = sanitized.replace(/\\(?:sum|prod|int|iint|iiint|oint|lim)(?:_\{[^{}]+\}|_[0-9a-zA-Z]+)?(?:\^\{[^{}]+\}|\^[0-9a-zA-Z]+)?/g, (m) => `$${m}$`);
-
-  // 5. Wrap naked Greek letters and common math operators
-  sanitized = sanitized.replace(/(^|[^\w\$\\])(\\(?:alpha|beta|gamma|delta|epsilon|zeta|eta|theta|iota|kappa|lambda|mu|nu|xi|pi|rho|sigma|tau|upsilon|phi|chi|psi|omega|Gamma|Delta|Theta|Lambda|Xi|Pi|Sigma|Upsilon|Phi|Psi|Omega|approx|times|div|pm|mp|cdot|leq|geq|neq|equiv|infty|partial|nabla|to|rightarrow|implies|iff))(?=[^\w\$\\]|$)/g, '$1$$$2$');
-
-  // 6. Restore protected chunks
-  sanitized = sanitized.replace(new RegExp(`${placeholder}(\\d+)___`, 'g'), (_, idx) => {
-    return protectedChunks[Number(idx)] || '';
-  });
-
-  return sanitized;
-}
-
-// ── Hermes Assistant Formatted Message Content ─────────────────────────────────
-function HermesMessageContent({ content, C }: { content: string; C: any }) {
-  // If the content is an array of note blocks (JSON) or PLX tags, use NoteRenderer
-  const isStructuredNote = useMemo(() => {
-    if (!content) return false;
-    if (content.includes('<PLX>') || content.includes('</PLX>')) return true;
-    try {
-      const parsed = JSON.parse(content);
-      return Array.isArray(parsed);
-    } catch {
-      return false;
-    }
-  }, [content]);
-
-  if (isStructuredNote) {
-    return (
-      <NoteRenderer 
-        content={content} 
-        bgOverride={C.surface}
-        paddingOverride="14px 18px"
-        inkOverride={C.ink}
-      />
-    );
-  }
-
-  const processedContent = useMemo(() => autoWrapLatexMath(content || ''), [content]);
-  const lines = processedContent.split('\n');
-
-  const renderFormattedText = (text: string, keyPrefix: string, textStyle: any) => {
-    // Matches bold, italic, inline code, display math $$...$$, inline math $...$, \(...\), \[...\]
-    const parts = text.split(/(\*\*[^*]+\*\*|\*[^*]+\*|`[^`]+`|\$\$[^\$]+\$\$|\$[^$]+\$|\\\[[\s\S]*?\\\]|\\\([\s\S]*?\\\))/g);
-
-    return (
-      <Text key={keyPrefix} style={textStyle}>
-        {parts.map((part, idx) => {
-          if (!part) return null;
-          if (part.startsWith('**') && part.endsWith('**') && part.length >= 4) {
-            return (
-              <Text key={`${keyPrefix}-${idx}`} style={{ fontFamily: F.bold, color: C.ink }}>
-                {part.slice(2, -2)}
-              </Text>
-            );
-          }
-          if (part.startsWith('*') && part.endsWith('*') && part.length >= 2) {
-            return (
-              <Text key={`${keyPrefix}-${idx}`} style={{ fontStyle: 'italic', color: C.ink }}>
-                {part.slice(1, -1)}
-              </Text>
-            );
-          }
-          if (part.startsWith('`') && part.endsWith('`') && part.length >= 2) {
-            return (
-              <Text key={`${keyPrefix}-${idx}`} style={{ fontFamily: 'monospace', backgroundColor: C.tabBg, color: C.activeText, paddingHorizontal: 3, borderRadius: 3 }}>
-                {part.slice(1, -1)}
-              </Text>
-            );
-          }
-          if (
-            (part.startsWith('$$') && part.endsWith('$$') && part.length > 4) ||
-            (part.startsWith('$') && part.endsWith('$') && part.length > 2) ||
-            (part.startsWith('\\(') && part.endsWith('\\)')) ||
-            (part.startsWith('\\[') && part.endsWith('\\]'))
-          ) {
-            const formattedMath = formatLatexMath(part);
-            return (
-              <Text 
-                key={`${keyPrefix}-${idx}`} 
-                style={{ 
-                  fontFamily: F.bold, 
-                  color: C.activeText || C.ink, 
-                  fontSize: 15,
-                  letterSpacing: 0.4 
-                }}
-              >
-                {formattedMath}
-              </Text>
-            );
-          }
-          return part;
-        })}
-      </Text>
-    );
-  };
-
-  return (
-    <View style={{ width: '100%', paddingHorizontal: 12, paddingVertical: 10 }}>
-      {lines.map((line, lineIdx) => {
-        const trimmed = line.trim();
-        if (!trimmed) {
-          return <View key={lineIdx} style={{ height: 6 }} />;
-        }
-
-        // Headers: # or ## or ###
-        if (trimmed.startsWith('# ')) {
-          return (
-            <Text key={lineIdx} style={{ fontFamily: F.bold, fontSize: 16.5, color: C.ink, marginBottom: 6, marginTop: 4 }}>
-              {trimmed.substring(2)}
-            </Text>
-          );
-        }
-        if (trimmed.startsWith('## ')) {
-          return (
-            <Text key={lineIdx} style={{ fontFamily: F.bold, fontSize: 15.5, color: C.ink, marginBottom: 4, marginTop: 4 }}>
-              {trimmed.substring(3)}
-            </Text>
-          );
-        }
-        if (trimmed.startsWith('### ')) {
-          return (
-            <Text key={lineIdx} style={{ fontFamily: F.bold, fontSize: 14.5, color: C.ink, marginBottom: 4, marginTop: 2 }}>
-              {trimmed.substring(4)}
-            </Text>
-          );
-        }
-
-        // Standalone Math Formula Block (e.g. $$ ... $$, \[ ... \], or a full line of $ ... $)
-        const isDisplayMath = 
-          /^\s*(\$\$|\\\[)\s*([\s\S]+?)\s*(\$\$|\\\])\s*$/.test(trimmed) || 
-          (/^\s*\$\s*([^$]+?)\s*\$\s*$/.test(trimmed) && (
-            trimmed.includes('\\') || trimmed.includes('=') || trimmed.includes('+') || 
-            trimmed.includes('-') || trimmed.includes('^') || trimmed.includes('_') || 
-            trimmed.includes('(') || trimmed.includes('∩') || trimmed.includes('∪')
-          ));
-
-        if (isDisplayMath) {
-          const formattedFormula = formatLatexMath(trimmed);
-          return (
-            <View 
-              key={lineIdx} 
-              style={{ 
-                marginVertical: 8,
-                paddingVertical: 10,
-                paddingHorizontal: 14,
-                backgroundColor: C.activeBg || C.tabBg,
-                borderRadius: 10,
-                borderWidth: 1,
-                borderColor: C.border,
-                alignSelf: 'stretch',
-                alignItems: 'center',
-                justifyContent: 'center',
-              }}
-            >
-              <Text 
-                style={{ 
-                  fontFamily: F.bold, 
-                  fontSize: 16, 
-                  color: C.activeText || C.ink, 
-                  letterSpacing: 0.6,
-                  textAlign: 'center',
-                  lineHeight: 24,
-                }}
-              >
-                {formattedFormula}
-              </Text>
-            </View>
-          );
-        }
-
-        // Bullet list: - or *
-        if (trimmed.startsWith('- ') || trimmed.startsWith('* ')) {
-          return (
-            <View key={lineIdx} style={{ flexDirection: 'row', alignItems: 'flex-start', marginBottom: 4, paddingLeft: 4 }}>
-              <Text style={{ color: C.activeText || C.ink, fontSize: 15, marginRight: 6, lineHeight: 22 }}>•</Text>
-              <View style={{ flex: 1 }}>
-                {renderFormattedText(trimmed.substring(2), `bullet-${lineIdx}`, { fontFamily: F.body, fontSize: 14.5, lineHeight: 22, color: C.ink })}
-              </View>
-            </View>
-          );
-        }
-
-        // Numbered list: e.g. 1. 2.
-        const numMatch = trimmed.match(/^(\d+)\.\s+(.*)/);
-        if (numMatch) {
-          return (
-            <View key={lineIdx} style={{ flexDirection: 'row', alignItems: 'flex-start', marginBottom: 4, paddingLeft: 4 }}>
-              <Text style={{ fontFamily: F.bold, color: C.inkMid, fontSize: 14, marginRight: 6, lineHeight: 22 }}>{numMatch[1]}.</Text>
-              <View style={{ flex: 1 }}>
-                {renderFormattedText(numMatch[2], `num-${lineIdx}`, { fontFamily: F.body, fontSize: 14.5, lineHeight: 22, color: C.ink })}
-              </View>
-            </View>
-          );
-        }
-
-        // Regular paragraph line
-        return (
-          <View key={lineIdx} style={{ marginBottom: 4 }}>
-            {renderFormattedText(line, `p-${lineIdx}`, { fontFamily: F.body, fontSize: 14.5, lineHeight: 22, color: C.ink })}
-          </View>
-        );
-      })}
-    </View>
-  );
-}
-
 // ── Toolbar overlay ───────────────────────────────────────────────────────────
 function Toolbar({ visible, onClose, s, C }: { visible: boolean; onClose: () => void; s: any; C: any }) {
   if (!visible) return null;
@@ -786,6 +383,7 @@ function Toolbar({ visible, onClose, s, C }: { visible: boolean; onClose: () => 
 // ── Main Screen ───────────────────────────────────────────────────────────────
 export default function NoteViewerScreen() {
   const router = useRouter();
+  const pathname = usePathname();
   const { profile } = useAuth();
   const { colors: C } = useTheme();
   const s = useMemo(() => createStyles(C), [C]);
@@ -794,8 +392,6 @@ export default function NoteViewerScreen() {
   const [hermesOpen, setHermesOpen] = useState(false);
   const [isRecordingVoice, setIsRecordingVoice] = useState(false);
   const [isTranscribingVoice, setIsTranscribingVoice] = useState(false);
-  const [hermesVoiceOutputEnabled, setHermesVoiceOutputEnabled] = useState(true);
-  const [hermesSpeaking, setHermesSpeaking] = useState(false);
   const recordingRef = useRef<Audio.Recording | null>(null);
   const [hermesMsg, setHermesMsg] = useState('');
   const [hermesChat, setHermesChat] = useState<ChatMessage[]>([
@@ -803,6 +399,17 @@ export default function NoteViewerScreen() {
   ]);
   const [aiConfig, setAiConfig] = useState<AIConfig | null>(null);
   const [hermesLoading, setHermesLoading] = useState(false);
+  const hermesScrollRef = useRef<ScrollView>(null);
+
+  // Auto-scroll Hermes chat to follow the latest message
+  useEffect(() => {
+    if (hermesOpen) {
+      const timer = setTimeout(() => {
+        hermesScrollRef.current?.scrollToEnd({ animated: true });
+      }, 80);
+      return () => clearTimeout(timer);
+    }
+  }, [hermesChat, hermesLoading, hermesOpen]);
 
   // Text-To-Speech states
   const [speechIsPreparing, setSpeechIsPreparing] = useState(false);
@@ -821,8 +428,35 @@ export default function NoteViewerScreen() {
   const [mathViewMode, setMathViewMode] = useState<'scroll' | 'fit'>('scroll');
   const [toolbarVisible, setToolbarVisible] = useState(false);
 
-  const [note, setNote] = useState<Note | null>(null);
-  const [courseCode, setCourseCode] = useState('');
+  const initialCachedNote = useMemo(() => {
+    const syncNote = getCachedNoteById(noteId);
+    if (syncNote && syncNote.content) {
+      return syncNote as Note;
+    }
+    try {
+      const ldb = getDatabase();
+      if (ldb && ldb.getFirstSync && noteId) {
+        const res = ldb.getFirstSync('SELECT * FROM notes WHERE id = ?', [noteId]) as any;
+        if (res && res.content) {
+          return {
+            id: res.id,
+            courseId: res.courseId,
+            title: res.title,
+            content: res.content,
+            order: res.order,
+          } as Note;
+        }
+      }
+    } catch {}
+    return null;
+  }, [noteId]);
+
+  const [note, setNote] = useState<Note | null>(initialCachedNote);
+  const [courseCode, setCourseCode] = useState(() => {
+    const cid = courseId || initialCachedNote?.courseId;
+    const cachedCourse = getCachedCourseById(cid);
+    return cachedCourse?.code || '';
+  });
   const { isOffline } = useAuth();
 
   const swipeAnim = useRef(new Animated.Value(0)).current;
@@ -852,6 +486,11 @@ export default function NoteViewerScreen() {
   useEffect(() => {
     const cid = courseId || note?.courseId;
     if (!cid) return;
+    const cachedC = getCachedCourseById(cid);
+    if (cachedC && cachedC.code) {
+      setCourseCode(cachedC.code);
+      return;
+    }
     const localC = getLocalCourse(cid);
     if (localC && localC.code) {
       setCourseCode(localC.code);
@@ -863,15 +502,16 @@ export default function NoteViewerScreen() {
       }).catch(err => console.log('Error fetching course details in note-viewer:', err));
     }
   }, [courseId, note?.courseId, isOffline]);
-  const [loading, setLoading] = useState(true);
+
+  const [loading, setLoading] = useState(!initialCachedNote);
   const [error, setError] = useState<string | null>(null);
   const [prevNote, setPrevNote] = useState<Note | null>(null);
   const [nextNote, setNextNote] = useState<Note | null>(null);
   const [noteIndex, setNoteIndex] = useState<number>(-1);
 
-  // Animations
-  const opacity = useRef(new Animated.Value(0)).current;
-  const translateY = useRef(new Animated.Value(16)).current;
+  // Animations - immediate if cached so note appears with zero delay
+  const opacity = useRef(new Animated.Value(initialCachedNote ? 1 : 0)).current;
+  const translateY = useRef(new Animated.Value(initialCachedNote ? 0 : 12)).current;
   const progressAnim = useRef(new Animated.Value(0)).current;
 
   // Track completion
@@ -893,6 +533,10 @@ export default function NoteViewerScreen() {
   };
 
   const handleNoteNavigate = (action: 'prev' | 'next') => {
+    stopSpeech().catch(() => {});
+    setSpeechIsPreparing(false);
+    setSpeechIsPlaying(false);
+    setSpeechIsPaused(false);
     if (action === 'prev' && prevNote) {
       router.push({
         pathname: '/note-viewer',
@@ -957,137 +601,172 @@ export default function NoteViewerScreen() {
   }, []);
 
   useEffect(() => {
+    let isMounted = true;
+
     async function fetchNoteData() {
       if (!noteId) {
-        console.warn('NoteViewer: Missing noteId');
-        setLoading(false);
-        setError('No note selected');
+        if (isMounted) {
+          setLoading(false);
+          setError('No note selected');
+        }
         return;
       }
-      
-      setLoading(true);
+
       setError(null);
-      console.log('NoteViewer: Fetching note', noteId);
-      
-      try {
-        let currentNote: Note | null = null;
-        const ldb = getDatabase();
 
-        if (ldb && ldb.getFirstSync) {
-          const res = ldb.getFirstSync('SELECT * FROM notes WHERE id = ?', [noteId]) as any;
-          if (res) {
-            currentNote = {
-              id: res.id,
-              courseId: res.courseId,
-              title: res.title,
-              content: res.content,
-              order: res.order,
-            };
+      // 1. Check in-memory and SQLite synchronous cache first for 0ms render
+      let currentNote: Note | null = getCachedNoteById(noteId) as Note | null;
+      if (!currentNote || !currentNote.content) {
+        try {
+          const ldb = getDatabase();
+          if (ldb && ldb.getFirstSync) {
+            const res = ldb.getFirstSync('SELECT * FROM notes WHERE id = ?', [noteId]) as any;
+            if (res && res.content) {
+              currentNote = {
+                id: res.id,
+                courseId: res.courseId,
+                title: res.title,
+                content: res.content,
+                order: res.order,
+              };
+            }
           }
-        }
+        } catch {}
+      }
 
-        if (!currentNote) {
+      // 2. Check AsyncStorage cache before showing loading spinner
+      if (!currentNote || !currentNote.content) {
+        const asyncCached = await getCachedNoteByIdAsync(noteId);
+        if (asyncCached && asyncCached.content) {
+          currentNote = asyncCached as Note;
+        }
+      }
+
+      if (currentNote && currentNote.content) {
+        if (isMounted) {
+          setNote(currentNote);
+          setLoading(false);
+        }
+      } else {
+        if (isMounted) setLoading(true);
+      }
+
+      try {
+        // 3. Fetch fresh note from Firestore if not already loaded or to refresh in background
+        if (!currentNote || !currentNote.content) {
           const noteDoc = await getDoc(doc(db, 'notes', noteId));
           if (noteDoc.exists()) {
             currentNote = { id: noteId, ...noteDoc.data() } as Note;
+            setCachedNoteById(currentNote);
           }
+        } else if (!isOffline) {
+          // Background refresh without blocking UI
+          getDoc(doc(db, 'notes', noteId)).then(noteDoc => {
+            if (noteDoc.exists() && isMounted) {
+              const fresh = { id: noteId, ...noteDoc.data() } as Note;
+              setCachedNoteById(fresh);
+              if (fresh.content !== currentNote?.content || fresh.title !== currentNote?.title) {
+                setNote(prev => prev ? { ...prev, ...fresh } : fresh);
+              }
+            }
+          }).catch(() => {});
         }
 
-        if (currentNote) {
-          setNote(currentNote);
-          console.log('NoteViewer: Note loaded', currentNote.title);
+        if (!currentNote) {
+          if (isMounted) {
+            setError(`Topic not found: ${noteId}`);
+            setLoading(false);
+          }
+          return;
+        }
 
-          // 1. Fetch adjacent notes for navigation
+        // Immediately render note content without waiting for adjacent notes or progress!
+        if (isMounted) {
+          setNote(currentNote);
+          setLoading(false);
+        }
+
+        // 4. Resolve adjacent notes in the background (using cache first)
+        const targetCourseId = currentNote.courseId || courseId;
+        (async () => {
           try {
-            let allNotesInCourse: Note[] = [];
-            if (isCourseDownloadedLocal(currentNote.courseId)) {
-              allNotesInCourse = getLocalNotes(currentNote.courseId).map(n => ({
-                id: n.id,
-                courseId: n.courseId,
-                title: n.title,
-                content: n.content,
-                order: n.order
-              } as Note));
+            let allNotesInCourse: Note[] = (getCachedCourseNotesSync(targetCourseId) as Note[]) || [];
+            if (allNotesInCourse.length === 0) {
+              if (isCourseDownloadedLocal(targetCourseId)) {
+                allNotesInCourse = getLocalNotes(targetCourseId).map(n => ({
+                  id: n.id,
+                  courseId: n.courseId,
+                  title: n.title,
+                  content: n.content,
+                  order: n.order,
+                } as Note));
+              } else {
+                const q = query(
+                  collection(db, 'notes'),
+                  where('courseId', '==', targetCourseId)
+                );
+                const notesSnap = await getDocs(q);
+                allNotesInCourse = notesSnap.docs.map(d => ({ id: d.id, ...d.data() } as Note));
+              }
+              allNotesInCourse = sortNotesAlphabetically(allNotesInCourse);
+              setCachedCourseNotes(targetCourseId, allNotesInCourse);
             } else {
-              const q = query(
-                collection(db, 'notes'),
-                where('courseId', '==', currentNote.courseId)
-              );
-              const notesSnap = await getDocs(q);
-              allNotesInCourse = notesSnap.docs
-                .map(d => ({ id: d.id, ...d.data() } as Note));
+              allNotesInCourse = sortNotesAlphabetically(allNotesInCourse);
             }
-            // Arranged in alphabetical order
-            allNotesInCourse.sort((a, b) => (a.title || '').localeCompare(b.title || '', undefined, { sensitivity: 'base' }));
-              
+
+            if (!isMounted) return;
             const idx = allNotesInCourse.findIndex(n => n.id === noteId);
             setNoteIndex(idx);
             setPrevNote(idx > 0 ? allNotesInCourse[idx - 1] : null);
-            setNextNote(idx < allNotesInCourse.length - 1 ? allNotesInCourse[idx + 1] : null);
-            console.log('NoteViewer: Nav notes set', { idx, hasPrev: !!(idx > 0), hasNext: !!(idx < allNotesInCourse.length - 1) });
-          } catch (navErr) {
-            console.error("NoteViewer: Nav fetch error", navErr);
-            handleFirestoreError(navErr, OperationType.LIST, 'notes');
-          }
+            setNextNote(idx >= 0 && idx < allNotesInCourse.length - 1 ? allNotesInCourse[idx + 1] : null);
 
-          // 2. Update Progress if profile exists
-          if (profile && lastTrackedId.current !== noteId) {
-            lastTrackedId.current = noteId;
-            try {
-              console.log('NoteViewer: Loading previous progress');
+            // 5. Update Progress asynchronously in background
+            if (profile?.uid && lastTrackedId.current !== noteId) {
+              lastTrackedId.current = noteId;
               const noteProgressRef = doc(db, 'progress', `${profile.uid}_${noteId}`);
               const progSnap = await getDoc(noteProgressRef);
-              
+              if (!isMounted) return;
+
               let initialProgress = 0;
               if (progSnap.exists()) {
                 const data = progSnap.data();
                 initialProgress = data.percentage || 0;
                 if (data.completed) isCompleted.current = true;
               }
-              
               setScrollPct(initialProgress);
               progressAnim.setValue(initialProgress);
-
-              const allNotesIds = (await getDocs(query(collection(db, 'notes'), where('courseId', '==', currentNote.courseId)))).docs.map(d => d.id);
-              const totalNotesCount = allNotesIds.length;
-
-              const userProgSnap = await getDocs(query(
-                collection(db, 'progress'),
-                where('uid', '==', profile.uid),
-                where('type', '==', 'note'),
-                where('completed', '==', true)
-              ));
-              const completedInCourse = userProgSnap.docs.filter(d => allNotesIds.includes(d.data().targetId)).length;
-
-              const coursePercent = totalNotesCount > 0 ? Math.round((completedInCourse / totalNotesCount) * 100) : 0;
-              setNote(prev => prev ? ({ ...prev, progress: coursePercent }) : null);
-            } catch (progErr) {
-              console.error("NoteViewer: Progress load error", progErr);
             }
+          } catch (navErr) {
+            console.warn('NoteViewer background metadata error:', navErr);
           }
-        } else {
-          console.warn('NoteViewer: doc does not exist', noteId);
-          setError(`Course not found: topic ${noteId}`);
-        }
+        })();
       } catch (e) {
-        console.error("NoteViewer: Main fetch error", e);
+        console.error('NoteViewer: Main fetch error', e);
         handleFirestoreError(e, OperationType.GET, 'notes');
-        setError('Failed to load note content');
+        if (isMounted && !currentNote) {
+          setError('Failed to load note content');
+        }
       } finally {
-        setLoading(false);
+        if (isMounted) {
+          setLoading(false);
+        }
       }
     }
     fetchNoteData();
-  }, [noteId, profile]);
+
+    return () => {
+      isMounted = false;
+    };
+  }, [noteId]);
 
   useEffect(() => {
     if (!loading && note) {
       Animated.parallel([
-        Animated.timing(opacity, { toValue: 1, duration: 500, useNativeDriver: true }),
-        Animated.timing(translateY, { toValue: 0, duration: 500, useNativeDriver: true }),
+        Animated.timing(opacity, { toValue: 1, duration: 180, useNativeDriver: true }),
+        Animated.timing(translateY, { toValue: 0, duration: 180, useNativeDriver: true }),
         Animated.timing(progressAnim, {
           toValue: scrollPct || 0,
-          duration: 900,
+          duration: 450,
           useNativeDriver: false,
         }),
       ]).start();
@@ -1173,18 +852,65 @@ export default function NoteViewerScreen() {
     }
   };
 
-  // Text-To-Speech Clean Up effect
+  // Stop any running TTS or voice recording when leaving the note screen or changing noteId
+  useEffect(() => {
+    if (pathname && !pathname.includes('note-viewer')) {
+      stopSpeech().catch(() => {});
+      setSpeechIsPreparing(false);
+      setSpeechIsPlaying(false);
+      setSpeechIsPaused(false);
+      setSpeechPrepProgress(0);
+      if (recordingRef.current) {
+        recordingRef.current.stopAndUnloadAsync().catch(() => {});
+        recordingRef.current = null;
+      }
+      setIsRecordingVoice(false);
+      setIsTranscribingVoice(false);
+    }
+  }, [pathname]);
+
   useEffect(() => {
     return () => {
-      try {
-        if (typeof window !== 'undefined' && window.speechSynthesis) {
-          window.speechSynthesis.cancel();
-        }
-      } catch (e) {
-        console.log(e);
+      stopSpeech().catch(() => {});
+      setSpeechIsPreparing(false);
+      setSpeechIsPlaying(false);
+      setSpeechIsPaused(false);
+      setSpeechPrepProgress(0);
+      if (recordingRef.current) {
+        recordingRef.current.stopAndUnloadAsync().catch(() => {});
+        recordingRef.current = null;
+      }
+      setIsRecordingVoice(false);
+      setIsTranscribingVoice(false);
+    };
+  }, [noteId]);
+
+  useEffect(() => {
+    const unsubStop = addSpeechStopListener(() => {
+      setSpeechIsPreparing(false);
+      setSpeechIsPlaying(false);
+      setSpeechIsPaused(false);
+    });
+    return () => {
+      unsubStop();
+      stopSpeech().catch(() => {});
+      if (recordingRef.current) {
+        recordingRef.current.stopAndUnloadAsync().catch(() => {});
+        recordingRef.current = null;
       }
     };
   }, []);
+
+  // Pre-compute clean speakable text and background-prefetch the first 2 small chunks from Render
+  const speakableNoteText = useMemo(() => {
+    if (!note) return '';
+    return extractSpeakableNoteText(note.content, note.title, note.summary);
+  }, [note?.content, note?.title, note?.summary]);
+
+  useEffect(() => {
+    if (!speakableNoteText || isOffline) return;
+    prefetchNoteAudio(speakableNoteText);
+  }, [speakableNoteText, isOffline]);
 
   const handleToggleSpeakNote = async () => {
     try {
@@ -1208,105 +934,7 @@ export default function NoteViewerScreen() {
         return;
       }
 
-      // Clean text extraction from blocks
-      let cleanText = '';
-      try {
-        const blocks = JSON.parse(note?.content || '');
-        if (Array.isArray(blocks)) {
-          const rawTextParts = blocks
-            .map((b: any) => {
-              if (!b) return '';
-              const type = b.type || '';
-              if (type === 'h1' || type === 'h2' || type === 'h3' || type === 'h4' || type === 'text' || type === 'paragraph' || type === 'callout' || type === 'quote') {
-                return b.content || '';
-              }
-              if (type === 'math' && b.content) {
-                const cleaned = b.content.trim();
-                if (cleaned.startsWith('$')) return cleaned;
-                return `$$${cleaned}$$`;
-              }
-              if (type === 'table' && b.content) {
-                try {
-                  const rows = typeof b.content === 'string' ? JSON.parse(b.content) : b.content;
-                  if (Array.isArray(rows)) {
-                    return "Table content: " + rows.map((r: any) => Array.isArray(r) ? r.join(', ') : String(r)).join('. ');
-                  }
-                } catch {
-                  return b.content || '';
-                }
-              }
-              if (type === 'diagram' || type === 'image') {
-                const caption = b.settings?.caption || b.settings?.description || b.settings?.alt || '';
-                if (caption.trim()) {
-                  return `Diagram showing: ${caption.trim()}`;
-                }
-                return '';
-              }
-              if (type === 'bullet-list' || type === 'numbered-list' || type === 'list') {
-                return b.content || '';
-              }
-              if (type === 'question' && b.content) {
-                try {
-                  const q = typeof b.content === 'string' ? JSON.parse(b.content) : b.content;
-                  return `Question: ${q.question || ''}. Correct answer: ${q.correct || ''}.`;
-                } catch {
-                  return '';
-                }
-              }
-              if (typeof b.content === 'string' && !b.content.startsWith('http') && !b.content.startsWith('data:')) {
-                return b.content;
-              }
-              return '';
-            })
-            .filter(Boolean);
-
-          let joined = rawTextParts.join('... ');
-          // Strip base64, SVG XML and raw HTML tags
-          joined = joined.replace(/data:image\/[a-zA-Z0-9+-]+;base64,[A-Za-z0-9+/=]+/g, '');
-          joined = joined.replace(/\b[A-Za-z0-9+/=]{100,}\b/g, '');
-          joined = joined.replace(/<svg[\s\S]*?<\/svg>/gi, '');
-          joined = joined.replace(/<[^>]*>/g, '');
-
-          if (!joined.trim()) {
-            joined = `${note?.title || 'Study Note'}. ${note?.summary || ''}`;
-          }
-          cleanText = convertLatexToSpeakable(joined);
-        } else {
-          let rawText = note?.content || note?.title || '';
-          rawText = rawText.replace(/data:image\/[a-zA-Z0-9+-]+;base64,[A-Za-z0-9+/=]+/g, '');
-          rawText = rawText.replace(/\b[A-Za-z0-9+/=]{100,}\b/g, '');
-          rawText = rawText.replace(/<svg[\s\S]*?<\/svg>/gi, '');
-          rawText = rawText.replace(/<[^>]*>/g, '');
-          cleanText = convertLatexToSpeakable(rawText);
-        }
-      } catch {
-        let rawText = note?.content || note?.title || '';
-        // Strip raw base64 data strings (very large continuous blocks of characters)
-        rawText = rawText.replace(/data:image\/[a-zA-Z0-9+-]+;base64,[A-Za-z0-9+/=]+/g, '');
-        rawText = rawText.replace(/\b[A-Za-z0-9+/=]{100,}\b/g, ''); // strip any giant token of 100+ chars (common for base64)
-        
-        // Strip SVG XML structures
-        rawText = rawText.replace(/<svg[\s\S]*?<\/svg>/gi, '');
-        
-        // Strip general HTML tags
-        rawText = rawText.replace(/<[^>]*>/g, '');
-        
-        // Strip markdown image strings
-        rawText = rawText.replace(/!\[.*?\]\(.*?\)/g, '');
-        
-        // Clean up other markdown elements
-        rawText = rawText
-          .replace(/#+\s+/g, '')
-          .replace(/\*\*|__/g, '')
-          .replace(/\*|_/g, '')
-          .trim();
-        
-        cleanText = convertLatexToSpeakable(rawText);
-      }
-
-      if (!cleanText || !cleanText.trim()) {
-        cleanText = `${note?.title || 'Lecture Note'}.`;
-      }
+      const cleanText = speakableNoteText || `${note?.title || 'Lecture Note'}.`;
 
       setSpeechIsPreparing(true);
       setSpeechPrepProgress(0);
@@ -1403,24 +1031,22 @@ export default function NoteViewerScreen() {
       }
       setIsRecordingVoice(false);
       setIsTranscribingVoice(false);
-      if (hermesSpeaking) {
-        await stopSpeech();
-        setHermesSpeaking(false);
-      }
     } catch {}
     setHermesOpen(false);
   };
 
   const toggleVoiceRecording = async () => {
-    if (hermesSpeaking) {
+    if (speechIsPlaying || speechIsPreparing) {
       try {
         await stopSpeech();
-        setHermesSpeaking(false);
+        setSpeechIsPlaying(false);
+        setSpeechIsPreparing(false);
+        setSpeechIsPaused(false);
       } catch {}
     }
 
     if (isRecordingVoice) {
-      // Stop and transcribe
+      // Stop recording and transcribe into the input box
       setIsRecordingVoice(false);
       setIsTranscribingVoice(true);
       try {
@@ -1432,57 +1058,32 @@ export default function NoteViewerScreen() {
         const uri = recordingRef.current.getURI();
         recordingRef.current = null;
 
+        await Audio.setAudioModeAsync({
+          allowsRecordingIOS: false,
+          playsInSilentModeIOS: true,
+          staysActiveInBackground: false,
+          shouldDuckAndroid: true,
+          playThroughEarpieceAndroid: false,
+        }).catch(() => {});
+
         if (!uri) {
           setIsTranscribingVoice(false);
           return;
         }
 
-        const base64Audio = await FileSystem.readAsStringAsync(uri, {
-          encoding: FileSystem.EncodingType.Base64,
-        });
-
-        if (!base64Audio || base64Audio.length < 50) {
-          setIsTranscribingVoice(false);
-          return;
-        }
-
-        let mimeType = 'audio/m4a';
-        const lower = uri.toLowerCase();
-        if (lower.endsWith('.wav')) mimeType = 'audio/wav';
-        else if (lower.endsWith('.mp3')) mimeType = 'audio/mp3';
-        else if (lower.endsWith('.aac')) mimeType = 'audio/aac';
-        else if (lower.endsWith('.3gp')) mimeType = 'audio/3gpp';
-        else if (lower.endsWith('.mp4')) mimeType = 'audio/mp4';
-
-        const backendUrls = getBackendUrls();
-        let transcribedText = '';
-
-        for (const baseUrl of backendUrls) {
-          try {
-            const res = await fetch(`${baseUrl}/api/hermes/transcribe`, {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                audio: base64Audio,
-                mimeType,
-              }),
-            });
-            if (res.ok) {
-              const data = await res.json();
-              if (data?.text) {
-                transcribedText = data.text.trim();
-                break;
-              }
-            }
-          } catch (err) {
-            console.warn(`Transcribe failed on ${baseUrl}:`, err);
-          }
-        }
-
+        const transcribedText = await transcribeHermesAudio(uri, aiConfig);
         setIsTranscribingVoice(false);
 
         if (transcribedText) {
-          await handleSendHermes(transcribedText, true);
+          setHermesMsg(prev => {
+            const trimmed = prev.trim();
+            return trimmed ? `${trimmed} ${transcribedText}` : transcribedText;
+          });
+        } else {
+          Alert.alert(
+            'Could Not Catch That',
+            'Hermes could not hear clear speech. Please speak clearly into the microphone and try again.'
+          );
         }
       } catch (err) {
         console.error('Audio transcription error:', err);
@@ -1525,7 +1126,7 @@ export default function NoteViewerScreen() {
     }
   };
 
-  const handleSendHermes = async (overrideText?: string, speakReply?: boolean) => {
+  const handleSendHermes = async (overrideText?: string) => {
     const textToSend = (overrideText !== undefined ? overrideText : hermesMsg).trim();
     if (!textToSend || hermesLoading) return;
 
@@ -1543,20 +1144,6 @@ export default function NoteViewerScreen() {
     try {
       const botResponse = await chatWithHermesMobile(extendedChat, note?.content || '', aiConfig || undefined);
       setHermesChat(prev => [...prev, { role: 'assistant', content: botResponse }]);
-
-      if (hermesVoiceOutputEnabled && speakReply) {
-        try {
-          await stopSpeech();
-          const cleanForTTS = stripDiagramsAndCleanForTTS(convertLatexToSpeakable(botResponse));
-          setHermesSpeaking(true);
-          await speakText(cleanForTTS, () => {
-            setHermesSpeaking(false);
-          });
-        } catch (e) {
-          console.warn('Hermes TTS speak error:', e);
-          setHermesSpeaking(false);
-        }
-      }
     } catch (err: any) {
       console.error('Hermes AI Chat Error:', err);
       const sanitizedErrorMsg = sanitizeHermesError(err.message);
@@ -1646,67 +1233,21 @@ export default function NoteViewerScreen() {
                    <BirdIcon color="#fff" />
                    <Text style={s.hermesTitle}>HERMES AI</Text>
                  </View>
-                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
-                   <TouchableOpacity
-                     onPress={() => {
-                       if (hermesSpeaking) {
-                         stopSpeech();
-                         setHermesSpeaking(false);
-                       }
-                       setHermesVoiceOutputEnabled(prev => !prev);
-                     }}
-                     style={{
-                       flexDirection: 'row',
-                       alignItems: 'center',
-                       gap: 5,
-                       backgroundColor: hermesVoiceOutputEnabled ? '#10b98125' : '#6b728025',
-                       borderWidth: 1,
-                       borderColor: hermesVoiceOutputEnabled ? '#10b98160' : '#6b728060',
-                       paddingHorizontal: 9,
-                       paddingVertical: 4,
-                       borderRadius: 12,
-                     }}
-                     hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                   >
-                     <Text style={{ fontSize: 13 }}>{hermesVoiceOutputEnabled ? '🔊' : '🔇'}</Text>
-                     <Text style={{ color: hermesVoiceOutputEnabled ? '#34d399' : '#9ca3af', fontFamily: F.bold, fontSize: 11 }}>
-                       {hermesVoiceOutputEnabled ? 'Voice ON' : 'Muted'}
-                     </Text>
-                   </TouchableOpacity>
-                   <TouchableOpacity onPress={handleCloseHermes}>
-                     <Text style={{ color: '#fff', fontFamily: F.bold }}>Close</Text>
-                   </TouchableOpacity>
-                 </View>
+                 <TouchableOpacity onPress={handleCloseHermes}>
+                   <Text style={{ color: '#fff', fontFamily: F.bold }}>Close</Text>
+                 </TouchableOpacity>
               </View>
-
-              {/* Status bar if Hermes is speaking or recording */}
-              {hermesSpeaking && (
-                <View style={{ backgroundColor: '#10b98115', borderBottomWidth: 1, borderBottomColor: '#10b98130', paddingHorizontal: 16, paddingVertical: 6, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
-                  <Text style={{ color: '#059669', fontFamily: F.medium, fontSize: 11 }}>
-                    Hermes is speaking...
-                  </Text>
-                  <TouchableOpacity
-                    onPress={() => {
-                      stopSpeech();
-                      setHermesSpeaking(false);
-                    }}
-                    style={{ backgroundColor: '#05966920', paddingHorizontal: 8, paddingVertical: 2, borderRadius: 6 }}
-                  >
-                    <Text style={{ color: '#059669', fontFamily: F.bold, fontSize: 10 }}>Stop ⏹️</Text>
-                  </TouchableOpacity>
-                </View>
-              )}
 
               {isRecordingVoice && (
                 <View style={{ backgroundColor: '#ef444415', borderBottomWidth: 1, borderBottomColor: '#ef444430', paddingHorizontal: 16, paddingVertical: 6, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
                   <Text style={{ color: '#dc2626', fontFamily: F.bold, fontSize: 11 }}>
-                    🎙️ Listening... Tap mic to send
+                    🎙️ Listening... Tap stop when finished speaking
                   </Text>
                   <TouchableOpacity
                     onPress={toggleVoiceRecording}
                     style={{ backgroundColor: '#dc262620', paddingHorizontal: 8, paddingVertical: 2, borderRadius: 6 }}
                   >
-                    <Text style={{ color: '#dc2626', fontFamily: F.bold, fontSize: 10 }}>Done ↵</Text>
+                    <Text style={{ color: '#dc2626', fontFamily: F.bold, fontSize: 10 }}>Transcribe ↵</Text>
                   </TouchableOpacity>
                 </View>
               )}
@@ -1720,7 +1261,17 @@ export default function NoteViewerScreen() {
                 </View>
               )}
 
-              <ScrollView style={s.hermesChatScroll} contentContainerStyle={{ padding: 16 }}>
+              <ScrollView
+                ref={hermesScrollRef}
+                style={s.hermesChatScroll}
+                contentContainerStyle={{ padding: 16 }}
+                onContentSizeChange={() => {
+                  hermesScrollRef.current?.scrollToEnd({ animated: true });
+                }}
+                onLayout={() => {
+                  hermesScrollRef.current?.scrollToEnd({ animated: false });
+                }}
+              >
                 {hermesChat.map((m, i) => (
                   <View 
                     key={i} 
@@ -1732,7 +1283,13 @@ export default function NoteViewerScreen() {
                     ]}
                   >
                     {m.role === 'user' ? (
-                      <Text style={[s.hermesText, { color: '#fff' }]}>{m.content}</Text>
+                      <MathText
+                        text={m.content}
+                        style={[s.hermesText, { color: '#FFFFFF' }]}
+                        mathColor="#FFFFFF"
+                      >
+                        {m.content}
+                      </MathText>
                     ) : (
                       <HermesMessageContent content={m.content} C={C} />
                     )}
@@ -1745,48 +1302,44 @@ export default function NoteViewerScreen() {
                 )}
               </ScrollView>
               <View style={[s.hermesInputRow, { borderTopColor: C.border, alignItems: 'center' }]}>
-                {/* Microphone Button for Simple Text-To-Speech with Hermes */}
-                <TouchableOpacity
-                  style={{
-                    width: 38,
-                    height: 38,
-                    borderRadius: 19,
-                    backgroundColor: isRecordingVoice ? '#ef4444' : C.surface,
-                    borderWidth: 1,
-                    borderColor: isRecordingVoice ? '#dc2626' : C.border,
-                    justifyContent: 'center',
-                    alignItems: 'center',
-                    marginRight: 6,
-                  }}
-                  onPress={toggleVoiceRecording}
-                  disabled={isTranscribingVoice || hermesLoading}
-                  activeOpacity={0.8}
-                >
-                  {isTranscribingVoice ? (
-                    <ActivityIndicator size="small" color={C.ink} />
-                  ) : (
-                    <Text style={{ fontSize: 16 }}>{isRecordingVoice ? '⏹️' : '🎙️'}</Text>
-                  )}
-                </TouchableOpacity>
-
                 <TextInput 
                   style={[s.hermesInput, { backgroundColor: C.surface, color: C.ink, flex: 1 }]} 
                   placeholder={isRecordingVoice ? "Listening... Speak now" : "Ask Hermes or tap mic to speak..."} 
                   value={hermesMsg}
                   onChangeText={setHermesMsg}
                   placeholderTextColor={C.inkLight}
-                  onSubmitEditing={() => handleSendHermes()}
+                  onSubmitEditing={() => {
+                    if (hermesMsg.trim()) handleSendHermes();
+                  }}
                 />
                 <TouchableOpacity 
-                   style={[s.hermesSend, { backgroundColor: C.ink }]}
-                   onPress={() => handleSendHermes()}
-                   disabled={hermesLoading || (!hermesMsg.trim() && !isRecordingVoice)}
+                  style={[
+                    s.hermesSend,
+                    {
+                      backgroundColor: isRecordingVoice ? '#ef4444' : C.ink,
+                    },
+                  ]}
+                  onPress={() => {
+                    if (isRecordingVoice) {
+                      toggleVoiceRecording();
+                    } else if (hermesMsg.trim()) {
+                      handleSendHermes();
+                    } else {
+                      toggleVoiceRecording();
+                    }
+                  }}
+                  disabled={hermesLoading || isTranscribingVoice}
+                  activeOpacity={0.8}
                 >
-                   {hermesLoading ? (
-                     <ActivityIndicator size="small" color={C.bg} />
-                   ) : (
-                     <BirdIcon color={C.bg} />
-                   )}
+                  {hermesLoading || isTranscribingVoice ? (
+                    <ActivityIndicator size="small" color={C.bg} />
+                  ) : isRecordingVoice ? (
+                    <StopIcon color="#ffffff" />
+                  ) : hermesMsg.trim() ? (
+                    <SendIcon color={C.bg} />
+                  ) : (
+                    <MicIcon color={C.bg} />
+                  )}
                 </TouchableOpacity>
               </View>
            </View>
@@ -1920,7 +1473,13 @@ export default function NoteViewerScreen() {
       {/* Header */}
       <View style={[s.header, { backgroundColor: C.surface, borderBottomColor: C.border }]}>
         <TouchableOpacity
-          onPress={() => router.push({ pathname: '/notes-topics', params: { courseId: note.courseId } })}
+          onPress={() => {
+            stopSpeech().catch(() => {});
+            setSpeechIsPreparing(false);
+            setSpeechIsPlaying(false);
+            setSpeechIsPaused(false);
+            router.push({ pathname: '/notes-topics', params: { courseId: note.courseId } });
+          }}
           activeOpacity={0.7}
           style={s.iconBtn}
         >

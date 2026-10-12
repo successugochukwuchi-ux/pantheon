@@ -1,9 +1,9 @@
-import { Stack } from 'expo-router';
+import { Stack, usePathname } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { useFonts, DMSerifDisplay_400Regular } from '@expo-google-fonts/dm-serif-display';
 import { DMSans_400Regular, DMSans_500Medium, DMSans_700Bold } from '@expo-google-fonts/dm-sans';
 import * as SplashScreen from 'expo-splash-screen';
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import { View } from 'react-native';
 
 import { AuthProvider } from '../context/AuthContext';
@@ -12,10 +12,21 @@ import { AutoDownloader } from '../components/AutoDownloader';
 import { AppUpdater } from '../components/AppUpdater';
 import { ScreenSecurityHandler } from '../components/ScreenSecurityHandler';
 import { initDatabase } from '../lib/db';
+import { stopSpeech } from '../lib/ttsService';
 
 SplashScreen.preventAutoHideAsync().catch(() => {});
 
 export default function RootLayout() {
+  const pathname = usePathname();
+  const prevPathRef = useRef(pathname);
+
+  useEffect(() => {
+    if (prevPathRef.current && prevPathRef.current !== pathname) {
+      stopSpeech().catch(() => {});
+    }
+    prevPathRef.current = pathname;
+  }, [pathname]);
+
   const [fontsLoaded, fontError] = useFonts({
     DMSerifDisplay_400Regular,
     DMSans_400Regular,

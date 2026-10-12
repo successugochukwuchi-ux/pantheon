@@ -36,7 +36,7 @@ import {
   AudioWaveform,
   Settings
 } from 'lucide-react';
-import { MICROSOFT_VOICES } from '../lib/edge-tts';
+import { MICROSOFT_VOICES, stripDiagramsAndCleanForTTS } from '../lib/ttsService';
 import { CloudinaryUpload } from './CloudinaryUpload';
 import { 
   saveAudioChunk, 
@@ -99,6 +99,8 @@ export const VideoWorkshop: React.FC = () => {
   const [isGenerating, setIsGenerating] = useState<boolean>(false);
   const [progressPercent, setProgressPercent] = useState<number>(0);
   const [progressStatus, setProgressStatus] = useState<string>('');
+  const workshopAbortRef = useRef<AbortController | null>(null);
+  const preferredEdgeEndpointRef = useRef<string | null>(null);
   
   const [audioBlobUrl, setAudioBlobUrl] = useState<string | null>(null);
   const [audioBuffer, setAudioBuffer] = useState<ArrayBuffer | null>(null);
@@ -118,6 +120,10 @@ export const VideoWorkshop: React.FC = () => {
           setAudioBuffer(dbAudio.buffer);
           setAudioBlobUrl(blobUrl);
           setDbStats({ count: dbAudio.count, sizeBytes: dbAudio.buffer.byteLength });
+          const parsedDur = parseMp3DurationSeconds(dbAudio.buffer);
+          if (parsedDur > 0) {
+            setDuration(parsedDur);
+          }
         }
       })
       .catch((err) => {
@@ -164,51 +170,282 @@ export const VideoWorkshop: React.FC = () => {
   const [currentTime, setCurrentTime] = useState<number>(0);
   const [duration, setDuration] = useState<number>(0);
 
-  // Helper to format seconds to SRT time format: HH:MM:SS,mmm
+  // Helper to format seconds to SRT time format: HH:MM:SS,mmm (rounded to nearest millisecond)
   const formatSrtTime = (seconds: number): string => {
-    const hrs = Math.floor(seconds / 3600);
-    const mins = Math.floor((seconds % 3600) / 60);
-    const secs = Math.floor(seconds % 60);
-    const millis = Math.floor((seconds % 1) * 1000);
+    const safeSec = Number.isFinite(seconds) && seconds > 0 ? seconds : 0;
+    const totalMs = Math.round(safeSec * 1000);
+    const hrs = Math.floor(totalMs / 3_600_000);
+    const mins = Math.floor((totalMs % 3_600_000) / 60_000);
+    const secs = Math.floor((totalMs % 60_000) / 1000);
+    const millis = totalMs % 1000;
 
     const pad = (num: number, size: number = 2) => String(num).padStart(size, '0');
     return `${pad(hrs)}:${pad(mins)}:${pad(secs)},${pad(millis, 3)}`;
   };
 
-  // Helper to split text into clean sentence blocks for SRT
-  const splitTextToSentences = (text: string): string[] => {
-    return text
-      .replace(/([.?!;])\s+/g, "$1|")
-      .split("|")
-      .map(s => s.trim())
-      .filter(s => s.length > 0);
+  // Exact MPEG Layer III frame header parser to compute accurate MP3 duration in seconds
+  function parseMp3DurationSeconds(buffer: ArrayBuffer): number {
+    const bytes = new Uint8Array(buffer);
+    const len = bytes.length;
+    if (len < 4) return 0;
+
+    // Bitrate tables (kbps) for Layer III
+    const bitratesV1L3 = [0, 32, 40, 48, 56, 64, 80, 96, 112, 128, 160, 192, 224, 256, 320, 0];
+    const bitratesV2L3 = [0, 8, 16, 24, 32, 40, 48, 56, 64, 80, 96, 112, 128, 144, 160, 0];
+
+    // Sample rates (Hz) by MPEG version index: 0=MPEG2.5, 2=MPEG2, 3=MPEG1
+    const sampleRates: Record<number, number[]> = {
+      0: [11025, 12000, 8000],
+      2: [22050, 24000, 16000],
+      3: [44100, 48000, 32000],
+    };
+
+    let offset = 0;
+    let totalDuration = 0;
+    let framesFound = 0;
+
+    while (offset + 4 <= len) {
+      // Skip ID3v2 tags at start or mid-stream (from concatenated chunks)
+      if (
+        offset + 10 <= len &&
+        bytes[offset] === 0x49 &&
+        bytes[offset + 1] === 0x44 &&
+        bytes[offset + 2] === 0x33
+      ) {
+        const tagSize =
+          ((bytes[offset + 6] & 0x7f) << 21) |
+          ((bytes[offset + 7] & 0x7f) << 14) |
+          ((bytes[offset + 8] & 0x7f) << 7) |
+          (bytes[offset + 9] & 0x7f);
+        offset += 10 + tagSize;
+        continue;
+      }
+
+      // Skip ID3v1 tag (128 bytes starting with "TAG")
+      if (
+        offset + 128 <= len &&
+        bytes[offset] === 0x54 &&
+        bytes[offset + 1] === 0x41 &&
+        bytes[offset + 2] === 0x47
+      ) {
+        offset += 128;
+        continue;
+      }
+
+      // Check 11-bit frame sync word
+      if (bytes[offset] === 0xff && (bytes[offset + 1] & 0xe0) === 0xe0) {
+        const b1 = bytes[offset + 1];
+        const b2 = bytes[offset + 2];
+        const versionBits = (b1 >> 3) & 0x03; // 0=2.5, 1=reserved, 2=2, 3=1
+        const layerBits = (b1 >> 1) & 0x03;   // 1=Layer III
+        const bitrateIdx = (b2 >> 4) & 0x0f;
+        const srIdx = (b2 >> 2) & 0x03;
+        const padding = (b2 >> 1) & 0x01;
+
+        if (
+          versionBits !== 1 &&
+          layerBits === 1 &&
+          bitrateIdx > 0 &&
+          bitrateIdx < 15 &&
+          srIdx < 3
+        ) {
+          const sr = sampleRates[versionBits]?.[srIdx] || 0;
+          const kbps = versionBits === 3 ? bitratesV1L3[bitrateIdx] : bitratesV2L3[bitrateIdx];
+          if (sr > 0 && kbps > 0) {
+            const samplesPerFrame = versionBits === 3 ? 1152 : 576;
+            const coeff = versionBits === 3 ? 144 : 72;
+            const frameSize = Math.floor((coeff * kbps * 1000) / sr) + padding;
+            if (frameSize > 4) {
+              totalDuration += samplesPerFrame / sr;
+              framesFound++;
+              offset += frameSize;
+              continue;
+            }
+          }
+        }
+      }
+      offset++;
+    }
+
+    if (framesFound > 0 && totalDuration > 0) {
+      return totalDuration;
+    }
+    // Fallback for 48kbps mono stream
+    return len > 0 ? (len * 8) / 48000 : 0;
+  }
+
+  // Estimate spoken syllable + prosodic pause weight of a sentence for intra-block timing
+  const estimateSpokenWeight = (rawSentence: string): number => {
+    const cleaned = (stripDiagramsAndCleanForTTS(rawSentence) || rawSentence).trim();
+    if (!cleaned) return 1;
+
+    // Expand numbers and common math operators to spoken word equivalents
+    const expanded = cleaned
+      .replace(/\d+(\.\d+)?/g, (m) => ' word '.repeat(Math.max(1, Math.min(6, m.length))))
+      .replace(/[=+*/^<>≈≠≤≥±]/g, ' operator ');
+
+    const words = expanded.split(/\s+/).filter(Boolean);
+    let syllables = 0;
+    for (const word of words) {
+      const alpha = word.toLowerCase().replace(/[^a-z]/g, '');
+      if (!alpha) {
+        syllables += 1;
+        continue;
+      }
+      const vowelGroups = alpha.replace(/(?:[^laeiouy]es|ed|e)$/, '').match(/[aeiouy]{1,2}/g);
+      syllables += Math.max(1, vowelGroups ? vowelGroups.length : 1);
+    }
+
+    // Add prosodic pause weights for internal and final punctuation
+    const internalPauses = (cleaned.match(/[,;:—–-]/g) || []).length * 2.2;
+    const endPause = /[.?!]$/.test(cleaned) ? 3.2 : 1.5;
+
+    return Math.max(1, syllables + internalPauses + endPause);
   };
 
-  // Split large text into chunks <= maxChunkLength without breaking sentences
-  const splitTextIntoChunks = (text: string, maxChunkLength = 1500): string[] => {
-    if (text.length <= maxChunkLength) return [text];
+  // Helper to split text into clean, readable sentence blocks for SRT
+  const splitTextToSentences = (text: string): string[] => {
+    if (!text || !text.trim()) return [];
 
-    const sentences = splitTextToSentences(text);
+    // Protect common abbreviations and initials from false sentence splits
+    const PROTECTED_DOT = '\u0000';
+    const protectedText = text
+      .replace(/\b(e\.g|i\.e|vs|etc|fig|eq|dr|mr|mrs|ms|prof|st|jr|sr|ch|sec|vol|no)\./gi, `$1${PROTECTED_DOT}`)
+      .replace(/\b([A-Z])\.([A-Z])\./g, `$1${PROTECTED_DOT}$2${PROTECTED_DOT}`);
+
+    const rawSentences = protectedText
+      .replace(/\r?\n+/g, '|')
+      .replace(/([.?!;]+)\s+/g, '$1|')
+      .split('|')
+      .map((s) => s.replace(new RegExp(PROTECTED_DOT, 'g'), '.').trim())
+      .filter((s) => s.length > 0 && (stripDiagramsAndCleanForTTS(s) || '').trim().length > 0);
+
+    // Break any overly long run-on sentences (> 240 chars) at natural clause boundaries so cues remain readable
+    const finalSentences: string[] = [];
+    for (const sentence of rawSentences) {
+      if (sentence.length <= 240) {
+        finalSentences.push(sentence);
+      } else {
+        const clauses = sentence
+          .replace(/([,:—–]+)\s+/g, '$1|')
+          .split('|')
+          .map((c) => c.trim())
+          .filter(Boolean);
+
+        let currentCue = '';
+        for (const clause of clauses) {
+          const candidate = currentCue ? `${currentCue} ${clause}` : clause;
+          if (candidate.length <= 220) {
+            currentCue = candidate;
+          } else {
+            if (currentCue) finalSentences.push(currentCue);
+            currentCue = clause;
+          }
+        }
+        if (currentCue) finalSentences.push(currentCue);
+      }
+    }
+
+    return finalSentences.length > 0 ? finalSentences : [text.trim()];
+  };
+
+  // Group sentences into compact synthesis blocks so each block maps to exact SRT sentences
+  const groupSentencesIntoBlocks = (
+    sentences: string[],
+    maxBlockChars: number
+  ): { text: string; sentences: string[] }[] => {
+    const blocks: { text: string; sentences: string[] }[] = [];
+    let currentSentences: string[] = [];
+    let currentLen = 0;
+
+    for (const sentence of sentences) {
+      const addedLen = currentLen === 0 ? sentence.length : currentLen + 1 + sentence.length;
+      if (currentSentences.length > 0 && addedLen > maxBlockChars) {
+        blocks.push({
+          text: currentSentences.join(' '),
+          sentences: currentSentences,
+        });
+        currentSentences = [sentence];
+        currentLen = sentence.length;
+      } else {
+        currentSentences.push(sentence);
+        currentLen = addedLen;
+      }
+    }
+
+    if (currentSentences.length > 0) {
+      blocks.push({
+        text: currentSentences.join(' '),
+        sentences: currentSentences,
+      });
+    }
+
+    return blocks;
+  };
+
+  // Split large text into sentence/clause-aligned chunks <= maxChunkLength without breaking words
+  const splitTextIntoChunks = (text: string, maxChunkLength = 320): string[] => {
+    const clean = text.trim();
+    if (!clean) return [];
+    if (clean.length <= maxChunkLength) return [clean];
+
+    const sentences = splitTextToSentences(clean);
     const chunks: string[] = [];
     let currentChunk = '';
 
+    const pushLongSentence = (sentence: string) => {
+      // Split by clause punctuation (, : —) or words so we never slice mid-word
+      const clauses = sentence
+        .replace(/([,:—–-]+)\s+/g, '$1|')
+        .split('|')
+        .map(c => c.trim())
+        .filter(Boolean);
+
+      let clauseChunk = '';
+      for (const clause of clauses) {
+        if ((clauseChunk ? `${clauseChunk} ${clause}` : clause).length <= maxChunkLength) {
+          clauseChunk = clauseChunk ? `${clauseChunk} ${clause}` : clause;
+        } else {
+          if (clauseChunk) {
+            chunks.push(clauseChunk);
+            clauseChunk = '';
+          }
+          if (clause.length <= maxChunkLength) {
+            clauseChunk = clause;
+          } else {
+            const words = clause.split(/\s+/);
+            let wordChunk = '';
+            for (const word of words) {
+              if ((wordChunk ? `${wordChunk} ${word}` : word).length <= maxChunkLength) {
+                wordChunk = wordChunk ? `${wordChunk} ${word}` : word;
+              } else {
+                if (wordChunk) chunks.push(wordChunk);
+                wordChunk = word;
+              }
+            }
+            clauseChunk = wordChunk;
+          }
+        }
+      }
+      if (clauseChunk) {
+        currentChunk = clauseChunk;
+      }
+    };
+
     for (const sentence of sentences) {
-      if ((currentChunk + ' ' + sentence).length > maxChunkLength) {
+      const candidate = currentChunk ? `${currentChunk} ${sentence}` : sentence;
+      if (candidate.length > maxChunkLength) {
         if (currentChunk.trim().length > 0) {
           chunks.push(currentChunk.trim());
+          currentChunk = '';
         }
         if (sentence.length > maxChunkLength) {
-          let remaining = sentence;
-          while (remaining.length > maxChunkLength) {
-            chunks.push(remaining.substring(0, maxChunkLength).trim());
-            remaining = remaining.substring(maxChunkLength);
-          }
-          currentChunk = remaining;
+          pushLongSentence(sentence);
         } else {
           currentChunk = sentence;
         }
       } else {
-        currentChunk = currentChunk ? `${currentChunk} ${sentence}` : sentence;
+        currentChunk = candidate;
       }
     }
 
@@ -216,7 +453,44 @@ export const VideoWorkshop: React.FC = () => {
       chunks.push(currentChunk.trim());
     }
 
-    return chunks.length > 0 ? chunks : [text];
+    return chunks.length > 0 ? chunks : [clean];
+  };
+
+  // Splits a stubborn chunk into two balanced halves at the nearest clause or word boundary
+  const splitChunkInHalf = (text: string): [string, string] | null => {
+    const trimmed = text.trim();
+    if (trimmed.length < 60) return null;
+    const mid = Math.floor(trimmed.length / 2);
+
+    // Look for sentence or clause break near midpoint
+    let splitIdx = -1;
+    const punctuationRegex = /[.?!;,:—–-]\s+/g;
+    let match: RegExpExecArray | null;
+    let bestDist = Infinity;
+
+    while ((match = punctuationRegex.exec(trimmed)) !== null) {
+      const candidateIdx = match.index + match[0].length;
+      if (candidateIdx > 15 && candidateIdx < trimmed.length - 15) {
+        const dist = Math.abs(candidateIdx - mid);
+        if (dist < bestDist) {
+          bestDist = dist;
+          splitIdx = candidateIdx;
+        }
+      }
+    }
+
+    if (splitIdx === -1) {
+      const leftSpace = trimmed.lastIndexOf(' ', mid);
+      const rightSpace = trimmed.indexOf(' ', mid);
+      if (leftSpace > 15) splitIdx = leftSpace + 1;
+      else if (rightSpace > 15 && rightSpace < trimmed.length - 10) splitIdx = rightSpace + 1;
+    }
+
+    if (splitIdx <= 0 || splitIdx >= trimmed.length) return null;
+    const left = trimmed.slice(0, splitIdx).trim();
+    const right = trimmed.slice(splitIdx).trim();
+    if (!left || !right) return null;
+    return [left, right];
   };
 
   // Concatenate multiple ArrayBuffers into a single Uint8Array ArrayBuffer
@@ -341,33 +615,86 @@ export const VideoWorkshop: React.FC = () => {
     return await blob.arrayBuffer();
   };
 
-  // Robust chunk fetcher with support for EdgeTTS and Fish Audio S2.1 Pro
+  // Helper: fetch with strict AbortController timeout so requests never stall
+  const fetchWithTimeout = async (
+    url: string,
+    options: RequestInit,
+    timeoutMs: number,
+    parentSignal?: AbortSignal
+  ): Promise<Response> => {
+    const controller = new AbortController();
+    const onParentAbort = () => controller.abort();
+    if (parentSignal) {
+      if (parentSignal.aborted) {
+        throw new DOMException('Workshop generation cancelled', 'AbortError');
+      }
+      parentSignal.addEventListener('abort', onParentAbort, { once: true });
+    }
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+      return await fetch(url, { ...options, signal: controller.signal });
+    } finally {
+      clearTimeout(timer);
+      if (parentSignal) {
+        parentSignal.removeEventListener('abort', onParentAbort);
+      }
+    }
+  };
+
+  const isValidAudioBuffer = (buf: ArrayBuffer): boolean => {
+    if (!buf || buf.byteLength <= 100) return false;
+    const firstBytes = new Uint8Array(buf.slice(0, 5));
+    // Reject HTML error pages (<!DOC or <html)
+    const isHtml =
+      firstBytes[0] === 60 &&
+      ((firstBytes[1] === 33 && firstBytes[2] === 68) ||
+        (firstBytes[1] === 104 && firstBytes[2] === 116));
+    return !isHtml;
+  };
+
+  // Robust, stall-proof chunk fetcher with timeouts, endpoint caching, retries, and recursive sub-chunk fallback
   const fetchTTSChunk = async (
     textChunk: string, 
     voice: string, 
     rate: string, 
-    provider: 'edge' | 'fish-audio'
+    provider: 'edge' | 'fish-audio',
+    parentSignal?: AbortSignal,
+    depth = 0
   ): Promise<ArrayBuffer> => {
+    if (parentSignal?.aborted) {
+      throw new DOMException('Workshop generation cancelled', 'AbortError');
+    }
+
+    const speakableText = (stripDiagramsAndCleanForTTS(textChunk) || textChunk).trim();
+    if (!speakableText) {
+      throw new Error('Empty speakable text in chunk');
+    }
+
     if (provider === 'fish-audio') {
       const targetVoice = fishAudioVoiceModelId.trim() || voice;
       try {
-        const response = await fetch('/api/tts', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            text: textChunk,
-            voice: targetVoice,
-            model: fishAudioModel || DEFAULT_FISH_MODEL_ID,
-            apiKey: openRouterApiKey || HARDCODED_OPENROUTER_API_KEY,
-            provider: 'fish-audio',
-            response_format: 'mp3'
-          })
-        });
+        const response = await fetchWithTimeout(
+          '/api/tts',
+          {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              text: speakableText,
+              voice: targetVoice,
+              model: fishAudioModel || DEFAULT_FISH_MODEL_ID,
+              apiKey: openRouterApiKey || HARDCODED_OPENROUTER_API_KEY,
+              provider: 'fish-audio',
+              response_format: 'mp3'
+            })
+          },
+          18000,
+          parentSignal
+        );
 
         const contentType = response.headers.get('content-type') || '';
         if (response.ok && !contentType.includes('text/html')) {
           const buf = await response.arrayBuffer();
-          if (buf.byteLength > 100) {
+          if (isValidAudioBuffer(buf)) {
             return buf;
           }
         }
@@ -384,6 +711,7 @@ export const VideoWorkshop: React.FC = () => {
           }
         }
       } catch (err: any) {
+        if (err?.name === 'AbortError' && parentSignal?.aborted) throw err;
         if (err.message && !err.message.includes('Failed to fetch') && !err.message.includes('404')) {
           console.warn('/api/tts server proxy error, trying direct OpenRouter fetch:', err.message);
         }
@@ -391,56 +719,116 @@ export const VideoWorkshop: React.FC = () => {
 
       // Direct client fallback
       return await generateDirectOpenRouterAudio(
-        textChunk,
+        speakableText,
         targetVoice,
         fishAudioModel,
         openRouterApiKey
       );
     }
 
-    // EdgeTTS provider
-    const endpoints = getBackendCandidates('/api/tts');
+    // EdgeTTS provider: prioritize verified working endpoint first
+    const baseCandidates = getBackendCandidates('/api/tts');
+    const endpoints = preferredEdgeEndpointRef.current
+      ? [
+          preferredEdgeEndpointRef.current,
+          ...baseCandidates.filter((e) => e !== preferredEdgeEndpointRef.current),
+        ]
+      : baseCandidates;
 
     let lastError: Error | null = null;
+    const maxAttempts = depth === 0 ? 2 : 2;
+    const attemptTimeoutMs = 8000;
 
-    for (const endpoint of endpoints) {
-      try {
-        const postRes = await fetch(endpoint, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ text: textChunk, voice, rate, provider: 'edge' })
-        });
+    for (let attempt = 0; attempt < maxAttempts; attempt++) {
+      for (const endpoint of endpoints) {
+        if (parentSignal?.aborted) {
+          throw new DOMException('Workshop generation cancelled', 'AbortError');
+        }
 
-        if (postRes.ok) {
-          const buf = await postRes.arrayBuffer();
-          if (buf.byteLength > 100) {
-            const firstBytes = new Uint8Array(buf.slice(0, 5));
-            const isHtml = firstBytes[0] === 60 && firstBytes[1] === 33 && firstBytes[2] === 68;
-            if (!isHtml) {
+        // 1. Fast POST request with strict timeout
+        try {
+          const postRes = await fetchWithTimeout(
+            endpoint,
+            {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                text: speakableText,
+                voice,
+                rate,
+                provider: 'edge',
+              }),
+            },
+            attemptTimeoutMs,
+            parentSignal
+          );
+
+          if (postRes.ok) {
+            const buf = await postRes.arrayBuffer();
+            if (isValidAudioBuffer(buf)) {
+              preferredEdgeEndpointRef.current = endpoint;
               return buf;
             }
           }
+        } catch (err: any) {
+          if (err?.name === 'AbortError' && parentSignal?.aborted) throw err;
+          lastError = err instanceof Error ? err : new Error(String(err));
         }
 
-        const getUrl = `${endpoint}?text=${encodeURIComponent(textChunk)}&voice=${encodeURIComponent(voice)}&rate=${encodeURIComponent(rate)}`;
-        const getRes = await fetch(getUrl, { method: 'GET' });
-        if (getRes.ok) {
-          const buf = await getRes.arrayBuffer();
-          if (buf.byteLength > 100) {
-            const firstBytes = new Uint8Array(buf.slice(0, 5));
-            const isHtml = firstBytes[0] === 60 && firstBytes[1] === 33 && firstBytes[2] === 68;
-            if (!isHtml) {
-              return buf;
+        // 2. Fallback GET request (only for compact chunks <= 450 chars) with strict timeout
+        if (speakableText.length <= 450) {
+          try {
+            const getUrl = `${endpoint}?text=${encodeURIComponent(speakableText)}&voice=${encodeURIComponent(voice)}&rate=${encodeURIComponent(rate)}${attempt > 0 ? `&r=${attempt}` : ''}`;
+            const getRes = await fetchWithTimeout(
+              getUrl,
+              { method: 'GET' },
+              attemptTimeoutMs,
+              parentSignal
+            );
+            if (getRes.ok) {
+              const buf = await getRes.arrayBuffer();
+              if (isValidAudioBuffer(buf)) {
+                preferredEdgeEndpointRef.current = endpoint;
+                return buf;
+              }
             }
+          } catch (err: any) {
+            if (err?.name === 'AbortError' && parentSignal?.aborted) throw err;
+            lastError = err instanceof Error ? err : new Error(String(err));
           }
         }
-      } catch (err: any) {
-        console.warn(`TTS fetch failed for endpoint ${endpoint}:`, err);
-        lastError = err;
+      }
+
+      if (attempt < maxAttempts - 1) {
+        await new Promise((r) => setTimeout(r, 150 * (attempt + 1)));
+      }
+    }
+
+    // 3. Automatic recursive half-split fallback: if a chunk stalled or timed out,
+    // split it into two smaller phrases and synthesize both in parallel so it NEVER stalls!
+    if (depth < 2) {
+      const halves = splitChunkInHalf(speakableText);
+      if (halves) {
+        const [leftText, rightText] = halves;
+        const [leftBuf, rightBuf] = await Promise.all([
+          fetchTTSChunk(leftText, voice, rate, provider, parentSignal, depth + 1),
+          fetchTTSChunk(rightText, voice, rate, provider, parentSignal, depth + 1),
+        ]);
+        return concatArrayBuffers([leftBuf, rightBuf]);
       }
     }
 
     throw new Error(lastError?.message || 'Could not connect to EdgeTTS voice server.');
+  };
+
+  const handleCancelGeneration = () => {
+    if (workshopAbortRef.current) {
+      workshopAbortRef.current.abort();
+      workshopAbortRef.current = null;
+    }
+    setIsGenerating(false);
+    setProgressStatus('Generation cancelled.');
+    toast.info('Audio generation cancelled.');
   };
 
   // Handle Chunked TTS and SRT Generation
@@ -450,101 +838,201 @@ export const VideoWorkshop: React.FC = () => {
       return;
     }
 
+    if (workshopAbortRef.current) {
+      workshopAbortRef.current.abort();
+    }
+    const abortController = new AbortController();
+    workshopAbortRef.current = abortController;
+
     setIsGenerating(true);
     setProgressPercent(5);
-    setProgressStatus('Preparing script & dividing text into audio blocks...');
+    setProgressStatus('Preparing script & dividing text into sentence-aligned audio blocks...');
 
     try {
       // Clear previous IndexedDB audio chunks
       await clearAudioChunks();
 
       const fullText = scriptText.trim();
-      const chunks = splitTextIntoChunks(fullText, 1500);
-      
+      const sentences = splitTextToSentences(fullText);
+
+      // Group sentences into compact blocks (180 chars for EdgeTTS -> typically 1 sentence per block)
+      // so every block maps directly to its constituent SRT sentences for exact audio-locked timestamps.
+      const targetBlockLen = ttsProvider === 'edge' ? 180 : 900;
+      const sentenceBlocks = groupSentencesIntoBlocks(sentences, targetBlockLen);
+      const chunks = sentenceBlocks.map((b) => b.text);
+
       const engineName = ttsProvider === 'fish-audio' ? 'Fish Audio S2.1 Pro' : 'EdgeTTS';
+      const concurrency = ttsProvider === 'edge' ? Math.min(6, chunks.length) : Math.min(2, chunks.length);
 
       if (chunks.length > 1) {
-        toast.info(`Script is ${fullText.length} characters. Dividing into ${chunks.length} audio chunks for seamless ${engineName} conversion...`);
+        toast.info(`Dividing ${fullText.length.toLocaleString()} chars into ${chunks.length} sentence blocks (${concurrency}x parallel ${engineName} queue)...`);
       }
 
-      const audioBuffers: ArrayBuffer[] = [];
+      const audioBuffers: ArrayBuffer[] = new Array(chunks.length);
+      let completedCount = 0;
+      let nextIndex = 0;
 
-      // 1. Process Chunks sequentially & save each to IndexedDB
-      for (let i = 0; i < chunks.length; i++) {
-        const chunkIndex = i + 1;
-        const startPct = 10 + Math.floor((i / chunks.length) * 70);
-        setProgressPercent(startPct);
-        setProgressStatus(`Synthesizing audio block ${chunkIndex} of ${chunks.length} (${chunks[i].length} chars) via ${engineName}...`);
+      setProgressPercent(10);
+      setProgressStatus(
+        `Synthesizing ${chunks.length} audio block${chunks.length > 1 ? 's' : ''} (${concurrency}x parallel) via ${engineName}...`
+      );
 
-        const buf = await fetchTTSChunk(chunks[i], selectedVoice, speakingRate, ttsProvider);
-        audioBuffers.push(buf);
+      // 1. Process Chunks in a parallel ordered worker pool & save each to IndexedDB by index
+      const workers = Array.from({ length: concurrency }, async () => {
+        while (true) {
+          if (abortController.signal.aborted) break;
+          const idx = nextIndex++;
+          if (idx >= chunks.length) break;
 
-        // Store chunk in IndexedDB
-        await saveAudioChunk(i, chunks[i], buf);
+          const buf = await fetchTTSChunk(
+            chunks[idx],
+            selectedVoice,
+            speakingRate,
+            ttsProvider,
+            abortController.signal
+          );
+          audioBuffers[idx] = buf;
+
+          // Store chunk in IndexedDB with its exact sequential index
+          await saveAudioChunk(idx, chunks[idx], buf);
+
+          completedCount++;
+          const pct = 10 + Math.floor((completedCount / chunks.length) * 72);
+          setProgressPercent(pct);
+          setProgressStatus(
+            `Synthesizing audio via ${engineName}: ${completedCount} of ${chunks.length} blocks ready...`
+          );
+        }
+      });
+
+      await Promise.all(workers);
+
+      if (abortController.signal.aborted) {
+        return;
       }
 
-      // 2. Merge Audio Buffers & Retrieve from IndexedDB
+      // 2. Merge Audio Buffers in strict sequential order & Retrieve from IndexedDB
       setProgressPercent(85);
       setProgressStatus('Merging audio streams from IndexedDB into a single cohesive MP3 file...');
 
-      const dbAudio = await getMergedAudioFromDB();
-      let blobUrl = '';
+      const mergedBuffer = concatArrayBuffers(audioBuffers);
+      const mergedBlob = new Blob([mergedBuffer], { type: 'audio/mpeg' });
+      const blobUrl = URL.createObjectURL(mergedBlob);
+      setAudioBuffer(mergedBuffer);
+      setAudioBlobUrl(blobUrl);
+      setDbStats({ count: chunks.length, sizeBytes: mergedBuffer.byteLength });
 
-      if (dbAudio && dbAudio.count > 0) {
-        blobUrl = URL.createObjectURL(dbAudio.blob);
-        setAudioBuffer(dbAudio.buffer);
-        setAudioBlobUrl(blobUrl);
-        setDbStats({ count: dbAudio.count, sizeBytes: dbAudio.buffer.byteLength });
-      } else {
-        const mergedBuffer = concatArrayBuffers(audioBuffers);
-        const blob = new Blob([mergedBuffer], { type: 'audio/mpeg' });
-        blobUrl = URL.createObjectURL(blob);
-        setAudioBuffer(mergedBuffer);
-        setAudioBlobUrl(blobUrl);
+      // 3. Measure exact duration of each individual audio block AND the merged MP3
+      setProgressPercent(90);
+      setProgressStatus('Measuring exact MP3 frame & PCM durations for subtitle synchronization...');
+
+      // Parse exact MPEG frame durations for each chunk buffer
+      const frameBlockDurations = audioBuffers.map((buf) => parseMp3DurationSeconds(buf));
+      let blockDurations = [...frameBlockDurations];
+
+      // Also decode via Web Audio API if available for sample-accurate verification
+      const AudioCtx =
+        typeof window !== 'undefined'
+          ? window.AudioContext || (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext
+          : undefined;
+
+      if (AudioCtx) {
+        let audioCtx: AudioContext | null = null;
+        try {
+          audioCtx = new AudioCtx();
+          const decodedDurations = await Promise.all(
+            audioBuffers.map(async (buf, idx) => {
+              try {
+                // Only use frame duration when MPEG frames were cleanly parsed, otherwise decode PCM
+                if (frameBlockDurations[idx] > 0) {
+                  return frameBlockDurations[idx];
+                }
+                const decoded = await audioCtx!.decodeAudioData(buf.slice(0));
+                return decoded.duration > 0 ? decoded.duration : frameBlockDurations[idx];
+              } catch {
+                return frameBlockDurations[idx];
+              }
+            })
+          );
+          blockDurations = decodedDurations;
+        } catch {
+          // Fallback to frameBlockDurations already populated
+        } finally {
+          if (audioCtx && audioCtx.state !== 'closed') {
+            audioCtx.close().catch(() => {});
+          }
+        }
       }
 
-      // 3. Estimate total duration based on loaded HTML Audio metadata
+      const sumBlockDurations = blockDurations.reduce((acc, d) => acc + d, 0);
+      const parsedMergedDuration = parseMp3DurationSeconds(mergedBuffer);
+
+      // Verify with HTMLAudioElement metadata duration
       const audio = new Audio(blobUrl);
       await new Promise((resolve) => {
         audio.onloadedmetadata = () => resolve(true);
         audio.onerror = () => resolve(true);
-        setTimeout(resolve, 2000); // fallback timeout
+        setTimeout(resolve, 2000);
       });
 
-      const totalAudioDuration = audio.duration && !isNaN(audio.duration) && isFinite(audio.duration)
-        ? audio.duration
-        : Math.max(5, Math.ceil(fullText.split(/\s+/).length / 2.5));
+      const htmlDuration =
+        audio.duration && !isNaN(audio.duration) && isFinite(audio.duration) && audio.duration > 0
+          ? audio.duration
+          : 0;
+
+      const totalAudioDuration =
+        htmlDuration > 0 && (sumBlockDurations === 0 || Math.abs(htmlDuration - sumBlockDurations) / sumBlockDurations < 0.05)
+          ? htmlDuration
+          : sumBlockDurations > 0
+          ? sumBlockDurations
+          : parsedMergedDuration > 0
+          ? parsedMergedDuration
+          : Math.max(5, Math.ceil(fullText.split(/\s+/).length / 2.5));
 
       setDuration(totalAudioDuration);
 
-      // 4. Build SRT Sentences & Timestamps
-      setProgressPercent(92);
-      setProgressStatus('Generating synchronized SRT timestamps & sentence blocks...');
+      // Normalize block durations so their sum equals totalAudioDuration with zero cumulative drift
+      const durationScale = sumBlockDurations > 0 ? totalAudioDuration / sumBlockDurations : 1;
+      const normalizedBlockDurations =
+        sumBlockDurations > 0
+          ? blockDurations.map((d) => d * durationScale)
+          : sentenceBlocks.map(() => totalAudioDuration / Math.max(1, sentenceBlocks.length));
 
-      const sentences = splitTextToSentences(fullText);
-      const totalWords = sentences.reduce((sum, s) => sum + s.split(/\s+/).length, 0);
+      // 4. Build SRT Sentences & Timestamps starting strictly at 00:00:00,000
+      setProgressPercent(94);
+      setProgressStatus('Generating audio-locked SRT timestamps starting at 00:00:00,000...');
 
-      const introOffset = 2.0; // 2s COLEARN intro screen
-      let currentSec = introOffset;
+      let currentSec = 0; // Start immediately at 00:00:00,000 to match generated audio
+      const segments: SrtSegment[] = [];
+      let cueIndex = 1;
 
-      const segments: SrtSegment[] = sentences.map((sentence, idx) => {
-        const sentenceWords = sentence.split(/\s+/).length;
-        const proportion = sentenceWords / Math.max(1, totalWords);
-        const segmentDuration = Math.max(2.2, proportion * totalAudioDuration);
+      for (let bIdx = 0; bIdx < sentenceBlocks.length; bIdx++) {
+        const block = sentenceBlocks[bIdx];
+        const blockDuration = normalizedBlockDurations[bIdx];
+        const blockSentences = block.sentences;
 
-        const startSec = currentSec;
-        const endSec = currentSec + segmentDuration;
-        currentSec = endSec;
+        const weights = blockSentences.map((s) => estimateSpokenWeight(s));
+        const totalBlockWeight = weights.reduce((acc, w) => acc + w, 0) || blockSentences.length;
 
-        return {
-          index: idx + 1,
-          startTime: formatSrtTime(startSec),
-          endTime: formatSrtTime(endSec),
-          text: sentence,
-          startSeconds: startSec,
-          endSeconds: endSec
-        };
-      });
+        for (let sIdx = 0; sIdx < blockSentences.length; sIdx++) {
+          const isLastSentenceOverall =
+            bIdx === sentenceBlocks.length - 1 && sIdx === blockSentences.length - 1;
+          const sentenceDuration = blockDuration * (weights[sIdx] / totalBlockWeight);
+
+          const startSec = currentSec;
+          const endSec = isLastSentenceOverall ? totalAudioDuration : currentSec + sentenceDuration;
+          currentSec = endSec;
+
+          segments.push({
+            index: cueIndex++,
+            startTime: formatSrtTime(startSec),
+            endTime: formatSrtTime(endSec),
+            text: blockSentences[sIdx],
+            startSeconds: startSec,
+            endSeconds: endSec,
+          });
+        }
+      }
 
       setSrtSegments(segments);
 
@@ -558,16 +1046,18 @@ export const VideoWorkshop: React.FC = () => {
       setProgressPercent(98);
       setProgressStatus('Formatting Colearn Manim AI animation prompt...');
 
-      buildManimPrompt(rawSrt, segments, assets, totalAudioDuration + introOffset);
+      buildManimPrompt(rawSrt, segments, assets, totalAudioDuration);
 
       setProgressPercent(100);
       setProgressStatus('Complete!');
       toast.success(`Success! Generated audio via ${engineName} (${chunks.length} block${chunks.length > 1 ? 's merged' : ''}), SRT & Manim Prompt!`);
     } catch (err: any) {
+      if (err?.name === 'AbortError') return;
       console.error('Error in Video Workshop generation:', err);
       toast.error(err.message || 'Failed to generate audio or prompt');
     } finally {
       setIsGenerating(false);
+      workshopAbortRef.current = null;
     }
   };
 
@@ -598,11 +1088,10 @@ Your task is to write a single, complete, fully working Python script for a 16:9
      - Safe Y Range: \`[-3.2, 3.2]\`
      **NO text, formula, diagram, label, or shape may extend outside this safe margin.** Always use \`BUFF = 0.8\` or scale groups with \`.scale_to_fit_width(12.0)\` / \`.scale_to_fit_height(6.0)\` to prevent clipping or spilling off screen.
 
-2. **2-SECOND MANDATORY BRAND INTRO**:
-   - The video MUST start with a clean 2-second intro sequence:
+2. **OPENING BRAND HEADER**:
+   - Start at \`00:00:00,000\` in sync with the first narration cue:
      - Clear screen to background color \`#0F172A\` (Dark Slate).
-     - Display the brand title **'COLEARN'** sketched across the center of the screen within the safe margin (e.g., using \`Write(Text("COLEARN", font_size=48, weight=BOLD, color="#38BDF8"))\` or \`Create(...)\`).
-     - Hold for ~1.5 seconds, then smoothly transition or transform into the main lesson title.
+     - Display the brand title **'COLEARN'** alongside the opening lesson title within the safe margin (e.g., using \`Write(Text("COLEARN", font_size=48, weight=BOLD, color="#38BDF8"))\`) without adding any silent offset before cue 1.
 
 3. **COLEARN VISUAL DESIGN & BRANDING**:
    - **Background Color**: Dark Slate \`#0F172A\` (\`self.camera.background_color = "#0F172A"\`).
@@ -614,7 +1103,8 @@ Your task is to write a single, complete, fully working Python script for a 16:9
    - **Typography**: Clean LaTeX formatting (\`MathTex\`) for equations and formulas.
    - **Layout**: Keep formulas centered or neatly aligned on top with diagram illustrations in the center. Prevent overlapping text by arranging elements systematically using \`.next_to()\`, \`.shift()\`, or \`VGroup\`.
 
-4. **SRT TIMING & SCENE SYNCHRONIZATION**:
+4. **SRT TIMING & SCENE SYNCHRONIZATION (TOTAL DURATION: ${totalSecs.toFixed(2)}s)**:
+   - The SRT subtitles start at \`00:00:00,000\` and end at exactly \`${formatSrtTime(totalSecs)}\` (\`${totalSecs.toFixed(2)}s\`), matching the generated narration audio 1:1.
    - You MUST synchronize all visual movements, equation reveals, shape highlights, and scene transitions strictly with the timestamped sentences in the provided SRT subtitles.
    - Use \`self.wait(duration)\` to ensure each visual section aligns precisely with the start and end seconds of each sentence chunk.
 
@@ -779,7 +1269,7 @@ Include a main scene class (e.g. \`class ColearnLesson(Scene):\`) with complete 
                 1. Lecture Script & Voice Options
               </CardTitle>
               <CardDescription>
-                Paste the lecture or topic explanation text. Scripts longer than 1,500 characters are automatically split into audio blocks and merged cleanly.
+                Paste the lecture or topic explanation text. Scripts are automatically divided into fast sentence blocks, synthesized in parallel, and merged cleanly.
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
@@ -787,7 +1277,7 @@ Include a main scene class (e.g. \`class ColearnLesson(Scene):\`) with complete 
                 <div className="flex items-center justify-between">
                   <Label htmlFor="script-input">Lecture Text</Label>
                   <span className="text-xs text-muted-foreground font-mono">
-                    {scriptText.length.toLocaleString()} characters ({Math.ceil(scriptText.length / 1500)} audio block{scriptText.length > 1500 ? 's' : ''})
+                    {scriptText.length.toLocaleString()} characters ({Math.max(1, splitTextIntoChunks(scriptText, ttsProvider === 'edge' ? 320 : 1000).length)} audio block{splitTextIntoChunks(scriptText, ttsProvider === 'edge' ? 320 : 1000).length > 1 ? 's' : ''})
                   </span>
                 </div>
                 <Textarea
@@ -1017,12 +1507,23 @@ Include a main scene class (e.g. \`class ColearnLesson(Scene):\`) with complete 
               {/* Generation Progress Bar */}
               {isGenerating && (
                 <div className="p-4 rounded-xl border bg-blue-500/10 border-blue-200 dark:border-blue-900 space-y-2.5">
-                  <div className="flex items-center justify-between text-xs font-semibold text-blue-700 dark:text-blue-300">
+                  <div className="flex items-center justify-between gap-2 text-xs font-semibold text-blue-700 dark:text-blue-300">
                     <span className="flex items-center gap-2">
-                      <Loader2 className="h-4 w-4 animate-spin text-blue-600" />
-                      {progressStatus}
+                      <Loader2 className="h-4 w-4 animate-spin text-blue-600 shrink-0" />
+                      <span className="truncate">{progressStatus}</span>
                     </span>
-                    <span>{progressPercent}%</span>
+                    <div className="flex items-center gap-2 shrink-0">
+                      <span>{progressPercent}%</span>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        onClick={handleCancelGeneration}
+                        className="h-6 px-2 text-[11px] text-destructive hover:text-destructive hover:bg-destructive/10"
+                      >
+                        Cancel
+                      </Button>
+                    </div>
                   </div>
                   <div className="w-full bg-slate-200 dark:bg-slate-800 h-2.5 rounded-full overflow-hidden">
                     <div 
@@ -1102,6 +1603,12 @@ Include a main scene class (e.g. \`class ColearnLesson(Scene):\`) with complete 
                   <audio 
                     ref={audioRef} 
                     src={audioBlobUrl} 
+                    onLoadedMetadata={(e) => {
+                      const d = e.currentTarget.duration;
+                      if (d && !isNaN(d) && isFinite(d) && d > 0) {
+                        setDuration(d);
+                      }
+                    }}
                     onTimeUpdate={(e) => setCurrentTime(e.currentTarget.currentTime)}
                     onEnded={() => setIsPlaying(false)}
                     className="hidden" 
@@ -1207,10 +1714,10 @@ Include a main scene class (e.g. \`class ColearnLesson(Scene):\`) with complete 
                       ✓ Invisible 0.8 Buff Safe Margin
                     </span>
                     <span className="inline-flex items-center px-2 py-0.5 rounded bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 font-medium">
-                      ✓ 2s Colearn Intro Animation
+                      ✓ Starts at 00:00:00,000
                     </span>
                     <span className="inline-flex items-center px-2 py-0.5 rounded bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 font-medium">
-                      ✓ SRT Subtitle Synchronized
+                      ✓ Exact MP3 Frame-Locked SRT
                     </span>
                   </div>
                 </div>

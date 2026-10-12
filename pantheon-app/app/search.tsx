@@ -261,5 +261,5 @@ const createStyles = (C: any) => StyleSheet.create({
   searchingText: { fontFamily: F.bold, fontSize: 13, marginTop: 12 },
 
   emptyArea: { paddingVertical: 60, alignItems: 'center', justifyContent: 'center' },
-  emptyLabelText: { fontFamily: F.semibold, fontSize: 14 },
+  emptyLabelText: { fontFamily: F.medium, fontSize: 14 },
 });

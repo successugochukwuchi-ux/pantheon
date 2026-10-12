@@ -13,12 +13,19 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { BottomNav } from '../components/BottomNav';
 import { F } from '../components/Theme';
-import { collection, query, where, getDocs, onSnapshot } from 'firebase/firestore';
+import { collection, query, where, getDocs } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 import { useAuth } from '../context/AuthContext';
 import { useTheme } from '../context/ThemeContext';
 import { getDownloadedCoursesLocal } from '../lib/db';
 import { getFilteredCoursesForStudent } from '../lib/courseFilter';
+import {
+  getCachedCoursesSync,
+  getCachedCoursesAsync,
+  setCachedCourses,
+  sortCoursesAlphabetically,
+  setCachedCourseById,
+} from '../lib/noteCache';
 
 interface Course {
   id: string;
@@ -34,11 +41,11 @@ interface Course {
 }
 
 function ProgressBar({ value }: { value: number }) {
-  const anim = useRef(new Animated.Value(0)).current;
+  const anim = useRef(new Animated.Value(value || 0)).current;
   const { colors: C } = useTheme();
   const s = useMemo(() => createStyles(C), [C]);
   useEffect(() => {
-    Animated.timing(anim, { toValue: value, duration: 800, useNativeDriver: false }).start();
+    Animated.timing(anim, { toValue: value || 0, duration: 500, useNativeDriver: false }).start();
   }, [value]);
   return (
     <View style={s.progressTrack}>
@@ -58,10 +65,8 @@ function ProgressBar({ value }: { value: number }) {
   );
 }
 
-function CourseCard({
+const CourseCard = React.memo(function CourseCard({
   course,
-  index,
-  onPress,
 }: {
   course: Course;
   index: number;
@@ -70,28 +75,9 @@ function CourseCard({
   const router = useRouter();
   const { colors: C } = useTheme();
   const s = useMemo(() => createStyles(C), [C]);
-  const fadeY = useRef(new Animated.Value(20)).current;
-  const opacity = useRef(new Animated.Value(0)).current;
-
-  useEffect(() => {
-    Animated.parallel([
-      Animated.timing(fadeY, {
-        toValue: 0,
-        duration: 500,
-        delay: index * 80,
-        useNativeDriver: true,
-      }),
-      Animated.timing(opacity, {
-        toValue: 1,
-        duration: 500,
-        delay: index * 80,
-        useNativeDriver: true,
-      }),
-    ]).start();
-  }, []);
 
   return (
-    <Animated.View style={[s.card, { opacity, transform: [{ translateY: fadeY }] }]}>
+    <View style={s.card}>
       {course.isRecommended && (
         <View style={s.recommendedBadge}>
           <Text style={s.recommendedText}>FOR YOU</Text>
@@ -115,15 +101,18 @@ function CourseCard({
       </View>
       <ProgressBar value={course.progress || 0} />
       <View style={s.actions}>
-        <TouchableOpacity 
-          style={s.viewBtn} 
-          activeOpacity={0.85} 
-          onPress={() => router.push(`/notes-topics?courseId=${course.id}`)}
+        <TouchableOpacity
+          style={s.viewBtn}
+          activeOpacity={0.85}
+          onPress={() => {
+            setCachedCourseById(course);
+            router.push(`/notes-topics?courseId=${course.id}`);
+          }}
         >
           <Text style={s.viewBtnText}>VIEW NOTES</Text>
         </TouchableOpacity>
-        <TouchableOpacity 
-          style={s.discussBtn} 
+        <TouchableOpacity
+          style={s.discussBtn}
           activeOpacity={0.8}
           onPress={() => router.push(`/course-discussion?courseId=${course.id}`)}
         >
@@ -131,9 +120,9 @@ function CourseCard({
           <Text style={s.discussBtnText}>CHAT</Text>
         </TouchableOpacity>
       </View>
-    </Animated.View>
+    </View>
   );
-}
+});
 
 // ── Main Screen ───────────────────────────────────────────────────────────────
 export default function NotesScreen() {
@@ -141,111 +130,147 @@ export default function NotesScreen() {
   const { profile, systemConfig, isOffline } = useAuth();
   const { colors: C } = useTheme();
   const s = useMemo(() => createStyles(C), [C]);
-  const [courses, setCourses] = useState<Course[]>([]);
+
+  const semester =
+    !systemConfig?.currentSemester || systemConfig.currentSemester === 'none'
+      ? '1st'
+      : systemConfig.currentSemester;
+  const cacheKey = `${profile?.uid || 'anon'}_${semester}`;
+
+  const initialCached = useMemo(() => getCachedCoursesSync(cacheKey), [cacheKey]);
+  const [courses, setCourses] = useState<Course[]>(initialCached || []);
   const [searchQuery, setSearchQuery] = useState('');
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(!initialCached || initialCached.length === 0);
 
   useEffect(() => {
     if (!profile || !systemConfig) return;
-    
-    setLoading(true);
-    const semester = (!systemConfig.currentSemester || systemConfig.currentSemester === 'none') ? '1st' : systemConfig.currentSemester;
 
-    const loadAndFilter = async (list: any[], callback: (res: any[]) => void) => {
-      const filtered = await getFilteredCoursesForStudent(list, profile, true);
-      const mapped = filtered.map(c => ({
+    let isMounted = true;
+
+    const mapAndSort = (list: any[], progMap?: Record<string, number>): Course[] => {
+      const mapped = list.map((c) => ({
         id: c.id,
-        code: c.code || '',
-        title: c.title || '',
+        code: (c.code || '').trim(),
+        title: (c.title || '').trim(),
         semester: c.semester || semester,
         level: c.level || '',
         department: c.department || '',
-        progress: c.progress || 0
+        progress: progMap ? (progMap[c.id] ?? c.progress ?? 0) : (c.progress || 0),
       }));
-      callback(mapped);
+      return sortCoursesAlphabetically(mapped);
     };
 
-    if (isOffline) {
-      try {
-        const localCourses = getDownloadedCoursesLocal();
-        loadAndFilter(localCourses, (filteredLocal) => {
-          setCourses(filteredLocal);
-        }).finally(() => setLoading(false));
-      } catch (err) {
-        console.log('Error loading offline courses:', err);
+    const runLoad = async () => {
+      // 1. Check in-memory or AsyncStorage cache first for instant flicker-free display
+      const cached = await getCachedCoursesAsync(cacheKey);
+      if (isMounted && cached && cached.length > 0) {
+        setCourses(cached);
         setLoading(false);
       }
-      return;
-    }
 
-    // Immediate offline/local sync fallback
-    try {
-      const localCourses = getDownloadedCoursesLocal();
-      if (localCourses && localCourses.length > 0) {
-        loadAndFilter(localCourses, (filteredLocal) => {
-          setCourses(filteredLocal);
-          setLoading(false);
-        });
+      // 2. If offline, load from SQLite and sort alphabetically
+      if (isOffline) {
+        try {
+          const localCourses = getDownloadedCoursesLocal();
+          const filtered = await getFilteredCoursesForStudent(localCourses, profile, true, semester);
+          if (isMounted) {
+            const sortedLocal = mapAndSort(filtered);
+            setCourses(sortedLocal);
+            setCachedCourses(cacheKey, sortedLocal);
+            setLoading(false);
+          }
+        } catch (err) {
+          console.log('Error loading offline courses:', err);
+          if (isMounted) setLoading(false);
+        }
+        return;
       }
-    } catch (err) {
-      console.log('Offline/SQLite courses loading skipped:', err);
-    }
 
-    // 1. Fetch all courses for the semester (Match Web Dashboard/Notes logic)
-    const q = query(
-      collection(db, 'courses'),
-      where('semester', '==', semester)
-    );
+      // 3. If no cached courses yet, try immediate SQLite fallback (sorted alphabetically so positions never jump)
+      if (!cached || cached.length === 0) {
+        try {
+          const localCourses = getDownloadedCoursesLocal();
+          if (localCourses && localCourses.length > 0) {
+            const filteredLocal = await getFilteredCoursesForStudent(localCourses, profile, true, semester);
+            if (isMounted && filteredLocal.length > 0) {
+              const sortedLocal = mapAndSort(filteredLocal);
+              setCourses(sortedLocal);
+              setLoading(false);
+            }
+          }
+        } catch (err) {
+          console.log('Offline/SQLite courses loading skipped:', err);
+        }
+      }
 
-    const fetchCoursesAndProgress = async () => {
+      // 4. Fetch courses and progress IN PARALLEL from Firestore
       try {
-        const snapshot = await getDocs(q);
-        const allFetched = snapshot.docs.map(doc => ({
-          id: doc.id,
-          ...doc.data()
-        })) as Course[];
-
-        // 2. Fetch or Listen to Progress (Match Web Dashboard logic)
-        const progQ = query(
+        const coursesQuery = query(collection(db, 'courses'), where('semester', '==', semester));
+        const progQuery = query(
           collection(db, 'progress'),
           where('uid', '==', profile.uid),
           where('type', '==', 'course')
         );
 
-        const pSnap = await getDocs(progQ);
+        const [courseSnap, progSnap] = await Promise.all([
+          getDocs(coursesQuery),
+          getDocs(progQuery).catch(() => null),
+        ]);
+
+        if (!isMounted) return;
+
+        const allFetched = courseSnap.docs.map((doc) => ({
+          id: doc.id,
+          ...doc.data(),
+        })) as Course[];
+
         const progMap: Record<string, number> = {};
-        pSnap.docs.forEach(d => {
-          const data = d.data();
-          if (data.targetId) progMap[data.targetId] = data.percentage || 0;
-        });
+        if (progSnap) {
+          progSnap.docs.forEach((d) => {
+            const data = d.data();
+            if (data.targetId) progMap[data.targetId] = data.percentage || 0;
+          });
+        }
 
-        // 3. Filter and merge progress
-        loadAndFilter(allFetched, (filtered) => {
-          const withProgress = filtered.map(c => ({
-            ...c,
-            progress: progMap[c.id] || 0
-          }));
+        const filtered = await getFilteredCoursesForStudent(allFetched, profile, true, semester);
+        if (!isMounted) return;
 
-          // Sort by code
-          const sorted = withProgress.sort((a, b) => a.code.localeCompare(b.code));
-
-          setCourses(sorted);
-          setLoading(false);
-        });
-      } catch (e) {
-        console.error("Courses/Progress fetch error (using cache fallback if offline):", e);
+        const finalSorted = mapAndSort(filtered, progMap);
+        setCourses(finalSorted);
+        setCachedCourses(cacheKey, finalSorted);
         setLoading(false);
+      } catch (e) {
+        console.error('Courses/Progress fetch error (using cache fallback if offline):', e);
+        if (isMounted) setLoading(false);
       }
     };
 
-    fetchCoursesAndProgress();
-  }, [profile, systemConfig]);
+    runLoad();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [
+    profile?.uid,
+    profile?.department,
+    profile?.academicLevel,
+    profile?.level,
+    profile?.At,
+    semester,
+    isOffline,
+    cacheKey,
+  ]);
 
   const filteredCourses = useMemo(() => {
-    return courses.filter(c => 
-      c.code.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      c.title.toLowerCase().includes(searchQuery.toLowerCase())
-    );
+    const q = searchQuery.trim().toLowerCase();
+    const list = !q
+      ? courses
+      : courses.filter(
+          (c) =>
+            c.code.toLowerCase().includes(q) ||
+            c.title.toLowerCase().includes(q)
+        );
+    return sortCoursesAlphabetically(list);
   }, [courses, searchQuery]);
 
   return (
@@ -295,7 +320,7 @@ export default function NotesScreen() {
           />
         </View>
 
-        {loading ? (
+        {loading && courses.length === 0 ? (
           <View style={{ paddingVertical: 100, alignItems: 'center' }}>
             <ActivityIndicator size="large" color={C.ink} />
             <Text style={{ marginTop: 12, fontFamily: F.medium, color: C.inkMid }}>Loading courses...</Text>
@@ -564,4 +589,3 @@ const createStyles = (C: any) => {
   },
   });
 };
-

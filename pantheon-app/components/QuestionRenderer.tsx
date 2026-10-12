@@ -119,29 +119,30 @@ export function QuestionRenderer({
           const isCorrect = correctOptionIndex === i;
 
           let cardStyle = [s.optCard, { borderColor: C.border, backgroundColor: C.surface }] as any;
-          let letterContainer = [s.optLetterCirc, { backgroundColor: C.surfaceDark || C.border }] as any;
-          let letterText = [s.optLetterText, { color: C.inkMid }] as any;
+          let letterContainer = [s.optLetterCirc, { backgroundColor: C.bgAlt, borderColor: C.border, borderWidth: 1 }] as any;
+          let letterText = [s.optLetterText, { color: C.ink }] as any;
           let optText = [s.optText, { color: C.ink }] as any;
 
           if (isSelected && !isAnswered) {
             // Selected option in practice mode (not yet submitted/answered)
-            cardStyle.push({ borderColor: C.ink, backgroundColor: C.surfaceDark || C.border });
-            letterContainer.push({ backgroundColor: C.ink });
-            letterText.push({ color: C.bg });
+            cardStyle.push({ borderColor: C.surfaceDark, backgroundColor: C.surfaceDark });
+            letterContainer.push({ backgroundColor: '#FFFFFF', borderColor: '#FFFFFF' });
+            letterText.push({ color: '#000000' });
+            optText.push({ color: '#FFFFFF', fontFamily: F.medium });
           }
 
           if (isAnswered) {
             if (isCorrect) {
               // Correct option (green)
               cardStyle.push({ borderColor: '#2E7D32', backgroundColor: '#E8F5E9' });
-              letterContainer.push({ backgroundColor: '#4CAF50' });
-              letterText.push({ color: '#fff' });
+              letterContainer.push({ backgroundColor: '#2E7D32', borderColor: '#2E7D32' });
+              letterText.push({ color: '#FFFFFF' });
               optText.push({ color: '#1B5E20', fontFamily: F.medium });
             } else if (isSelected) {
               // Incorrectly selected option (red)
               cardStyle.push({ borderColor: '#C62828', backgroundColor: '#FFEBEE' });
-              letterContainer.push({ backgroundColor: '#F44336' });
-              letterText.push({ color: '#fff' });
+              letterContainer.push({ backgroundColor: '#C62828', borderColor: '#C62828' });
+              letterText.push({ color: '#FFFFFF' });
               optText.push({ color: '#C62828', fontFamily: F.medium });
             }
           }

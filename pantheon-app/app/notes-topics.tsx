@@ -18,6 +18,15 @@ import { useAuth } from '../context/AuthContext';
 import { F } from '../components/Theme';
 import { useTheme } from '../context/ThemeContext';
 import { isCourseDownloadedLocal, getLocalNotes, getDatabase } from '../lib/db';
+import {
+  getCachedCourseById,
+  setCachedCourseById,
+  getCachedCourseNotesSync,
+  getCachedCourseNotesAsync,
+  setCachedCourseNotes,
+  setCachedNoteById,
+  sortNotesAlphabetically,
+} from '../lib/noteCache';
 
 enum OperationType {
   CREATE = 'create',
@@ -55,21 +64,25 @@ interface Course {
 
 interface Note {
   id: string;
+  courseId?: string;
   title: string;
   content?: string;
   duration?: string;
   completed?: boolean;
   tag?: 'CORE' | 'ADVANCED';
   order?: number;
+  date?: string;
+  summary?: string;
   createdAt?: any;
 }
 
 function extractNotePlainText(content: string | undefined | null): string {
   if (!content) return '';
+  let raw = content;
   try {
     const blocks = JSON.parse(content);
     if (Array.isArray(blocks)) {
-      return blocks
+      raw = blocks
         .map((b: any) => {
           if (!b) return '';
           if (typeof b.content === 'string') return b.content;
@@ -80,7 +93,10 @@ function extractNotePlainText(content: string | undefined | null): string {
         .join(' ');
     }
   } catch {}
-  return content;
+  return raw
+    .replace(/\*\*([\s\S]+?)\*\*/g, '$1')
+    .replace(/<\/?[BIU]>/gi, '')
+    .replace(/\[\/?[BIU]\]/gi, '');
 }
 
 function searchCourseNote(topic: Note, queryStr: string): { matches: boolean; snippet: string } {
@@ -112,9 +128,9 @@ function searchCourseNote(topic: Note, queryStr: string): { matches: boolean; sn
 }
 
 function ProgressBarDark({ value, s }: { value: number; s: any }) {
-  const anim = useRef(new Animated.Value(0)).current;
+  const anim = useRef(new Animated.Value(value || 0)).current;
   useEffect(() => {
-    Animated.timing(anim, { toValue: value, duration: 900, useNativeDriver: false }).start();
+    Animated.timing(anim, { toValue: value || 0, duration: 600, useNativeDriver: false }).start();
   }, [value]);
   return (
     <View style={s.progressTrack}>
@@ -140,34 +156,44 @@ export default function NotesTopicsScreen() {
   const { courseId } = useLocalSearchParams<{ courseId: string }>();
   const [filter, setFilter] = useState<'ALL' | 'CORE' | 'ADVANCED'>('ALL');
   const [searchQuery, setSearchQuery] = useState('');
-  
-  const [course, setCourse] = useState<Course | null>(null);
-  const [topics, setTopics] = useState<Note[]>([]);
-  const [loading, setLoading] = useState(true);
+
+  const initialCourse = useMemo(() => (courseId ? getCachedCourseById(courseId) : null), [courseId]);
+  const initialNotes = useMemo(() => (courseId ? getCachedCourseNotesSync(courseId) : null), [courseId]);
+
+  const [course, setCourse] = useState<Course | null>(initialCourse);
+  const [topics, setTopics] = useState<Note[]>(initialNotes || []);
+  const [loading, setLoading] = useState(!initialCourse || !initialNotes);
 
   // Animations
-  const heroOpacity = useRef(new Animated.Value(0)).current;
-  const heroY = useRef(new Animated.Value(16)).current;
+  const heroOpacity = useRef(new Animated.Value(initialCourse ? 1 : 0)).current;
+  const heroY = useRef(new Animated.Value(initialCourse ? 0 : 16)).current;
 
   useEffect(() => {
+    let isMounted = true;
+
     async function fetchData() {
       if (!courseId || !profile) {
-        console.warn("[NotesTopics] Missing courseId or profile");
         return;
       }
-      
-      console.log("[NotesTopics] Fetching data for courseId:", courseId);
-      setLoading(true);
-      
+
+      // 1. Instant hydrate from AsyncStorage if not already in memory
+      if (!initialNotes) {
+        const asyncCachedNotes = await getCachedCourseNotesAsync(courseId);
+        if (isMounted && asyncCachedNotes && asyncCachedNotes.length > 0) {
+          setTopics(asyncCachedNotes);
+          if (initialCourse) setLoading(false);
+        }
+      }
+
       try {
-        // Fetch Course and Notes either from local SQLite or Firestore
-        let courseData: Course | null = null;
+        let courseData: Course | null = initialCourse;
         let fetchedNotes: Note[] = [];
 
         if (isCourseDownloadedLocal(courseId)) {
           const localNotesData = getLocalNotes(courseId);
           fetchedNotes = localNotesData.map(n => ({
             id: n.id,
+            courseId,
             title: n.title,
             content: (n as any).content || '',
             duration: n.duration || '10 mins',
@@ -189,58 +215,100 @@ export default function NotesTopicsScreen() {
               } as Course;
             }
           }
-          if (courseData) {
+          if (courseData && isMounted) {
             setCourse(courseData);
+            setCachedCourseById(courseData);
           }
-          console.log("[NotesTopics] Loaded from local SQLite database. Notes count:", fetchedNotes.length);
+          if (fetchedNotes.length > 0 && isMounted) {
+            const sortedImmediate = sortNotesAlphabetically(fetchedNotes);
+            setTopics(sortedImmediate);
+            setCachedCourseNotes(courseId, sortedImmediate);
+            setLoading(false);
+          }
         } else {
-          // Fetch Course from Firestore
-          const courseDoc = await getDoc(doc(db, 'courses', courseId));
-          if (courseDoc.exists()) {
+          // Parallelize Course doc, Notes query, and Progress query for 3x faster loading!
+          const notesQ = query(collection(db, 'notes'), where('courseId', '==', courseId));
+          const progQ = query(
+            collection(db, 'progress'),
+            where('uid', '==', profile.uid),
+            where('type', '==', 'note')
+          );
+
+          const [courseDoc, notesSnap, progSnap] = await Promise.all([
+            courseData ? Promise.resolve(null) : getDoc(doc(db, 'courses', courseId)),
+            getDocs(notesQ),
+            getDocs(progQ).catch(() => null),
+          ]);
+
+          if (!isMounted) return;
+
+          if (courseDoc && courseDoc.exists()) {
             courseData = { id: courseDoc.id, ...courseDoc.data() } as Course;
             setCourse(courseData);
-            console.log("[NotesTopics] Course loaded from Firestore:", courseData.code);
-          } else {
-            console.warn("[NotesTopics] Course document not found on Firestore for ID:", courseId);
+            setCachedCourseById(courseData);
           }
 
-          // Fetch Notes from Firestore
-          const q = query(
-            collection(db, 'notes'),
-            where('courseId', '==', courseId)
-          );
-          const snapshot = await getDocs(q);
-          fetchedNotes = snapshot.docs.map(doc => ({
-            id: doc.id,
-            ...doc.data(),
+          fetchedNotes = notesSnap.docs.map(d => ({
+            id: d.id,
+            courseId,
+            ...d.data(),
             completed: false
           })) as Note[];
-          console.log("[NotesTopics] Fetched notes from Firestore count:", fetchedNotes.length);
+
+          const completedIds = progSnap
+            ? progSnap.docs.filter(d => d.data().completed === true).map(d => d.data().targetId)
+            : [];
+
+          const notesWithProgress = sortNotesAlphabetically(
+            fetchedNotes.map(n => ({
+              ...n,
+              courseId,
+              completed: completedIds.includes(n.id)
+            }))
+          );
+
+          setTopics(notesWithProgress);
+          setCachedCourseNotes(courseId, notesWithProgress);
+
+          if (courseData) {
+            const pct = notesWithProgress.length > 0
+              ? Math.round((notesWithProgress.filter(n => n.completed).length / notesWithProgress.length) * 100)
+              : 0;
+            const updatedCourse = { ...courseData, progress: pct };
+            setCourse(updatedCourse);
+            setCachedCourseById(updatedCourse);
+          }
+          setLoading(false);
+          return;
         }
 
-        // Fetch User Topic Progress
+        // For local SQLite branch, still fetch progress in background without blocking UI
         const progQ = query(
           collection(db, 'progress'),
           where('uid', '==', profile.uid),
           where('type', '==', 'note')
         );
-        const progSnap = await getDocs(progQ);
-        const completedIds = progSnap.docs
-          .filter(d => d.data().completed === true)
-          .map(d => d.data().targetId);
+        const progSnap = await getDocs(progQ).catch(() => null);
+        if (!isMounted) return;
 
-        // Arranged in alphabetical order
-        const notesWithProgress = fetchedNotes.map(n => ({
-          ...n,
-          completed: completedIds.includes(n.id)
-        })).sort((a, b) => (a.title || '').localeCompare(b.title || '', undefined, { sensitivity: 'base' }));
+        const completedIds = progSnap
+          ? progSnap.docs.filter(d => d.data().completed === true).map(d => d.data().targetId)
+          : [];
+
+        const notesWithProgress = sortNotesAlphabetically(
+          fetchedNotes.map(n => ({
+            ...n,
+            courseId,
+            completed: completedIds.includes(n.id)
+          }))
+        );
 
         setTopics(notesWithProgress);
+        setCachedCourseNotes(courseId, notesWithProgress);
 
-        // Update overall course progress
         if (courseData) {
-          const pct = notesWithProgress.length > 0 
-            ? Math.round((notesWithProgress.filter(n => n.completed).length / notesWithProgress.length) * 100) 
+          const pct = notesWithProgress.length > 0
+            ? Math.round((notesWithProgress.filter(n => n.completed).length / notesWithProgress.length) * 100)
             : 0;
           setCourse(prev => prev ? { ...prev, progress: pct } : null);
         }
@@ -248,17 +316,21 @@ export default function NotesTopicsScreen() {
         console.error("NotesTopics: Error fetching data:", e);
         handleFirestoreError(e, OperationType.GET, 'courses/notes');
       } finally {
-        setLoading(false);
+        if (isMounted) setLoading(false);
       }
     }
     fetchData();
-  }, [courseId, profile]);
+
+    return () => {
+      isMounted = false;
+    };
+  }, [courseId, profile?.uid]);
 
   useEffect(() => {
     if (!loading && course) {
       Animated.parallel([
-        Animated.timing(heroOpacity, { toValue: 1, duration: 450, useNativeDriver: true }),
-        Animated.timing(heroY, { toValue: 0, duration: 450, useNativeDriver: true }),
+        Animated.timing(heroOpacity, { toValue: 1, duration: 300, useNativeDriver: true }),
+        Animated.timing(heroY, { toValue: 0, duration: 300, useNativeDriver: true }),
       ]).start();
     }
   }, [loading, course]);
@@ -422,6 +494,7 @@ export default function NotesTopicsScreen() {
                       return;
                     }
                     if (course?.id && topic?.id) {
+                      setCachedNoteById({ ...topic, courseId: course.id });
                       router.push(`/note-viewer?courseId=${course.id}&noteId=${topic.id}`);
                     }
                   }}
@@ -568,10 +641,10 @@ const createStyles = (C: any) => StyleSheet.create({
     paddingVertical: 5,
     marginBottom: 14,
   },
-  subjectPillText: { fontFamily: F.medium, fontSize: 11, color: 'rgba(255,255,255,0.55)', letterSpacing: 1.5 },
+  subjectPillText: { fontFamily: F.medium, fontSize: 11, color: 'rgba(255,255,255,0.85)', letterSpacing: 1.5 },
   heroTop: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 18 },
   heroCode: { fontFamily: F.display, fontSize: 36, color: '#fff', lineHeight: 38 },
-  heroTitle: { fontFamily: F.body, fontSize: 14, color: 'rgba(255,255,255,0.45)', marginTop: 4 },
+  heroTitle: { fontFamily: F.body, fontSize: 14, color: 'rgba(255,255,255,0.8)', marginTop: 4 },
   heroIconBox: {
     width: 52, height: 52, borderRadius: 14,
     backgroundColor: 'rgba(255,255,255,0.08)',
@@ -580,7 +653,7 @@ const createStyles = (C: any) => StyleSheet.create({
   },
   heroIcon: { fontFamily: F.display, fontSize: 22, color: '#fff' },
   progressLabelRow: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 8 },
-  progressLabel: { fontFamily: F.medium, fontSize: 11, color: 'rgba(255,255,255,0.35)', letterSpacing: 1.2 },
+  progressLabel: { fontFamily: F.medium, fontSize: 11, color: 'rgba(255,255,255,0.7)', letterSpacing: 1.2 },
   progressPct: { fontFamily: F.bold, fontSize: 13, color: '#fff' },
   progressTrack: {
     height: 5, backgroundColor: 'rgba(255,255,255,0.12)',
@@ -593,7 +666,7 @@ const createStyles = (C: any) => StyleSheet.create({
     borderRadius: 12, padding: 12,
   },
   statNum: { fontFamily: F.display, fontSize: 24, color: '#fff', marginBottom: 4 },
-  statLabel: { fontFamily: F.medium, fontSize: 10, color: 'rgba(255,255,255,0.35)', letterSpacing: 1 },
+  statLabel: { fontFamily: F.medium, fontSize: 10, color: 'rgba(255,255,255,0.7)', letterSpacing: 1 },
 
   // Filters
   filterRow: { flexDirection: 'row', gap: 8, paddingVertical: 18 },

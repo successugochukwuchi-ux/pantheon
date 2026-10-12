@@ -285,3 +285,75 @@ export function LodgeIcon({ color }: { color: string }) {
   );
 }
 
+export function MicIcon({ color = C.ink }: { color?: string }) {
+  return (
+    <View style={{ width: 20, height: 22, justifyContent: 'center', alignItems: 'center' }}>
+      {/* Capsule */}
+      <View
+        style={{
+          width: 8,
+          height: 12,
+          borderRadius: 4,
+          borderWidth: 2,
+          borderColor: color,
+          marginBottom: 2,
+        }}
+      />
+      {/* Stand U-arch */}
+      <View
+        style={{
+          position: 'absolute',
+          top: 6,
+          width: 14,
+          height: 9,
+          borderBottomLeftRadius: 7,
+          borderBottomRightRadius: 7,
+          borderWidth: 2,
+          borderTopWidth: 0,
+          borderColor: color,
+        }}
+      />
+      {/* Stem */}
+      <View style={{ width: 2, height: 3, backgroundColor: color, marginTop: 1 }} />
+      {/* Base */}
+      <View style={{ width: 8, height: 2, backgroundColor: color, borderRadius: 1 }} />
+    </View>
+  );
+}
+
+export function StopIcon({ color = '#ffffff' }: { color?: string }) {
+  return (
+    <View style={{ width: 14, height: 14, borderRadius: 3, backgroundColor: color }} />
+  );
+}
+
+export function SendIcon({ color = '#ffffff' }: { color?: string }) {
+  return (
+    <View style={{ width: 20, height: 20, justifyContent: 'center', alignItems: 'center' }}>
+      {/* Paper plane / upward-right arrow */}
+      <View
+        style={{
+          width: 12,
+          height: 2,
+          backgroundColor: color,
+          borderRadius: 1,
+          transform: [{ rotate: '-45deg' }],
+        }}
+      />
+      <View
+        style={{
+          position: 'absolute',
+          top: 4,
+          right: 4,
+          width: 8,
+          height: 8,
+          borderTopWidth: 2,
+          borderRightWidth: 2,
+          borderColor: color,
+        }}
+      />
+    </View>
+  );
+}
+
+

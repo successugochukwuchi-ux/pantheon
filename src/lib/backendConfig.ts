@@ -27,13 +27,14 @@ export function isStaticHost(): boolean {
     return true;
   }
 
-  // 2. Any non-localhost / non-render deployment is running static-server
-  // (since full-stack Express server runs only on local dev and Render)
+  // 2. Any non-localhost / non-render / non-CloudRun deployment is running static-server
+  // (since full-stack Express server runs on local dev, Cloud Run .run.app, and Render)
   if (
     hostname !== 'localhost' &&
     hostname !== '127.0.0.1' &&
     !hostname.includes('onrender.com') &&
-    !hostname.includes('render.com')
+    !hostname.includes('render.com') &&
+    !hostname.endsWith('.run.app')
   ) {
     return true;
   }

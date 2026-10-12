@@ -471,9 +471,9 @@ const createStyles = (C: any) => StyleSheet.create({
   },
   plusText: { fontSize: 24, fontWeight: 'bold' },
   createTitle: { fontFamily: F.bold, fontSize: 18, color: '#fff', marginBottom: 4 },
-  createSubtitle: { fontFamily: F.medium, fontSize: 13, color: 'rgba(255,255,255,0.6)', lineHeight: 18 },
+  createSubtitle: { fontFamily: F.medium, fontSize: 13, color: 'rgba(255,255,255,0.8)', lineHeight: 18 },
 
-  sectionLabel: { fontFamily: F.bold, fontSize: 12, opacity: 0.6, letterSpacing: 1, marginBottom: 12 },
+  sectionLabel: { fontFamily: F.bold, fontSize: 12, letterSpacing: 1, marginBottom: 12 },
 
   // Pending Requests
   pendingCard: {
