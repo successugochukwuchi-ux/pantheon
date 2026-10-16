@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState, useMemo } from 'react';
+import React, { useEffect, useRef, useState, useMemo, useCallback } from 'react';
 import {
   View,
   Text,
@@ -10,7 +10,7 @@ import {
   TextInput,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useRouter } from 'expo-router';
+import { useRouter, useFocusEffect } from 'expo-router';
 import { BottomNav } from '../components/BottomNav';
 import { F } from '../components/Theme';
 import { collection, query, where, getDocs } from 'firebase/firestore';
@@ -187,35 +187,32 @@ export default function NotesScreen() {
       }
 
       // 3. If no cached courses yet, try immediate SQLite fallback (sorted alphabetically so positions never jump)
-      if (!cached || cached.length === 0) {
-        try {
-          const localCourses = getDownloadedCoursesLocal();
-          if (localCourses && localCourses.length > 0) {
-            const filteredLocal = await getFilteredCoursesForStudent(localCourses, profile, true, semester);
-            if (isMounted && filteredLocal.length > 0) {
-              const sortedLocal = mapAndSort(filteredLocal);
-              setCourses(sortedLocal);
-              setLoading(false);
-            }
+      let loadedFromLocal = false;
+      try {
+        const localCourses = getDownloadedCoursesLocal();
+        if (localCourses && localCourses.length > 0) {
+          const filteredLocal = await getFilteredCoursesForStudent(localCourses, profile, true, semester);
+          if (isMounted && filteredLocal.length > 0) {
+            const sortedLocal = mapAndSort(filteredLocal);
+            setCourses(sortedLocal);
+            setCachedCourses(cacheKey, sortedLocal);
+            setLoading(false);
+            loadedFromLocal = true;
           }
-        } catch (err) {
-          console.log('Offline/SQLite courses loading skipped:', err);
         }
+      } catch (err) {
+        console.log('Offline/SQLite courses loading skipped:', err);
       }
 
-      // 4. Fetch courses and progress IN PARALLEL from Firestore
+      // If courses were already loaded from SQLite, we do not hit Firestore (saves reads)
+      if (loadedFromLocal) {
+        return;
+      }
+
+      // Fallback: Fetch courses from Firestore only if SQLite has 0 courses
       try {
         const coursesQuery = query(collection(db, 'courses'), where('semester', '==', semester));
-        const progQuery = query(
-          collection(db, 'progress'),
-          where('uid', '==', profile.uid),
-          where('type', '==', 'course')
-        );
-
-        const [courseSnap, progSnap] = await Promise.all([
-          getDocs(coursesQuery),
-          getDocs(progQuery).catch(() => null),
-        ]);
+        const courseSnap = await getDocs(coursesQuery);
 
         if (!isMounted) return;
 
@@ -224,23 +221,15 @@ export default function NotesScreen() {
           ...doc.data(),
         })) as Course[];
 
-        const progMap: Record<string, number> = {};
-        if (progSnap) {
-          progSnap.docs.forEach((d) => {
-            const data = d.data();
-            if (data.targetId) progMap[data.targetId] = data.percentage || 0;
-          });
-        }
-
         const filtered = await getFilteredCoursesForStudent(allFetched, profile, true, semester);
         if (!isMounted) return;
 
-        const finalSorted = mapAndSort(filtered, progMap);
+        const finalSorted = mapAndSort(filtered);
         setCourses(finalSorted);
         setCachedCourses(cacheKey, finalSorted);
         setLoading(false);
       } catch (e) {
-        console.error('Courses/Progress fetch error (using cache fallback if offline):', e);
+        console.error('Courses fetch error (using cache fallback if offline):', e);
         if (isMounted) setLoading(false);
       }
     };
@@ -260,6 +249,24 @@ export default function NotesScreen() {
     isOffline,
     cacheKey,
   ]);
+
+  // Refresh courses from local SQLite whenever notes screen gains focus
+  useFocusEffect(
+    useCallback(() => {
+      try {
+        const localCourses = getDownloadedCoursesLocal();
+        if (localCourses && localCourses.length > 0) {
+          getFilteredCoursesForStudent(localCourses, profile, true, semester).then(filtered => {
+            if (filtered && filtered.length > 0) {
+              const sorted = mapAndSort(filtered);
+              setCourses(sorted);
+              setCachedCourses(cacheKey, sorted);
+            }
+          });
+        }
+      } catch (err) {}
+    }, [profile?.department, profile?.academicLevel, semester, cacheKey])
+  );
 
   const filteredCourses = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();

@@ -10,7 +10,7 @@ import {
   Alert,
   Linking,
 } from 'react-native';
-import { doc, getDoc, updateDoc, serverTimestamp, query, where, getDocs, collection, writeBatch, increment, setDoc } from 'firebase/firestore';
+import { doc, getDoc, updateDoc, serverTimestamp, query, where, getDocs, collection, writeBatch, increment, setDoc, addDoc } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 import { useAuth } from '../context/AuthContext';
 import { C, F } from './Theme';
@@ -140,24 +140,6 @@ export function ActivationModal() {
 
       const usedAtStr = new Date().toISOString();
 
-      // If lent pin without pre-recorded wholesale price, fetch wholesale rate from system config
-      let lentWholesalePrice = codeData.lentWholesalePrice;
-      if (codeData.isLent && lentWholesalePrice === undefined) {
-        try {
-          const configSnap = await getDoc(doc(db, 'system', 'config'));
-          if (configSnap.exists()) {
-            const cfg = configSnap.data();
-            lentWholesalePrice = codeData.type === 'plus' 
-              ? (cfg.plusWholesalePrice ?? 1500) 
-              : (cfg.standardWholesalePrice ?? 800);
-          } else {
-            lentWholesalePrice = codeData.type === 'plus' ? 1500 : 800;
-          }
-        } catch (e) {
-          lentWholesalePrice = codeData.type === 'plus' ? 1500 : 800;
-        }
-      }
-
       // Valid code! Update code with appropriate tracking fields
       const codeUpdatePayload: any = {
         isUsed: true,
@@ -166,10 +148,31 @@ export function ActivationModal() {
         usedAt: usedAtStr,
       };
 
-      if (codeData.isLent && codeData.lentWholesalePrice === undefined) {
-        codeUpdatePayload.lentWholesalePrice = lentWholesalePrice;
-        if (codeData.settled === undefined) {
-          codeUpdatePayload.settled = false;
+      // If this was an On-Demand PIN, credit the vendor's wallet balance
+      if (codeData.isOnDemand && codeData.assignedTo && !codeData.commissionEarned) {
+        const commAmount = codeData.commissionAmount || Math.round((codeData.price || 1000) * 0.15);
+        codeUpdatePayload.commissionEarned = true;
+        codeUpdatePayload.commissionCreditedAt = usedAtStr;
+
+        try {
+          const vendorRef = doc(db, 'users', codeData.assignedTo);
+          await updateDoc(vendorRef, {
+            walletBalance: increment(commAmount),
+            totalEarned: increment(commAmount)
+          });
+
+          await addDoc(collection(db, 'wallet_transactions'), {
+            vendorId: codeData.assignedTo,
+            vendorStudentId: codeData.assignedToStudentId || '',
+            type: 'commission',
+            amount: commAmount,
+            pinCode: code,
+            activatedByStudentId: profile?.studentId || '',
+            description: `On-Demand Commission for activated PIN #${code}`,
+            createdAt: usedAtStr
+          });
+        } catch (commErr) {
+          console.warn("Failed to credit vendor commission via mobile activation:", commErr);
         }
       }
 

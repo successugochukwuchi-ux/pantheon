@@ -168,3 +168,22 @@ export function setCachedNoteById(note: CachedNote): void {
     AsyncStorage.setItem(`colearn_note_item_${note.id}`, JSON.stringify(merged)).catch(() => {});
   }
 }
+
+export function clearCourseNotesCache(courseId: string): void {
+  if (!courseId) return;
+  notesByCourseMemoryCache.delete(courseId);
+  AsyncStorage.removeItem(`colearn_course_notes_${courseId}`).catch(() => {});
+}
+
+export function clearNoteCache(noteId: string): void {
+  if (!noteId) return;
+  noteByIdMemoryCache.delete(noteId);
+  AsyncStorage.removeItem(`colearn_note_item_${noteId}`).catch(() => {});
+}
+
+export function clearAllCourseCaches(): void {
+  courseListMemoryCache.clear();
+  courseByIdMemoryCache.clear();
+  notesByCourseMemoryCache.clear();
+  noteByIdMemoryCache.clear();
+}

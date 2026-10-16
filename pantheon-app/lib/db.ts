@@ -37,7 +37,11 @@ export async function initDatabase() {
           mobileNumber TEXT,
           academicLevel TEXT,
           level TEXT,
-          isActivated INTEGER
+          isActivated INTEGER,
+          photoURL TEXT,
+          At TEXT,
+          canTakeScreenshots INTEGER DEFAULT 0,
+          theme TEXT
         );
         CREATE TABLE IF NOT EXISTS courses (
           id TEXT PRIMARY KEY,
@@ -65,7 +69,8 @@ export async function initDatabase() {
           q TEXT,
           options TEXT,
           answer INTEGER,
-          sheetId TEXT
+          sheetId TEXT,
+          explanation TEXT
         );
         CREATE TABLE IF NOT EXISTS question_sheets (
           id TEXT PRIMARY KEY,
@@ -77,19 +82,37 @@ export async function initDatabase() {
       `);
       try {
         db.execSync("ALTER TABLE courses ADD COLUMN disabled INTEGER DEFAULT 0;");
-      } catch (e) {
-        // column already exists
-      }
+      } catch (e) {}
+      try {
+        db.execSync("ALTER TABLE questions ADD COLUMN explanation TEXT;");
+      } catch (e) {}
+      try {
+        db.execSync("ALTER TABLE user_profile ADD COLUMN photoURL TEXT;");
+      } catch (e) {}
+      try {
+        db.execSync("ALTER TABLE user_profile ADD COLUMN At TEXT;");
+      } catch (e) {}
+      try {
+        db.execSync("ALTER TABLE user_profile ADD COLUMN canTakeScreenshots INTEGER DEFAULT 0;");
+      } catch (e) {}
+      try {
+        db.execSync("ALTER TABLE user_profile ADD COLUMN theme TEXT;");
+      } catch (e) {}
       console.log('Local SQLite Database: Initialized.');
     } else {
       db.transaction((tx: any) => {
         tx.executeSql('CREATE TABLE IF NOT EXISTS system_config (key TEXT PRIMARY KEY, value TEXT);');
-        tx.executeSql('CREATE TABLE IF NOT EXISTS user_profile (uid TEXT PRIMARY KEY, studentId TEXT, email TEXT, username TEXT, department TEXT, mobileNumber TEXT, academicLevel TEXT, level TEXT, isActivated INTEGER);');
+        tx.executeSql('CREATE TABLE IF NOT EXISTS user_profile (uid TEXT PRIMARY KEY, studentId TEXT, email TEXT, username TEXT, department TEXT, mobileNumber TEXT, academicLevel TEXT, level TEXT, isActivated INTEGER, photoURL TEXT, At TEXT, canTakeScreenshots INTEGER DEFAULT 0, theme TEXT);');
         tx.executeSql('CREATE TABLE IF NOT EXISTS courses (id TEXT PRIMARY KEY, code TEXT, title TEXT, semester TEXT, level TEXT, department TEXT, progress INTEGER, isDownloaded INTEGER DEFAULT 0, disabled INTEGER DEFAULT 0);');
         tx.executeSql('CREATE TABLE IF NOT EXISTS notes (id TEXT PRIMARY KEY, courseId TEXT, title TEXT, content TEXT, "order" INTEGER, duration TEXT, tag TEXT);');
-        tx.executeSql('CREATE TABLE IF NOT EXISTS questions (id TEXT PRIMARY KEY, courseId TEXT, q TEXT, options TEXT, answer INTEGER, sheetId TEXT);');
+        tx.executeSql('CREATE TABLE IF NOT EXISTS questions (id TEXT PRIMARY KEY, courseId TEXT, q TEXT, options TEXT, answer INTEGER, sheetId TEXT, explanation TEXT);');
         tx.executeSql('CREATE TABLE IF NOT EXISTS question_sheets (id TEXT PRIMARY KEY, courseId TEXT, year TEXT, semester TEXT, academicLevel TEXT);');
         tx.executeSql('ALTER TABLE courses ADD COLUMN disabled INTEGER DEFAULT 0;', [], () => {}, () => {});
+        tx.executeSql('ALTER TABLE questions ADD COLUMN explanation TEXT;', [], () => {}, () => {});
+        tx.executeSql('ALTER TABLE user_profile ADD COLUMN photoURL TEXT;', [], () => {}, () => {});
+        tx.executeSql('ALTER TABLE user_profile ADD COLUMN At TEXT;', [], () => {}, () => {});
+        tx.executeSql('ALTER TABLE user_profile ADD COLUMN canTakeScreenshots INTEGER DEFAULT 0;', [], () => {}, () => {});
+        tx.executeSql('ALTER TABLE user_profile ADD COLUMN theme TEXT;', [], () => {}, () => {});
       }, (e: any) => {
         console.error('Legacy SQLite transaction error:', e);
       });
@@ -322,9 +345,9 @@ export function saveQuestionLocal(q: any) {
       const parsed = parseFirestoreQuestion(q.id, q);
       const optionsJSON = JSON.stringify(parsed.opts);
       db.runSync(
-        `INSERT OR REPLACE INTO questions (id, courseId, q, options, answer, sheetId) 
-         VALUES (?, ?, ?, ?, ?, ?)`,
-        [parsed.id || '', parsed.courseId || q.courseId || '', parsed.q || '', optionsJSON || '[]', parsed.answer || 0, parsed.sheetId || '']
+        `INSERT OR REPLACE INTO questions (id, courseId, q, options, answer, sheetId, explanation) 
+         VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        [parsed.id || '', parsed.courseId || q.courseId || '', parsed.q || '', optionsJSON || '[]', parsed.answer || 0, parsed.sheetId || '', parsed.explanation || '']
       );
     }
   } catch (e) {
@@ -342,9 +365,9 @@ export function saveQuestionsBatchLocal(questions: any[]) {
         const parsed = parseFirestoreQuestion(q.id, q);
         const optionsJSON = JSON.stringify(parsed.opts);
         db.runSync(
-          `INSERT OR REPLACE INTO questions (id, courseId, q, options, answer, sheetId) 
-           VALUES (?, ?, ?, ?, ?, ?)`,
-          [parsed.id || '', parsed.courseId || q.courseId || '', parsed.q || '', optionsJSON || '[]', parsed.answer || 0, parsed.sheetId || '']
+          `INSERT OR REPLACE INTO questions (id, courseId, q, options, answer, sheetId, explanation) 
+           VALUES (?, ?, ?, ?, ?, ?, ?)`,
+          [parsed.id || '', parsed.courseId || q.courseId || '', parsed.q || '', optionsJSON || '[]', parsed.answer || 0, parsed.sheetId || '', parsed.explanation || '']
         );
       }
     };
@@ -412,15 +435,15 @@ export function saveConfigLocal(semester: string) {
   }
 }
 
-// Save profile info
+// Save profile info to SQLite
 export function saveProfileLocal(profile: any) {
   const db = getDatabase();
-  if (!db) return;
+  if (!db || !profile) return;
   try {
     if (db.runSync) {
       db.runSync(
-        `INSERT OR REPLACE INTO user_profile (uid, studentId, email, username, department, mobileNumber, academicLevel, level, isActivated) 
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT OR REPLACE INTO user_profile (uid, studentId, email, username, department, mobileNumber, academicLevel, level, isActivated, photoURL, At, canTakeScreenshots, theme) 
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
           profile.uid,
           profile.studentId || '',
@@ -430,12 +453,50 @@ export function saveProfileLocal(profile: any) {
           profile.mobileNumber || '',
           profile.academicLevel || '',
           profile.level || '1',
-          profile.isActivated ? 1 : 0
+          profile.isActivated ? 1 : 0,
+          profile.photoURL || '',
+          profile.At || 'futo',
+          profile.canTakeScreenshots ? 1 : 0,
+          profile.theme || 'light'
         ]
       );
     }
   } catch (e) {
     console.error('Error saving user profile locally:', e);
+  }
+}
+
+// Get user profile from SQLite
+export function getUserProfileLocal(uid?: string): any | null {
+  const db = getDatabase();
+  if (!db || !db.getFirstSync) return null;
+  try {
+    let res: any;
+    if (uid) {
+      res = db.getFirstSync('SELECT * FROM user_profile WHERE uid = ?', [uid]);
+    } else {
+      res = db.getFirstSync('SELECT * FROM user_profile LIMIT 1');
+    }
+    if (!res) return null;
+    return {
+      uid: res.uid,
+      studentId: res.studentId,
+      email: res.email,
+      username: res.username,
+      department: res.department,
+      mobileNumber: res.mobileNumber,
+      academicLevel: res.academicLevel,
+      level: res.level,
+      isActivated: res.isActivated === 1,
+      photoURL: res.photoURL || `https://api.dicebear.com/7.x/avataaars/svg?seed=${res.uid}`,
+      At: res.At || 'futo',
+      canTakeScreenshots: res.canTakeScreenshots === 1,
+      screenshotAllowed: res.canTakeScreenshots === 1,
+      theme: res.theme || 'light'
+    };
+  } catch (e) {
+    console.error('Error getting local user profile from SQLite:', e);
+    return null;
   }
 }
 
@@ -500,7 +561,9 @@ export function saveCompleteCourseLocal(course: any, notes: any[], questions: an
 
       // 2. Clear existing items for this course to prevent duplicates
       db.runSync('DELETE FROM notes WHERE courseId = ?', [course.id]);
-      db.runSync('DELETE FROM questions WHERE courseId = ?', [course.id]);
+      if (Array.isArray(questions)) {
+        db.runSync('DELETE FROM questions WHERE courseId = ?', [course.id]);
+      }
       db.runSync('DELETE FROM question_sheets WHERE courseId = ?', [course.id]);
 
       // 3. Batch insert notes
@@ -520,9 +583,9 @@ export function saveCompleteCourseLocal(course: any, notes: any[], questions: an
           const parsed = parseFirestoreQuestion(q.id, q);
           const optionsJSON = JSON.stringify(parsed.opts || []);
           db.runSync(
-            `INSERT OR REPLACE INTO questions (id, courseId, q, options, answer, sheetId) 
-             VALUES (?, ?, ?, ?, ?, ?)`,
-            [parsed.id || '', course.id, parsed.q || '', optionsJSON, parsed.answer || 0, parsed.sheetId || '']
+            `INSERT OR REPLACE INTO questions (id, courseId, q, options, answer, sheetId, explanation) 
+             VALUES (?, ?, ?, ?, ?, ?, ?)`,
+            [parsed.id || '', course.id, parsed.q || '', optionsJSON, parsed.answer || 0, parsed.sheetId || '', parsed.explanation || '']
           );
         }
       }
@@ -573,10 +636,31 @@ export function getLocalQuestions(courseId: string): any[] {
       q: q.q,
       opts: JSON.parse(q.options || '[]'),
       answer: q.answer,
-      sheetId: q.sheetId
+      sheetId: q.sheetId,
+      explanation: q.explanation || ''
     }));
   } catch (e) {
     console.error('Error loading offline questions:', e);
+    return [];
+  }
+}
+// Retrieve local questions for a specific sheet
+export function getLocalQuestionsBySheet(sheetId: string): any[] {
+  const db = getDatabase();
+  if (!db || !db.getAllSync || !sheetId) return [];
+  try {
+    const questions = db.getAllSync('SELECT * FROM questions WHERE sheetId = ?', [sheetId]) || [];
+    return questions.map((q: any) => ({
+      id: q.id,
+      courseId: q.courseId,
+      q: q.q,
+      opts: JSON.parse(q.options || '[]'),
+      answer: q.answer,
+      sheetId: q.sheetId,
+      explanation: q.explanation || ''
+    }));
+  } catch (e) {
+    console.error('Error loading offline questions by sheet:', e);
     return [];
   }
 }

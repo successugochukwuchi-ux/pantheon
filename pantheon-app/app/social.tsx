@@ -20,6 +20,7 @@ import { collection, query, where, onSnapshot, doc, updateDoc, addDoc, getDoc } 
 import { db } from '../lib/firebase';
 import { useAuth } from '../context/AuthContext';
 import { useTheme } from '../context/ThemeContext';
+import { getOrFetchUserProfile } from '../lib/userCache';
 
 function TrashIcon() {
   return <Text style={{ fontSize: 18, color: '#E74C3C' }}>✕</Text>;
@@ -115,34 +116,19 @@ export default function SocialHubScreen() {
     const unsubDMs = onSnapshot(qDMs, async (snapshot) => {
       const dmRooms = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() as any }));
       
-      // Resolve other user names
+      // Resolve other user names using cached profiles (drastically saves Firestore reads)
       const resolvedFriends = await Promise.all(dmRooms.map(async (room) => {
         const otherUid = room.uids.find((id: string) => id !== profile.uid);
         if (!otherUid) return null;
 
-        try {
-          const userDoc = await getDoc(doc(db, 'users', otherUid));
-          if (userDoc.exists()) {
-            const data = userDoc.data();
-            return {
-              chatId: room.id,
-              uid: otherUid,
-              name: data.username || data.name || 'Student',
-              dept: data.department || 'General Science',
-              level: data.academicLevel || '100 Level',
-              photoURL: data.photoURL || null
-            };
-          }
-        } catch (e) {
-          console.error("Error resolving friend user payload:", e);
-        }
+        const uData = await getOrFetchUserProfile(otherUid);
         return {
           chatId: room.id,
           uid: otherUid,
-          name: 'Classmate',
-          dept: 'CoLearn Student',
-          level: '100 Level',
-          photoURL: null
+          name: uData?.name || uData?.username || 'Classmate',
+          dept: uData?.dept || uData?.department || 'CoLearn Student',
+          level: uData?.level || uData?.academicLevel || '100 Level',
+          photoURL: uData?.photoURL || null
         };
       }));
 

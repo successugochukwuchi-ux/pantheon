@@ -105,6 +105,20 @@ export default function PastQuestions() {
   const handleStartExam = async (sheet: QuestionSheet) => {
     setLoading(true);
     try {
+      // 1. Primary: Use embedded questions array directly (0 extra reads!)
+      if (Array.isArray(sheet.questions) && sheet.questions.length > 0) {
+        const sorted = [...sheet.questions].sort((a, b) => a.order - b.order);
+        setQuestions(sorted);
+        setSelectedSheet(sheet);
+        setExamStarted(true);
+        setCurrentIndex(0);
+        setUserAnswers({});
+        setShowFeedback({});
+        setLoading(false);
+        return;
+      }
+
+      // 2. Fallback: Query legacy questions collection if sheet is unmigrated
       const q = query(collection(db, 'questions'), where('sheetId', '==', sheet.id));
       const snap = await getDocs(q);
       const fetched = snap.docs

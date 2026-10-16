@@ -34,10 +34,11 @@ import {
   serverTimestamp,
   deleteField,
   arrayUnion,
+  limit,
 } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 import { getFilteredCoursesForStudent } from '../lib/courseFilter';
-import { getDownloadedCoursesLocal, getLocalQuestions } from '../lib/db';
+import { getDownloadedCoursesLocal, getLocalQuestions, saveQuestionsBatchLocal } from '../lib/db';
 
 interface Course {
   id: string;
@@ -158,17 +159,20 @@ export default function CompeteScreen() {
           semester: c.semester || '1st',
           level: c.level || '',
         }));
-        getFilteredCoursesForStudent(mappedLocal, profile, true).then((filtered) => {
+        const activeSem = (!systemConfig?.currentSemester || systemConfig.currentSemester === 'none') ? '1st' : systemConfig.currentSemester;
+        getFilteredCoursesForStudent(mappedLocal, profile, true, activeSem).then((filtered) => {
           if (filtered && filtered.length > 0) {
             setCourses(filtered);
             setLoadingCourses(false);
           }
         });
+        return; // Use local SQLite courses (saves reads)
       }
     } catch (e) {
       console.log('Local courses fetch fallback in compete:', e);
     }
 
+    const activeSem = (!systemConfig?.currentSemester || systemConfig.currentSemester === 'none') ? '1st' : systemConfig.currentSemester;
     const coursesCol = collection(db, 'courses');
     getDocs(coursesCol)
       .then(async (snap) => {
@@ -177,7 +181,7 @@ export default function CompeteScreen() {
         if (systemConfig && systemConfig.currentSemester !== 'none') {
           semFiltered = list.filter((c) => c.semester === systemConfig.currentSemester);
         }
-        const filtered = await getFilteredCoursesForStudent(semFiltered, profile, true);
+        const filtered = await getFilteredCoursesForStudent(semFiltered, profile, true, activeSem);
         if (filtered && filtered.length > 0) {
           setCourses(filtered);
         }
@@ -189,7 +193,7 @@ export default function CompeteScreen() {
       });
   }, [user, systemConfig]);
 
-  // Load Leaderboard inside Active Season
+  // Load Leaderboard inside Active Season (limited to top 50 to save reads)
   useEffect(() => {
     if (!activeSeasonId) {
       setLeaderboard([]);
@@ -200,7 +204,7 @@ export default function CompeteScreen() {
     setLoadingLeaderboard(true);
     const leaderboardCol = collection(db, 'seasons', activeSeasonId, 'leaderboard');
     const unsubscribe = onSnapshot(
-      query(leaderboardCol),
+      query(leaderboardCol, limit(50)),
       (snapshot) => {
         let parsedList = snapshot.docs.map((d) => ({
           id: d.id,
@@ -251,7 +255,7 @@ export default function CompeteScreen() {
       // Check if current user was kicked from private room
       if (user?.uid && updatedMatch.kickedList?.includes(user.uid)) {
         setCurrentMatch(null);
-        setGameState('select_mode');
+        setGameState('lobby');
         Alert.alert('Removed from Room', 'You have been removed from this private room by the host.');
         return;
       }
@@ -416,20 +420,21 @@ export default function CompeteScreen() {
       });
     }, 1000);
 
-    // Resilient 2-second scan interval with freshness validation to prevent ghost matching
-    const scanInterval = setInterval(async () => {
-      if (!currentMatch?.id || !user?.uid || !selectedCourse?.id) return;
+    // Real-time onSnapshot listener with freshness validation (replaces high-frequency 2s polling to save reads)
+    const lobbiesQuery = query(
+      collection(db, 'compete_matches'),
+      where('status', '==', 'waiting'),
+      where('type', '==', 'quick_match'),
+      where('courseId', '==', selectedCourse.id),
+      where('numQuestions', '==', selectedNumQuestions),
+      where('At', '==', profile?.At || 'futo'),
+      limit(6)
+    );
+
+    let matchHandled = false;
+    const unsubLobbies = onSnapshot(lobbiesQuery, async (lobbiesSnap) => {
+      if (matchHandled || !currentMatch?.id || !user?.uid || !selectedCourse?.id) return;
       try {
-        const lobbiesQuery = query(
-          collection(db, 'compete_matches'),
-          where('status', '==', 'waiting'),
-          where('type', '==', 'quick_match'),
-          where('courseId', '==', selectedCourse.id),
-          where('numQuestions', '==', selectedNumQuestions),
-          where('At', '==', profile?.At || 'futo')
-        );
-        const lobbiesSnap = await getDocs(lobbiesQuery);
-        
         let foundLobby: any = null;
         for (const val of lobbiesSnap.docs) {
           const lobbyData = val.data();
@@ -445,9 +450,10 @@ export default function CompeteScreen() {
           }
         }
 
-        if (foundLobby) {
-          clearInterval(scanInterval);
+        if (foundLobby && !matchHandled) {
+          matchHandled = true;
           clearInterval(interval);
+          unsubLobbies();
 
           // Join this other existing matching room instead!
           const otherDocRef = doc(db, 'compete_matches', foundLobby.id);
@@ -459,7 +465,7 @@ export default function CompeteScreen() {
             startTime: Date.now()
           });
 
-          // Decommission our previous created match (set status: 'aborted' so someone else doesn't join our orphaned lobby)
+          // Decommission our previous created match
           const ourDocRef = doc(db, 'compete_matches', currentMatch.id);
           await updateDoc(ourDocRef, {
             status: 'aborted'
@@ -468,22 +474,22 @@ export default function CompeteScreen() {
           setCurrentMatch({ id: foundLobby.id, ...foundLobby, status: 'active' });
         }
       } catch (err) {
-        console.error("Rescan failed:", err);
+        console.error("Matchmaking listener error:", err);
       }
-    }, 2000);
+    });
 
-    // Active heartbeat every 4 seconds to signal this client is live and prevent ghost matching
+    // Active heartbeat every 8 seconds to signal this client is live and prevent ghost matching
     const heartbeatInterval = setInterval(() => {
       if (currentMatch?.id && user?.uid === currentMatch.creatorId) {
         updateDoc(doc(db, 'compete_matches', currentMatch.id), {
           lastHeartbeat: Date.now(),
         }).catch(() => {});
       }
-    }, 4000);
+    }, 8000);
 
     return () => {
       clearInterval(interval);
-      clearInterval(scanInterval);
+      unsubLobbies();
       clearInterval(heartbeatInterval);
     };
   }, [gameState, lobbyType, currentMatch?.id, selectedCourse?.id, selectedNumQuestions, user?.uid, profile]);
@@ -545,10 +551,39 @@ export default function CompeteScreen() {
 
       if (list.length === 0 && !isOffline) {
         try {
-          const qQuery = query(collection(db, 'questions'), where('courseId', '==', selectedCourse.id));
-          const qSnap = await getDocs(qQuery);
-          if (!qSnap.empty) {
-            list = qSnap.docs.map((d) => ({ id: d.id, ...d.data() }) as Question);
+          // 1. Primary: Fetch question sheets for this course and extract embedded questions (1 read per sheet)
+          const sheetsQuery = query(collection(db, 'questionSheets'), where('courseId', '==', selectedCourse.id));
+          const sheetsSnap = await getDocs(sheetsQuery);
+          const embedded: any[] = [];
+          sheetsSnap.docs.forEach((docSnap) => {
+            const data = docSnap.data();
+            if (Array.isArray(data.questions) && data.questions.length > 0) {
+              embedded.push(...data.questions.map((q: any) => ({
+                id: q.id,
+                sheetId: docSnap.id,
+                courseId: selectedCourse.id,
+                text: q.text || q.q || '',
+                correctAnswer: q.correctAnswer || (q.opts && typeof q.answer === 'number' ? q.opts[q.answer] : ''),
+                incorrectAnswers: Array.isArray(q.incorrectAnswers) ? q.incorrectAnswers : (q.opts ? q.opts.filter((_: any, i: number) => i !== q.answer) : []),
+              })));
+            }
+          });
+
+          if (embedded.length > 0) {
+            list = embedded;
+            try {
+              saveQuestionsBatchLocal(embedded);
+            } catch (e) {}
+          } else {
+            // 2. Fallback to legacy questions collection for unmigrated sheets
+            const qQuery = query(collection(db, 'questions'), where('courseId', '==', selectedCourse.id));
+            const qSnap = await getDocs(qQuery);
+            if (!qSnap.empty) {
+              list = qSnap.docs.map((d) => ({ id: d.id, ...d.data() }) as Question);
+              try {
+                saveQuestionsBatchLocal(list);
+              } catch (e) {}
+            }
           }
         } catch (e) {
           console.log('Online questions fetch in compete:', e);
@@ -2378,7 +2413,7 @@ const createStyles = (C: any, themeName: string) =>
 
     subSectionContainer: { gap: 12 },
     subTitle: { fontFamily: F.bold, fontSize: 22 },
-    subDesc: { fontFamily: F.body, fontSize: 14, leadingHeight: 20 },
+    subDesc: { fontFamily: F.body, fontSize: 14, lineHeight: 20 },
 
     coursesGrid: { gap: 10 },
     courseGridOption: {

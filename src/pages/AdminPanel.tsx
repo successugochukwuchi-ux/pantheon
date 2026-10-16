@@ -78,6 +78,7 @@ import AdminMobileControl from '../components/AdminMobileControl';
 import { AdminBackup } from '../components/AdminBackup';
 import { VideoWorkshop } from '../components/VideoWorkshop';
 import { AdminFeedback } from '../components/admin/AdminFeedback';
+import VendorCommissionDashboard from '../components/VendorCommissionDashboard';
 import { CloudinaryUpload } from '../components/CloudinaryUpload';
 import ReactMarkdown from 'react-markdown';
 import remarkMath from 'remark-math';
@@ -327,23 +328,7 @@ export default function AdminPanel() {
   const [shifting, setShifting] = useState(false);
   const [allActivationCodes, setAllActivationCodes] = useState<ActivationCode[]>([]);
 
-  // Lending PINs & Debt Lifecycle States
-  const [isLendingPin, setIsLendingPin] = useState(false);
-  const [singleLendingDays, setSingleLendingDays] = useState(14);
-  const [bulkIsLendingPin, setBulkIsLendingPin] = useState(false);
-  const [bulkLendingDays, setBulkLendingDays] = useState(14);
-  const [settlementVendor, setSettlementVendor] = useState<{
-    uid: string;
-    studentId: string;
-    username?: string;
-    count: number;
-    amount: number;
-    pinIds: string[];
-  } | null>(null);
-  const [settlementNote, setSettlementNote] = useState('');
-  const [settlingLoading, setSettlingLoading] = useState(false);
-  const [isAutoRecalling, setIsAutoRecalling] = useState(false);
-  const [isReturnLentLoading, setIsReturnLentLoading] = useState(false);
+
 
   useEffect(() => {
     if (systemConfig) {
@@ -822,6 +807,16 @@ export default function AdminPanel() {
     }
   };
 
+  const triggerAcademicUpdateStamp = async () => {
+    try {
+      await updateDoc(doc(db, 'system', 'config'), {
+        lastAcademicUpdate: Date.now()
+      });
+    } catch (e) {
+      // Non-blocking fallback
+    }
+  };
+
   const handleCreateCourse = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
@@ -837,6 +832,8 @@ export default function AdminPanel() {
         At: profile?.At || 'futo',
         createdAt: new Date().toISOString()
       });
+      
+      triggerAcademicUpdateStamp();
       
       // Update system stats
       await updateStatCount('totalCourses', 1);
@@ -943,6 +940,7 @@ export default function AdminPanel() {
       
       // Update local state
       setCourses(prev => prev.filter(c => c.id !== courseToDelete));
+      triggerAcademicUpdateStamp();
 
       toast.success('Course and all associated materials deleted');
       setCourseToDelete(null);
@@ -966,8 +964,9 @@ export default function AdminPanel() {
         createdAt: new Date().toISOString()
       });
 
-      // Update system stats
+      // Update system stats and academic stamp
       await updateStatCount('totalNotes', 1);
+      triggerAcademicUpdateStamp();
 
       toast.success('Note created successfully', { id: toastId });
       setNewNote(prev => ({ courseId: prev.courseId, title: '', content: '', type: prev.type || 'lecture' }));
@@ -986,8 +985,9 @@ export default function AdminPanel() {
     try {
       await deleteDoc(doc(db, 'notes', noteToDelete));
 
-      // Update system stats
+      // Update system stats and academic stamp
       await updateStatCount('totalNotes', -1);
+      triggerAcademicUpdateStamp();
 
       toast.success('Note deleted');
       setNoteToDelete(null);
@@ -1014,6 +1014,7 @@ export default function AdminPanel() {
         updatedAt: new Date().toISOString()
       });
       console.log("Update successful");
+      triggerAcademicUpdateStamp();
       toast.success('Note updated successfully', { id: toastId });
       setNoteToEdit(null);
     } catch (error: any) {
@@ -1031,6 +1032,12 @@ export default function AdminPanel() {
       setSheetQuestions([]);
       return;
     }
+    // Primary: use embedded questions array in the sheet document
+    if (Array.isArray(selectedSheet.questions) && selectedSheet.questions.length > 0) {
+      setSheetQuestions([...selectedSheet.questions].sort((a, b) => a.order - b.order));
+      return;
+    }
+    // Fallback: load from questions collection for legacy unmigrated sheets
     const q = query(collection(db, 'questions'), where('sheetId', '==', selectedSheet.id));
     getDocs(q).then((snapshot) => {
       setSheetQuestions(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Question)).sort((a, b) => a.order - b.order));
@@ -1046,6 +1053,7 @@ export default function AdminPanel() {
     try {
       await addDoc(collection(db, 'questionSheets'), {
         ...newSheet,
+        questions: [],
         authorId: user.uid,
         createdAt: new Date().toISOString()
       });
@@ -1086,16 +1094,23 @@ export default function AdminPanel() {
     if (!sheetToDelete) return;
     setLoading(true);
     try {
-      // Delete all questions in this sheet first
-      const q = query(collection(db, 'questions'), where('sheetId', '==', sheetToDelete));
-      const snap = await getDocs(q);
-      const batch = writeBatch(db);
-      snap.docs.forEach(d => batch.delete(d.ref));
-      batch.delete(doc(db, 'questionSheets', sheetToDelete));
-      await batch.commit();
+      // 1. Delete the questionSheet document (which contains embedded questions)
+      await deleteDoc(doc(db, 'questionSheets', sheetToDelete));
+
+      // 2. Clean up any legacy questions docs asynchronously
+      try {
+        const q = query(collection(db, 'questions'), where('sheetId', '==', sheetToDelete));
+        const snap = await getDocs(q);
+        if (snap.docs.length > 0) {
+          const batch = writeBatch(db);
+          snap.docs.forEach(d => batch.delete(d.ref));
+          await batch.commit();
+        }
+      } catch (e) {}
 
       // Update system stats
       await updateStatCount('totalQuestionSheets', -1);
+      triggerAcademicUpdateStamp();
 
       toast.success('Sheet and all questions deleted');
       setSheetToDelete(null);
@@ -1117,14 +1132,37 @@ export default function AdminPanel() {
     setLoading(true);
     try {
       const order = sheetQuestions.length + 1;
-      await addDoc(collection(db, 'questions'), {
-        ...newQuestion,
+      const qId = `q_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`;
+      const createdQ: Question = {
+        id: qId,
         sheetId: selectedSheet.id,
         courseId: selectedSheet.courseId,
+        text: newQuestion.text,
+        correctAnswer: newQuestion.correctAnswer,
+        incorrectAnswers: newQuestion.incorrectAnswers,
+        explanation: newQuestion.explanation,
         order,
         authorId: user.uid,
         createdAt: new Date().toISOString()
+      };
+
+      const updatedQuestions = [...sheetQuestions, createdQ];
+
+      // Save directly to the questionSheets document
+      await updateDoc(doc(db, 'questionSheets', selectedSheet.id), {
+        questions: updatedQuestions
       });
+
+      // Dual-write to legacy questions collection for backup safety
+      try {
+        await setDoc(doc(db, 'questions', qId), createdQ);
+      } catch (e) {}
+
+      setSheetQuestions(updatedQuestions);
+      setSelectedSheet(prev => prev ? ({ ...prev, questions: updatedQuestions }) : null);
+      setQuestionSheets(prev => prev.map(s => s.id === selectedSheet.id ? { ...s, questions: updatedQuestions } : s));
+
+      triggerAcademicUpdateStamp();
       toast.success('Question added to sheet');
       setNewQuestion({ text: '', correctAnswer: '', incorrectAnswers: ['', '', ''], explanation: '' });
     } catch (error: any) {
@@ -1136,15 +1174,42 @@ export default function AdminPanel() {
 
   const handleUpdateQuestion = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!editingQuestion) return;
+    if (!editingQuestion || !selectedSheet) return;
     setLoading(true);
     try {
-      await updateDoc(doc(db, 'questions', editingQuestion.id), {
-        text: editingQuestion.text,
-        correctAnswer: editingQuestion.correctAnswer,
-        incorrectAnswers: editingQuestion.incorrectAnswers,
-        explanation: editingQuestion.explanation
+      const updatedQuestions = sheetQuestions.map(q => {
+        if (q.id === editingQuestion.id) {
+          return {
+            ...q,
+            text: editingQuestion.text,
+            correctAnswer: editingQuestion.correctAnswer,
+            incorrectAnswers: editingQuestion.incorrectAnswers,
+            explanation: editingQuestion.explanation
+          };
+        }
+        return q;
       });
+
+      // Save directly to questionSheet document
+      await updateDoc(doc(db, 'questionSheets', selectedSheet.id), {
+        questions: updatedQuestions
+      });
+
+      // Dual-write to legacy questions collection for backup safety
+      try {
+        await updateDoc(doc(db, 'questions', editingQuestion.id), {
+          text: editingQuestion.text,
+          correctAnswer: editingQuestion.correctAnswer,
+          incorrectAnswers: editingQuestion.incorrectAnswers,
+          explanation: editingQuestion.explanation
+        });
+      } catch (e) {}
+
+      setSheetQuestions(updatedQuestions);
+      setSelectedSheet(prev => prev ? ({ ...prev, questions: updatedQuestions }) : null);
+      setQuestionSheets(prev => prev.map(s => s.id === selectedSheet.id ? { ...s, questions: updatedQuestions } : s));
+
+      triggerAcademicUpdateStamp();
       toast.success('Question updated');
       setEditingQuestion(null);
     } catch (error: any) {
@@ -1155,10 +1220,26 @@ export default function AdminPanel() {
   };
 
   const handleDeleteQuestion = async () => {
-    if (!questionToDelete) return;
+    if (!questionToDelete || !selectedSheet) return;
     setLoading(true);
     try {
-      await deleteDoc(doc(db, 'questions', questionToDelete));
+      const updatedQuestions = sheetQuestions.filter(q => q.id !== questionToDelete);
+
+      // Save directly to questionSheet document
+      await updateDoc(doc(db, 'questionSheets', selectedSheet.id), {
+        questions: updatedQuestions
+      });
+
+      // Dual-write deletion from legacy collection
+      try {
+        await deleteDoc(doc(db, 'questions', questionToDelete));
+      } catch (e) {}
+
+      setSheetQuestions(updatedQuestions);
+      setSelectedSheet(prev => prev ? ({ ...prev, questions: updatedQuestions }) : null);
+      setQuestionSheets(prev => prev.map(s => s.id === selectedSheet.id ? { ...s, questions: updatedQuestions } : s));
+
+      triggerAcademicUpdateStamp();
       toast.success('Question deleted');
       setQuestionToDelete(null);
     } catch (error: any) {
@@ -1230,22 +1311,49 @@ export default function AdminPanel() {
         return;
       }
       
-      const batch = writeBatch(db);
       let currentOrder = sheetQuestions.length + 1;
+      const newQuestionsList: Question[] = [];
+      const batch = writeBatch(db);
       
       for (const q of importedQuestions) {
-        const docRef = doc(collection(db, 'questions'));
-        batch.set(docRef, {
-          ...q,
+        const qId = `q_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`;
+        const qObj: Question = {
+          id: qId,
           sheetId: selectedSheet.id,
           courseId: selectedSheet.courseId,
           order: currentOrder++,
           authorId: user.uid,
-          createdAt: new Date().toISOString()
-        });
+          createdAt: new Date().toISOString(),
+          text: q.text,
+          correctAnswer: q.correctAnswer,
+          incorrectAnswers: q.incorrectAnswers,
+          explanation: q.explanation || ''
+        };
+        newQuestionsList.push(qObj);
+
+        // Also add to legacy batch as safety
+        const docRef = doc(db, 'questions', qId);
+        batch.set(docRef, qObj);
       }
-      
-      await batch.commit();
+
+      const combinedQuestions = [...sheetQuestions, ...newQuestionsList];
+
+      // Save directly into the questionSheet document
+      await updateDoc(doc(db, 'questionSheets', selectedSheet.id), {
+        questions: combinedQuestions
+      });
+
+      // Commit legacy batch safety
+      try {
+        await batch.commit();
+      } catch (e) {}
+
+      // Update state immediately
+      setSheetQuestions(combinedQuestions);
+      setSelectedSheet(prev => prev ? ({ ...prev, questions: combinedQuestions }) : null);
+      setQuestionSheets(prev => prev.map(s => s.id === selectedSheet.id ? { ...s, questions: combinedQuestions } : s));
+      triggerAcademicUpdateStamp();
+
       toast.success(`Imported ${importedQuestions.length} questions successfully`, { id: toastId });
     } catch (error: any) {
       toast.error(`Import failed: ${error.message}`, { id: toastId });
@@ -1487,18 +1595,6 @@ export default function AdminPanel() {
         At: creatorAt
       };
 
-      if (isLendingPin) {
-        const dueDate = new Date(Date.now() + singleLendingDays * 24 * 60 * 60 * 1000).toISOString();
-        const lentWholesale = pinType === 'plus' 
-          ? (systemConfig?.plusWholesalePrice ?? 1500) 
-          : (systemConfig?.standardWholesalePrice ?? 800);
-        pinPayload.isLent = true;
-        pinPayload.loanDays = singleLendingDays;
-        pinPayload.dueDate = dueDate;
-        pinPayload.lentWholesalePrice = lentWholesale;
-        pinPayload.settled = false;
-      }
-
       await setDoc(doc(db, 'activationCodes', pin), pinPayload);
 
       // Update system stats
@@ -1508,19 +1604,18 @@ export default function AdminPanel() {
       
       // Send Telegram Alert for pin generation
       const pinTypeStr = pinType?.toUpperCase() || 'STANDARD';
-      const lendingNote = isLendingPin ? `\n<b>Lending Mode:</b> YES (Due in ${singleLendingDays} days)` : '';
       const pinCreatedAlert = 
         `<b>🆕 ALERT: ACTIVATION PIN GENERATED</b>\n\n` +
         `<b>Source:</b> {source}\n` +
         `<b>Pin Code:</b> ${pin}\n` +
-        `<b>Pin Type:</b> ${pinTypeStr}${lendingNote}\n` +
+        `<b>Pin Type:</b> ${pinTypeStr}\n` +
         `<b>Time Created:</b> ${new Date().toLocaleString()}\n` +
         `<b>Creator Student ID:</b> ${creatorId}\n` +
         `<b>Creator At:</b> ${creatorAt}\n` +
         `<b>Initial Owner:</b> ${creatorId}`;
       await sendTelegramAlert(pinCreatedAlert);
 
-      toast.success(isLendingPin ? 'Borrowed lending PIN generated with auto-due tracking!' : 'Activation pin generated');
+      toast.success('Activation pin generated successfully');
       triggerRefresh();
     } catch (error: any) {
       handleFirestoreError(error, OperationType.WRITE, path);
@@ -1722,8 +1817,6 @@ export default function AdminPanel() {
       const now = new Date().toISOString();
       const creatorId = profile?.studentId || 'Admin';
       const creatorAt = profile?.At || 'futo';
-      const dueDate = new Date(Date.now() + bulkLendingDays * 24 * 60 * 60 * 1000).toISOString();
-      
       for (let i = 0; i < bulkCount; i++) {
         const pin = Math.floor(100000000000 + Math.random() * 900000000000).toString();
         // Determine whether this pin is PLUS or Standard based on includePlus and plusCount
@@ -1739,16 +1832,6 @@ export default function AdminPanel() {
           At: creatorAt
         };
 
-        if (bulkIsLendingPin) {
-          pinData.isLent = true;
-          pinData.loanDays = bulkLendingDays;
-          pinData.dueDate = dueDate;
-          pinData.lentWholesalePrice = type === 'plus' 
-            ? (systemConfig?.plusWholesalePrice ?? 1500) 
-            : (systemConfig?.standardWholesalePrice ?? 800);
-          pinData.settled = false;
-        }
-
         batch.set(doc(db, 'activationCodes', pin), pinData);
       }
       
@@ -1760,11 +1843,10 @@ export default function AdminPanel() {
       // Send Telegram notification
       const numPlus = bulkIncludePlus ? bulkPlusCount : 0;
       const numStandard = bulkCount - numPlus;
-      const lendingNote = bulkIsLendingPin ? `\n<b>Batch Lending Mode:</b> YES (Due in ${bulkLendingDays} days)` : '';
       const bulkAlert = 
         `<b>🆕 ALERT: BULK ACTIVATION PINS GENERATED</b>\n\n` +
         `<b>Source:</b> {source}\n` +
-        `<b>Total Generated:</b> ${bulkCount} (Standard: ${numStandard}, PLUS: ${numPlus})${lendingNote}\n` +
+        `<b>Total Generated:</b> ${bulkCount} (Standard: ${numStandard}, PLUS: ${numPlus})\n` +
         `<b>Time Created:</b> ${new Date(now).toLocaleString()}\n` +
         `<b>Creator Student ID:</b> ${creatorId}\n` +
         `<b>Creator At:</b> ${creatorAt}\n` +
@@ -1818,52 +1900,20 @@ export default function AdminPanel() {
       const vendorUid = vendorDoc.id;
       const vendorName = vendorData.username || 'Vendor';
 
-      // Check if vendor has unsettled debt from used lent pins
-      const vendorLentPinsSnap = await getDocs(query(
-        collection(db, 'activationCodes'),
-        where('assignedTo', '==', vendorUid),
-        where('isLent', '==', true)
-      ));
-      let vendorDebt = 0;
-      let usedUnsettledCount = 0;
-      vendorLentPinsSnap.docs.forEach(d => {
-        const p = d.data();
-        if (p.isUsed && !p.settled) {
-          usedUnsettledCount++;
-          vendorDebt += p.lentWholesalePrice !== undefined 
-            ? p.lentWholesalePrice 
-            : (p.type === 'plus' ? 1500 : 800);
-        }
-      });
-
-      if (vendorDebt > 0) {
-        toast.error(`Transfer Blocked: Vendor ${transferStudentId.trim()} has ₦${vendorDebt.toLocaleString()} in unsettled debt (${usedUnsettledCount} used lent PINs). Dues must be cleared before receiving new inventory.`);
-        setLoading(false);
-        return;
-      }
-
       // Gather transfer info for Telegram alert
       const pinsToTransfer = unusedPins.filter(p => selectedPinIds.includes(p.id));
       const creationTimes = Array.from(new Set(pinsToTransfer.map(p => p.createdAt ? new Date(p.createdAt).toLocaleString() : 'N/A'))).join(', ');
       const numPlus = pinsToTransfer.filter(p => p.type === 'plus').length;
       const numStandard = pinsToTransfer.filter(p => p.type === 'standard').length;
-      const hasLentInTransfer = pinsToTransfer.some(p => p.isLent);
-      const nowIso = new Date().toISOString();
       
       // Perform batch update to assign selected pins to this Level 3 Vendor
       const batch = writeBatch(db);
       selectedPinIds.forEach(id => {
-        const p = pinsToTransfer.find(item => item.id === id);
-        const updatePayload: any = {
+        batch.update(doc(db, 'activationCodes', id), {
           assignedTo: vendorUid,
           assignedToStudentId: transferStudentId.trim(),
           owner: transferStudentId.trim()
-        };
-        if (p?.isLent) {
-          updatePayload.lentAt = nowIso;
-          updatePayload.lentBy = user?.uid;
-        }
-        batch.update(doc(db, 'activationCodes', id), updatePayload);
+        });
       });
       
       await batch.commit();
@@ -1877,7 +1927,6 @@ export default function AdminPanel() {
         `<b>Time of Transfer:</b> ${new Date().toLocaleString()}\n` +
         `<b>Pin(s) Creation Time:</b> ${creationTimes}\n` +
         `<b>Pins Transferred:</b> ${pinsToTransfer.length} (PLUS: ${numPlus}, Standard: ${numStandard})\n` +
-        (hasLentInTransfer ? `<b>Contains Borrowed Lending Stock:</b> YES\n` : '') +
         `<b>Sender Student ID:</b> ${profile?.studentId || 'Admin (N/A)'}\n` +
         `<b>Sender At:</b> ${senderAt}\n` +
         `<b>Receiver Student ID:</b> ${transferStudentId.trim()}\n` +
@@ -1893,164 +1942,6 @@ export default function AdminPanel() {
       toast.error('Failed to transfer pins: ' + error.message);
     } finally {
       setLoading(false);
-    }
-  };
-
-  const handleAutoRecallExpiredPins = async () => {
-    setLoading(true);
-    setIsAutoRecalling(true);
-    try {
-      const q = query(
-        collection(db, 'activationCodes'),
-        where('isLent', '==', true),
-        where('isUsed', '==', false)
-      );
-      const snap = await getDocs(q);
-      const now = new Date();
-      const batch = writeBatch(db);
-      let recalledCount = 0;
-
-      snap.docs.forEach(docSnap => {
-        const pin = docSnap.data() as ActivationCode;
-        if (pin.assignedTo && pin.dueDate) {
-          const due = new Date(pin.dueDate);
-          if (due < now) {
-            recalledCount++;
-            batch.update(doc(db, 'activationCodes', docSnap.id), {
-              assignedTo: null,
-              assignedToStudentId: null,
-              owner: 'Admin/Master Pool',
-              recalledAt: now.toISOString()
-            });
-          }
-        }
-      });
-
-      if (recalledCount === 0) {
-        toast.info("Audit complete: No overdue un-activated lending PINs found.");
-        return;
-      }
-
-      await batch.commit();
-
-      const recallAlert = 
-        `<b>⏰ ALERT: OVERDUE LENT PINS AUTO-RECALLED</b>\n\n` +
-        `<b>Source:</b> {source}\n` +
-        `<b>Time of Recall:</b> ${now.toLocaleString()}\n` +
-        `<b>Pins Recalled:</b> ${recalledCount}\n` +
-        `<b>Audited By:</b> ${profile?.studentId || 'Admin'}`;
-      await sendTelegramAlert(recallAlert);
-
-      toast.success(`Successfully recalled ${recalledCount} overdue borrowed PIN(s) back to the master pool.`);
-      triggerRefresh();
-    } catch (error: any) {
-      console.error("Auto-recall error:", error);
-      toast.error('Failed to run auto-recall: ' + error.message);
-    } finally {
-      setLoading(false);
-      setIsAutoRecalling(false);
-    }
-  };
-
-  const handleReturnLentPinsVendor = async () => {
-    const vendorUnusedLentPins = unusedPins.filter(p => p.assignedTo === user?.uid && p.isLent);
-    if (vendorUnusedLentPins.length === 0) {
-      toast.info("You do not have any unused borrowed PINs to return.");
-      return;
-    }
-
-    setLoading(true);
-    setIsReturnLentLoading(true);
-    try {
-      const batch = writeBatch(db);
-      const now = new Date().toISOString();
-      vendorUnusedLentPins.forEach(p => {
-        batch.update(doc(db, 'activationCodes', p.id), {
-          assignedTo: null,
-          assignedToStudentId: null,
-          owner: 'Admin/Master Pool',
-          returnedAt: now
-        });
-      });
-
-      await batch.commit();
-
-      const returnAlert = 
-        `<b>📦 ALERT: BORROWED PINS RETURNED BY VENDOR</b>\n\n` +
-        `<b>Source:</b> {source}\n` +
-        `<b>Time:</b> ${new Date().toLocaleString()}\n` +
-        `<b>Pins Returned:</b> ${vendorUnusedLentPins.length}\n` +
-        `<b>Vendor Student ID:</b> ${profile?.studentId || 'N/A'}\n` +
-        `<b>Vendor Name:</b> ${profile?.username || 'Vendor'}`;
-      await sendTelegramAlert(returnAlert);
-
-      toast.success(`Successfully returned ${vendorUnusedLentPins.length} borrowed PIN(s) to Colearn inventory.`);
-      triggerRefresh();
-    } catch (error: any) {
-      console.error("Return lent pins error:", error);
-      toast.error('Failed to return pins: ' + error.message);
-    } finally {
-      setLoading(false);
-      setIsReturnLentLoading(false);
-    }
-  };
-
-  const handleClearVendorDebt = async () => {
-    if (!settlementVendor) return;
-    setSettlingLoading(true);
-    try {
-      const now = new Date().toISOString();
-      const batch = writeBatch(db);
-
-      // Update all unsettled lent pins for this vendor
-      settlementVendor.pinIds.forEach(id => {
-        batch.update(doc(db, 'activationCodes', id), {
-          settled: true,
-          settledAt: now,
-          settledBy: user?.uid
-        });
-      });
-
-      // Create a record in lendingSettlements
-      const settlementDocRef = doc(collection(db, 'lendingSettlements'));
-      batch.set(settlementDocRef, {
-        vendorUid: settlementVendor.uid,
-        vendorStudentId: settlementVendor.studentId,
-        vendorUsername: settlementVendor.username || '',
-        amount: settlementVendor.amount,
-        clearedAt: now,
-        clearedBy: user?.uid || '',
-        clearedByStudentId: profile?.studentId || '',
-        clearedByLevel: profile?.level || '',
-        pinIds: settlementVendor.pinIds,
-        pinCount: settlementVendor.count,
-        note: settlementNote.trim() || 'Paid in full',
-        At: profile?.At || 'futo'
-      });
-
-      await batch.commit();
-
-      const settleAlert = 
-        `<b>✅ ALERT: VENDOR LENDING DEBT CLEARED & SETTLED</b>\n\n` +
-        `<b>Source:</b> {source}\n` +
-        `<b>Time:</b> ${new Date().toLocaleString()}\n` +
-        `<b>Vendor Student ID:</b> ${settlementVendor.studentId}\n` +
-        `<b>Vendor Username:</b> ${settlementVendor.username || 'Vendor'}\n` +
-        `<b>Amount Cleared:</b> NGN ${settlementVendor.amount.toLocaleString()}\n` +
-        `<b>Pins Settled:</b> ${settlementVendor.count}\n` +
-        `<b>Admin Student ID:</b> ${profile?.studentId || 'Admin'}\n` +
-        `<b>Note:</b> ${settlementNote.trim() || 'None'}`;
-      await sendTelegramAlert(settleAlert);
-
-      toast.success(`Successfully cleared ₦${settlementVendor.amount.toLocaleString()} debt for ${settlementVendor.studentId}!`);
-      setSettlementVendor(null);
-      setSettlementNote('');
-      triggerRefresh();
-    } catch (error: any) {
-      console.error("Debt settlement error:", error);
-      toast.error('Failed to settle debt: ' + error.message);
-    } finally {
-      setSettlingLoading(false);
     }
   };
 
@@ -4335,273 +4226,30 @@ export default function AdminPanel() {
           <div className="space-y-6">
             {!isLevel4 ? (
               /* ========================================== */
-              /* LEVEL 3 VENDOR DASHBOARD ELEMENT         */
+              /* LEVEL 3 VENDOR COMMISSION DASHBOARD      */
               /* ========================================== */
-              <div className="space-y-6">
-                {/* Vendor Overview Cards */}
-                <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-                  <Card>
-                    <CardHeader className="flex flex-row items-center justify-between pb-2">
-                      <CardTitle className="text-sm font-medium text-muted-foreground">My Available Pins</CardTitle>
-                      <Key className="h-4 w-4 text-primary" />
-                    </CardHeader>
-                    <CardContent>
-                      <div className="text-3xl font-bold">
-                        {unusedPins.filter(p => p.assignedTo === user?.uid).length}
-                      </div>
-                      <p className="text-xs text-muted-foreground mt-1">
-                        Total unused activation pins in inventory
-                      </p>
-                    </CardContent>
-                  </Card>
-
-                  <Card>
-                    <CardHeader className="flex flex-row items-center justify-between pb-2">
-                      <CardTitle className="text-sm font-medium text-muted-foreground">Borrowed Stock</CardTitle>
-                      <Clock className="h-4 w-4 text-amber-500" />
-                    </CardHeader>
-                    <CardContent>
-                      <div className="text-3xl font-bold text-amber-600">
-                        {unusedPins.filter(p => p.assignedTo === user?.uid && p.isLent).length}
-                      </div>
-                      <p className="text-xs text-muted-foreground mt-1">
-                        Unsold borrowed pins (no upfront cost)
-                      </p>
-                    </CardContent>
-                  </Card>
-
-                  <Card className={(() => {
-                    const myDebt = usedPins
-                      .filter(p => p.assignedTo === user?.uid && p.isLent && !p.settled)
-                      .reduce((sum, p) => sum + (p.lentWholesalePrice !== undefined ? p.lentWholesalePrice : (p.type === 'plus' ? 1500 : 800)), 0);
-                    return myDebt > 0 ? "border-rose-500/50 bg-rose-50/20 dark:bg-rose-950/10" : "";
-                  })()}>
-                    <CardHeader className="flex flex-row items-center justify-between pb-2">
-                      <CardTitle className="text-sm font-medium text-muted-foreground">Outstanding Debt to Colearn</CardTitle>
-                      <DollarSign className="h-4 w-4 text-rose-500" />
-                    </CardHeader>
-                    <CardContent>
-                      <div className="text-3xl font-bold text-rose-600">
-                        ₦{(() => {
-                          const myDebt = usedPins
-                            .filter(p => p.assignedTo === user?.uid && p.isLent && !p.settled)
-                            .reduce((sum, p) => sum + (p.lentWholesalePrice !== undefined ? p.lentWholesalePrice : (p.type === 'plus' ? 1500 : 800)), 0);
-                          return myDebt.toLocaleString();
-                        })()}
-                      </div>
-                      <p className="text-xs text-muted-foreground mt-1">
-                        {(() => {
-                          const unsettledCount = usedPins.filter(p => p.assignedTo === user?.uid && p.isLent && !p.settled).length;
-                          return unsettledCount > 0 
-                            ? `${unsettledCount} used borrowed PINs awaiting admin settlement` 
-                            : 'All borrowed PINs settled';
-                        })()}
-                      </p>
-                    </CardContent>
-                  </Card>
-                  
-                  <Card>
-                    <CardHeader className="flex flex-row items-center justify-between pb-2">
-                      <CardTitle className="text-sm font-medium text-muted-foreground">Monthly Sales Volume</CardTitle>
-                      <span className="text-primary font-bold text-sm">₦</span>
-                    </CardHeader>
-                    <CardContent>
-                      <div className="text-3xl font-bold">
-                        ₦{(() => {
-                          const mySoldPins = usedPins.filter(p => p.assignedTo === user?.uid);
-                          const currentYearMonth = new Date().toISOString().slice(0, 7);
-                          const thisMonthSold = mySoldPins.filter(p => {
-                            const usedAtVal: any = p.usedAt;
-                            if (!usedAtVal) return false;
-                            let dateStr = '';
-                            if (typeof usedAtVal === 'string') {
-                              dateStr = usedAtVal;
-                            } else if (usedAtVal && typeof usedAtVal === 'object') {
-                              if (typeof usedAtVal.toDate === 'function') {
-                                dateStr = usedAtVal.toDate().toISOString();
-                              } else if (typeof usedAtVal.seconds === 'number') {
-                                dateStr = new Date(usedAtVal.seconds * 1000).toISOString();
-                              }
-                            }
-                            return dateStr && dateStr.startsWith(currentYearMonth);
-                          });
-                          
-                          const total = thisMonthSold.reduce((sum, p) => {
-                            const price = p.type === 'plus' 
-                              ? (systemConfig?.plusPrice ?? 5000) 
-                              : (systemConfig?.standardPrice ?? 3000);
-                            return sum + price;
-                          }, 0);
-                          return total.toLocaleString();
-                        })()}
-                      </div>
-                      <p className="text-xs text-muted-foreground mt-1">
-                        Retail volume for this calendar month
-                      </p>
-                    </CardContent>
-                  </Card>
-                </div>
-
-                {/* Vendor Lending Notice & Return Action */}
-                {unusedPins.some(p => p.assignedTo === user?.uid && p.isLent) && (
-                  <Card className="border-amber-200 bg-amber-50/50 dark:bg-amber-950/20">
-                    <CardContent className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 p-4">
-                      <div className="space-y-1">
-                        <div className="flex items-center gap-2 font-semibold text-amber-900 dark:text-amber-200">
-                          <Clock className="h-4 w-4 text-amber-600" />
-                          <span>Lending Protection Active: Zero Capital Stock</span>
-                        </div>
-                        <p className="text-xs text-amber-700 dark:text-amber-300">
-                          You only pay wholesale price (Standard: ₦{(systemConfig?.standardWholesalePrice ?? 800).toLocaleString()} / PLUS: ₦{(systemConfig?.plusWholesalePrice ?? 1500).toLocaleString()}) for borrowed PINs <b>after a student activates them</b>. Any unsold PINs automatically return upon expiration or you can return them early.
-                        </p>
-                      </div>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        disabled={loading || isReturnLentLoading}
-                        onClick={handleReturnLentPinsVendor}
-                        className="whitespace-nowrap border-amber-300 hover:bg-amber-100 dark:hover:bg-amber-900/40 text-amber-900 dark:text-amber-100"
-                      >
-                        <Undo2 className="h-3.5 w-3.5 mr-1.5" />
-                        {isReturnLentLoading ? 'Returning...' : 'Return Unused Borrowed PINs'}
-                      </Button>
-                    </CardContent>
-                  </Card>
-                )}
-
-                <div className="grid gap-6 md:grid-cols-2">
-                  <Card>
-                    <CardHeader>
-                      <CardTitle>My Available Pins</CardTitle>
-                      <CardDescription>Pins in your inventory ready for distribution to students.</CardDescription>
-                    </CardHeader>
-                    <CardContent>
-                      <div className="max-h-[400px] overflow-y-auto space-y-2">
-                        {unusedPins.filter(p => p.assignedTo === user?.uid).length > 0 ? (
-                          unusedPins.filter(p => p.assignedTo === user?.uid).map(pin => (
-                            <div key={pin.id} className="flex items-center justify-between p-3 bg-muted rounded-lg border">
-                              <div className="flex flex-col gap-1">
-                                <div className="flex items-center gap-2">
-                                  <code className="font-mono font-bold tracking-wider">{pin.code}</code>
-                                  {pin.type === 'plus' ? (
-                                    <Badge variant="default" className="text-[8px] h-4 px-1 leading-none bg-primary">PLUS</Badge>
-                                  ) : (
-                                    <Badge variant="secondary" className="text-[8px] h-4 px-1 leading-none">STANDARD</Badge>
-                                  )}
-                                  {pin.isLent && (
-                                    <Badge variant="outline" className="text-[8px] h-4 px-1 leading-none border-amber-500 text-amber-600 bg-amber-50 dark:bg-amber-950/40">
-                                      BORROWED {pin.dueDate ? `(Due: ${safeFormatDateOnly(pin.dueDate)})` : ''}
-                                    </Badge>
-                                  )}
-                                </div>
-                                <span className="text-[10px] text-muted-foreground">Received on {safeFormatDateOnly(pin.createdAt)}</span>
-                              </div>
-                              <Button 
-                                variant="outline" 
-                                size="icon" 
-                                className="h-8 w-8" 
-                                onClick={() => copyToClipboard(pin.code)}
-                              >
-                                <Copy className="h-4 w-4" />
-                              </Button>
-                            </div>
-                          ))
-                        ) : (
-                          <p className="text-sm text-muted-foreground text-center py-4">You have no unused pins. Request stock from admins to begin vending.</p>
-                        )}
-                      </div>
-                    </CardContent>
-                  </Card>
-
-                  <Card>
-                    <CardHeader className="flex flex-row items-center justify-between space-y-0">
-                      <div className="space-y-1">
-                        <CardTitle>Sold Pins History</CardTitle>
-                        <CardDescription>Pins activated by students purchased through you.</CardDescription>
-                      </div>
-                      {usedPins.filter(p => p.assignedTo === user?.uid).length > 0 && (
-                        <Button 
-                          variant="ghost" 
-                          size="sm" 
-                          className="text-destructive text-xs hover:bg-destructive/10"
-                          onClick={() => setShowClearConfirm(true)}
-                        >
-                          <RefreshCw className="h-3 w-3 mr-1" />
-                          Clear History
-                        </Button>
-                      )}
-                    </CardHeader>
-                    <CardContent>
-                      <div className="max-h-[400px] overflow-y-auto space-y-2">
-                        {usedPins.filter(p => p.assignedTo === user?.uid).length > 0 ? (
-                          usedPins.filter(p => p.assignedTo === user?.uid).map(pin => (
-                            <div key={pin.id} className="p-3 bg-muted/50 rounded-lg border space-y-1">
-                              <div className="flex items-center justify-between">
-                                <div className="flex items-center gap-2">
-                                  <code className="font-mono font-bold text-primary">{pin.code}</code>
-                                  {pin.type === 'plus' ? (
-                                    <Badge variant="default" className="text-[8px] h-4 px-1 leading-none bg-primary">PLUS</Badge>
-                                  ) : (
-                                    <Badge variant="secondary" className="text-[8px] h-4 px-1 leading-none">STANDARD</Badge>
-                                  )}
-                                  {pin.isLent && (
-                                    <Badge variant="outline" className={`text-[8px] h-4 px-1 leading-none ${pin.settled ? 'border-emerald-500 text-emerald-600' : 'border-rose-500 text-rose-600 bg-rose-50 dark:bg-rose-950/30'}`}>
-                                      {pin.settled ? 'OWED CLEARED' : `OWED: ₦${(pin.lentWholesalePrice !== undefined ? pin.lentWholesalePrice : (pin.type === 'plus' ? 1500 : 800)).toLocaleString()}`}
-                                    </Badge>
-                                  )}
-                                </div>
-                                <span className="text-[10px] text-muted-foreground">{safeFormatDate(pin.usedAt, 'N/A')}</span>
-                              </div>
-                              <p className="text-[10px] text-muted-foreground">
-                                <span className="font-semibold">Used by student ID:</span> <span className="font-mono">{pin.usedByStudentId || 'N/A'}</span>
-                              </p>
-                            </div>
-                          ))
-                        ) : (
-                          <p className="text-sm text-muted-foreground text-center py-4">No pins used yet.</p>
-                        )}
-                      </div>
-                    </CardContent>
-                  </Card>
-                </div>
-              </div>
+              <VendorCommissionDashboard
+                user={user}
+                profile={profile}
+                systemConfig={systemConfig}
+                unusedPins={unusedPins}
+                usedPins={usedPins}
+                onRefresh={triggerRefresh}
+              />
             ) : (
               /* ========================================== */
               /* LEVEL 4 FULL ADMIN ELEMENT               */
               /* ========================================== */
               <div className="space-y-6">
-                {/* Overdue Lending Audit & Recall Banner */}
-                <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 p-4 bg-primary/5 rounded-xl border border-primary/20">
-                  <div className="space-y-0.5">
-                    <div className="flex items-center gap-2 font-semibold">
-                      <Clock className="h-4 w-4 text-primary" />
-                      <span>Colearn PIN Lending Protocol</span>
-                    </div>
-                    <p className="text-xs text-muted-foreground">
-                      Protect low-capital vendors by generating lending PINs. When used, wholesale debt automatically accrues on their account. Unsold PINs past their due date can be auto-recalled back to the master pool.
-                    </p>
-                  </div>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    disabled={loading || isAutoRecalling}
-                    onClick={handleAutoRecallExpiredPins}
-                    className="whitespace-nowrap"
-                  >
-                    <RefreshCw className={`h-3.5 w-3.5 mr-1.5 ${isAutoRecalling ? 'animate-spin' : ''}`} />
-                    {isAutoRecalling ? 'Auditing...' : 'Auto-Recall Overdue PINs'}
-                  </Button>
-                </div>
-
                 <div className="grid gap-6 md:grid-cols-2">
-                  {/* Single PIN Generation with Lending Toggle */}
+                  {/* Single PIN Generation */}
                   <Card>
                     <CardHeader>
                       <CardTitle className="flex items-center gap-2">
                         <Key className="h-5 w-5" />
                         Generate Activation Pin
                       </CardTitle>
-                      <CardDescription>Generate a single unique 12-digit pin for immediate use or vendor lending.</CardDescription>
+                      <CardDescription>Generate a single unique 12-digit pin for immediate student use.</CardDescription>
                     </CardHeader>
                     <CardContent className="flex flex-col items-center justify-center py-4 gap-4">
                       {generatedCode && (
@@ -4614,11 +4262,6 @@ export default function AdminPanel() {
                               <Badge variant={pinType === 'plus' ? 'default' : 'secondary'} className="w-fit">
                                 {pinType === 'plus' ? 'PLUS PIN' : 'STANDARD PIN'}
                               </Badge>
-                              {isLendingPin && (
-                                <Badge variant="outline" className="border-amber-500 text-amber-600 bg-amber-50 dark:bg-amber-950/40 text-[10px]">
-                                  LENDING STOCK ({singleLendingDays}d)
-                                </Badge>
-                              )}
                             </div>
                           </div>
                           <Button 
@@ -4649,57 +4292,22 @@ export default function AdminPanel() {
                             PLUS
                           </Button>
                         </div>
-
-                        {/* Lending Checkbox for Single Pin */}
-                        <div className="w-full p-3 bg-muted/60 rounded-lg border space-y-2">
-                          <div className="flex items-center gap-2">
-                            <input 
-                              type="checkbox" 
-                              id="singleIsLendingPin" 
-                              className="h-4 w-4 rounded border-gray-300 text-primary cursor-pointer" 
-                              checked={isLendingPin} 
-                              onChange={(e) => setIsLendingPin(e.target.checked)} 
-                            />
-                            <Label htmlFor="singleIsLendingPin" className="cursor-pointer font-medium text-xs">
-                              Lend as Borrowed PIN (Vendor Protection)
-                            </Label>
-                          </div>
-                          {isLendingPin && (
-                            <div className="space-y-1.5 pt-1 animate-in fade-in slide-in-from-top-1 duration-150">
-                              <div className="flex items-center justify-between">
-                                <Label className="text-[11px] text-muted-foreground">Loan Duration / Due Date (Days):</Label>
-                                <span className="text-[11px] font-mono font-bold text-primary">{singleLendingDays} days</span>
-                              </div>
-                              <Input 
-                                type="number" 
-                                min={1} 
-                                max={90} 
-                                value={singleLendingDays} 
-                                onChange={(e) => setSingleLendingDays(Math.max(1, Number(e.target.value)))} 
-                                className="h-8 text-xs"
-                              />
-                              <p className="text-[10px] text-muted-foreground">
-                                Wholesale rate: Standard (₦{(systemConfig?.standardWholesalePrice ?? 800).toLocaleString()}) • PLUS (₦{(systemConfig?.plusWholesalePrice ?? 1500).toLocaleString()}). Unsold pins auto-recall after {singleLendingDays} days.
-                              </p>
-                            </div>
-                          )}
-                        </div>
                         
                         <Button onClick={generatePin} disabled={loading} className="w-full">
-                          {loading ? 'Generating...' : `Generate ${isLendingPin ? 'Borrowed ' : ''}${pinType.toUpperCase()} Pin`}
+                          {loading ? 'Generating...' : `Generate ${pinType.toUpperCase()} Pin`}
                         </Button>
                       </div>
                     </CardContent>
                   </Card>
 
-                  {/* Bulk Pin Generation with Lending Toggle */}
+                  {/* Bulk Pin Generation */}
                   <Card>
                     <CardHeader>
                       <CardTitle className="flex items-center gap-2">
                         <Plus className="h-5 w-5" />
                         Bulk Pin Generation
                       </CardTitle>
-                      <CardDescription>Generate multiple activation codes at once for regular pool or lending inventory.</CardDescription>
+                      <CardDescription>Generate multiple activation codes at once for the master distribution pool.</CardDescription>
                     </CardHeader>
                     <CardContent className="space-y-4">
                       <div className="space-y-2">
@@ -4742,44 +4350,8 @@ export default function AdminPanel() {
                         )}
                       </div>
 
-                      {/* Bulk Lending Checkbox */}
-                      <div className="space-y-3 p-3 bg-muted/60 rounded-lg border">
-                        <div className="flex items-center gap-2">
-                          <input 
-                            type="checkbox" 
-                            id="bulkIsLendingPin" 
-                            className="h-4 w-4 rounded border-gray-300 text-primary cursor-pointer" 
-                            checked={bulkIsLendingPin} 
-                            onChange={(e) => setBulkIsLendingPin(e.target.checked)} 
-                          />
-                          <Label htmlFor="bulkIsLendingPin" className="cursor-pointer font-medium text-xs">
-                            Lend as Borrowed PINs (Vendor Protection)
-                          </Label>
-                        </div>
-
-                        {bulkIsLendingPin && (
-                          <div className="space-y-1.5 pt-1 animate-in fade-in slide-in-from-top-1 duration-150">
-                            <div className="flex items-center justify-between">
-                              <Label className="text-[11px] text-muted-foreground">Repayment & Recall Due Days:</Label>
-                              <span className="text-[11px] font-mono font-bold text-primary">{bulkLendingDays} days</span>
-                            </div>
-                            <Input 
-                              type="number" 
-                              min={1} 
-                              max={90} 
-                              value={bulkLendingDays} 
-                              onChange={(e) => setBulkLendingDays(Math.max(1, Number(e.target.value)))} 
-                              className="h-8 text-xs"
-                            />
-                            <p className="text-[10px] text-muted-foreground">
-                              All {bulkCount} pins will be marked as lent inventory. When transferred to Level 3 vendors, they remain tracked and only activated pins will count towards debt.
-                            </p>
-                          </div>
-                        )}
-                      </div>
-
                       <Button onClick={handleBulkGeneratePins} disabled={loading} className="w-full">
-                        {loading ? 'Processing...' : `Bulk Generate ${bulkCount} ${bulkIsLendingPin ? 'Borrowed ' : ''}Pins`}
+                        {loading ? 'Processing...' : `Bulk Generate ${bulkCount} Pins`}
                       </Button>
                     </CardContent>
                   </Card>
@@ -4790,7 +4362,7 @@ export default function AdminPanel() {
                   <Card className="flex flex-col">
                     <CardHeader className="flex flex-col">
                       <CardTitle>Transfer Pins to Vendor</CardTitle>
-                      <CardDescription>Select unused pins below and assign them to a Level 3 Vendor. Unsettled debt blocks transfers.</CardDescription>
+                      <CardDescription>Select unused pins below and assign them to a Level 3 Vendor.</CardDescription>
                     </CardHeader>
                     <CardContent className="space-y-4 flex-1 col">
                       <div className="space-y-2">
@@ -4804,9 +4376,7 @@ export default function AdminPanel() {
                       <div className="p-3 bg-primary/5 rounded-lg border border-primary/20 text-xs flex flex-col gap-1 text-muted-foreground mb-4">
                         <span className="font-semibold text-primary">Selected Pins: {selectedPinIds.length}</span>
                         <span>
-                          {selectedPinIds.some(id => unusedPins.find(p => p.id === id)?.isLent) 
-                            ? 'Contains Borrowed Stock: Vendor only owes wholesale fees once students use them.'
-                            : 'Standard Stock: Ensure payment has been verified if not lending.'}
+                          Transferred pins will appear directly in the vendor's available inventory for distribution.
                         </span>
                       </div>
                       <Button 
@@ -4896,166 +4466,7 @@ export default function AdminPanel() {
                   </Card>
                 </div>
 
-                {/* Vendor Lending & Debt Ledger Table */}
-                <Card>
-                  <CardHeader className="flex flex-row items-center justify-between pb-2">
-                    <div className="space-y-1">
-                      <CardTitle className="flex items-center gap-2">
-                        <CreditCard className="h-5 w-5 text-primary" />
-                        Vendor Lending & Debt Tracking Ledger
-                      </CardTitle>
-                      <CardDescription>
-                        Real-time tracking of borrowed inventory across all Level 3 vendors. Debt accumulates strictly when students activate borrowed PINs.
-                      </CardDescription>
-                    </div>
-                  </CardHeader>
-                  <CardContent>
-                    {(() => {
-                      // Group lent pins by vendor (assignedTo / assignedToStudentId)
-                      const lentPins = allActivationCodes.filter(p => p.isLent && p.assignedTo);
-                      const vendorMap: { [uid: string]: {
-                        uid: string;
-                        studentId: string;
-                        totalLent: number;
-                        usedCount: number;
-                        unusedCount: number;
-                        unsettledPins: ActivationCode[];
-                        settledCount: number;
-                        totalDebt: number;
-                        earliestDue: string | null;
-                      }} = {};
 
-                      lentPins.forEach(pin => {
-                        const vUid = pin.assignedTo || 'unknown';
-                        if (!vendorMap[vUid]) {
-                          vendorMap[vUid] = {
-                            uid: vUid,
-                            studentId: pin.assignedToStudentId || 'N/A',
-                            totalLent: 0,
-                            usedCount: 0,
-                            unusedCount: 0,
-                            unsettledPins: [],
-                            settledCount: 0,
-                            totalDebt: 0,
-                            earliestDue: null
-                          };
-                        }
-                        const v = vendorMap[vUid];
-                        v.totalLent++;
-                        if (pin.isUsed) {
-                          v.usedCount++;
-                          if (!pin.settled) {
-                            v.unsettledPins.push(pin);
-                            const cost = pin.lentWholesalePrice !== undefined 
-                              ? pin.lentWholesalePrice 
-                              : (pin.type === 'plus' ? 1500 : 800);
-                            v.totalDebt += cost;
-                          } else {
-                            v.settledCount++;
-                          }
-                        } else {
-                          v.unusedCount++;
-                          if (pin.dueDate) {
-                            if (!v.earliestDue || new Date(pin.dueDate) < new Date(v.earliestDue)) {
-                              v.earliestDue = pin.dueDate;
-                            }
-                          }
-                        }
-                      });
-
-                      const vendorList = Object.values(vendorMap);
-
-                      if (vendorList.length === 0) {
-                        return (
-                          <div className="py-8 text-center text-muted-foreground text-sm space-y-1">
-                            <Clock className="h-8 w-8 mx-auto text-muted-foreground/50 mb-2" />
-                            <p className="font-medium">No Active Vendor Loans</p>
-                            <p className="text-xs">When you generate and transfer borrowed PINs, vendor loan balances and auto-due tracking will appear here.</p>
-                          </div>
-                        );
-                      }
-
-                      return (
-                        <div className="overflow-x-auto">
-                          <table className="w-full text-xs text-left">
-                            <thead className="text-[11px] text-muted-foreground uppercase border-b bg-muted/30">
-                              <tr>
-                                <th className="px-3 py-2.5">Vendor (Student ID)</th>
-                                <th className="px-3 py-2.5">Total Lent</th>
-                                <th className="px-3 py-2.5">Used (Activated)</th>
-                                <th className="px-3 py-2.5">Unused Stock</th>
-                                <th className="px-3 py-2.5">Next Expiry / Due</th>
-                                <th className="px-3 py-2.5">Outstanding Debt</th>
-                                <th className="px-3 py-2.5 text-right">Settlement Action</th>
-                              </tr>
-                            </thead>
-                            <tbody className="divide-y divide-border">
-                              {vendorList.map(v => {
-                                const isPastDue = v.earliestDue ? new Date(v.earliestDue) < new Date() : false;
-                                return (
-                                  <tr key={v.uid} className="hover:bg-muted/40 transition-colors">
-                                    <td className="px-3 py-3 font-semibold font-mono flex items-center gap-1.5">
-                                      <Users className="h-3.5 w-3.5 text-primary" />
-                                      {v.studentId}
-                                    </td>
-                                    <td className="px-3 py-3">{v.totalLent} PINs</td>
-                                    <td className="px-3 py-3 font-medium text-emerald-600">
-                                      {v.usedCount}
-                                      {v.settledCount > 0 && (
-                                        <span className="text-[10px] text-muted-foreground ml-1">({v.settledCount} cleared)</span>
-                                      )}
-                                    </td>
-                                    <td className="px-3 py-3">{v.unusedCount}</td>
-                                    <td className="px-3 py-3">
-                                      {v.earliestDue ? (
-                                        <span className={`inline-flex items-center gap-1 font-mono text-[10px] px-1.5 py-0.5 rounded ${isPastDue ? 'bg-rose-100 text-rose-700 dark:bg-rose-950/40 dark:text-rose-300' : 'bg-muted'}`}>
-                                          <Calendar className="h-3 w-3" />
-                                          {safeFormatDateOnly(v.earliestDue)}
-                                          {isPastDue && ' (EXPIRED)'}
-                                        </span>
-                                      ) : (
-                                        <span className="text-muted-foreground">N/A</span>
-                                      )}
-                                    </td>
-                                    <td className="px-3 py-3">
-                                      <span className={`font-bold font-mono text-sm ${v.totalDebt > 0 ? 'text-rose-600' : 'text-emerald-600'}`}>
-                                        ₦{v.totalDebt.toLocaleString()}
-                                      </span>
-                                    </td>
-                                    <td className="px-3 py-3 text-right">
-                                      {v.totalDebt > 0 ? (
-                                        <Button
-                                          size="sm"
-                                          className="h-7 text-xs bg-emerald-600 hover:bg-emerald-700 text-white"
-                                          onClick={() => {
-                                            setSettlementVendor({
-                                              uid: v.uid,
-                                              studentId: v.studentId,
-                                              count: v.unsettledPins.length,
-                                              amount: v.totalDebt,
-                                              pinIds: v.unsettledPins.map(p => p.id)
-                                            });
-                                          }}
-                                        >
-                                          <CheckCircle className="h-3.5 w-3.5 mr-1" />
-                                          Settle & Clear Debt
-                                        </Button>
-                                      ) : (
-                                        <Badge variant="outline" className="text-[10px] text-emerald-600 border-emerald-500">
-                                          Fully Settled
-                                        </Badge>
-                                      )}
-                                    </td>
-                                  </tr>
-                                );
-                              })}
-                            </tbody>
-                          </table>
-                        </div>
-                      );
-                    })()}
-                  </CardContent>
-                </Card>
 
                 {/* Master Inventory & Used Pins History */}
                 <div className="grid gap-6 md:grid-cols-2">
@@ -5109,11 +4520,6 @@ export default function AdminPanel() {
                                       <Badge variant="default" className="text-[8px] h-4 px-1 leading-none bg-primary">PLUS</Badge>
                                     ) : (
                                       <Badge variant="secondary" className="text-[8px] h-4 px-1 leading-none">STANDARD</Badge>
-                                    )}
-                                    {pin.isLent && (
-                                      <Badge variant="outline" className="text-[8px] h-4 px-1 leading-none border-amber-500 text-amber-600 bg-amber-50 dark:bg-amber-950/40">
-                                        LENT {pin.loanDays ? `(${pin.loanDays}d)` : ''}
-                                      </Badge>
                                     )}
                                   </div>
                                   <span className="text-[10px] text-muted-foreground">
@@ -5180,11 +4586,6 @@ export default function AdminPanel() {
                                   ) : (
                                     <Badge variant="secondary" className="text-[8px] h-4 px-1 leading-none">STANDARD</Badge>
                                   )}
-                                  {pin.isLent && (
-                                    <Badge variant="outline" className={`text-[8px] h-4 px-1 leading-none ${pin.settled ? 'border-emerald-500 text-emerald-600' : 'border-rose-500 text-rose-600 bg-rose-50 dark:bg-rose-950/30'}`}>
-                                      {pin.settled ? 'OWED SETTLED' : `OWED ₦${(pin.lentWholesalePrice !== undefined ? pin.lentWholesalePrice : (pin.type === 'plus' ? 1500 : 800)).toLocaleString()}`}
-                                    </Badge>
-                                  )}
                                 </div>
                                 <span className="text-[10px] text-muted-foreground">{safeFormatDate(pin.usedAt, 'Unknown')}</span>
                               </div>
@@ -5221,8 +4622,8 @@ export default function AdminPanel() {
                 {/* Transferred Pins History for Level 4 */}
                 <Card className="mt-6">
                   <CardHeader>
-                    <CardTitle>Transferred & Borrowed Pins History ({transferredPins.length})</CardTitle>
-                    <CardDescription>Pins that have been transferred out to vendors (Level 3 students). Borrowed pins remain tracked here with live wholesale debt calculations.</CardDescription>
+                    <CardTitle>Transferred Pins History ({transferredPins.length})</CardTitle>
+                    <CardDescription>Pins that have been transferred out to vendors (Level 3 students).</CardDescription>
                   </CardHeader>
                   <CardContent>
                     <div className="max-h-[300px] overflow-y-auto space-y-2">
@@ -5243,27 +4644,14 @@ export default function AdminPanel() {
                                   ) : (
                                     <Badge variant="secondary" className="text-[8px] h-4 px-1 leading-none">STD</Badge>
                                   )}
-                                  {pin.isLent && (
-                                    <Badge variant="outline" className="text-[8px] h-4 px-1 leading-none border-amber-500 text-amber-600 bg-amber-50 dark:bg-amber-950/40">
-                                      LENT
-                                    </Badge>
-                                  )}
                                 </div>
                               </div>
                               <div className="text-[10px] text-muted-foreground space-y-0.5">
                                 <p><span className="font-semibold">Transferred to Student:</span> {pin.assignedToStudentId || 'Unknown Vendor'}</p>
                                 <p><span className="font-semibold">Current Owner:</span> {pin.owner || 'Admin/Master Pool'}</p>
-                                {pin.dueDate && (
-                                  <p><span className="font-semibold">Due Date:</span> {safeFormatDateOnly(pin.dueDate)}</p>
-                                )}
                                 {pin.isUsed && (
                                   <p>
                                     <span className="font-semibold">Activated by:</span> {pin.usedByStudentId || 'N/A'}
-                                    {pin.isLent && (
-                                      <span className={pin.settled ? " text-emerald-600 font-semibold ml-1" : " text-rose-600 font-semibold ml-1"}>
-                                        (Wholesale: ₦{(pin.lentWholesalePrice !== undefined ? pin.lentWholesalePrice : (pin.type === 'plus' ? 1500 : 800)).toLocaleString()} - {pin.settled ? 'SETTLED' : 'OWED'})
-                                      </span>
-                                    )}
                                   </p>
                                 )}
                                 <p className="italic text-[9px]">Transferred on {pin.usedAt ? safeFormatDateOnly(pin.usedAt) : safeFormatDateOnly(pin.createdAt)}</p>
@@ -5279,63 +4667,6 @@ export default function AdminPanel() {
                 </Card>
               </div>
             )}
-
-            {/* Vendor Debt Settlement Confirmation Dialog */}
-            <Dialog open={!!settlementVendor} onOpenChange={(open) => !open && setSettlementVendor(null)}>
-              <DialogContent className="max-w-md">
-                <DialogHeader>
-                  <DialogTitle className="flex items-center gap-2">
-                    <CheckCircle className="h-5 w-5 text-emerald-600" />
-                    Settle Vendor Lending Debt
-                  </DialogTitle>
-                  <DialogDescription>
-                    Record payment confirmation and clear the outstanding Colearn wholesale balance for this vendor.
-                  </DialogDescription>
-                </DialogHeader>
-
-                {settlementVendor && (
-                  <div className="space-y-4 py-2 text-sm">
-                    <div className="p-3 bg-muted rounded-lg border space-y-2">
-                      <div className="flex justify-between">
-                        <span className="text-muted-foreground">Vendor Student ID:</span>
-                        <span className="font-mono font-bold">{settlementVendor.studentId}</span>
-                      </div>
-                      <div className="flex justify-between">
-                        <span className="text-muted-foreground">Activated Borrowed PINs:</span>
-                        <span className="font-bold">{settlementVendor.count} PIN(s)</span>
-                      </div>
-                      <div className="flex justify-between items-center pt-2 border-t text-base font-bold">
-                        <span>Total Balance Due:</span>
-                        <span className="font-mono text-emerald-600 text-lg">₦{settlementVendor.amount.toLocaleString()}</span>
-                      </div>
-                    </div>
-
-                    <div className="space-y-2">
-                      <Label htmlFor="settleNote">Settlement / Payment Note (Optional)</Label>
-                      <Input
-                        id="settleNote"
-                        placeholder="e.g., Cash transfer confirmed, Ref #1234..."
-                        value={settlementNote}
-                        onChange={(e) => setSettlementNote(e.target.value)}
-                      />
-                    </div>
-                  </div>
-                )}
-
-                <DialogFooter>
-                  <Button variant="outline" onClick={() => setSettlementVendor(null)} disabled={settlingLoading}>
-                    Cancel
-                  </Button>
-                  <Button 
-                    className="bg-emerald-600 hover:bg-emerald-700 text-white" 
-                    onClick={handleClearVendorDebt} 
-                    disabled={settlingLoading}
-                  >
-                    {settlingLoading ? 'Settling...' : 'Confirm & Clear Debt'}
-                  </Button>
-                </DialogFooter>
-              </DialogContent>
-            </Dialog>
 
             {/* Pin Management Dialogs */}
             <Dialog open={!!pinToDelete} onOpenChange={(open) => !open && setPinToDelete(null)}>

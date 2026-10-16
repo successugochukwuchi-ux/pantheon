@@ -6,7 +6,7 @@ import { Alert, AppState, Platform } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Notifications from 'expo-notifications';
 import { auth, db } from '../lib/firebase';
-import { saveCoursesFromServer, clearUserProfileLocal, clearAllCoursesLocal, saveLastLoggedInStudentId } from '../lib/db';
+import { saveCoursesFromServer, clearUserProfileLocal, clearAllCoursesLocal, saveLastLoggedInStudentId, saveProfileLocal, getUserProfileLocal } from '../lib/db';
 import { getFilteredCoursesForStudent } from '../lib/courseFilter';
 import { getDeviceUUID, getUserDeviceUUID, generateNewDeviceUUID, getMobileDeviceName } from '../lib/device';
 
@@ -38,6 +38,8 @@ interface UserProfile {
   banReason?: string;
   At?: string;
   currentSessionId?: string;
+  canTakeScreenshots?: boolean;
+  screenshotAllowed?: boolean;
 }
 
 interface SystemConfig {
@@ -195,6 +197,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
     if (user) {
       const setupProfileAndSession = async () => {
+        // 0. Instantly hydrate profile from local SQLite (0 delay, 0 reads)
+        try {
+          const cachedLocal = getUserProfileLocal(user.uid);
+          if (cachedLocal) {
+            setProfile(cachedLocal);
+            setLoading(false);
+          }
+        } catch (e) {}
+
         // Get current semester
         let currentSemester = '1st';
         try {
@@ -315,6 +326,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
               isBanned: data.isBanned ?? false,
               banReason: data?.banReason || '',
               At: data.At || 'futo',
+              canTakeScreenshots: data.canTakeScreenshots ?? data.screenshotAllowed ?? false,
+              screenshotAllowed: data.canTakeScreenshots ?? data.screenshotAllowed ?? false,
             };
 
             // If studentId is missing, generate a pretty placeholder
@@ -323,6 +336,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             }
 
             saveLastLoggedInStudentId(normalizedProfile.studentId);
+            saveProfileLocal(normalizedProfile);
             setProfile(normalizedProfile);
             AsyncStorage.setItem('colearn_profile', JSON.stringify(normalizedProfile)).catch(() => {});
           } else {
@@ -581,39 +595,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       console.log("Bg Notify: Announcements subscription failed:", e);
     }
 
-    // 5. Discussion board (courses Study Group messages, limited to last 15 to save reads)
-    try {
-      const qDisc = query(
-        collection(db, 'discussions'),
-        orderBy('createdAt', 'desc'),
-        limit(15)
-      );
-      const unsub = onSnapshot(qDisc, (snap) => {
-        if (isDiscussionsInitial) {
-          snap.docs.forEach(doc => knownDiscussionIds.add(doc.id));
-          isDiscussionsInitial = false;
-          return;
-        }
-        snap.docChanges().forEach(change => {
-          if (change.type === 'added' && !knownDiscussionIds.has(change.doc.id)) {
-            const data = change.doc.data();
-            knownDiscussionIds.add(change.doc.id);
-
-            // Notify if NOT the sender themselves
-            if (data.userId && data.userId !== profile.uid) {
-              // User requested: "no more notifications from study groups or course discussions"
-              // showLocalNotify(
-              //   `Study Group Board: ${data.username || "Student"}`,
-              //   data.text || "New interaction posted!"
-              // );
-            }
-          }
-        });
-      }, (err) => console.log("Bg Notify: Study Groups error:", err));
-      unsubscribes.push(unsub);
-    } catch (e) {
-      console.log("Bg Notify: Discussions subscription failed:", e);
-    }
+    // 5. Discussion board listener removed to save Firestore reads (study groups notifications are disabled)
 
     // 6. News Board (news, limited to last 10 to save reads)
     try {

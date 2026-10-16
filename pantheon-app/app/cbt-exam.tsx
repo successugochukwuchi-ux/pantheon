@@ -17,7 +17,7 @@ import { BottomNav } from '../components/BottomNav';
 import { F } from '../components/Theme';
 import { useTheme } from '../context/ThemeContext';
 import { QuestionRenderer } from '../components/QuestionRenderer';
-import { isCourseDownloadedLocal, getLocalQuestions, parseFirestoreQuestion, getLocalCourse } from '../lib/db';
+import { isCourseDownloadedLocal, getLocalQuestions, parseFirestoreQuestion, getLocalCourse, saveQuestionsBatchLocal } from '../lib/db';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { collection, query, where, getDocs, doc, getDoc } from 'firebase/firestore';
 import { db } from '../lib/firebase';
@@ -155,25 +155,46 @@ export default function CbtExamScreen() {
           const sheetIds = sheetsSnap.docs.map(doc => doc.id);
           
           if (sheetIds.length > 0) {
-            const allFetchedQuestions = await Promise.all(
-              sheetIds.map(async (sheetId) => {
-                const questionsQuery = query(
-                  collection(db, 'questions'),
-                  where('sheetId', '==', sheetId)
-                );
-                const qSnap = await getDocs(questionsQuery);
-                return qSnap.docs.map(doc => {
-                  const data = doc.data();
-                  return parseFirestoreQuestion(doc.id, { ...data, courseId });
-                });
-              })
-            );
+            // 1. Primary: Extract embedded questions from sheets (0 extra reads!)
+            const embeddedQuestions: any[] = [];
+            for (const sDoc of sheetsSnap.docs) {
+              const sData = sDoc.data();
+              if (Array.isArray(sData.questions) && sData.questions.length > 0) {
+                for (const q of sData.questions) {
+                  embeddedQuestions.push(parseFirestoreQuestion(q.id, { ...q, courseId, sheetId: sDoc.id }));
+                }
+              }
+            }
+
+            let flattened = embeddedQuestions;
+
+            // 2. Fallback: Query legacy questions collection only if sheets had no embedded questions
+            if (flattened.length === 0) {
+              const allFetchedQuestions = await Promise.all(
+                sheetIds.map(async (sheetId) => {
+                  const questionsQuery = query(
+                    collection(db, 'questions'),
+                    where('sheetId', '==', sheetId)
+                  );
+                  const qSnap = await getDocs(questionsQuery);
+                  return qSnap.docs.map(doc => {
+                    const data = doc.data();
+                    return parseFirestoreQuestion(doc.id, { ...data, courseId });
+                  });
+                })
+              );
+              flattened = allFetchedQuestions.flat();
+            }
             
-            const flattened = allFetchedQuestions.flat();
             if (flattened.length > 0) {
+              try {
+                saveQuestionsBatchLocal(flattened);
+              } catch (e) {
+                console.error("[CbtExam] Error caching questions locally:", e);
+              }
               const shuffled = flattened.sort(() => Math.random() - 0.5);
               qList = shuffled.slice(0, numQ).map((q, i) => ({ ...q, num: i + 1 }));
-              console.log("[CbtExam] Questions locked from Firestore:", qList.length);
+              console.log("[CbtExam] Questions locked and cached to SQLite:", qList.length);
             }
           }
         } catch (err) {

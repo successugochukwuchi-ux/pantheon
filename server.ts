@@ -56,6 +56,144 @@ async function startServer() {
     res.json({ status: "ok" });
   });
 
+  // --- Paystack Secure Backend Proxy Endpoints ---
+  const getPaystackSecretKey = (req: express.Request): string => {
+    return (
+      (req.headers["x-paystack-secret-key"] as string) ||
+      (req.body && typeof req.body === "object" ? req.body.secretKey : "") ||
+      (req.query?.secretKey as string) ||
+      process.env.PAYSTACK_SECRET_KEY ||
+      ""
+    ).trim();
+  };
+
+  // 1. GET /api/paystack/banks
+  app.get("/api/paystack/banks", async (req, res) => {
+    try {
+      const secretKey = getPaystackSecretKey(req);
+      const headers: Record<string, string> = {};
+      if (secretKey) headers["Authorization"] = `Bearer ${secretKey}`;
+      const response = await fetch("https://api.paystack.co/bank?country=nigeria&perPage=100", { headers });
+      const json = await response.json();
+      res.status(response.status).json(json);
+    } catch (err: any) {
+      res.status(500).json({ status: false, message: err.message });
+    }
+  });
+
+  // 2. GET /api/paystack/resolve-account
+  app.get("/api/paystack/resolve-account", async (req, res) => {
+    try {
+      const secretKey = getPaystackSecretKey(req);
+      const accountNumber = req.query.account_number as string;
+      const bankCode = req.query.bank_code as string;
+      if (!accountNumber || !bankCode) {
+        return res.status(400).json({ status: false, message: "account_number and bank_code are required" });
+      }
+      const response = await fetch(
+        `https://api.paystack.co/bank/resolve?account_number=${encodeURIComponent(accountNumber)}&bank_code=${encodeURIComponent(bankCode)}`,
+        { headers: { Authorization: `Bearer ${secretKey}` } }
+      );
+      const json = await response.json();
+      res.status(response.status).json(json);
+    } catch (err: any) {
+      res.status(500).json({ status: false, message: err.message });
+    }
+  });
+
+  // 3. POST /api/paystack/create-recipient
+  app.post("/api/paystack/create-recipient", async (req, res) => {
+    try {
+      const secretKey = getPaystackSecretKey(req);
+      const { name, account_number, bank_code } = req.body;
+      const response = await fetch("https://api.paystack.co/transferrecipient", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${secretKey}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          type: "nuban",
+          name,
+          account_number,
+          bank_code,
+          currency: "NGN",
+        }),
+      });
+      const json = await response.json();
+      res.status(response.status).json(json);
+    } catch (err: any) {
+      res.status(500).json({ status: false, message: err.message });
+    }
+  });
+
+  // 4. POST /api/paystack/initialize
+  app.post("/api/paystack/initialize", async (req, res) => {
+    try {
+      const secretKey = getPaystackSecretKey(req);
+      const { email, amount, reference, metadata, callback_url } = req.body;
+      const response = await fetch("https://api.paystack.co/transaction/initialize", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${secretKey}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          email,
+          amount, // in kobo
+          reference,
+          metadata,
+          callback_url,
+        }),
+      });
+      const json = await response.json();
+      res.status(response.status).json(json);
+    } catch (err: any) {
+      res.status(500).json({ status: false, message: err.message });
+    }
+  });
+
+  // 5. GET /api/paystack/verify/:reference
+  app.get("/api/paystack/verify/:reference", async (req, res) => {
+    try {
+      const secretKey = getPaystackSecretKey(req);
+      const ref = req.params.reference;
+      const response = await fetch(`https://api.paystack.co/transaction/verify/${encodeURIComponent(ref)}`, {
+        headers: { Authorization: `Bearer ${secretKey}` },
+      });
+      const json = await response.json();
+      res.status(response.status).json(json);
+    } catch (err: any) {
+      res.status(500).json({ status: false, message: err.message });
+    }
+  });
+
+  // 6. POST /api/paystack/transfer
+  app.post("/api/paystack/transfer", async (req, res) => {
+    try {
+      const secretKey = getPaystackSecretKey(req);
+      const { amount, recipient, reason } = req.body;
+      const response = await fetch("https://api.paystack.co/transfer", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${secretKey}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          source: "balance",
+          amount, // in kobo
+          recipient,
+          reason,
+        }),
+      });
+      const json = await response.json();
+      res.status(response.status).json(json);
+    } catch (err: any) {
+      res.status(500).json({ status: false, message: err.message });
+    }
+  });
+
+
   // Microsoft Edge TTS & Fish Audio TTS endpoints
   app.get("/api/tts/voices", (req, res) => {
     res.json({ voices: MICROSOFT_VOICES });

@@ -127,15 +127,21 @@ export default function CBTPractice() {
         return;
       }
 
-      const allSheetsQuestions = await Promise.all(
-        targetSheetIds.map(async (sheetId) => {
-          const q = query(collection(db, 'questions'), where('sheetId', '==', sheetId));
-          const snap = await getDocs(q);
-          return snap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Question));
-        })
-      );
-
-      pool = allSheetsQuestions.flat().sort(() => Math.random() - 0.5).slice(0, numQuestions);
+      // 1. Primary: Collect questions from embedded questions array (0 extra reads!)
+      const embeddedQuestions = sheets.flatMap(s => (s.questions || []));
+      if (embeddedQuestions.length > 0) {
+        pool = embeddedQuestions.sort(() => Math.random() - 0.5).slice(0, numQuestions);
+      } else {
+        // Fallback: Query legacy questions collection if unmigrated
+        const allSheetsQuestions = await Promise.all(
+          targetSheetIds.map(async (sheetId) => {
+            const q = query(collection(db, 'questions'), where('sheetId', '==', sheetId));
+            const snap = await getDocs(q);
+            return snap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Question));
+          })
+        );
+        pool = allSheetsQuestions.flat().sort(() => Math.random() - 0.5).slice(0, numQuestions);
+      }
 
       if (pool.length === 0) {
         toast.error('No questions available');

@@ -1138,6 +1138,31 @@
         "At": { "type": "string" }
       },
       "required": ["uid", "username", "message", "type", "createdAt", "At"]
+    },
+    "PriceHistory": {
+      "title": "PriceHistory",
+      "description": "Log of activation PIN price changes and commission rates",
+      "type": "object",
+      "properties": {
+        "standardPrice": { "type": "number" },
+        "plusPrice": { "type": "number" },
+        "bulkStandardPrice": { "type": "number" },
+        "bulkPlusPrice": { "type": "number" },
+        "vendorCommissionPercentage": { "type": "number" },
+        "updatedAt": { "type": "string" }
+      },
+      "required": ["standardPrice", "plusPrice", "updatedAt"]
+    },
+    "SystemSetting": {
+      "title": "SystemSetting",
+      "description": "Centralized system and integration settings documents",
+      "type": "object",
+      "properties": {
+        "publicKey": { "type": "string" },
+        "secretKey": { "type": "string" },
+        "mode": { "type": "string" },
+        "updatedAt": { "type": "string" }
+      }
     }
   },
   "firestore": {
@@ -1264,6 +1289,14 @@
     "/system/mobile": {
       "schema": "object",
       "description": "Active mobile system release configuration"
+    },
+    "/priceHistory/{historyId}": {
+      "schema": "PriceHistory",
+      "description": "Log of activation PIN price changes and commission rates"
+    },
+    "/settings/{settingId}": {
+      "schema": "SystemSetting",
+      "description": "Centralized system and integration settings documents"
     }
   }
 }

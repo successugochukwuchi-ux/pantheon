@@ -130,9 +130,19 @@ export const UserSearch: React.FC<{ className?: string }> = ({ className }) => {
                     Search Results
                   </p>
                   {results.map((user) => (
-                    <button
+                    <div
                       key={user.uid}
-                      className="w-full flex items-center gap-3 p-3 rounded-lg hover:bg-accent transition-colors text-left group"
+                      role="button"
+                      tabIndex={0}
+                      className="w-full flex items-center gap-3 p-3 rounded-lg hover:bg-accent transition-colors text-left group cursor-pointer focus:outline-none focus:ring-1 focus:ring-primary"
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' || e.key === ' ') {
+                          e.preventDefault();
+                          setIsOpen(false);
+                          setSearchTerm('');
+                          navigate(`/profile/${user.uid}`);
+                        }
+                      }}
                       onClick={() => {
                         setIsOpen(false);
                         setSearchTerm('');
@@ -160,6 +170,7 @@ export const UserSearch: React.FC<{ className?: string }> = ({ className }) => {
                               ID: {user.studentId}
                             </p>
                             <button 
+                              type="button"
                               onClick={(e) => {
                                 e.stopPropagation();
                                 navigator.clipboard.writeText(user.studentId);
@@ -175,6 +186,7 @@ export const UserSearch: React.FC<{ className?: string }> = ({ className }) => {
                               UID: {user.uid}
                             </p>
                             <button 
+                              type="button"
                               onClick={(e) => {
                                 e.stopPropagation();
                                 navigator.clipboard.writeText(user.uid);
@@ -187,7 +199,7 @@ export const UserSearch: React.FC<{ className?: string }> = ({ className }) => {
                           </div>
                         </div>
                       </div>
-                    </button>
+                    </div>
                   ))}
                   <button
                     onClick={handleSearch}

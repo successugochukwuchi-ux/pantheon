@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState, useMemo } from 'react';
+import React, { useEffect, useRef, useState, useMemo, useCallback } from 'react';
 import {
   View,
   Text,
@@ -11,7 +11,7 @@ import {
   Alert,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useRouter, useLocalSearchParams } from 'expo-router';
+import { useRouter, useLocalSearchParams, useFocusEffect } from 'expo-router';
 import { collection, query, where, getDocs, doc, getDoc, orderBy } from 'firebase/firestore';
 import { db, auth } from '../lib/firebase';
 import { useAuth } from '../context/AuthContext';
@@ -219,7 +219,7 @@ export default function NotesTopicsScreen() {
             setCourse(courseData);
             setCachedCourseById(courseData);
           }
-          if (fetchedNotes.length > 0 && isMounted) {
+          if (isMounted) {
             const sortedImmediate = sortNotesAlphabetically(fetchedNotes);
             setTopics(sortedImmediate);
             setCachedCourseNotes(courseId, sortedImmediate);
@@ -282,18 +282,14 @@ export default function NotesTopicsScreen() {
           return;
         }
 
-        // For local SQLite branch, still fetch progress in background without blocking UI
-        const progQ = query(
-          collection(db, 'progress'),
-          where('uid', '==', profile.uid),
-          where('type', '==', 'note')
-        );
-        const progSnap = await getDocs(progQ).catch(() => null);
-        if (!isMounted) return;
-
-        const completedIds = progSnap
-          ? progSnap.docs.filter(d => d.data().completed === true).map(d => d.data().targetId)
-          : [];
+        // For local SQLite branch, check local storage cache first to save reads
+        let completedIds: string[] = [];
+        try {
+          const cachedProgressRaw = await AsyncStorage.getItem(`colearn_completed_notes_${profile.uid}`);
+          if (cachedProgressRaw) {
+            completedIds = JSON.parse(cachedProgressRaw);
+          }
+        } catch {}
 
         const notesWithProgress = sortNotesAlphabetically(
           fetchedNotes.map(n => ({
@@ -325,6 +321,29 @@ export default function NotesTopicsScreen() {
       isMounted = false;
     };
   }, [courseId, profile?.uid]);
+
+  // Refresh immediately from SQLite whenever the screen gains focus (e.g. after Academic Update)
+  useFocusEffect(
+    useCallback(() => {
+      if (!courseId) return;
+      if (isCourseDownloadedLocal(courseId)) {
+        const localNotesData = getLocalNotes(courseId);
+        const mapped = localNotesData.map(n => ({
+          id: n.id,
+          courseId,
+          title: n.title,
+          content: (n as any).content || '',
+          duration: n.duration || '10 mins',
+          tag: n.tag || 'CORE',
+          order: n.order || 0,
+          completed: false,
+        }));
+        const sorted = sortNotesAlphabetically(mapped);
+        setTopics(sorted);
+        setCachedCourseNotes(courseId, sorted);
+      }
+    }, [courseId])
+  );
 
   useEffect(() => {
     if (!loading && course) {

@@ -21,7 +21,7 @@ import { F, width } from '../components/Theme';
 import { useAuth } from '../context/AuthContext';
 import { useTheme } from '../context/ThemeContext';
 import { ActivationModal } from '../components/ActivationModal';
-import { collection, query, limit, onSnapshot } from 'firebase/firestore';
+import { collection, query, limit, orderBy, onSnapshot } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 
 const CARD_GAP = 12;
@@ -235,7 +235,7 @@ function UpdatesSection({ s, C }: { s: any; C: any }) {
   const { profile } = useAuth();
 
   useEffect(() => {
-    const q = query(collection(db, 'news'), limit(20));
+    const q = query(collection(db, 'news'), orderBy('createdAt', 'desc'), limit(5));
     const unsubscribe = onSnapshot(q, (snapshot) => {
       let newsData = snapshot.docs.map(doc => ({
         id: doc.id,

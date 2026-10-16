@@ -19,6 +19,7 @@ import { collection, query, where, onSnapshot, getDoc, doc } from 'firebase/fire
 import { db } from '../lib/firebase';
 import { useAuth } from '../context/AuthContext';
 import { useTheme } from '../context/ThemeContext';
+import { getOrFetchUserProfile } from '../lib/userCache';
 
 export default function ChatListScreen() {
   const router = useRouter();
@@ -44,31 +45,17 @@ export default function ChatListScreen() {
     const unsubscribe = onSnapshot(q, async (snapshot) => {
       const roomList = snapshot.docs.map(d => ({ id: d.id, ...d.data() as any }));
 
-      // Resolve names and details of the recipient for DMs
+      // Resolve names and details of the recipient for DMs using cache (saves hundreds of reads)
       const hydratedRooms = await Promise.all(roomList.map(async (room) => {
         if (room.type === 'dm') {
           const otherUid = room.uids?.find((id: string) => id !== profile.uid);
           if (!otherUid) return null;
 
-          try {
-            const userDoc = await getDoc(doc(db, 'users', otherUid));
-            if (userDoc.exists()) {
-              const uData = userDoc.data();
-              return {
-                ...room,
-                name: uData.username || uData.name || 'Student Comrade',
-                image: uData.photoURL || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=200&q=80',
-                isGroup: false,
-              };
-            }
-          } catch (e) {
-            console.error("Failed to hydrate user DM profile in lists:", e);
-          }
-
+          const uData = await getOrFetchUserProfile(otherUid);
           return {
             ...room,
-            name: 'Classmate',
-            image: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=200&q=80',
+            name: uData?.name || uData?.username || 'Student Comrade',
+            image: uData?.photoURL || uData?.image || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=200&q=80',
             isGroup: false,
           };
         } else {

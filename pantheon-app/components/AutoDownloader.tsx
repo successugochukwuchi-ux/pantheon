@@ -24,6 +24,8 @@ import {
   saveLastLoggedInStudentId,
   getLastLoggedInStudentId,
 } from '../lib/db';
+import { checkAndApplyAcademicUpdates } from '../lib/academicSync';
+import { processAndCompressNoteDiagrams } from '../lib/diagramManager';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 interface Course {
@@ -53,50 +55,9 @@ function withTimeout<T>(promise: Promise<T>, ms = 8000, fallbackVal?: T): Promis
   });
 }
 
-// Diagram base64 conversion with ultra-fast timeout (1.5s) to guarantee course sync NEVER stalls
+// Compress and convert diagrams for offline storage
 async function processDiagramsForOffline(content: string): Promise<string> {
-  if (!content) return content;
-  try {
-    const blocks = JSON.parse(content);
-    if (!Array.isArray(blocks)) return content;
-
-    const blockPromises = blocks.map(async (block: any) => {
-      if (block.type === 'diagram' && block.content && typeof block.content === 'string' && block.content.startsWith('http')) {
-        try {
-          const controller = new AbortController();
-          const timer = setTimeout(() => controller.abort(), 1500);
-
-          const response = await fetch(block.content, { signal: controller.signal });
-          clearTimeout(timer);
-
-          if (!response.ok) return block;
-
-          const blob = await response.blob();
-          const base64Data = await new Promise<string>((resolve, reject) => {
-            const reader = new FileReader();
-            reader.onloadend = () => resolve(reader.result as string);
-            reader.onerror = () => resolve(block.content); // fallback to original on error
-            reader.readAsDataURL(blob);
-          });
-
-          return {
-            ...block,
-            content: base64Data || block.content,
-          };
-        } catch {
-          // Guaranteed fallback: Never block note sync on image fetch error
-          return block;
-        }
-      }
-      return block;
-    });
-
-    const settled = await Promise.allSettled(blockPromises);
-    const processedBlocks = settled.map((res, i) => res.status === 'fulfilled' ? res.value : blocks[i]);
-    return JSON.stringify(processedBlocks);
-  } catch (e) {
-    return content;
-  }
+  return processAndCompressNoteDiagrams(content);
 }
 
 export function AutoDownloader() {
@@ -124,6 +85,36 @@ export function AutoDownloader() {
         const currentStudentId = (profile.studentId || profile.uid || '').trim();
         const lastStudentId = (getLastLoggedInStudentId() || '').trim();
         const activeSemester = (!systemConfig.currentSemester || systemConfig.currentSemester === 'none') ? '1st' : systemConfig.currentSemester;
+
+        // Retrieve local downloaded course IDs in SQLite first
+        const localDownloadedIds = getAllDownloadedCourseIdsLocal();
+        const lastDownloadedSemester = await AsyncStorage.getItem('colearn_last_downloaded_semester').catch(() => null);
+        const isDifferentUser = lastStudentId !== '' && lastStudentId !== currentStudentId;
+
+        // Quota safeguard: If same user, on same semester, and courses already downloaded locally:
+        // Check if there is an unapplied academic update stamp from admin
+        const lastAcademicUpdateStamp = systemConfig?.lastAcademicUpdate ? Number(systemConfig.lastAcademicUpdate) : 0;
+        const lastSeenUpdateStampRaw = await AsyncStorage.getItem('colearn_last_academic_update_stamp').catch(() => null);
+        const lastSeenUpdateStamp = lastSeenUpdateStampRaw ? Number(lastSeenUpdateStampRaw) : 0;
+        const hasPendingAcademicUpdate = lastAcademicUpdateStamp > 0 && lastAcademicUpdateStamp > lastSeenUpdateStamp;
+
+        if (!isDifferentUser && localDownloadedIds.length > 0 && lastDownloadedSemester === activeSemester && !hasPendingAcademicUpdate) {
+          saveLastLoggedInStudentId(currentStudentId);
+          return;
+        }
+
+        if (hasPendingAcademicUpdate && !isDifferentUser && localDownloadedIds.length > 0) {
+          // Admin updated/deleted academic notes or questions in Firestore!
+          // Silently reconcile SQLite with Firestore differences:
+          try {
+            await checkAndApplyAcademicUpdates(profile, systemConfig);
+            await AsyncStorage.setItem('colearn_last_academic_update_stamp', String(lastAcademicUpdateStamp)).catch(() => {});
+          } catch (e) {
+            console.error('Silent academic reconciliation error:', e);
+          }
+          saveLastLoggedInStudentId(currentStudentId);
+          return;
+        }
 
         // 1. Fetch available Firestore courses for the active semester with a strict timeout
         const q = query(
@@ -155,15 +146,12 @@ export function AutoDownloader() {
         const myCourses = await getFilteredCoursesForStudent(fsCourses, profile, true, activeSemester);
         const requiredCourseIds = myCourses.map(c => c.id);
 
-        // 3. Retrieve local downloaded course IDs in SQLite
-        const localDownloadedIds = getAllDownloadedCourseIdsLocal();
         const missingCourses = myCourses.filter(c => !localDownloadedIds.includes(c.id));
         const obsoleteCourseIds = localDownloadedIds.filter(id => !requiredCourseIds.includes(id));
 
         // Sync Conditions:
         // Case B: User switched accounts (last logged in student ID differs from current student ID)
         // Case A: Same account (compare Firestore courses with app courses)
-        const isDifferentUser = lastStudentId !== '' && lastStudentId !== currentStudentId;
         const hasCourseDifference = missingCourses.length > 0 || obsoleteCourseIds.length > 0;
 
         if (isDifferentUser) {
@@ -224,35 +212,53 @@ export function AutoDownloader() {
           updateProgress(10);
           setDownloadStatus('Fetching course contents...');
 
-          // Fast parallel Firestore fetch for notes, questions, and questionSheets with timeouts
+          // Fast parallel Firestore fetch for notes and questionSheets with timeouts (saves thousands of reads)
           const notesQ = query(collection(db, 'notes'), where('courseId', '==', course.id));
-          const qQ = query(collection(db, 'questions'), where('courseId', '==', course.id));
           const sheetsQ = query(collection(db, 'questionSheets'), where('courseId', '==', course.id));
 
-          const [notesSnap, qSnap, sheetsSnap] = await Promise.all([
+          const [notesSnap, sheetsSnap] = await Promise.all([
             withTimeout(getDocs(notesQ), 8000, { docs: [] } as any),
-            withTimeout(getDocs(qQ), 8000, { docs: [] } as any),
             withTimeout(getDocs(sheetsQ), 8000, { docs: [] } as any),
           ]);
 
           updateProgress(40);
           setDownloadStatus('Processing materials...');
 
-          // Question sheets
+          // Question sheets metadata & embedded questions
           const sheetsData = (sheetsSnap.docs || []).map((doc: any) => ({
             id: doc.id,
             courseId: course.id,
             ...doc.data()
           }));
 
-          // Questions
-          const questionsData = (qSnap.docs || []).map((doc: any) => ({
-            id: doc.id,
-            courseId: course.id,
-            ...doc.data()
-          }));
+          // Extract questions from embedded sheet documents (or fallback to questions collection)
+          const questionsData: any[] = [];
+          for (const s of sheetsData) {
+            if (Array.isArray(s.questions) && s.questions.length > 0) {
+              for (const q of s.questions) {
+                questionsData.push({
+                  ...q,
+                  sheetId: s.id,
+                  courseId: course.id,
+                });
+              }
+            } else {
+              try {
+                const qQuery = query(collection(db, 'questions'), where('sheetId', '==', s.id));
+                const qSnap = await withTimeout(getDocs(qQuery), 5000, { docs: [] } as any);
+                for (const qDoc of (qSnap.docs || [])) {
+                  questionsData.push({
+                    id: qDoc.id,
+                    ...qDoc.data(),
+                    sheetId: s.id,
+                    courseId: course.id,
+                  });
+                }
+              } catch (e) {}
+            }
+          }
 
-          // Process diagram blocks with fast timeout
+          // Process diagram blocks with native download and compression
           const rawNotes = notesSnap.docs || [];
           const notesData = await Promise.all(
             rawNotes.map(async (doc: any) => {
@@ -273,10 +279,19 @@ export function AutoDownloader() {
             })
           );
 
+          // Compress diagrams in questions
+          for (const q of questionsData) {
+            if (q.q && (q.q.includes('<DIAGRAM>') || q.q.includes('<diagram>') || q.q.includes('http') || q.q.includes('cloudinary'))) {
+              try {
+                q.q = await processDiagramsForOffline(q.q);
+              } catch (e) {}
+            }
+          }
+
           updateProgress(75);
           setDownloadStatus('Saving to offline database...');
 
-          // Atomic single-transaction save for entire course
+          // Atomic single-transaction save for course notes, embedded questions, and question sheets
           saveCompleteCourseLocal(course, notesData, questionsData, sheetsData);
 
           updateProgress(100);

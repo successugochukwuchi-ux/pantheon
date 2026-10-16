@@ -178,7 +178,7 @@ export default function CbtSetupScreen() {
             isDownloaded: true,
             label: `⭐ ${c.code} — ${c.title}`
           }));
-          const filteredLocal = await getFilteredCoursesForStudent(mappedLocal, profile, true);
+          const filteredLocal = await getFilteredCoursesForStudent(mappedLocal, profile, true, semester);
           if (filteredLocal.length > 0) {
             setCourses(filteredLocal);
             setSelectedCourse(filteredLocal[0].id);
@@ -190,8 +190,8 @@ export default function CbtSetupScreen() {
         console.log('Skipping local downloaded courses init in CBT setup:', err);
       }
 
-      if (isOffline) {
-        // Fully bypass firestore if fully offline
+      if (localPopulated || isOffline) {
+        // Fully bypass firestore if courses are already populated from local SQLite
         setLoading(false);
         return;
       }
@@ -212,7 +212,7 @@ export default function CbtSetupScreen() {
           };
         }) as any[];
         
-        const fetched = await getFilteredCoursesForStudent(fetchedRaw, profile, true);
+        const fetched = await getFilteredCoursesForStudent(fetchedRaw, profile, true, semester);
 
         const userDept = (profile.department || '').toLowerCase();
         const userLevel = (profile.academicLevel || '100').replace('LVL', '');

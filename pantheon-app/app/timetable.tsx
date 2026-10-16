@@ -22,6 +22,7 @@ import { collection, doc, getDoc, setDoc, getDocs, query, where } from 'firebase
 import { db, auth } from '../lib/firebase';
 import { useAuth } from '../context/AuthContext';
 import { getFilteredCoursesForStudent } from '../lib/courseFilter';
+import { getDownloadedCoursesLocal } from '../lib/db';
 import * as Notifications from 'expo-notifications';
 
 // Dynamic loaders for platform-specific alarm packages
@@ -476,21 +477,34 @@ export default function TimetableScreen() {
 
     setLoading(true);
 
-    // 1. Fetch available course options
-    const semesterArg = systemConfig?.currentSemester || '1st';
-    const coursesQuery = query(
-      collection(db, 'courses'),
-      where('semester', '==', semesterArg === 'none' ? '1st' : semesterArg)
-    );
+    // 1. Fetch available course options (SQLite first to save reads)
+    try {
+      const semesterArg = systemConfig?.currentSemester === '2nd' ? '2nd' : '1st';
+      const localCourses = getDownloadedCoursesLocal();
+      if (localCourses && localCourses.length > 0) {
+        getFilteredCoursesForStudent(localCourses, profile, true, semesterArg).then(relevant => {
+          if (relevant && relevant.length > 0) {
+            setCourses(relevant);
+          }
+        });
+      } else {
+        const coursesQuery = query(
+          collection(db, 'courses'),
+          where('semester', '==', semesterArg)
+        );
 
-    getDocs(coursesQuery).then(async (snapshot) => {
-      const allFetched = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as any));
-      const relevant = await getFilteredCoursesForStudent(allFetched, profile, true);
-      setCourses(relevant);
-    }).catch(err => {
-      console.error("Error loading timetable courses:", err);
-      handleFirestoreError(err, OperationType.LIST, 'courses');
-    });
+        getDocs(coursesQuery).then(async (snapshot) => {
+          const allFetched = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as any));
+          const relevant = await getFilteredCoursesForStudent(allFetched, profile, true, semesterArg);
+          setCourses(relevant);
+        }).catch(err => {
+          console.error("Error loading timetable courses:", err);
+          handleFirestoreError(err, OperationType.LIST, 'courses');
+        });
+      }
+    } catch (e) {
+      console.log('Error checking local courses in timetable:', e);
+    }
 
     // 2. Fetch User timetable grid
     getDoc(doc(db, 'timetables', user.uid)).then((snapshot) => {

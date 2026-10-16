@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { doc, getDoc, updateDoc, setDoc, serverTimestamp, writeBatch, collection, query, where, getDocs, increment } from 'firebase/firestore';
+import { doc, getDoc, updateDoc, setDoc, serverTimestamp, writeBatch, collection, query, where, getDocs, increment, addDoc } from 'firebase/firestore';
 import { db, handleFirestoreError, OperationType } from '../firebase';
 import { useAuth } from '../contexts/AuthContext';
 import { Button } from '../components/ui/button';
@@ -129,23 +129,6 @@ export default function Activate() {
       // Mark pin as used
       try {
         const pinRef = doc(db, 'activationCodes', pin);
-        
-        let lentWholesalePrice = pinData.lentWholesalePrice;
-        if (pinData.isLent && lentWholesalePrice === undefined) {
-          try {
-            const configSnap = await getDoc(doc(db, 'system', 'config'));
-            if (configSnap.exists()) {
-              const cfg = configSnap.data();
-              lentWholesalePrice = pinData.type === 'plus' 
-                ? (cfg.plusWholesalePrice ?? 1500) 
-                : (cfg.standardWholesalePrice ?? 800);
-            } else {
-              lentWholesalePrice = pinData.type === 'plus' ? 1500 : 800;
-            }
-          } catch (e) {
-            lentWholesalePrice = pinData.type === 'plus' ? 1500 : 800;
-          }
-        }
 
         const pinUpdatePayload: any = {
           isUsed: true,
@@ -154,10 +137,31 @@ export default function Activate() {
           usedAt: new Date().toISOString()
         };
 
-        if (pinData.isLent && pinData.lentWholesalePrice === undefined) {
-          pinUpdatePayload.lentWholesalePrice = lentWholesalePrice;
-          if (pinData.settled === undefined) {
-            pinUpdatePayload.settled = false;
+        // If this was an On-Demand PIN, credit the vendor's wallet balance
+        if (pinData.isOnDemand && pinData.assignedTo && !pinData.commissionEarned) {
+          const commAmount = pinData.commissionAmount || Math.round((pinData.price || 1000) * 0.15);
+          pinUpdatePayload.commissionEarned = true;
+          pinUpdatePayload.commissionCreditedAt = new Date().toISOString();
+
+          try {
+            const vendorRef = doc(db, 'users', pinData.assignedTo);
+            await updateDoc(vendorRef, {
+              walletBalance: increment(commAmount),
+              totalEarned: increment(commAmount)
+            });
+
+            await addDoc(collection(db, 'wallet_transactions'), {
+              vendorId: pinData.assignedTo,
+              vendorStudentId: pinData.assignedToStudentId || '',
+              type: 'commission',
+              amount: commAmount,
+              pinCode: pin,
+              activatedByStudentId: profile?.studentId || '',
+              description: `On-Demand Commission for activated PIN #${pin}`,
+              createdAt: new Date().toISOString()
+            });
+          } catch (commErr) {
+            console.error("Failed to credit vendor commission on activation:", commErr);
           }
         }
 

@@ -175,6 +175,9 @@ export default function CourseDiscussionScreen() {
       setText('');
       setSelectedNote(null);
       await addDoc(collection(db, 'discussions'), msgData);
+      setTimeout(() => {
+        scrollRef.current?.scrollToEnd({ animated: true });
+      }, 50);
     } catch (e) {
       console.error("Error sending message:", e);
       setText(msgData.text); // Restore text if failed
@@ -182,6 +185,12 @@ export default function CourseDiscussionScreen() {
       setSending(false);
     }
   };
+
+  useEffect(() => {
+    if (messages.length > 0) {
+      scrollRef.current?.scrollToEnd({ animated: true });
+    }
+  }, [messages.length]);
 
   const availableNotes = useMemo(() => {
     return allNotes.filter(n => !n.courseId || String(n.courseId).toLowerCase() === String(courseId).toLowerCase());

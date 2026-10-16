@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { collection, query, where, getDocs, doc, updateDoc, setDoc, addDoc, getDoc, orderBy } from 'firebase/firestore';
-import { db } from '../firebase';
+import { db, auth } from '../firebase';
 import { useAuth } from '../contexts/AuthContext';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
@@ -13,7 +13,8 @@ import { toast } from 'sonner';
 import { 
   ShieldCheck, School, BookOpen, DollarSign, Calendar, TrendingUp, Key, Plus, 
   List, Eye, FileDown, Loader2, Wand2, Sparkles, CheckCircle2, AlertTriangle, 
-  Terminal, RefreshCw, XCircle, FileText, HelpCircle, Bot, Cpu, StopCircle 
+  Terminal, RefreshCw, XCircle, FileText, HelpCircle, Bot, Cpu, StopCircle,
+  Camera, Smartphone, Lock, Unlock, CreditCard, Percent
 } from 'lucide-react';
 import { jsPDF } from 'jspdf';
 import * as XLSX from 'xlsx';
@@ -69,6 +70,33 @@ export default function OverseerControl() {
   const [elevateStudentId, setElevateStudentId] = useState('');
   const [elevateLoading, setElevateLoading] = useState(false);
   const [migrating, setMigrating] = useState(false);
+  const [mergingQuestions, setMergingQuestions] = useState(false);
+  const [mergeStats, setMergeStats] = useState<{
+    status: 'idle' | 'running' | 'completed' | 'error';
+    stage: string;
+    progressPercent: number;
+    sheetsMerged: number;
+    questionsMerged: number;
+    totalSheets: number;
+    totalQuestions: number;
+    currentSheetName?: string;
+    currentStep: number;
+    totalSteps: number;
+    message?: string;
+    errorMsg?: string;
+    completedAt?: string;
+  }>({
+    status: 'idle',
+    stage: 'Idle',
+    progressPercent: 0,
+    sheetsMerged: 0,
+    questionsMerged: 0,
+    totalSheets: 0,
+    totalQuestions: 0,
+    currentStep: 0,
+    totalSteps: 5,
+  });
+  const [showMergeConfirmDialog, setShowMergeConfirmDialog] = useState(false);
   const [latexCorrecting, setLatexCorrecting] = useState(false);
   const [showLatexConfirmModal, setShowLatexConfirmModal] = useState(false);
   const [healingEngine, setHealingEngine] = useState<'hermes' | 'heuristic'>('hermes');
@@ -111,13 +139,22 @@ export default function OverseerControl() {
   const [disciplineLoading, setDisciplineLoading] = useState(false);
   const [disciplines, setDisciplines] = useState<DisciplineItem[]>([]);
 
-  // Price configuration states
+  // Price and Paystack configuration states
   const [standardPrice, setStandardPrice] = useState(1000);
   const [plusPrice, setPlusPrice] = useState(2000);
-  const [standardWholesalePrice, setStandardWholesalePrice] = useState(800);
-  const [plusWholesalePrice, setPlusWholesalePrice] = useState(1500);
+  const [bulkStandardPrice, setBulkStandardPrice] = useState(800);
+  const [bulkPlusPrice, setBulkPlusPrice] = useState(1500);
+  const [vendorCommissionPercentage, setVendorCommissionPercentage] = useState(15);
+  const [paystackPublicKey, setPaystackPublicKey] = useState('');
+  const [paystackSecretKey, setPaystackSecretKey] = useState('');
   const [priceLoading, setPriceLoading] = useState(false);
   const [priceHistory, setPriceHistory] = useState<PriceHistoryRecord[]>([]);
+
+  // Mobile Screenshot Authorization states
+  const [screenshotTargetStudentId, setScreenshotTargetStudentId] = useState('');
+  const [screenshotLoading, setScreenshotLoading] = useState(false);
+  const [searchedScreenshotUser, setSearchedScreenshotUser] = useState<any | null>(null);
+  const [screenshotAllowedUsers, setScreenshotAllowedUsers] = useState<any[]>([]);
 
   // Revenue states
   const [revUni, setRevUni] = useState('');
@@ -163,22 +200,51 @@ export default function OverseerControl() {
       const discList = discSnap.docs.map(d => ({ id: d.id, ...d.data() } as DisciplineItem));
       setDisciplines(discList);
 
-      // Fetch Pricing Config
+      // Fetch Pricing & Paystack Config
       const configDoc = await getDoc(doc(db, 'system', 'config'));
       if (configDoc.exists()) {
         const data = configDoc.data();
         setStandardPrice(data.standardPrice ?? 1000);
         setPlusPrice(data.plusPrice ?? 2000);
-        setStandardWholesalePrice(data.standardWholesalePrice ?? 800);
-        setPlusWholesalePrice(data.plusWholesalePrice ?? 1500);
+        setBulkStandardPrice(data.bulkStandardPrice ?? data.standardWholesalePrice ?? 800);
+        setBulkPlusPrice(data.bulkPlusPrice ?? data.plusWholesalePrice ?? 1500);
+        setVendorCommissionPercentage(data.vendorCommissionPercentage ?? 15);
+        if (data.paystackPublicKey) setPaystackPublicKey(data.paystackPublicKey);
+        if (data.paystackSecretKey) setPaystackSecretKey(data.paystackSecretKey);
+      }
+
+      // Also fetch from settings/paystack if available
+      try {
+        const paystackDoc = await getDoc(doc(db, 'settings', 'paystack'));
+        if (paystackDoc.exists()) {
+          const pData = paystackDoc.data();
+          if (pData.publicKey) setPaystackPublicKey(pData.publicKey);
+          if (pData.secretKey) setPaystackSecretKey(pData.secretKey);
+        }
+      } catch (pErr) {
+        // ignore
       }
 
       // Fetch Price History
       const historySnap = await getDocs(query(collection(db, 'priceHistory'), orderBy('updatedAt', 'desc')));
       const historyList = historySnap.docs.map(d => ({ id: d.id, ...d.data() } as PriceHistoryRecord));
       setPriceHistory(historyList);
+
+      // Fetch screenshot permitted users
+      fetchScreenshotUsers();
     } catch (err) {
       console.error("Error loading overseer data:", err);
+    }
+  };
+
+  const fetchScreenshotUsers = async () => {
+    try {
+      const q = query(collection(db, 'users'), where('canTakeScreenshots', '==', true));
+      const snap = await getDocs(q);
+      const list = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      setScreenshotAllowedUsers(list);
+    } catch (e) {
+      console.error("Failed to load screenshot allowed users:", e);
     }
   };
 
@@ -373,6 +439,207 @@ export default function OverseerControl() {
       toast.error(`Migration failed: ${err.message}`, { id: toastId });
     } finally {
       setMigrating(false);
+    }
+  };
+
+  const handleMergePastQuestionsIntoSheets = () => {
+    setShowMergeConfirmDialog(true);
+  };
+
+  const handleExecuteMerge = async () => {
+    setShowMergeConfirmDialog(false);
+    if (!user && !auth?.currentUser) {
+      toast.error("Administrator session required. Please make sure you are signed in.");
+      return;
+    }
+
+    setMergingQuestions(true);
+    const toastId = toast.loading("Starting question sheets consolidation...");
+    setMergeStats({
+      status: 'running',
+      stage: 'Scanning Question Sheets',
+      progressPercent: 5,
+      sheetsMerged: 0,
+      questionsMerged: 0,
+      totalSheets: 0,
+      totalQuestions: 0,
+      currentStep: 1,
+      totalSteps: 5,
+      message: 'Reading question sheets from Firestore...'
+    });
+
+    try {
+      const { writeBatch } = await import('firebase/firestore');
+
+      // 1. Fetch all question sheets
+      const sheetsSnap = await getDocs(collection(db, 'questionSheets'));
+      const totalSheets = sheetsSnap.docs.length;
+      
+      setMergeStats(prev => ({
+        ...prev,
+        stage: 'Fetching Questions Collection',
+        progressPercent: 20,
+        totalSheets,
+        currentStep: 2,
+        message: `Discovered ${totalSheets} question sheets. Reading questions collection from Firestore...`
+      }));
+
+      // 2. Fetch all questions
+      toast.loading(`Found ${totalSheets} sheets. Fetching questions collection...`, { id: toastId });
+      const questionsSnap = await getDocs(collection(db, 'questions'));
+      const totalQuestions = questionsSnap.docs.length;
+
+      setMergeStats(prev => ({
+        ...prev,
+        stage: 'Mapping & Ordering Questions',
+        progressPercent: 40,
+        totalQuestions,
+        currentStep: 3,
+        message: `Discovered ${totalQuestions} questions. Indexing and grouping by sheet...`
+      }));
+
+      // 3. Map questions by sheetId
+      const questionsBySheet = new Map<string, any[]>();
+      for (const qDoc of questionsSnap.docs) {
+        const qData = qDoc.data();
+        const sheetId = qData.sheetId;
+        if (!sheetId) continue;
+        if (!questionsBySheet.has(sheetId)) {
+          questionsBySheet.set(sheetId, []);
+        }
+        questionsBySheet.get(sheetId)!.push({
+          id: qDoc.id,
+          sheetId: sheetId,
+          courseId: qData.courseId || '',
+          text: qData.text || qData.q || qData.question || '',
+          correctAnswer: qData.correctAnswer || '',
+          incorrectAnswers: Array.isArray(qData.incorrectAnswers) ? qData.incorrectAnswers : [],
+          options: Array.isArray(qData.options) ? qData.options : (Array.isArray(qData.opts) ? qData.opts : []),
+          explanation: qData.explanation || '',
+          order: typeof qData.order === 'number' ? qData.order : 0,
+          authorId: qData.authorId || '',
+          createdAt: qData.createdAt || new Date().toISOString()
+        });
+      }
+
+      setMergeStats(prev => ({
+        ...prev,
+        stage: 'Consolidating Sheets into Database',
+        progressPercent: 50,
+        currentStep: 4,
+        message: `Beginning batch consolidation across ${totalSheets} question sheets...`
+      }));
+
+      // 4. Batch update sheets with their embedded questions
+      let sheetsUpdated = 0;
+      let totalQuestionsMerged = 0;
+      let currentBatch = writeBatch(db);
+      let opCount = 0;
+
+      for (let i = 0; i < totalSheets; i++) {
+        const sheetDoc = sheetsSnap.docs[i];
+        const existingData = sheetDoc.data();
+        const sheetQs = questionsBySheet.get(sheetDoc.id) || existingData.questions || [];
+        
+        // Sort questions by order ascending
+        sheetQs.sort((a: any, b: any) => (a.order || 0) - (b.order || 0));
+
+        currentBatch.update(doc(db, 'questionSheets', sheetDoc.id), {
+          questions: sheetQs
+        });
+
+        sheetsUpdated++;
+        totalQuestionsMerged += sheetQs.length;
+        opCount++;
+
+        const currentPercent = Math.min(94, Math.round(50 + ((sheetsUpdated / totalSheets) * 44)));
+        const sheetLabel = `${existingData.year || 'Exam'} (${existingData.semester || '1st'} Sem)`;
+
+        setMergeStats(prev => ({
+          ...prev,
+          progressPercent: currentPercent,
+          sheetsMerged: sheetsUpdated,
+          questionsMerged: totalQuestionsMerged,
+          currentSheetName: sheetLabel,
+          message: `Consolidating sheet ${sheetsUpdated}/${totalSheets}: ${sheetLabel} (${sheetQs.length} Qs)...`
+        }));
+
+        // Allow UI to breathe and update smoothly
+        if (i % 2 === 0 || i === totalSheets - 1) {
+          await new Promise(r => setTimeout(r, 15));
+        }
+
+        if (opCount === 400) {
+          await currentBatch.commit();
+          currentBatch = writeBatch(db);
+          opCount = 0;
+        }
+      }
+
+      if (opCount > 0) {
+        setMergeStats(prev => ({
+          ...prev,
+          stage: 'Committing Final Batch to Database',
+          progressPercent: 95,
+          message: 'Committing final batch of consolidated sheets to Firestore...'
+        }));
+        await currentBatch.commit();
+      }
+
+      // 5. Trigger academic update stamp in system/config so student apps reconcile immediately
+      setMergeStats(prev => ({
+        ...prev,
+        stage: 'Syncing Academic Timestamp',
+        progressPercent: 98,
+        currentStep: 5,
+        message: 'Updating academic update timestamp in system config...'
+      }));
+
+      try {
+        await updateDoc(doc(db, 'system', 'config'), {
+          lastAcademicUpdate: Date.now()
+        });
+      } catch (e) {
+        console.error("Failed to update lastAcademicUpdate timestamp:", e);
+      }
+
+      const completedTime = new Date().toLocaleTimeString();
+      setMergeStats({
+        status: 'completed',
+        stage: 'Consolidation Complete',
+        progressPercent: 100,
+        sheetsMerged: sheetsUpdated,
+        questionsMerged: totalQuestionsMerged,
+        totalSheets,
+        totalQuestions,
+        currentStep: 5,
+        totalSteps: 5,
+        completedAt: completedTime,
+        message: `Successfully merged ${totalQuestionsMerged} questions into ${sheetsUpdated} question sheets! Future mobile course syncs will consume only 1 read per sheet.`
+      });
+
+      toast.success(
+        `Consolidation Complete!\nMerged ${totalQuestionsMerged} questions into ${sheetsUpdated} question sheets.\nPast questions now cost only 1 read per sheet!`,
+        { id: toastId, duration: 6000 }
+      );
+    } catch (err: any) {
+      console.error("Question merge error:", err);
+      setMergeStats({
+        status: 'error',
+        stage: 'Error Occurred',
+        progressPercent: 0,
+        sheetsMerged: 0,
+        questionsMerged: 0,
+        totalSheets: 0,
+        totalQuestions: 0,
+        currentStep: 0,
+        totalSteps: 5,
+        errorMsg: err.message || 'An unknown error occurred during consolidation.',
+        message: `Merge failed: ${err.message}`
+      });
+      toast.error(`Consolidation failed: ${err.message}`, { id: toastId });
+    } finally {
+      setMergingQuestions(false);
     }
   };
 
@@ -808,36 +1075,138 @@ export default function OverseerControl() {
     }
   };
 
-  // 4. Save Prices
+  // Mobile App Screenshot Authorization Handlers
+  const handleLookupScreenshotUser = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    if (!screenshotTargetStudentId.trim()) {
+      toast.error("Please enter a Student ID to look up");
+      return;
+    }
+    setScreenshotLoading(true);
+    setSearchedScreenshotUser(null);
+    try {
+      const q = query(collection(db, 'users'), where('studentId', '==', screenshotTargetStudentId.trim()));
+      const snap = await getDocs(q);
+      if (snap.empty) {
+        toast.error(`No student found with ID: "${screenshotTargetStudentId.trim()}"`);
+        return;
+      }
+      const uDoc = snap.docs[0];
+      setSearchedScreenshotUser({ id: uDoc.id, ...uDoc.data() });
+    } catch (err: any) {
+      console.error("Screenshot user lookup error:", err);
+      toast.error(err.message || "Failed to search student");
+    } finally {
+      setScreenshotLoading(false);
+    }
+  };
+
+  const handleToggleScreenshotPermission = async (
+    targetUserId: string,
+    currentStatus: boolean,
+    studentId: string,
+    username: string,
+    currentLevel: string
+  ) => {
+    setScreenshotLoading(true);
+    try {
+      const newStatus = !currentStatus;
+      await updateDoc(doc(db, 'users', targetUserId), {
+        canTakeScreenshots: newStatus,
+        screenshotAllowed: newStatus
+      });
+
+      toast.success(
+        newStatus
+          ? `Screenshot ability GRANTED to ${username || 'Student'} (${studentId}) without raising permission (stays Level ${currentLevel}).`
+          : `Screenshot ability REVOKED for ${username || 'Student'} (${studentId}).`
+      );
+
+      if (searchedScreenshotUser && searchedScreenshotUser.id === targetUserId) {
+        setSearchedScreenshotUser({
+          ...searchedScreenshotUser,
+          canTakeScreenshots: newStatus,
+          screenshotAllowed: newStatus
+        });
+      }
+      fetchScreenshotUsers();
+    } catch (err: any) {
+      console.error("Error toggling screenshot permission:", err);
+      toast.error(err.message || "Failed to update screenshot permission");
+    } finally {
+      setScreenshotLoading(false);
+    }
+  };
+
+  // 4. Save Prices, Bulk Rates, Commission & Paystack Keys (Level 5 Overseer Authority)
   const handleSavePrices = async (e: React.FormEvent) => {
     e.preventDefault();
+
+    // Validation: Bulk purchase prices must be strictly lower than retail PIN prices
+    if (bulkStandardPrice >= standardPrice) {
+      toast.error(`Bulk purchase price for Standard PINs (₦${bulkStandardPrice.toLocaleString()}) must be lower than retail price (₦${standardPrice.toLocaleString()}) so vendors can sell at market price and turn a profit.`);
+      return;
+    }
+    if (bulkPlusPrice >= plusPrice) {
+      toast.error(`Bulk purchase price for PLUS PINs (₦${bulkPlusPrice.toLocaleString()}) must be lower than retail price (₦${plusPrice.toLocaleString()}) so vendors can sell at market price and turn a profit.`);
+      return;
+    }
+    if (vendorCommissionPercentage <= 0 || vendorCommissionPercentage > 100) {
+      toast.error("Vendor On-Demand commission percentage must be between 1% and 100%.");
+      return;
+    }
+
     setPriceLoading(true);
     try {
       const nowStr = new Date().toISOString();
       
       // Update system config
-      await updateDoc(doc(db, 'system', 'config'), {
+      await setDoc(doc(db, 'system', 'config'), {
         standardPrice,
         plusPrice,
-        standardWholesalePrice,
-        plusWholesalePrice,
+        bulkStandardPrice,
+        bulkPlusPrice,
+        standardWholesalePrice: bulkStandardPrice, // backward compatibility
+        plusWholesalePrice: bulkPlusPrice,
+        vendorCommissionPercentage,
+        paystackPublicKey: paystackPublicKey.trim(),
+        paystackSecretKey: paystackSecretKey.trim(),
         pricesUpdatedAt: nowStr
-      });
+      }, { merge: true });
+
+      // Save Paystack keys in /settings/paystack as well for centralized access
+      if (paystackPublicKey.trim() || paystackSecretKey.trim()) {
+        try {
+          await setDoc(doc(db, 'settings', 'paystack'), {
+            publicKey: paystackPublicKey.trim(),
+            secretKey: paystackSecretKey.trim(),
+            mode: paystackPublicKey.startsWith('pk_live') ? 'live' : 'test',
+            updatedAt: nowStr
+          }, { merge: true });
+        } catch (settingsErr) {
+          console.warn("Could not sync to settings/paystack:", settingsErr);
+        }
+      }
 
       // Save to price history
-      await addDoc(collection(db, 'priceHistory'), {
-        standardPrice,
-        plusPrice,
-        standardWholesalePrice,
-        plusWholesalePrice,
-        updatedAt: nowStr
-      });
+      try {
+        await addDoc(collection(db, 'priceHistory'), {
+          standardPrice,
+          plusPrice,
+          bulkStandardPrice,
+          bulkPlusPrice,
+          vendorCommissionPercentage,
+          updatedAt: nowStr
+        });
+      } catch (histErr) {
+        console.warn("Could not append to priceHistory:", histErr);
+      }
 
-      toast.success("Activation pin prices and wholesale lending rates updated successfully!");
+      toast.success("Activation pin prices, bulk rates, commission percentage, and Paystack keys updated successfully!");
       fetchData();
     } catch (err: any) {
-      console.error("Error saving prices:", err);
-      toast.error("Failed to update pricing");
+      console.error("Error saving prices and keys:", err);
+      toast.error(err?.message ? `Failed to update pricing: ${err.message}` : "Failed to update pricing and Paystack settings");
     } finally {
       setPriceLoading(false);
     }
@@ -1690,88 +2059,499 @@ export default function OverseerControl() {
               {migrating ? 'Migrating Database...' : "Migrate Courses & Notes to FUTO"}
             </Button>
           </div>
+
+          <div className="pt-4 border-t space-y-4">
+            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+              <div className="space-y-1">
+                <div className="text-sm font-semibold flex items-center gap-2">
+                  <BookOpen className="h-4 w-4 text-emerald-600" />
+                  Consolidate Past Questions into Question Sheets (1 Read/Sheet)
+                </div>
+                <p className="text-xs text-muted-foreground max-w-xl">
+                  Bundles all individual documents from the <code className="text-pink-600 font-mono">questions</code> collection directly into an array on their matching <code className="text-pink-600 font-mono">questionSheets</code> documents. This permanently reduces mobile sync reads by <strong>over 95%</strong> (from 3,500+ reads down to ~40 reads).
+                </p>
+              </div>
+
+              <div className="flex items-center gap-2 w-full sm:w-auto">
+                {mergeStats.status === 'completed' && (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setMergeStats({
+                      status: 'idle',
+                      stage: 'Idle',
+                      progressPercent: 0,
+                      sheetsMerged: 0,
+                      questionsMerged: 0,
+                      totalSheets: 0,
+                      totalQuestions: 0,
+                      currentStep: 0,
+                      totalSteps: 5,
+                    })}
+                    className="text-xs"
+                  >
+                    Dismiss Indicator
+                  </Button>
+                )}
+                <Button 
+                  type="button" 
+                  onClick={handleMergePastQuestionsIntoSheets} 
+                  disabled={mergingQuestions} 
+                  className="w-full sm:w-auto bg-emerald-600 hover:bg-emerald-700 text-white flex items-center justify-center gap-2 shadow-sm"
+                >
+                  {mergingQuestions ? (
+                    <>
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                      <span>Merging... {mergeStats.progressPercent}%</span>
+                    </>
+                  ) : (
+                    <>
+                      <Sparkles className="h-4 w-4" />
+                      <span>Merge Questions into Sheets</span>
+                    </>
+                  )}
+                </Button>
+              </div>
+            </div>
+
+            {/* Dedicated Real-Time Merger Progress Indicator Panel */}
+            {mergeStats.status !== 'idle' && (
+              <div className={`rounded-xl border p-4.5 transition-all duration-300 ${
+                mergeStats.status === 'completed' 
+                  ? 'bg-emerald-50/70 border-emerald-300 dark:bg-emerald-950/30 dark:border-emerald-800' 
+                  : mergeStats.status === 'error'
+                  ? 'bg-red-50/70 border-red-300 dark:bg-red-950/30 dark:border-red-800'
+                  : 'bg-slate-50/90 border-emerald-300 dark:bg-slate-900/70 dark:border-emerald-800/60 shadow-sm'
+              }`}>
+                {/* Header row: Status, Step indicator & Numerical percentage */}
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-3">
+                  <div className="flex items-start gap-3">
+                    <div className="pt-0.5">
+                      {mergeStats.status === 'running' && (
+                        <div className="relative flex h-4 w-4">
+                          <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                          <span className="relative inline-flex rounded-full h-4 w-4 bg-emerald-500"></span>
+                        </div>
+                      )}
+                      {mergeStats.status === 'completed' && (
+                        <CheckCircle2 className="h-5 w-5 text-emerald-600 shrink-0" />
+                      )}
+                      {mergeStats.status === 'error' && (
+                        <AlertTriangle className="h-5 w-5 text-red-600 shrink-0" />
+                      )}
+                    </div>
+                    <div>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="text-sm font-bold text-foreground">
+                          {mergeStats.stage}
+                        </span>
+                        {mergeStats.status === 'running' && (
+                          <Badge variant="outline" className="text-[11px] font-medium bg-emerald-100/70 text-emerald-800 border-emerald-300 dark:bg-emerald-900/40 dark:text-emerald-300">
+                            Step {mergeStats.currentStep} of {mergeStats.totalSteps}
+                          </Badge>
+                        )}
+                        {mergeStats.status === 'completed' && (
+                          <Badge className="text-[11px] bg-emerald-600 text-white hover:bg-emerald-600">
+                            Finished at {mergeStats.completedAt}
+                          </Badge>
+                        )}
+                      </div>
+                      <p className="text-xs text-muted-foreground mt-1">
+                        {mergeStats.message}
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-2 self-end sm:self-center">
+                    <span className={`text-3xl font-black font-mono tracking-tight ${
+                      mergeStats.status === 'completed'
+                        ? 'text-emerald-600 dark:text-emerald-400'
+                        : mergeStats.status === 'error'
+                        ? 'text-red-600 dark:text-red-400'
+                        : 'text-foreground'
+                    }`}>
+                      {mergeStats.progressPercent}%
+                    </span>
+                  </div>
+                </div>
+
+                {/* Animated Horizontal Progress Bar */}
+                <div className="w-full bg-slate-200 dark:bg-slate-800 h-3 rounded-full overflow-hidden p-0.5 relative mb-4">
+                  <div 
+                    className={`h-full rounded-full transition-all duration-300 ease-out ${
+                      mergeStats.status === 'completed'
+                        ? 'bg-emerald-600'
+                        : mergeStats.status === 'error'
+                        ? 'bg-red-500'
+                        : 'bg-gradient-to-r from-emerald-500 via-teal-500 to-emerald-600 animate-pulse'
+                    }`}
+                    style={{ width: `${Math.max(3, mergeStats.progressPercent)}%` }}
+                  />
+                </div>
+
+                {/* Live Metrics Grid */}
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+                  <div className="bg-white/90 dark:bg-slate-800/90 rounded-lg p-2.5 border border-slate-200/80 dark:border-slate-700/60 shadow-xs">
+                    <div className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">Sheets Merged</div>
+                    <div className="text-base font-bold text-foreground mt-0.5">
+                      {mergeStats.sheetsMerged} <span className="text-xs font-normal text-muted-foreground">/ {mergeStats.totalSheets || '—'}</span>
+                    </div>
+                  </div>
+
+                  <div className="bg-white/90 dark:bg-slate-800/90 rounded-lg p-2.5 border border-slate-200/80 dark:border-slate-700/60 shadow-xs">
+                    <div className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">Questions Consolidated</div>
+                    <div className="text-base font-bold text-foreground mt-0.5">
+                      {mergeStats.questionsMerged.toLocaleString()} <span className="text-xs font-normal text-muted-foreground">/ {mergeStats.totalQuestions ? mergeStats.totalQuestions.toLocaleString() : '—'}</span>
+                    </div>
+                  </div>
+
+                  <div className="bg-white/90 dark:bg-slate-800/90 rounded-lg p-2.5 border border-slate-200/80 dark:border-slate-700/60 shadow-xs">
+                    <div className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">Avg Qs / Sheet</div>
+                    <div className="text-base font-bold text-foreground mt-0.5">
+                      {mergeStats.sheetsMerged > 0 ? (mergeStats.questionsMerged / mergeStats.sheetsMerged).toFixed(1) : '—'}
+                    </div>
+                  </div>
+
+                  <div className="bg-white/90 dark:bg-slate-800/90 rounded-lg p-2.5 border border-slate-200/80 dark:border-slate-700/60 shadow-xs">
+                    <div className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">Read Cost Reduction</div>
+                    <div className="text-base font-bold text-emerald-600 dark:text-emerald-400 mt-0.5">
+                      ~98% Less Reads
+                    </div>
+                  </div>
+                </div>
+
+                {/* Real-time active item tag when running */}
+                {mergeStats.status === 'running' && mergeStats.currentSheetName && (
+                  <div className="mt-3 text-xs text-muted-foreground flex items-center gap-2 font-mono bg-white/70 dark:bg-slate-800/70 px-3 py-1.5 rounded-md border border-slate-200/60 dark:border-slate-700/50">
+                    <Loader2 className="h-3.5 w-3.5 animate-spin text-emerald-600 shrink-0" />
+                    <span>Processing: <strong className="text-foreground">{mergeStats.currentSheetName}</strong></span>
+                  </div>
+                )}
+
+                {/* Error Box if needed */}
+                {mergeStats.status === 'error' && mergeStats.errorMsg && (
+                  <div className="mt-3 text-xs text-red-700 dark:text-red-300 bg-red-100/70 dark:bg-red-900/30 p-3 rounded-lg border border-red-200 dark:border-red-800">
+                    <strong>Error Details:</strong> {mergeStats.errorMsg}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
         </CardContent>
       </Card>
 
-      {/* 2. PIN Pricing Configuration */}
+      {/* 2. Mobile App Screenshot Authorization (Direct Student ID Bypass - No Elevation) */}
+      <Card className="border-cyan-200 dark:border-cyan-900 shadow-xs">
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2 text-cyan-700 dark:text-cyan-400">
+            <Camera className="h-5 w-5" />
+            Mobile App Screenshot Authorization (Student ID Bypass)
+          </CardTitle>
+          <CardDescription>
+            Grant or revoke mobile app screenshot and screen recording ability to any specific Student ID without raising their account permission level (they remain Level 1, Level 2, etc.).
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-6">
+          <form onSubmit={handleLookupScreenshotUser} className="flex flex-col md:flex-row gap-4 items-end">
+            <div className="flex-1 space-y-2 w-full">
+              <Label htmlFor="screenshotStudentId">Enter Target Student ID / School ID</Label>
+              <div className="relative">
+                <Input
+                  id="screenshotStudentId"
+                  placeholder="e.g. 2021110052 or CLN-XXXX"
+                  value={screenshotTargetStudentId}
+                  onChange={(e) => setScreenshotTargetStudentId(e.target.value)}
+                  className="pr-10"
+                />
+                <Smartphone className="absolute right-3 top-2.5 h-4 w-4 text-muted-foreground" />
+              </div>
+            </div>
+            <Button 
+              type="submit" 
+              disabled={screenshotLoading || !screenshotTargetStudentId.trim()} 
+              className="w-full md:w-auto bg-cyan-600 hover:bg-cyan-700 text-white"
+            >
+              {screenshotLoading ? <Loader2 className="h-4 w-4 animate-spin mr-1.5" /> : <Camera className="h-4 w-4 mr-1.5" />}
+              Find Student
+            </Button>
+          </form>
+
+          {searchedScreenshotUser && (
+            <div className="p-4 rounded-xl border border-cyan-200 bg-cyan-50/50 dark:bg-cyan-950/20 dark:border-cyan-900 space-y-3">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                <div>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="font-bold text-foreground text-base">
+                      {searchedScreenshotUser.username || searchedScreenshotUser.name || 'Unnamed Student'}
+                    </span>
+                    <Badge variant="outline" className="font-mono text-xs">
+                      ID: {searchedScreenshotUser.studentId}
+                    </Badge>
+                    <Badge className="bg-slate-700 text-white text-xs">
+                      Account Level: {searchedScreenshotUser.level || '1'} (Standard User)
+                    </Badge>
+                  </div>
+                  <p className="text-xs text-muted-foreground mt-0.5">
+                    {searchedScreenshotUser.email || 'No email'} • University: {(searchedScreenshotUser.At || 'futo').toUpperCase()}
+                  </p>
+                </div>
+
+                <div className="flex items-center gap-3">
+                  <div className="text-right">
+                    <div className="text-[11px] font-semibold text-muted-foreground uppercase">Current Access</div>
+                    <Badge className={searchedScreenshotUser.canTakeScreenshots ? "bg-emerald-600 text-white" : "bg-red-500 text-white"}>
+                      {searchedScreenshotUser.canTakeScreenshots ? "Allowed (Bypass Active)" : "Blocked (Standard Guard)"}
+                    </Badge>
+                  </div>
+
+                  <Button
+                    type="button"
+                    size="sm"
+                    onClick={() => handleToggleScreenshotPermission(
+                      searchedScreenshotUser.id,
+                      Boolean(searchedScreenshotUser.canTakeScreenshots),
+                      searchedScreenshotUser.studentId,
+                      searchedScreenshotUser.username || '',
+                      searchedScreenshotUser.level || '1'
+                    )}
+                    disabled={screenshotLoading}
+                    className={searchedScreenshotUser.canTakeScreenshots ? "bg-red-600 hover:bg-red-700 text-white" : "bg-emerald-600 hover:bg-emerald-700 text-white"}
+                  >
+                    {searchedScreenshotUser.canTakeScreenshots ? (
+                      <>
+                        <Lock className="h-4 w-4 mr-1.5" /> Revoke Screenshot Access
+                      </>
+                    ) : (
+                      <>
+                        <Unlock className="h-4 w-4 mr-1.5" /> Grant Screenshot Access
+                      </>
+                    )}
+                  </Button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* List of currently authorized students */}
+          <div className="space-y-2 pt-2 border-t">
+            <div className="flex items-center justify-between">
+              <h4 className="font-bold text-xs uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
+                <Camera className="h-3.5 w-3.5 text-cyan-600" />
+                Active Authorized Screenshot Users ({screenshotAllowedUsers.length})
+              </h4>
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                onClick={fetchScreenshotUsers}
+                className="text-xs h-7 text-muted-foreground hover:text-foreground"
+              >
+                <RefreshCw className="h-3 w-3 mr-1" /> Refresh List
+              </Button>
+            </div>
+
+            {screenshotAllowedUsers.length === 0 ? (
+              <p className="text-xs text-muted-foreground italic py-2">
+                No individual student accounts currently have custom screenshot authorization.
+              </p>
+            ) : (
+              <div className="max-h-48 overflow-y-auto space-y-2">
+                {screenshotAllowedUsers.map((u) => (
+                  <div key={u.id} className="flex items-center justify-between p-2.5 rounded-lg border bg-card text-xs">
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <span className="font-semibold">{u.username || 'Student'}</span>
+                        <Badge variant="outline" className="font-mono text-[10px]">
+                          {u.studentId}
+                        </Badge>
+                        <span className="text-[10px] text-muted-foreground">
+                          Level {u.level || '1'} (No Permission Elevation)
+                        </span>
+                      </div>
+                      <span className="text-[11px] text-muted-foreground">{u.email}</span>
+                    </div>
+
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="text-red-600 hover:text-red-700 hover:bg-red-50 dark:hover:bg-red-950/50 text-xs h-7 px-2"
+                      onClick={() => handleToggleScreenshotPermission(
+                        u.id,
+                        true,
+                        u.studentId,
+                        u.username || '',
+                        u.level || '1'
+                      )}
+                      disabled={screenshotLoading}
+                    >
+                      Revoke
+                    </Button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* 3. Activation PIN Pricing, Bulk Restock Rates, Commission & Paystack Configuration */}
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <DollarSign className="h-5 w-5 text-green-500" />
-            Activation PIN Pricing & Wholesale Lending Rates (Overseer Authority Only)
+            Activation PIN Pricing, Bulk Restock Rates & Paystack Configuration (Overseer Authority Only)
           </CardTitle>
           <CardDescription>
-            Change the default prices for standard and plus activation pins platform-wide, as well as wholesale lending unit prices for borrowed pins. All price changes are securely logged to facilitate accurate historical revenue calculations.
+            Set student retail prices, wholesale bulk purchase prices (vendors restock in bulk at lower rates to turn a profit), vendor on-demand commission percentage, and Paystack API gateway keys.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-6">
-          <form onSubmit={handleSavePrices} className="space-y-4">
+          <form onSubmit={handleSavePrices} className="space-y-6">
             <div className="grid gap-4 md:grid-cols-2">
               <div className="space-y-2">
-                <Label htmlFor="standardPrice">Standard PIN Retail Price (₦)</Label>
+                <Label htmlFor="standardPrice" className="font-semibold">Standard PIN Retail Price (₦)</Label>
                 <Input 
                   id="standardPrice"
                   type="number"
-                  min="0"
+                  min="1"
                   value={standardPrice}
                   onChange={(e) => setStandardPrice(parseInt(e.target.value) || 0)}
                   required
                 />
-                <p className="text-[11px] text-muted-foreground">Default price for standard study portal access</p>
+                <p className="text-[11px] text-muted-foreground">Standard study portal access price charged to students (and used for On-Demand checkout)</p>
               </div>
+
               <div className="space-y-2">
-                <Label htmlFor="plusPrice">PLUS PIN Retail Price (₦)</Label>
+                <Label htmlFor="plusPrice" className="font-semibold">PLUS PIN Retail Price (₦)</Label>
                 <Input 
                   id="plusPrice"
                   type="number"
-                  min="0"
+                  min="1"
                   value={plusPrice}
                   onChange={(e) => setPlusPrice(parseInt(e.target.value) || 0)}
                   required
                 />
-                <p className="text-[11px] text-muted-foreground">Default price for premium PLUS portal access</p>
+                <p className="text-[11px] text-muted-foreground">Premium PLUS study portal access retail price</p>
               </div>
+
               <div className="space-y-2">
-                <Label htmlFor="standardWholesalePrice" className="text-amber-700 dark:text-amber-400">Standard PIN Wholesale Lending Rate (₦)</Label>
+                <Label htmlFor="bulkStandardPrice" className="text-emerald-700 dark:text-emerald-400 font-semibold">
+                  Standard PIN Bulk Purchase Price (₦)
+                </Label>
                 <Input 
-                  id="standardWholesalePrice"
+                  id="bulkStandardPrice"
                   type="number"
-                  min="0"
-                  value={standardWholesalePrice}
-                  onChange={(e) => setStandardWholesalePrice(parseInt(e.target.value) || 0)}
+                  min="1"
+                  value={bulkStandardPrice}
+                  onChange={(e) => setBulkStandardPrice(parseInt(e.target.value) || 0)}
                   required
                 />
-                <p className="text-[11px] text-muted-foreground">Amount owed to CoLearn per used borrowed Standard PIN</p>
+                <p className="text-[11px] text-muted-foreground">
+                  Wholesale price for vendors restocking Standard PINs in bulk (min 5). <strong>Must be lower than Standard retail price (₦{standardPrice.toLocaleString()})</strong> so vendors profit.
+                </p>
               </div>
+
               <div className="space-y-2">
-                <Label htmlFor="plusWholesalePrice" className="text-amber-700 dark:text-amber-400">PLUS PIN Wholesale Lending Rate (₦)</Label>
+                <Label htmlFor="bulkPlusPrice" className="text-emerald-700 dark:text-emerald-400 font-semibold">
+                  PLUS PIN Bulk Purchase Price (₦)
+                </Label>
                 <Input 
-                  id="plusWholesalePrice"
+                  id="bulkPlusPrice"
                   type="number"
-                  min="0"
-                  value={plusWholesalePrice}
-                  onChange={(e) => setPlusWholesalePrice(parseInt(e.target.value) || 0)}
+                  min="1"
+                  value={bulkPlusPrice}
+                  onChange={(e) => setBulkPlusPrice(parseInt(e.target.value) || 0)}
                   required
                 />
-                <p className="text-[11px] text-muted-foreground">Amount owed to CoLearn per used borrowed PLUS PIN</p>
+                <p className="text-[11px] text-muted-foreground">
+                  Wholesale price for vendors restocking PLUS PINs in bulk. <strong>Must be lower than PLUS retail price (₦{plusPrice.toLocaleString()})</strong> so vendors profit.
+                </p>
+              </div>
+
+              <div className="space-y-2 md:col-span-2">
+                <Label htmlFor="vendorCommissionPercentage" className="text-indigo-700 dark:text-indigo-400 font-semibold flex items-center gap-1.5">
+                  <Percent className="h-4 w-4" /> Vendor On-Demand Commission Percentage (%)
+                </Label>
+                <Input 
+                  id="vendorCommissionPercentage"
+                  type="number"
+                  min="1"
+                  max="100"
+                  value={vendorCommissionPercentage}
+                  onChange={(e) => setVendorCommissionPercentage(parseInt(e.target.value) || 0)}
+                  required
+                />
+                <p className="text-[11px] text-muted-foreground">
+                  Percentage of retail price credited to a vendor's wallet balance when a student activates an On-Demand PIN (e.g. at 15%, on ₦{standardPrice.toLocaleString()} Standard PIN, vendor receives ₦{Math.round(standardPrice * (vendorCommissionPercentage / 100)).toLocaleString()}).
+                </p>
               </div>
             </div>
-            <Button type="submit" disabled={priceLoading} className="bg-green-600 hover:bg-green-700">
-              {priceLoading ? 'Saving Price...' : 'Update Pricing & Record Rates'}
+
+            {/* Paystack Gateway Configuration Block */}
+            <div className="p-4 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-900/40 space-y-4">
+              <div className="flex items-center justify-between flex-wrap gap-2">
+                <div className="space-y-0.5">
+                  <h4 className="font-bold text-sm flex items-center gap-2">
+                    <CreditCard className="h-4 w-4 text-emerald-600" />
+                    Paystack Payment Gateway Keys (Stored in Firebase)
+                  </h4>
+                  <p className="text-xs text-muted-foreground">
+                    Required for On-Demand student payments, vendor bulk restock checkouts, and bank payout transfers.
+                  </p>
+                </div>
+                {paystackPublicKey && (
+                  <Badge variant="outline" className={paystackPublicKey.startsWith('pk_live') ? "bg-emerald-100 text-emerald-800 border-emerald-300" : "bg-amber-100 text-amber-800 border-amber-300"}>
+                    {paystackPublicKey.startsWith('pk_live') ? "Live Mode" : "Test Mode"}
+                  </Badge>
+                )}
+              </div>
+
+              <div className="grid gap-4 md:grid-cols-2">
+                <div className="space-y-2">
+                  <Label htmlFor="paystackPublicKey" className="text-xs font-mono">Paystack Public Key (Client Inline)</Label>
+                  <Input 
+                    id="paystackPublicKey"
+                    placeholder="pk_test_... or pk_live_..."
+                    value={paystackPublicKey}
+                    onChange={(e) => setPaystackPublicKey(e.target.value)}
+                    className="font-mono text-xs"
+                  />
+                  <p className="text-[10px] text-muted-foreground">Used safely on client for Paystack Inline popup modal</p>
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="paystackSecretKey" className="text-xs font-mono">Paystack Secret Key (Backend Proxy)</Label>
+                  <Input 
+                    id="paystackSecretKey"
+                    type="password"
+                    placeholder="sk_test_... or sk_live_..."
+                    value={paystackSecretKey}
+                    onChange={(e) => setPaystackSecretKey(e.target.value)}
+                    className="font-mono text-xs"
+                  />
+                  <p className="text-[10px] text-muted-foreground">Saved securely in Firebase and utilized exclusively via backend proxy</p>
+                </div>
+              </div>
+            </div>
+
+            <Button type="submit" disabled={priceLoading} className="bg-green-600 hover:bg-green-700 text-white">
+              {priceLoading ? <Loader2 className="h-4 w-4 animate-spin mr-1.5" /> : null}
+              {priceLoading ? 'Saving Pricing & Gateway Config...' : 'Save Pricing, Bulk Rates, Commission & Paystack Keys'}
             </Button>
           </form>
 
           {priceHistory.length > 0 && (
             <div className="space-y-2 pt-4 border-t">
               <h4 className="font-bold text-sm text-muted-foreground flex items-center gap-1">
-                <List className="h-4 w-4" /> Recent Price Log History
+                <List className="h-4 w-4" /> Recent Price & Rate Log History
               </h4>
               <div className="max-h-36 overflow-y-auto space-y-1.5 border rounded-lg p-3 text-xs font-mono">
                 {priceHistory.map((pt, i) => (
                   <div key={i} className="flex justify-between items-center py-1 border-b last:border-0 flex-wrap gap-1">
                     <span>{new Date(pt.updatedAt).toLocaleString()}</span>
                     <span className="font-bold text-primary">
-                      Std: ₦{pt.standardPrice} | PLUS: ₦{pt.plusPrice} | Std Wholesale: ₦{pt.standardWholesalePrice ?? 800} | PLUS Wholesale: ₦{pt.plusWholesalePrice ?? 1500}
+                      Std: ₦{pt.standardPrice} | PLUS: ₦{pt.plusPrice} | Bulk Std: ₦{pt.bulkStandardPrice ?? pt.standardWholesalePrice ?? 800} | Bulk PLUS: ₦{pt.bulkPlusPrice ?? pt.plusWholesalePrice ?? 1500}
                     </span>
                   </div>
                 ))}
@@ -2017,6 +2797,49 @@ export default function OverseerControl() {
           )}
         </CardContent>
       </Card>
+
+      {/* Question Sheets Consolidation Confirmation Dialog */}
+      <Dialog open={showMergeConfirmDialog} onOpenChange={setShowMergeConfirmDialog}>
+        <DialogContent className="sm:max-w-[480px]">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-emerald-600">
+              <BookOpen className="h-5 w-5" />
+              Consolidate Questions into Question Sheets
+            </DialogTitle>
+            <DialogDescription className="text-left pt-2 space-y-3 text-sm">
+              <p>
+                This will read all questions from the <code className="text-pink-600 font-mono bg-pink-50 dark:bg-pink-950/40 px-1 py-0.5 rounded">questions</code> collection, bundle them directly into an array on their matching <code className="text-pink-600 font-mono bg-pink-50 dark:bg-pink-950/40 px-1 py-0.5 rounded">questionSheets</code> documents, and commit the changes in Firestore.
+              </p>
+              <div className="bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800 rounded-lg p-3 text-xs text-emerald-900 dark:text-emerald-300 space-y-1">
+                <div className="font-semibold flex items-center gap-1.5 text-emerald-800 dark:text-emerald-200">
+                  <Sparkles className="h-4 w-4" /> Why run this?
+                </div>
+                <p>
+                  Instead of reading 3,500+ individual question documents when a student app syncs course materials, it will read only 1 document per sheet. This permanently cuts your Firebase read quota by <strong>over 95%</strong>.
+                </p>
+              </div>
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="flex flex-col-reverse sm:flex-row gap-2 pt-3">
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setShowMergeConfirmDialog(false)}
+            >
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              onClick={handleExecuteMerge}
+              disabled={mergingQuestions}
+              className="bg-emerald-600 hover:bg-emerald-700 text-white flex items-center gap-2"
+            >
+              <Sparkles className="h-4 w-4" />
+              Confirm & Start Consolidation
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

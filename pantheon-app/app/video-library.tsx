@@ -20,6 +20,7 @@ import { collection, query, where, getDocs } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 import { useAuth } from '../context/AuthContext';
 import { getFilteredCoursesForStudent } from '../lib/courseFilter';
+import { getDownloadedCoursesLocal } from '../lib/db';
 
 interface Course {
   id: string;
@@ -104,18 +105,10 @@ export default function VideoLibraryScreen() {
   useEffect(() => {
     if (!profile) return;
     setLoading(true);
-    const activeSemester = systemConfig?.currentSemester || '1st';
-    const q = query(
-      collection(db, 'courses'),
-      where('semester', '==', activeSemester)
-    );
-    getDocs(q).then(async (snapshot) => {
-      const allCourses = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Course));
-      const filtered = await getFilteredCoursesForStudent(allCourses, profile, true);
+
+    const applyCourseList = (filtered: Course[]) => {
       filtered.sort((a, b) => (a.code || '').localeCompare(b.code || ''));
       setCourses(filtered);
-      
-      // Auto-select first course if none selected yet or previously selected is no longer valid
       if (filtered.length > 0) {
         if (!selectedCourse || !filtered.some(c => c.id === selectedCourse.id)) {
           setSelectedCourse(filtered[0]);
@@ -124,6 +117,33 @@ export default function VideoLibraryScreen() {
         setSelectedCourse(null);
       }
       setLoading(false);
+    };
+
+    const activeSemester = (!systemConfig?.currentSemester || systemConfig.currentSemester === 'none') ? '1st' : systemConfig.currentSemester;
+
+    // Primary: Check local SQLite courses first (0 Firestore reads)
+    try {
+      const localCourses = getDownloadedCoursesLocal();
+      if (localCourses && localCourses.length > 0) {
+        getFilteredCoursesForStudent(localCourses, profile, true, activeSemester).then(filtered => {
+          if (filtered && filtered.length > 0) {
+            applyCourseList(filtered as Course[]);
+          } else {
+            setLoading(false);
+          }
+        });
+        return; // Completely bypass Firestore
+      }
+    } catch (e) {}
+
+    const q = query(
+      collection(db, 'courses'),
+      where('semester', '==', activeSemester)
+    );
+    getDocs(q).then(async (snapshot) => {
+      const allCourses = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Course));
+      const filtered = await getFilteredCoursesForStudent(allCourses, profile, true, activeSemester);
+      applyCourseList(filtered);
     }).catch((err) => {
       console.error('Error fetching courses:', err);
       setLoading(false);

@@ -10,8 +10,10 @@ import {
   Modal,
   ActivityIndicator,
   Alert,
+  Platform,
+  KeyboardAvoidingView,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { F } from '../components/Theme';
 import { collection, query, where, getDocs, addDoc, onSnapshot, orderBy, doc, getDoc, limit, serverTimestamp, updateDoc } from 'firebase/firestore';
@@ -99,6 +101,7 @@ interface Message {
 
 export default function ChatRoomScreen() {
   const router = useRouter();
+  const insets = useSafeAreaInsets();
   const { colors: C } = useTheme();
   const s = useMemo(() => createStyles(C), [C]);
 
@@ -295,14 +298,21 @@ export default function ChatRoomScreen() {
       });
       setMessages(list);
       
-      // Auto-scroll to bottom
+      // Auto-scroll immediately to follow latest message
       setTimeout(() => {
         scrollRef.current?.scrollToEnd({ animated: true });
-      }, 300);
+      }, 50);
     });
 
     return () => unsubscribe();
   }, [activeChatId]);
+
+  // Keep chat pinned to the latest message whenever messages array updates
+  useEffect(() => {
+    if (messages.length > 0) {
+      scrollRef.current?.scrollToEnd({ animated: true });
+    }
+  }, [messages.length]);
 
   // 3. Load notes list
   useEffect(() => {
@@ -318,63 +328,27 @@ export default function ChatRoomScreen() {
             });
           });
         }
-        
-        if (!isOffline) {
-          try {
-            const snapshot = await getDocs(query(collection(db, 'notes')));
-            const fbNotes = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
-            if (fbNotes.length > 0) {
-              list = fbNotes;
-            }
-          } catch (e) {
-            console.log("Error loading cloud notes for reference:", e);
-          }
-        }
         setAvailableNotes(list);
       } catch (err) {
         console.error("Error loading reference notes list:", err);
       }
     }
     loadNotes();
-  }, [isOffline]);
+  }, []);
 
-  // Load courses in current semester
+  // Load courses in current semester from SQLite
   useEffect(() => {
     let active = true;
     async function loadCourses() {
       try {
         const semester = systemConfig?.currentSemester || '1st';
         const localCourses = getDownloadedCoursesLocal();
-        if (isOffline && localCourses && localCourses.length > 0) {
+        if (localCourses && localCourses.length > 0) {
           const filteredLocal = await getFilteredCoursesForStudent(localCourses, profile, true, semester);
           if (active) setCourses(filteredLocal);
-          return;
         }
-
-        const q = query(collection(db, 'courses'), where('semester', '==', semester));
-        const snapshot = await getDocs(q);
-        const list = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
-        
-        let finalCourses = list;
-        if (list.length === 0) {
-          const qAll = query(collection(db, 'courses'));
-          const snapAll = await getDocs(qAll);
-          const listAll = snapAll.docs.map(d => ({ id: d.id, ...d.data() }));
-          finalCourses = listAll;
-        }
-        
-        const filtered = await getFilteredCoursesForStudent(finalCourses, profile, true, semester);
-        if (active) setCourses(filtered);
       } catch (err) {
         console.error("Error loading courses for reference picker:", err);
-        try {
-          const localCourses = getDownloadedCoursesLocal();
-          if (localCourses && localCourses.length > 0) {
-            const semester = systemConfig?.currentSemester || '1st';
-            const filteredLocal = await getFilteredCoursesForStudent(localCourses, profile, true, semester);
-            if (active) setCourses(filteredLocal);
-          }
-        } catch (_) {}
       }
     }
     loadCourses();
@@ -422,6 +396,11 @@ export default function ChatRoomScreen() {
       setMsg('');
       setSelectedNote(null);
       setReplyingTo(null);
+
+      // Instantly follow newly sent message
+      setTimeout(() => {
+        scrollRef.current?.scrollToEnd({ animated: true });
+      }, 50);
     } catch (e) {
       console.error("Error sending message:", e);
       Alert.alert('Sending Failed', 'Offline or transaction failed. Reconnect internet.');
@@ -667,138 +646,147 @@ export default function ChatRoomScreen() {
         </View>
       </Modal>
 
-      {/* Messages Scroll Area */}
-      <ScrollView 
-        ref={scrollRef} 
-        style={s.scroll} 
-        contentContainerStyle={s.scrollContent}
-        showsVerticalScrollIndicator={false}
+      {/* Chat Body with Keyboard & System Navigation Bar Protection */}
+      <KeyboardAvoidingView 
+        style={{ flex: 1 }} 
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
       >
-        {messages.length === 0 ? (
-          <View style={s.emptyChatArea}>
-            <Text style={[s.emptyChatTitle, { color: C.ink }]}>Conversation Channel Empty</Text>
-            <Text style={[s.emptyChatDesc, { color: C.inkMid }]}>Press & hold any incoming chat block to reference replies or toggle safety flags.</Text>
-          </View>
-        ) : (
-          messages.map((item) => {
-            const isMe = item.senderId === profile?.uid;
-            return (
-              <TouchableOpacity 
-                key={item.id} 
-                style={[s.msgWrapper, isMe && { justifyContent: 'flex-end' }]} 
-                onLongPress={() => handleMsgLongPress(item)}
-                activeOpacity={0.9}
-              >
-                {!isMe && (
-                  <View style={[s.msgAvatarPlaceholder, { backgroundColor: C.tagBg || C.bgAlt, borderColor: C.border }]}>
-                    <Text style={[s.msgAvatarText, { color: C.ink }]}>{item.senderName[0]?.toUpperCase() || 'S'}</Text>
-                  </View>
-                )}
-                <View style={[s.msgContentArea, isMe && { alignItems: 'flex-end' }]}>
-                   {!isMe && <Text style={[s.msgSender, { color: C.inkMid }]}>{item.senderName}</Text>}
-                   <View style={[s.msgBubble, { backgroundColor: C.surface, borderColor: C.border }, isMe && [s.msgBubbleMe, { backgroundColor: C.surfaceDark, borderColor: C.surfaceDark }]]}>
-                     {item.replyTo && (
-                       <View style={[s.replyBar, { borderLeftColor: C.inkLight }, isMe && { borderLeftColor: 'rgba(255,255,255,0.4)' }]}>
-                          <Text style={[s.replySender, { color: C.ink }, isMe && { color: 'rgba(255,255,255,0.7)' }]}>@{item.replyTo.senderName}</Text>
-                          <Text style={[s.replyText, { color: C.inkMid }, isMe && { color: 'rgba(255,255,255,0.6)' }]} numberOfLines={1}>
-                            {item.replyTo.text}
-                          </Text>
+        {/* Messages Scroll Area */}
+        <ScrollView 
+          ref={scrollRef} 
+          style={s.scroll} 
+          contentContainerStyle={s.scrollContent}
+          showsVerticalScrollIndicator={false}
+          keyboardShouldPersistTaps="handled"
+          onContentSizeChange={() => scrollRef.current?.scrollToEnd({ animated: true })}
+          onLayout={() => scrollRef.current?.scrollToEnd({ animated: false })}
+        >
+          {messages.length === 0 ? (
+            <View style={s.emptyChatArea}>
+              <Text style={[s.emptyChatTitle, { color: C.ink }]}>Conversation Channel Empty</Text>
+              <Text style={[s.emptyChatDesc, { color: C.inkMid }]}>Press & hold any incoming chat block to reference replies or toggle safety flags.</Text>
+            </View>
+          ) : (
+            messages.map((item) => {
+              const isMe = item.senderId === profile?.uid;
+              return (
+                <TouchableOpacity 
+                  key={item.id} 
+                  style={[s.msgWrapper, isMe && { justifyContent: 'flex-end' }]} 
+                  onLongPress={() => handleMsgLongPress(item)}
+                  activeOpacity={0.9}
+                >
+                  {!isMe && (
+                    <View style={[s.msgAvatarPlaceholder, { backgroundColor: C.tagBg || C.bgAlt, borderColor: C.border }]}>
+                      <Text style={[s.msgAvatarText, { color: C.ink }]}>{item.senderName[0]?.toUpperCase() || 'S'}</Text>
+                    </View>
+                  )}
+                  <View style={[s.msgContentArea, isMe && { alignItems: 'flex-end' }]}>
+                     {!isMe && <Text style={[s.msgSender, { color: C.inkMid }]}>{item.senderName}</Text>}
+                     <View style={[s.msgBubble, { backgroundColor: C.surface, borderColor: C.border }, isMe && [s.msgBubbleMe, { backgroundColor: C.surfaceDark, borderColor: C.surfaceDark }]]}>
+                       {item.replyTo && (
+                         <View style={[s.replyBar, { borderLeftColor: C.inkLight }, isMe && { borderLeftColor: 'rgba(255,255,255,0.4)' }]}>
+                            <Text style={[s.replySender, { color: C.ink }, isMe && { color: 'rgba(255,255,255,0.7)' }]}>@{item.replyTo.senderName}</Text>
+                            <Text style={[s.replyText, { color: C.inkMid }, isMe && { color: 'rgba(255,255,265,0.6)' }]} numberOfLines={1}>
+                              {item.replyTo.text}
+                            </Text>
+                         </View>
+                       )}
+                       
+                       <Text style={[s.msgText, { color: C.ink }, isMe && { color: '#FFFFFF' }]}>{item.text}</Text>
+                       <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 6, gap: 12, borderTopWidth: 0.5, borderTopColor: isMe ? 'rgba(255,255,255,0.2)' : (C.border || 'rgba(0,0,0,0.1)'), paddingTop: 4, justifyContent: isMe ? 'flex-end' : 'flex-start' }}>
+                         <Text style={{ fontSize: 9, color: isMe ? 'rgba(255,255,255,0.7)' : C.inkMid }}>
+                           {new Date(item.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                         </Text>
+                         <TouchableOpacity 
+                           onPress={() => {
+                             setReplyingTo({
+                               messageId: item.id,
+                               text: item.text,
+                               senderName: item.senderName
+                             });
+                           }}
+                           style={{ padding: 2 }}
+                           activeOpacity={0.7}
+                         >
+                           <Text style={{ fontSize: 11, fontFamily: F.bold, color: isMe ? '#A3E4D7' : (C.activeText || '#27AE60') }}>Reply</Text>
+                         </TouchableOpacity>
                        </View>
-                     )}
-                     
-                     <Text style={[s.msgText, { color: C.ink }, isMe && { color: '#FFFFFF' }]}>{item.text}</Text>
-                     <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 6, gap: 12, borderTopWidth: 0.5, borderTopColor: isMe ? 'rgba(255,255,255,0.2)' : (C.border || 'rgba(0,0,0,0.1)'), paddingTop: 4, justifyContent: isMe ? 'flex-end' : 'flex-start' }}>
-                       <Text style={{ fontSize: 9, color: isMe ? 'rgba(255,255,255,0.7)' : C.inkMid }}>
-                         {new Date(item.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                       </Text>
-                       <TouchableOpacity 
-                         onPress={() => {
-                           setReplyingTo({
-                             messageId: item.id,
-                             text: item.text,
-                             senderName: item.senderName
-                           });
-                         }}
-                         style={{ padding: 2 }}
-                         activeOpacity={0.7}
-                       >
-                         <Text style={{ fontSize: 11, fontFamily: F.bold, color: isMe ? '#A3E4D7' : (C.activeText || '#27AE60') }}>Reply</Text>
-                       </TouchableOpacity>
+
+                       {item.referencedNoteId && (
+                         <TouchableOpacity 
+                           style={[s.refCard, { backgroundColor: C.bgAlt, borderColor: C.border }, isMe && s.refCardMe]} 
+                           activeOpacity={0.8}
+                           onPress={() => router.push({
+                             pathname: '/note-viewer',
+                             params: { noteId: item.referencedNoteId }
+                           })}
+                         >
+                            <NoteIcon />
+                            <View style={s.refInfo}>
+                               <Text style={[s.refTitle, { color: C.ink }, isMe && { color: '#fff' }]} numberOfLines={1}>{item.referencedNoteTitle}</Text>
+                               <Text style={[s.refSubtitle, { color: C.inkLight }, isMe && { color: 'rgba(255,255,255,0.7)' }]}>Tap to explore note</Text>
+                            </View>
+                         </TouchableOpacity>
+                       )}
                      </View>
+                  </View>
+                </TouchableOpacity>
+              );
+            })
+          )}
+        </ScrollView>
 
-                     {item.referencedNoteId && (
-                       <TouchableOpacity 
-                         style={[s.refCard, { backgroundColor: C.bgAlt, borderColor: C.border }, isMe && s.refCardMe]} 
-                         activeOpacity={0.8}
-                         onPress={() => router.push({
-                           pathname: '/note-viewer',
-                           params: { noteId: item.referencedNoteId }
-                         })}
-                       >
-                          <NoteIcon />
-                          <View style={s.refInfo}>
-                             <Text style={[s.refTitle, { color: C.ink }, isMe && { color: '#fff' }]} numberOfLines={1}>{item.referencedNoteTitle}</Text>
-                             <Text style={[s.refSubtitle, { color: C.inkLight }, isMe && { color: 'rgba(255,255,255,0.7)' }]}>Tap to explore note</Text>
-                          </View>
-                       </TouchableOpacity>
-                     )}
-                   </View>
-                </View>
+        {/* Input Tray */}
+        <View style={[s.inputContainer, { backgroundColor: C.surface, borderTopColor: C.border, paddingBottom: Math.max(insets.bottom, 12) }]}>
+          {replyingTo && (
+            <View style={[s.replyOverlay, { backgroundColor: C.bgAlt, borderColor: C.border }]}>
+              <View style={[s.replyIndicator, { backgroundColor: C.ink }]} />
+              <View style={{ flex: 1 }}>
+                <Text style={[s.replySenderAdmin, { color: C.ink }]}>Replying to @{replyingTo.senderName}</Text>
+                <Text style={[s.replyTextAdmin, { color: C.inkMid }]} numberOfLines={1}>{replyingTo.text}</Text>
+              </View>
+              <TouchableOpacity onPress={() => setReplyingTo(null)} style={s.replyCloseBtn}>
+                <Text style={{ fontSize: 20, color: C.ink }}>×</Text>
               </TouchableOpacity>
-            );
-          })
-        )}
-      </ScrollView>
-
-      {/* Input Tray */}
-      <View style={[s.inputContainer, { backgroundColor: C.surface, borderTopColor: C.border }]}>
-        {replyingTo && (
-          <View style={[s.replyOverlay, { backgroundColor: C.bgAlt, borderColor: C.border }]}>
-            <View style={[s.replyIndicator, { backgroundColor: C.ink }]} />
-            <View style={{ flex: 1 }}>
-              <Text style={[s.replySenderAdmin, { color: C.ink }]}>Replying to @{replyingTo.senderName}</Text>
-              <Text style={[s.replyTextAdmin, { color: C.inkMid }]} numberOfLines={1}>{replyingTo.text}</Text>
             </View>
-            <TouchableOpacity onPress={() => setReplyingTo(null)} style={s.replyCloseBtn}>
-              <Text style={{ fontSize: 20, color: C.ink }}>×</Text>
-            </TouchableOpacity>
-          </View>
-        )}
-        {selectedNote && (
-          <View style={[s.replyOverlay, { backgroundColor: C.bgAlt, borderColor: C.border, borderLeftWidth: 4, borderLeftColor: C.activeText || '#27AE60' }]}>
-            <View style={{ flex: 1, paddingLeft: 8 }}>
-              <Text style={{ fontSize: 10, fontFamily: F.bold, color: C.activeText || '#27AE60' }}>REFERENCING NOTE</Text>
-              <Text style={{ fontSize: 13, fontFamily: F.bold, color: C.ink }} numberOfLines={1}>{selectedNote.title}</Text>
+          )}
+          {selectedNote && (
+            <View style={[s.replyOverlay, { backgroundColor: C.bgAlt, borderColor: C.border, borderLeftWidth: 4, borderLeftColor: C.activeText || '#27AE60' }]}>
+              <View style={{ flex: 1, paddingLeft: 8 }}>
+                <Text style={{ fontSize: 10, fontFamily: F.bold, color: C.activeText || '#27AE60' }}>REFERENCING NOTE</Text>
+                <Text style={{ fontSize: 13, fontFamily: F.bold, color: C.ink }} numberOfLines={1}>{selectedNote.title}</Text>
+              </View>
+              <TouchableOpacity onPress={() => setSelectedNote(null)} style={s.replyCloseBtn}>
+                <Text style={{ fontSize: 20, color: C.ink }}>✕</Text>
+              </TouchableOpacity>
             </View>
-            <TouchableOpacity onPress={() => setSelectedNote(null)} style={s.replyCloseBtn}>
-              <Text style={{ fontSize: 20, color: C.ink }}>✕</Text>
-            </TouchableOpacity>
-          </View>
-        )}
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
-          <View style={[s.inputWrapper, { backgroundColor: C.bgAlt }]}>
-            <TextInput 
-              style={[s.textInput, { color: C.ink }]}
-              placeholder="Type messages..."
-              placeholderTextColor={C.inkLight}
-              value={msg}
-              onChangeText={setMsg}
-            />
+          )}
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+            <View style={[s.inputWrapper, { backgroundColor: C.bgAlt }]}>
+              <TextInput 
+                style={[s.textInput, { color: C.ink }]}
+                placeholder="Type messages..."
+                placeholderTextColor={C.inkLight}
+                value={msg}
+                onChangeText={setMsg}
+              />
+              <TouchableOpacity 
+                style={s.inputIcon} 
+                onPress={() => setNotePickerOpen(true)}
+              >
+                <BookIcon />
+              </TouchableOpacity>
+            </View>
             <TouchableOpacity 
-              style={s.inputIcon} 
-              onPress={() => setNotePickerOpen(true)}
+              style={[s.sendBtn, { backgroundColor: C.ink }]}
+              onPress={() => handleSend()}
             >
-              <BookIcon />
+              <SendIcon />
             </TouchableOpacity>
           </View>
-          <TouchableOpacity 
-            style={[s.sendBtn, { backgroundColor: C.ink }]}
-            onPress={() => handleSend()}
-          >
-            <SendIcon />
-          </TouchableOpacity>
         </View>
-      </View>
+      </KeyboardAvoidingView>
     </SafeAreaView>
   );
 }

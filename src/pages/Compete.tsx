@@ -48,7 +48,7 @@ import {
   arrayUnion
 } from 'firebase/firestore';
 import { toast } from 'sonner';
-import { Course, Question } from '../types';
+import { Course, Question, QuestionSheet } from '../types';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '../components/ui/card';
@@ -571,10 +571,23 @@ export default function Compete() {
     }
 
     try {
-      // 1. Fetch questions for selected Course
-      const qQuery = query(collection(db, 'questions'), where('courseId', '==', selectedCourse.id));
-      const qSnap = await getDocs(qQuery);
-      let list = qSnap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Question));
+      // 1. Fetch questions for selected Course (first check questionSheets for embedded questions)
+      const sheetsQuery = query(collection(db, 'questionSheets'), where('courseId', '==', selectedCourse.id));
+      const sheetsSnap = await getDocs(sheetsQuery);
+      let list: Question[] = [];
+      sheetsSnap.docs.forEach(d => {
+        const sheetData = d.data() as QuestionSheet;
+        if (Array.isArray(sheetData.questions) && sheetData.questions.length > 0) {
+          list.push(...sheetData.questions);
+        }
+      });
+
+      // Fallback to legacy questions collection if no embedded questions found
+      if (list.length === 0) {
+        const qQuery = query(collection(db, 'questions'), where('courseId', '==', selectedCourse.id));
+        const qSnap = await getDocs(qQuery);
+        list = qSnap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Question));
+      }
 
       // Fallback generator if course has no questions
       if (list.length === 0) {

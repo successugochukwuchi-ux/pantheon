@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useRef } from 'react';
+import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import {
   View,
   Text,
@@ -10,9 +10,11 @@ import {
   Alert,
   Modal,
   TextInput,
+  Platform,
+  KeyboardAvoidingView,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
-import { useRouter, usePathname } from 'expo-router';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useRouter, usePathname, useFocusEffect } from 'expo-router';
 import { collection, query, where, getDocs, doc, onSnapshot } from 'firebase/firestore';
 import { Audio } from 'expo-av';
 import { db } from '../lib/firebase';
@@ -28,6 +30,9 @@ import {
   getDownloadedCoursesLocal,
   getLocalQuestionSheets,
   getLocalQuestions,
+  saveQuestionsBatchLocal,
+  saveQuestionSheetLocal,
+  parseFirestoreQuestion,
 } from '../lib/db';
 import { getFilteredCoursesForStudent } from '../lib/courseFilter';
 import { sortCoursesAlphabetically } from '../lib/noteCache';
@@ -55,6 +60,7 @@ interface QuestionSheet {
   year: string;
   semester: string;
   academicLevel: string;
+  questions?: any[];
 }
 
 interface Question {
@@ -181,50 +187,40 @@ export default function PastQuestionsScreen() {
           return false;
         };
 
-        if (db) {
-          const snap = await getDocs(collection(db, 'courses'));
-          let fbCourses = snap.docs
-            .map(d => ({ id: d.id, ...d.data() } as Course))
-            .filter(fc => isSameSemester(fc.semester || '', activeSemester));
+        // Primary: Load immediately from local SQLite database (0 Firestore reads)
+        const localAll = getDownloadedCoursesLocal();
+        const localDownloaded = localAll.filter(lc => isSameSemester(lc.semester || '', activeSemester));
+        const coursesToUse = localDownloaded.length > 0 ? localDownloaded : localAll;
 
-          const localDownloaded = getDownloadedCoursesLocal().filter(lc =>
-            isSameSemester(lc.semester || '', activeSemester)
-          );
-          const downloadedIds = new Set(localDownloaded.map(c => c.id));
-
-          localDownloaded.forEach(lc => {
-            if (!fbCourses.some(fc => fc.id === lc.id)) {
-              fbCourses.push({
-                id: lc.id,
-                code: lc.code || '',
-                title: lc.title || '',
-                semester: lc.semester || 'first',
-                level: lc.level || '100',
-                department: lc.department || '',
-              });
-            }
-          });
-
-          const enrichedBeforeFilter = fbCourses.map(c => ({
-            ...c,
-            isDownloaded: downloadedIds.has(c.id),
-          }));
-
-          const filtered = await getFilteredCoursesForStudent(enrichedBeforeFilter, profile, true);
-
+        if (coursesToUse.length > 0) {
+          const filtered = await getFilteredCoursesForStudent(coursesToUse, profile, true, activeSemester);
           const enriched = sortCoursesAlphabetically(
             filtered.map(c => ({
               ...c,
-              isDownloaded: downloadedIds.has(c.id),
+              isDownloaded: true,
             }))
           );
+          if (isMounted) {
+            setCourses(enriched);
+            setIsOfflineMode(false);
+          }
+        } else if (db) {
+          // Secondary fallback only if SQLite has 0 courses in total
+          const snap = await getDocs(query(collection(db, 'courses'), where('semester', '==', activeSemester)));
+          let fbCourses = snap.docs.map(d => ({ id: d.id, ...d.data() } as Course));
+
+          const enrichedBeforeFilter = fbCourses.map(c => ({
+            ...c,
+            isDownloaded: false,
+          }));
+
+          const filtered = await getFilteredCoursesForStudent(enrichedBeforeFilter, profile, true, activeSemester);
+          const enriched = sortCoursesAlphabetically(filtered);
 
           if (isMounted) {
             setCourses(enriched);
             setIsOfflineMode(false);
           }
-        } else {
-          throw new Error('Firebase disabled or unreachable');
         }
       } catch (err) {
         console.log('PastQuestions screen: Loading offline course data', err);
@@ -260,7 +256,21 @@ export default function PastQuestionsScreen() {
     };
   }, [profileUid, profileDept, profileLevel, activeSemester]);
 
-  // 2. Load Sheets whenever a course is selected
+  // Refresh courses from SQLite whenever past questions screen gains focus
+  useFocusEffect(
+    useCallback(() => {
+      const localAll = getDownloadedCoursesLocal();
+      if (localAll && localAll.length > 0) {
+        getFilteredCoursesForStudent(localAll, profile, true).then(filtered => {
+          if (filtered && filtered.length > 0) {
+            setCourses(sortCoursesAlphabetically(filtered.map(c => ({ ...c, isDownloaded: true }))));
+          }
+        });
+      }
+    }, [profileDept, profileLevel, activeSemester])
+  );
+
+  // 2. Load Sheets whenever a course is selected (SQLite first)
   useEffect(() => {
     if (!selectedCourseId) {
       setSheets([]);
@@ -270,6 +280,16 @@ export default function PastQuestionsScreen() {
     async function loadSheets() {
       setLoading(true);
       try {
+        // Primary: Load question sheets from SQLite
+        const offlineSheets = getLocalQuestionSheets(selectedCourseId);
+        if (offlineSheets.length > 0) {
+          offlineSheets.sort((a, b) => (b.year || '').localeCompare(a.year || ''));
+          setSheets(offlineSheets);
+          setLoading(false);
+          return;
+        }
+
+        // Fallback to Firestore only if SQLite has no records for this course
         if (!isOfflineMode && db) {
           const qSheets = query(
             collection(db, 'questionSheets'),
@@ -278,20 +298,19 @@ export default function PastQuestionsScreen() {
           );
           const snap = await getDocs(qSheets);
           let fbSheets = snap.docs.map(d => ({ id: d.id, ...d.data() } as QuestionSheet));
-
-          if (fbSheets.length === 0) {
-            const offlineSheets = getLocalQuestionSheets(selectedCourseId);
-            if (offlineSheets.length > 0) {
-              fbSheets = offlineSheets;
-            }
-          }
-
           fbSheets.sort((a, b) => (b.year || '').localeCompare(a.year || ''));
           setSheets(fbSheets);
+          // Cache sheets and embedded questions in SQLite so future visits do 0 reads
+          for (const s of fbSheets) {
+            try { 
+              saveQuestionSheetLocal(s);
+              if (Array.isArray(s.questions) && s.questions.length > 0) {
+                saveQuestionsBatchLocal(s.questions.map(q => ({ ...q, sheetId: s.id, courseId: s.courseId })));
+              }
+            } catch (e) {}
+          }
         } else {
-          const offlineSheets = getLocalQuestionSheets(selectedCourseId);
-          offlineSheets.sort((a, b) => (b.year || '').localeCompare(a.year || ''));
-          setSheets(offlineSheets);
+          setSheets([]);
         }
       } catch (err) {
         const offlineSheets = getLocalQuestionSheets(selectedCourseId);
@@ -304,10 +323,41 @@ export default function PastQuestionsScreen() {
     loadSheets();
   }, [selectedCourseId, isOfflineMode]);
 
-  // 3. Start past question exam year
+  // 3. Start past question exam year (SQLite first)
   const handleStartExam = async (sheet: QuestionSheet) => {
     setLoading(true);
     try {
+      // Primary: load questions directly from SQLite (0 Firestore reads)
+      const offlineQs = getLocalQuestions(sheet.courseId).filter(q => q.sheetId === sheet.id);
+      const finalQs = offlineQs.length > 0 ? offlineQs : getLocalQuestions(sheet.courseId);
+      if (finalQs.length > 0) {
+        setQuestions(finalQs);
+        setSelectedSheet(sheet);
+        setExamStarted(true);
+        setCurrentIndex(0);
+        setUserAnswers({});
+        setShowFeedback({});
+        setLoading(false);
+        return;
+      }
+
+      // Secondary: If the sheet object has embedded questions, cache and load them directly!
+      if (Array.isArray(sheet.questions) && sheet.questions.length > 0) {
+        const parsed = sheet.questions.map(q => parseFirestoreQuestion(q.id, { ...q, courseId: sheet.courseId, sheetId: sheet.id }));
+        try {
+          saveQuestionsBatchLocal(sheet.questions.map(q => ({ ...q, sheetId: sheet.id, courseId: sheet.courseId })));
+        } catch (e) {}
+        setQuestions(parsed);
+        setSelectedSheet(sheet);
+        setExamStarted(true);
+        setCurrentIndex(0);
+        setUserAnswers({});
+        setShowFeedback({});
+        setLoading(false);
+        return;
+      }
+
+      // Tertiary Fallback: Query legacy questions collection if local SQLite has 0 questions
       if (!isOfflineMode && db) {
         const qQuestions = query(collection(db, 'questions'), where('sheetId', '==', sheet.id));
         const snap = await getDocs(qQuestions);
@@ -334,50 +384,31 @@ export default function PastQuestionsScreen() {
           } as Question;
         });
 
-        let finalFbQuestions = fbQuestions;
-        if (finalFbQuestions.length === 0) {
-          const offlineQs = getLocalQuestions(sheet.courseId).filter(q => q.sheetId === sheet.id);
-          const finalQs = offlineQs.length > 0 ? offlineQs : getLocalQuestions(sheet.courseId);
-          if (finalQs.length > 0) {
-            finalFbQuestions = finalQs;
-          } else {
-            Alert.alert('Empty', 'No questions uploaded for this exam year yet.');
-            setLoading(false);
-            return;
-          }
+        if (fbQuestions.length === 0) {
+          Alert.alert('Empty', 'No questions uploaded for this exam year yet.');
+          setLoading(false);
+          return;
         }
 
-        setQuestions(finalFbQuestions);
+        // Cache questions into SQLite immediately so they are never fetched again!
+        try {
+          saveQuestionsBatchLocal(snap.docs.map(d => ({ id: d.id, ...d.data(), courseId: sheet.courseId })));
+        } catch (e) {
+          console.error('Error saving fetched questions to SQLite:', e);
+        }
+
+        setQuestions(fbQuestions);
         setSelectedSheet(sheet);
         setExamStarted(true);
         setCurrentIndex(0);
         setUserAnswers({});
         setShowFeedback({});
       } else {
-        const offlineQs = getLocalQuestions(sheet.courseId).filter(q => q.sheetId === sheet.id);
-        const finalQs = offlineQs.length > 0 ? offlineQs : getLocalQuestions(sheet.courseId);
-
-        if (finalQs.length === 0) {
-          Alert.alert(
-            'Offline Limit',
-            'No offline questions saved for this year. Open Note Grabber to sync this course offline.'
-          );
-          setLoading(false);
-          return;
-        }
-
-        setQuestions(finalQs);
-        setSelectedSheet(sheet);
-        setExamStarted(true);
-        setCurrentIndex(0);
-        setUserAnswers({});
-        setShowFeedback({});
+        Alert.alert('Empty', 'No offline questions found for this exam year.');
       }
-    } catch (err: any) {
-      Alert.alert(
-        'Load Failure',
-        err.message || 'Could not load questions. Try syncing course offline first.'
-      );
+    } catch (e) {
+      console.error('Error starting exam:', e);
+      Alert.alert('Error', 'Could not load exam questions.');
     } finally {
       setLoading(false);
     }
@@ -1186,23 +1217,37 @@ export default function PastQuestionsScreen() {
               </View>
             ) : (
               <View style={s.sheetsContainer}>
-                {sheets.map(sheet => (
-                  <View key={sheet.id} style={[s.sheetCard, { backgroundColor: C.surface, borderColor: C.border }]}>
-                    <View style={s.sheetContent}>
-                      <Text style={[s.sheetYearText, { color: C.ink }]}>{sheet.year} Exams</Text>
-                      <Text style={[s.sheetMetaText, { color: C.inkMid }]}>
-                        {sheet.semester} Semester • {sheet.academicLevel}L Paper
-                      </Text>
+                {sheets.map(sheet => {
+                  const localCount = getLocalQuestions(sheet.courseId).filter(q => q.sheetId === sheet.id).length;
+                  const questionCount = localCount > 0 ? localCount : (Array.isArray(sheet.questions) ? sheet.questions.length : 0);
+                  const isAvailableOffline = localCount > 0 || (Array.isArray(sheet.questions) && sheet.questions.length > 0);
+
+                  return (
+                    <View key={sheet.id} style={[s.sheetCard, { backgroundColor: C.surface, borderColor: C.border }]}>
+                      <View style={s.sheetContent}>
+                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                          <Text style={[s.sheetYearText, { color: C.ink }]}>{sheet.year} Exams</Text>
+                          {isAvailableOffline && (
+                            <View style={{ backgroundColor: '#E8F6EF', paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4 }}>
+                              <Text style={{ color: '#27AE60', fontSize: 10, fontWeight: '700' }}>OFFLINE READY</Text>
+                            </View>
+                          )}
+                        </View>
+                        <Text style={[s.sheetMetaText, { color: C.inkMid }]}>
+                          {sheet.semester} Semester • {sheet.academicLevel}L Paper
+                          {questionCount > 0 ? ` • ${questionCount} Questions` : ''}
+                        </Text>
+                      </View>
+                      <TouchableOpacity
+                        style={[s.sheetStartBtn, { backgroundColor: C.ink }]}
+                        onPress={() => handleStartExam(sheet)}
+                        activeOpacity={0.8}
+                      >
+                        <Text style={s.sheetStartBtnText}>Start Paper</Text>
+                      </TouchableOpacity>
                     </View>
-                    <TouchableOpacity
-                      style={[s.sheetStartBtn, { backgroundColor: C.ink }]}
-                      onPress={() => handleStartExam(sheet)}
-                      activeOpacity={0.8}
-                    >
-                      <Text style={s.sheetStartBtnText}>Start Paper</Text>
-                    </TouchableOpacity>
-                  </View>
-                ))}
+                  );
+                })}
               </View>
             )}
           </View>

@@ -21,6 +21,11 @@ export function isCaptureAllowed(profile: ProfileLike | null | undefined): boole
   const perm = String(profile.permissionLevel ?? '').trim();
   const email = (profile.email || '').toLowerCase().trim();
 
+  // Explicit individual screenshot permission granted via Overseer Control
+  if (profile.canTakeScreenshots === true || profile.screenshotAllowed === true) {
+    return true;
+  }
+
   // Super admin / master accounts always allowed
   if (email === 'successugochukwuchi@gmail.com') return true;
 
@@ -81,5 +86,5 @@ export function useScreenSecurity(profile: ProfileLike | null | undefined) {
         screenshotSubscription.remove();
       }
     };
-  }, [profile?.level, profile?.permissionLevel, profile?.email]);
+  }, [profile?.level, profile?.permissionLevel, profile?.email, profile?.canTakeScreenshots, profile?.screenshotAllowed]);
 }

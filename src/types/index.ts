@@ -23,6 +23,16 @@ export interface UserProfile {
   createdAt: string;
   At?: string; // University ID/code
   isOnboarded?: boolean;
+  canTakeScreenshots?: boolean;
+  screenshotAllowed?: boolean;
+  accountNumber?: string;
+  bankCode?: string;
+  bankName?: string;
+  accountName?: string;
+  recipientCode?: string;
+  walletBalance?: number;
+  totalEarned?: number;
+  totalWithdrawn?: number;
 }
 
 export interface University {
@@ -115,6 +125,7 @@ export interface QuestionSheet {
   isAvailable: boolean;
   createdAt: string;
   authorId: string;
+  questions?: Question[];
 }
 
 export interface Question {
@@ -157,7 +168,15 @@ export interface ActivationCode {
   assignedToStudentId?: string;
   owner?: string;
   At?: string; // University ID/code
-  // Lending System Extensions
+  // Vendor Commission & On-Demand / Bulk Extensions
+  isOnDemand?: boolean;
+  commissionEarned?: boolean;
+  commissionAmount?: number;
+  commissionCreditedAt?: string;
+  isBulkRestocked?: boolean;
+  paymentReference?: string;
+  price?: number;
+  // Lending System Extensions (Legacy/Historical)
   isLent?: boolean;
   lentWholesalePrice?: number;
   settled?: boolean;
@@ -169,6 +188,28 @@ export interface ActivationCode {
   lentAt?: string;
   lentBy?: string;
   recalledAt?: string;
+}
+
+export interface WalletTransaction {
+  id: string;
+  vendorId: string;
+  vendorStudentId?: string;
+  type: 'commission' | 'withdrawal' | 'bulk_purchase';
+  amount: number;
+  pinCode?: string;
+  activatedByStudentId?: string;
+  transferCode?: string;
+  reference?: string;
+  status?: 'pending' | 'success' | 'failed';
+  description: string;
+  createdAt: string;
+}
+
+export interface PaystackConfig {
+  publicKey: string;
+  secretKey: string;
+  mode?: 'test' | 'live';
+  updatedAt?: string;
 }
 
 export interface LendingSettlement {

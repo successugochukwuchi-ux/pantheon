@@ -13,8 +13,9 @@ import {
   ActivityIndicator,
   Image,
   Alert,
+  KeyboardAvoidingView,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter, useLocalSearchParams, usePathname } from 'expo-router';
 import { 
   doc, 
@@ -383,6 +384,7 @@ function Toolbar({ visible, onClose, s, C }: { visible: boolean; onClose: () => 
 // ── Main Screen ───────────────────────────────────────────────────────────────
 export default function NoteViewerScreen() {
   const router = useRouter();
+  const insets = useSafeAreaInsets();
   const pathname = usePathname();
   const { profile } = useAuth();
   const { colors: C } = useTheme();
@@ -1226,7 +1228,10 @@ export default function NoteViewerScreen() {
     <SafeAreaView style={s.root} edges={['top']}>
       {/* Hermes Floating Interface */}
       <Modal visible={hermesOpen} transparent animationType="slide">
-        <View style={s.hermesOverlay}>
+        <KeyboardAvoidingView 
+          style={s.hermesOverlay} 
+          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        >
            <View style={[s.hermesContent, { backgroundColor: C.bg }]}>
               <View style={[s.hermesHeader, { backgroundColor: C.surfaceDark, justifyContent: 'space-between' }]}>
                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
@@ -1265,6 +1270,7 @@ export default function NoteViewerScreen() {
                 ref={hermesScrollRef}
                 style={s.hermesChatScroll}
                 contentContainerStyle={{ padding: 16 }}
+                keyboardShouldPersistTaps="handled"
                 onContentSizeChange={() => {
                   hermesScrollRef.current?.scrollToEnd({ animated: true });
                 }}
@@ -1301,7 +1307,7 @@ export default function NoteViewerScreen() {
                   </View>
                 )}
               </ScrollView>
-              <View style={[s.hermesInputRow, { borderTopColor: C.border, alignItems: 'center' }]}>
+              <View style={[s.hermesInputRow, { borderTopColor: C.border, alignItems: 'center', paddingBottom: Math.max(insets.bottom, 16) }]}>
                 <TextInput 
                   style={[s.hermesInput, { backgroundColor: C.surface, color: C.ink, flex: 1 }]} 
                   placeholder={isRecordingVoice ? "Listening... Speak now" : "Ask Hermes or tap mic to speak..."} 
@@ -1343,7 +1349,7 @@ export default function NoteViewerScreen() {
                 </TouchableOpacity>
               </View>
            </View>
-        </View>
+        </KeyboardAvoidingView>
       </Modal>
 
       {/* Scientific Calculator Floating Interface */}

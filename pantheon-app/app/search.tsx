@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import {
   View,
   Text,
@@ -33,15 +33,22 @@ export default function SearchResultsScreen() {
   const [results, setResults] = useState<any[]>([]);
   const [searching, setSearching] = useState(false);
 
+  const cachedUsersRef = useRef<any[]>([]);
+
   // Load some students in directory originally
   useEffect(() => {
     async function loadInitialDirectory() {
+      if (cachedUsersRef.current.length > 0) {
+        setResults(cachedUsersRef.current);
+        return;
+      }
       setSearching(true);
       try {
-        const snapshot = await getDocs(query(collection(db, 'users'), limit(24)));
+        const snapshot = await getDocs(query(collection(db, 'users'), limit(20)));
         const list = snapshot.docs
           .map(doc => ({ id: doc.id, ...doc.data() }))
           .filter(u => u.id !== profile?.uid); // exclude self
+        cachedUsersRef.current = list;
         setResults(list);
       } catch (err) {
         console.error("Error loading directory users:", err);
@@ -55,15 +62,20 @@ export default function SearchResultsScreen() {
   // Perform dynamic search on text input changes
   useEffect(() => {
     if (search.trim().length === 0) {
+      setResults(cachedUsersRef.current);
       return;
     }
     const delayDebounceFn = setTimeout(async () => {
       setSearching(true);
       try {
-        const snapshot = await getDocs(query(collection(db, 'users'), limit(150)));
-        const list = snapshot.docs
-          .map(doc => ({ id: doc.id, ...doc.data() }))
-          .filter(u => u.id !== profile?.uid);
+        let list = cachedUsersRef.current;
+        if (list.length === 0) {
+          const snapshot = await getDocs(query(collection(db, 'users'), limit(20)));
+          list = snapshot.docs
+            .map(doc => ({ id: doc.id, ...doc.data() }))
+            .filter(u => u.id !== profile?.uid);
+          cachedUsersRef.current = list;
+        }
 
         const lowerQuery = search.toLowerCase().trim();
         const filtered = list.filter(user => {

@@ -6,7 +6,7 @@ import { sortCoursesAlphabetically } from './noteCache';
 let memoryDisciplines: any[] | null = null;
 let memoryDisciplinesTime = 0;
 let memorySemester: string | null = null;
-const MEMORY_CACHE_TTL_MS = 5 * 60 * 1000;
+const MEMORY_CACHE_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
 
 async function getDisciplinesCached(): Promise<any[]> {
   const now = Date.now();
@@ -14,13 +14,14 @@ async function getDisciplinesCached(): Promise<any[]> {
     return memoryDisciplines;
   }
 
-  // Try AsyncStorage first if memory is empty so we never block on slow network
+  // Try AsyncStorage first so we never block on slow network or consume quota
   if (!memoryDisciplines) {
     try {
       const cached = await AsyncStorage.getItem('colearn_disciplines_cache');
       if (cached) {
         memoryDisciplines = JSON.parse(cached);
-        memoryDisciplinesTime = now - (MEMORY_CACHE_TTL_MS - 30000); // refresh soon in background
+        memoryDisciplinesTime = now;
+        return memoryDisciplines;
       }
     } catch {}
   }

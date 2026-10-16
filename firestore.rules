@@ -32,12 +32,19 @@ service cloud.firestore {
     }
 
     // High-priority admin check (Level 3, 4, or 5)
+    // High-priority admin check (Level 3, 4, or 5)
     function isAdmin() {
       return isSignedIn() && (
-        (request.auth.token != null && request.auth.token.get('email', '') == "successugochukwuchi@gmail.com") || 
+        (request.auth.token != null && (
+          request.auth.token.get('email', '') == "successugochukwuchi@gmail.com" ||
+          request.auth.token.get('admin', false) == true ||
+          request.auth.token.get('role', '') in ['admin', 'superadmin', 'overseer']
+        )) || 
         (exists(/databases/$(database)/documents/users/$(request.auth.uid)) && (
           get(/databases/$(database)/documents/users/$(request.auth.uid)).data.get('level', '1') in ["3", "4", "5"] ||
           get(/databases/$(database)/documents/users/$(request.auth.uid)).data.get('level', 1) in [3, 4, 5] ||
+          get(/databases/$(database)/documents/users/$(request.auth.uid)).data.get('role', '') in ['admin', 'superadmin', 'overseer'] ||
+          get(/databases/$(database)/documents/users/$(request.auth.uid)).data.get('isAdmin', false) == true ||
           get(/databases/$(database)/documents/users/$(request.auth.uid)).data.get('email', '') == "successugochukwuchi@gmail.com"
         ))
       );
@@ -56,10 +63,15 @@ service cloud.firestore {
 
     function isLevel4() {
       return isSignedIn() && (
-        (request.auth.token != null && request.auth.token.get('email', '') == "successugochukwuchi@gmail.com") ||
+        (request.auth.token != null && (
+          request.auth.token.get('email', '') == "successugochukwuchi@gmail.com" ||
+          request.auth.token.get('admin', false) == true ||
+          request.auth.token.get('role', '') in ['admin', 'superadmin', 'overseer']
+        )) ||
         (exists(/databases/$(database)/documents/users/$(request.auth.uid)) && (
-          get(/databases/$(database)/documents/users/$(request.auth.uid)).data.get('level', '1') == "4" ||
-          get(/databases/$(database)/documents/users/$(request.auth.uid)).data.get('level', 4) == 4 ||
+          get(/databases/$(database)/documents/users/$(request.auth.uid)).data.get('level', '1') in ["4", "5"] ||
+          get(/databases/$(database)/documents/users/$(request.auth.uid)).data.get('level', 4) in [4, 5] ||
+          get(/databases/$(database)/documents/users/$(request.auth.uid)).data.get('role', '') in ['admin', 'superadmin', 'overseer'] ||
           get(/databases/$(database)/documents/users/$(request.auth.uid)).data.get('email', '') == "successugochukwuchi@gmail.com"
         ))
       );
@@ -168,16 +180,9 @@ service cloud.firestore {
       allow read, list: if true;
       allow create: if isOwner(userId) && isValidUser(incoming()) && 
                       incoming().isActivated == (incoming().email == "successugochukwuchi@gmail.com");
-      allow update: if isAdmin() || (
-                      isOwner(userId) && (
-                        (incoming().diff(existing()).affectedKeys().hasOnly(['username', 'username_lower', 'theme', 'referredBy', 'mobileNumber', 'photoURL', 'currentSessionId', 'At', 'department', 'academicLevel', 'isOnboarded', 'devices']) && isValidUser(incoming())) ||
-                        (
-                          incoming().diff(existing()).affectedKeys().hasOnly(['isActivated', 'activatedViaPromo', 'level', 'currentSessionId']) &&
-                          existing().isActivated == false &&
-                          incoming().isActivated == true &&
-                          incoming().level in ['1', '2']
-                        )
-                      )
+      allow update: if isAdmin() || isOwner(userId) || (
+                      isSignedIn() &&
+                      incoming().diff(existing()).affectedKeys().hasOnly(['walletBalance', 'totalEarned'])
                     );
     }
 
@@ -226,13 +231,13 @@ service cloud.firestore {
     match /activationCodes/{code} {
       allow get: if isSignedIn();
       allow list: if isVendorOrAdmin();
-      allow create: if isAdmin();
+      allow create: if isVendorOrAdmin();
       allow update: if isVendorOrAdmin() || (
         isSignedIn() && 
         existing().isUsed == false && 
         incoming().isUsed == true && 
         incoming().usedBy == request.auth.uid &&
-        incoming().diff(existing()).affectedKeys().hasOnly(['isUsed', 'usedBy', 'usedAt', 'usedByStudentId'])
+        incoming().diff(existing()).affectedKeys().hasOnly(['isUsed', 'usedBy', 'usedAt', 'usedByStudentId', 'commissionEarned', 'commissionCreditedAt'])
       );
       allow delete: if isAdmin() || (
         isSignedIn() && 
@@ -395,9 +400,13 @@ service cloud.firestore {
     }
 
     match /priceHistory/{historyId} {
-      allow read, list: if isLevel5() || isLevel4();
-      allow create: if isLevel5();
+      allow read, list: if isLevel5() || isLevel4() || isAdmin();
+      allow create: if isLevel5() || isLevel4() || isAdmin();
       allow update, delete: if false;
+    }
+
+    match /settings/{docId} {
+      allow read, write: if isLevel5() || isLevel4() || isAdmin();
     }
 
     match /seasons/{seasonId} {
@@ -413,6 +422,12 @@ service cloud.firestore {
     match /colearn_revenue_reports/{reportId} {
       allow read, list: if isSignedIn();
       allow create: if isSignedIn();
+      allow update, delete: if isAdmin();
+    }
+
+    match /wallet_transactions/{txId} {
+      allow read, list: if isSignedIn();
+      allow create: if isSignedIn() && (incoming().vendorId == request.auth.uid || incoming().type == 'commission' || isAdmin());
       allow update, delete: if isAdmin();
     }
   }
