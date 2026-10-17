@@ -145,6 +145,46 @@ export default function VendorCommissionDashboard({
   const [transactions, setTransactions] = useState<WalletTransaction[]>([]);
   const [loadingTransactions, setLoadingTransactions] = useState(false);
 
+  // Search, Filter & UI Polish States
+  const [pinSearch, setPinSearch] = useState('');
+  const [pinTypeFilter, setPinTypeFilter] = useState<'all' | 'standard' | 'plus' | 'on_demand' | 'bulk'>('all');
+  const [soldSearch, setSoldSearch] = useState('');
+  const [txFilter, setTxFilter] = useState<'all' | 'commission' | 'withdrawal' | 'bulk_purchase'>('all');
+  const [copiedCode, setCopiedCode] = useState<string | null>(null);
+
+  const filteredUnusedPins = useMemo(() => {
+    return myUnusedPins.filter(pin => {
+      if (pinTypeFilter === 'standard' && pin.type === 'plus') return false;
+      if (pinTypeFilter === 'plus' && pin.type !== 'plus') return false;
+      if (pinTypeFilter === 'on_demand' && !pin.isOnDemand) return false;
+      if (pinTypeFilter === 'bulk' && !pin.isBulkRestocked) return false;
+      if (pinSearch.trim()) {
+        const q = pinSearch.toLowerCase();
+        return pin.code?.toLowerCase().includes(q) || pin.type?.toLowerCase().includes(q);
+      }
+      return true;
+    });
+  }, [myUnusedPins, pinSearch, pinTypeFilter]);
+
+  const filteredUsedPins = useMemo(() => {
+    return myUsedPins.filter(pin => {
+      if (!soldSearch.trim()) return true;
+      const q = soldSearch.toLowerCase();
+      return (
+        pin.code?.toLowerCase().includes(q) ||
+        pin.usedByStudentId?.toLowerCase().includes(q) ||
+        pin.type?.toLowerCase().includes(q)
+      );
+    });
+  }, [myUsedPins, soldSearch]);
+
+  const filteredTransactions = useMemo(() => {
+    return transactions.filter(tx => {
+      if (txFilter !== 'all' && tx.type !== txFilter) return false;
+      return true;
+    });
+  }, [transactions, txFilter]);
+
   // Real-time listener for current vendor user doc (wallet balance & recipient details)
   useEffect(() => {
     if (!user?.uid) return;
@@ -644,435 +684,612 @@ export default function VendorCommissionDashboard({
     }
   };
 
+  const formatDisplayPin = (code: string) => {
+    if (!code) return '';
+    const clean = String(code).trim().replace(/\s+/g, '');
+    if (clean.length === 12) {
+      return `${clean.slice(0, 4)} ${clean.slice(4, 8)} ${clean.slice(8, 12)}`;
+    }
+    return clean;
+  };
+
   const copyToClipboard = (text: string, label: string = 'PIN') => {
     navigator.clipboard.writeText(text);
+    setCopiedCode(text);
+    setTimeout(() => setCopiedCode(null), 2000);
     toast.success(`${label} copied to clipboard!`);
   };
 
   return (
     <div className="space-y-6">
-      {/* Top Banner: No PINs (Hero Prompt for On-Demand & Restock) */}
-      {myUnusedPins.length === 0 && (
-        <Card className="border-amber-400 bg-gradient-to-r from-amber-500/10 via-amber-500/5 to-transparent shadow-sm">
-          <CardContent className="p-6">
-            <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-6">
-              <div className="space-y-2 max-w-2xl">
-                <div className="flex items-center gap-2">
-                  <Badge variant="outline" className="border-amber-500 text-amber-700 dark:text-amber-300 bg-amber-100/50 dark:bg-amber-950/40 font-bold uppercase text-[11px]">
-                    No Stock in Account
-                  </Badge>
-                  <span className="text-xs text-muted-foreground">• Vendor Capital Solutions</span>
-                </div>
-                <h3 className="text-xl font-bold tracking-tight text-foreground">
-                  You currently have no activation PINs in your inventory
-                </h3>
-                <p className="text-sm text-muted-foreground leading-relaxed">
-                  Sell to students right now without capital using <strong>On-Demand</strong> (the student pays directly at market price and you earn ₦{onDemandCommission.toLocaleString()} commission upon activation), or <strong>Restock</strong> in bulk at wholesale rates to maximize your profit margin.
-                </p>
-              </div>
-
-              <div className="flex flex-wrap sm:flex-nowrap gap-3 w-full md:w-auto">
-                <Button 
-                  size="lg"
-                  onClick={handleOpenOnDemand}
-                  className="w-full sm:w-auto bg-gradient-to-r from-amber-600 to-amber-700 hover:from-amber-700 hover:to-amber-800 text-white font-bold shadow-md flex items-center justify-center gap-2"
-                >
-                  <Zap className="h-4 w-4" />
-                  On-Demand (₦0 Capital)
-                </Button>
-
-                <Button 
-                  size="lg"
-                  variant="outline"
-                  onClick={handleOpenRestock}
-                  className="w-full sm:w-auto border-amber-500 text-amber-700 dark:text-amber-300 hover:bg-amber-100 dark:hover:bg-amber-950/40 font-bold flex items-center justify-center gap-2"
-                >
-                  <Package className="h-4 w-4" />
-                  Restock in Bulk
-                </Button>
-              </div>
+      {/* 1. Header & Quick Status */}
+      <div className="border-b pb-4 space-y-3">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div className="space-y-1">
+            <h2 className="text-2xl sm:text-3xl font-extrabold tracking-tight text-foreground">
+              Vendor Distribution Hub
+            </h2>
+            <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground font-medium">
+              <span className="text-amber-700 dark:text-amber-400 font-semibold">Level 3 Certified Vendor</span>
+              <span aria-hidden="true">·</span>
+              <span>Campus: <strong className="text-foreground">{profile?.At?.toUpperCase() || 'FUTO'}</strong></span>
+              <span aria-hidden="true">·</span>
+              <span className="text-emerald-700 dark:text-emerald-400 font-semibold">{commissionPercentage}% Commission Rate</span>
+              <span aria-hidden="true">·</span>
+              <span className="font-mono text-muted-foreground">ID: {profile?.studentId || user?.uid?.slice(0, 8)}</span>
             </div>
-          </CardContent>
-        </Card>
-      )}
+          </div>
 
-      {/* Low Inventory Alert (Less than 3 PINs) */}
-      {myUnusedPins.length > 0 && myUnusedPins.length < 3 && (
-        <Card className="border-amber-300 bg-amber-50/60 dark:bg-amber-950/20">
-          <CardContent className="p-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-            <div className="flex items-center gap-3">
-              <AlertTriangle className="h-5 w-5 text-amber-600 shrink-0" />
-              <div>
-                <p className="text-sm font-semibold text-amber-900 dark:text-amber-200">
-                  Low Stock Warning: You have only {myUnusedPins.length} PIN{myUnusedPins.length === 1 ? '' : 's'} remaining!
-                </p>
-                <p className="text-xs text-amber-700 dark:text-amber-400">
-                  Restock your inventory now to keep selling smoothly without missing student sales.
-                </p>
-              </div>
-            </div>
-            <div className="flex items-center gap-2 w-full sm:w-auto">
-              <Button
-                size="sm"
-                variant="outline"
-                onClick={handleOpenOnDemand}
-                className="w-full sm:w-auto text-xs"
-              >
-                <Zap className="h-3.5 w-3.5 mr-1 text-amber-600" />
-                On-Demand
-              </Button>
-              <Button
-                size="sm"
-                onClick={handleOpenRestock}
-                className="w-full sm:w-auto bg-amber-600 hover:bg-amber-700 text-white text-xs"
-              >
-                <Package className="h-3.5 w-3.5 mr-1" />
-                Restock Now
-              </Button>
-            </div>
-          </CardContent>
-        </Card>
-      )}
-
-      {/* Main Vendor Financial & Metric Cards */}
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        {/* 1. Available PINs Card */}
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">My Available Pins</CardTitle>
-            <Package className="h-4 w-4 text-primary" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-3xl font-bold flex items-baseline gap-2">
-              <span>{myUnusedPins.length}</span>
-              <span className="text-xs font-normal text-muted-foreground">
-                ({myUnusedPins.filter(p => p.type === 'plus').length} PLUS, {myUnusedPins.filter(p => p.type !== 'plus').length} Std)
-              </span>
-            </div>
-            <p className="text-xs text-muted-foreground mt-1">
-              Active inventory ready for students
-            </p>
-          </CardContent>
-          <CardFooter className="pt-0">
+          <div className="flex items-center gap-2 self-start sm:self-auto shrink-0">
             <Button 
               variant="outline" 
               size="sm" 
-              onClick={handleOpenRestock}
-              className="w-full text-xs h-7 gap-1"
+              onClick={handleOpenSettings}
+              className="text-xs h-8 px-3 gap-1.5"
             >
-              <Package className="h-3 w-3" /> Restock Pins
+              <Building className="h-3.5 w-3.5 text-muted-foreground" />
+              {recipientCode ? (
+                <span className="flex items-center gap-1 font-mono">
+                  <span>{bankName ? bankName.slice(0, 10) : 'Bank'}: ••{accountNumber.slice(-4)}</span>
+                  <CheckCircle className="h-3 w-3 text-emerald-600" />
+                </span>
+              ) : (
+                <span className="text-amber-600 dark:text-amber-400 font-medium">Link Bank</span>
+              )}
             </Button>
-          </CardFooter>
-        </Card>
 
-        {/* 2. Wallet Balance Card */}
-        <Card className="border-emerald-200 dark:border-emerald-900 bg-emerald-500/5">
-          <CardHeader className="flex flex-row items-center justify-between pb-2">
-            <CardTitle className="text-sm font-medium text-emerald-800 dark:text-emerald-300">Wallet Balance</CardTitle>
-            <Wallet className="h-4 w-4 text-emerald-600" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-3xl font-bold text-emerald-600 dark:text-emerald-400">
-              ₦{walletBalance.toLocaleString()}
-            </div>
-            <p className="text-xs text-muted-foreground mt-1">
-              Commission earned from student activations
-            </p>
-          </CardContent>
-          <CardFooter className="pt-0">
-            <Button 
-              size="sm" 
-              onClick={handleOpenWithdraw}
-              disabled={walletBalance <= 0}
-              className="w-full bg-emerald-600 hover:bg-emerald-700 text-white text-xs h-7 gap-1"
-            >
-              <ArrowDownLeft className="h-3 w-3" /> Withdraw Funds
-            </Button>
-          </CardFooter>
-        </Card>
-
-        {/* 3. Total Commission Earned Card */}
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">Total Earned</CardTitle>
-            <TrendingUp className="h-4 w-4 text-indigo-500" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-3xl font-bold text-foreground">
-              ₦{totalEarned.toLocaleString()}
-            </div>
-            <p className="text-xs text-muted-foreground mt-1">
-              Lifetime commission payouts generated
-            </p>
-          </CardContent>
-          <CardFooter className="pt-0">
-            <div className="text-[11px] text-muted-foreground flex items-center gap-1">
-              <Sparkles className="h-3 w-3 text-amber-500" />
-              Rate: {commissionPercentage}% per activated PIN
-            </div>
-          </CardFooter>
-        </Card>
-
-        {/* 4. Total Withdrawn Card */}
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">Total Withdrawn</CardTitle>
-            <CreditCard className="h-4 w-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-3xl font-bold text-foreground">
-              ₦{totalWithdrawn.toLocaleString()}
-            </div>
-            <p className="text-xs text-muted-foreground mt-1">
-              Transferred to your linked bank account
-            </p>
-          </CardContent>
-          <CardFooter className="pt-0">
             <Button 
               variant="ghost" 
-              size="sm" 
-              onClick={handleOpenSettings}
-              className="w-full text-xs h-7 text-muted-foreground hover:text-foreground gap-1"
+              size="icon" 
+              onClick={onRefresh}
+              className="h-8 w-8 text-muted-foreground hover:text-foreground shrink-0"
+              title="Refresh inventory"
             >
-              <Settings className="h-3 w-3" /> {recipientCode ? 'Bank Verified' : 'Setup Bank Details'}
+              <RefreshCw className="h-3.5 w-3.5" />
             </Button>
-          </CardFooter>
-        </Card>
-      </div>
-
-      {/* Vendor Action Toolbar */}
-      <div className="flex flex-wrap items-center justify-between gap-3 p-4 bg-muted/30 rounded-xl border">
-        <div className="flex items-center gap-2 flex-wrap">
-          <Button 
-            onClick={handleOpenOnDemand} 
-            className="bg-amber-600 hover:bg-amber-700 text-white font-semibold text-xs h-9 gap-1.5 shadow-xs"
-          >
-            <Zap className="h-4 w-4" /> On-Demand PIN (Zero Capital)
-          </Button>
-
-          <Button 
-            variant="outline" 
-            onClick={handleOpenRestock}
-            className="border-emerald-600 text-emerald-700 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-950/40 text-xs h-9 gap-1.5"
-          >
-            <Package className="h-4 w-4" /> Restock in Bulk (Wholesale)
-          </Button>
-
-          <Button 
-            variant="outline" 
-            onClick={handleOpenWithdraw}
-            disabled={walletBalance <= 0}
-            className="text-xs h-9 gap-1.5"
-          >
-            <ArrowDownLeft className="h-4 w-4 text-emerald-600" /> Withdraw to Bank
-          </Button>
+          </div>
         </div>
 
-        <div className="flex items-center gap-2">
-          <Button 
-            variant="secondary" 
-            size="sm" 
-            onClick={handleOpenSettings}
-            className="text-xs h-9 gap-1.5"
-          >
-            <Building className="h-4 w-4 text-primary" />
-            {recipientCode ? (
-              <span className="flex items-center gap-1">
-                <span>{bankName || 'Bank'}: ••••{accountNumber.slice(-4)}</span>
-                <CheckCircle className="h-3.5 w-3.5 text-emerald-600 ml-1" />
+        {/* Quick Operational Actions Bar */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 pt-2">
+          {/* Action 1: On-Demand PIN */}
+          <div className="p-3.5 rounded-xl border bg-card hover:border-amber-500/50 transition-all flex flex-col justify-between gap-3 shadow-2xs">
+            <div className="space-y-1">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-bold text-foreground flex items-center gap-1.5">
+                  <Zap className="h-3.5 w-3.5 text-amber-500" /> Instant On-Demand PIN
+                </span>
+                <span className="text-[10px] text-amber-700 dark:text-amber-300 font-medium">₦0 Capital</span>
+              </div>
+              <p className="text-[11px] text-muted-foreground leading-relaxed">
+                Student pays ₦{standardPrice.toLocaleString()} via Paystack directly. Earn <strong>+₦{onDemandCommission.toLocaleString()}</strong> on activation.
+              </p>
+            </div>
+            <Button 
+              size="sm" 
+              onClick={handleOpenOnDemand} 
+              className="w-full h-8 text-xs font-semibold bg-amber-600 hover:bg-amber-700 text-white gap-1.5"
+            >
+              <Zap className="h-3.5 w-3.5" /> Issue On-Demand PIN
+            </Button>
+          </div>
+
+          {/* Action 2: Wholesale Restock */}
+          <div className="p-3.5 rounded-xl border bg-card hover:border-emerald-500/50 transition-all flex flex-col justify-between gap-3 shadow-2xs">
+            <div className="space-y-1">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-bold text-foreground flex items-center gap-1.5">
+                  <Package className="h-3.5 w-3.5 text-emerald-500" /> Wholesale Restock
+                </span>
+                <span className="text-[10px] text-emerald-700 dark:text-emerald-300 font-medium">Max Profit</span>
+              </div>
+              <p className="text-[11px] text-muted-foreground leading-relaxed">
+                Purchase 5+ PINs at ₦{bulkStandardPrice.toLocaleString()} wholesale. Sell directly for cash and keep 100% of profit.
+              </p>
+            </div>
+            <Button 
+              size="sm" 
+              variant="outline" 
+              onClick={handleOpenRestock} 
+              className="w-full h-8 text-xs font-semibold border-emerald-500/40 text-emerald-700 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-950/30 gap-1.5"
+            >
+              <Package className="h-3.5 w-3.5" /> Restock Bulk Inventory
+            </Button>
+          </div>
+
+          {/* Action 3: Withdraw Balance */}
+          <div className="p-3.5 rounded-xl border bg-card hover:border-primary/50 transition-all flex flex-col justify-between gap-3 shadow-2xs">
+            <div className="space-y-1">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-bold text-foreground flex items-center gap-1.5">
+                  <Wallet className="h-3.5 w-3.5 text-primary" /> Commission Payout
+                </span>
+                <span className="text-[10px] font-mono font-semibold text-emerald-600">
+                  ₦{walletBalance.toLocaleString()}
+                </span>
+              </div>
+              <p className="text-[11px] text-muted-foreground leading-relaxed">
+                {recipientCode 
+                  ? `Direct transfer to ${bankName ? bankName.slice(0, 12) : 'Bank'} account via Paystack.`
+                  : 'Link your Nigerian bank account to withdraw earned commissions.'}
+              </p>
+            </div>
+            <Button 
+              size="sm" 
+              variant="outline" 
+              onClick={handleOpenWithdraw} 
+              disabled={walletBalance <= 0 || !recipientCode}
+              className="w-full h-8 text-xs font-semibold gap-1.5"
+            >
+              <ArrowDownLeft className="h-3.5 w-3.5 text-emerald-600" />
+              {walletBalance > 0 ? 'Request Bank Payout' : 'No Balance Available'}
+            </Button>
+          </div>
+
+          {/* Action 4: Bank Details */}
+          <div className="p-3.5 rounded-xl border bg-card hover:border-primary/50 transition-all flex flex-col justify-between gap-3 shadow-2xs">
+            <div className="space-y-1">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-bold text-foreground flex items-center gap-1.5">
+                  <CreditCard className="h-3.5 w-3.5 text-muted-foreground" /> Payout Destination
+                </span>
+                <span className="text-[10px] text-muted-foreground">
+                  {recipientCode ? 'Verified' : 'Unlinked'}
+                </span>
+              </div>
+              <p className="text-[11px] text-muted-foreground leading-relaxed truncate">
+                {recipientCode ? `${bankName}: ••${accountNumber.slice(-4)}` : 'Set up NUBAN bank account for withdrawals.'}
+              </p>
+            </div>
+            <Button 
+              size="sm" 
+              variant="secondary" 
+              onClick={handleOpenSettings} 
+              className="w-full h-8 text-xs font-semibold gap-1.5"
+            >
+              <Settings className="h-3.5 w-3.5" />
+              {recipientCode ? 'Update Banking' : 'Configure Bank'}
+            </Button>
+          </div>
+        </div>
+      </div>
+
+      {/* 2. Low/Empty Inventory Prompt */}
+      {myUnusedPins.length === 0 ? (
+        <div className="p-4 rounded-xl border border-amber-300 dark:border-amber-800 bg-amber-50/50 dark:bg-amber-950/20 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+          <div className="space-y-0.5">
+            <div className="flex items-center gap-2">
+              <AlertCircle className="h-4 w-4 text-amber-600 shrink-0" />
+              <span className="text-xs font-bold text-amber-900 dark:text-amber-200">
+                Zero PINs In Current Stock
               </span>
+            </div>
+            <p className="text-xs text-muted-foreground">
+              Generate an instant <strong>On-Demand PIN</strong> on the spot (student pays retail, you earn ₦{onDemandCommission.toLocaleString()}), or <strong>Restock Bulk</strong> at wholesale rates.
+            </p>
+          </div>
+          <div className="flex items-center gap-2 shrink-0 self-end sm:self-auto">
+            <Button size="sm" onClick={handleOpenOnDemand} className="bg-amber-600 hover:bg-amber-700 text-white text-xs h-7">
+              <Zap className="h-3 w-3 mr-1" /> On-Demand
+            </Button>
+            <Button size="sm" variant="outline" onClick={handleOpenRestock} className="text-xs h-7">
+              <Package className="h-3 w-3 mr-1" /> Restock Bulk
+            </Button>
+          </div>
+        </div>
+      ) : myUnusedPins.length < 3 ? (
+        <div className="p-3 rounded-xl border border-amber-200 dark:border-amber-900 bg-amber-50/40 dark:bg-amber-950/15 flex items-center justify-between gap-3 text-xs">
+          <div className="flex items-center gap-2">
+            <AlertTriangle className="h-4 w-4 text-amber-600 shrink-0" />
+            <span className="font-medium text-amber-900 dark:text-amber-200">
+              Low Inventory: Only {myUnusedPins.length} activation PIN{myUnusedPins.length === 1 ? '' : 's'} remaining.
+            </span>
+          </div>
+          <Button size="sm" variant="outline" onClick={handleOpenRestock} className="text-xs h-7 shrink-0">
+            <Package className="h-3 w-3 mr-1 text-amber-600" /> Restock
+          </Button>
+        </div>
+      ) : null}
+
+      {/* 3. Main Financial & Metric Cards */}
+      <div className="grid gap-3 grid-cols-2 lg:grid-cols-4">
+        {/* Available PINs */}
+        <div className="p-4 rounded-xl border bg-card shadow-2xs space-y-1">
+          <div className="flex items-center justify-between text-xs text-muted-foreground">
+            <span className="font-medium">Available PINs</span>
+            <Package className="h-3.5 w-3.5 text-primary" />
+          </div>
+          <div className="text-2xl sm:text-3xl font-extrabold text-foreground">
+            {myUnusedPins.length}
+          </div>
+          <div className="text-[11px] text-muted-foreground flex items-center justify-between pt-1 border-t">
+            <span>{myUnusedPins.filter(p => p.type === 'plus').length} PLUS / {myUnusedPins.filter(p => p.type !== 'plus').length} Std</span>
+            <button type="button" onClick={handleOpenRestock} className="text-primary hover:underline font-medium">Restock</button>
+          </div>
+        </div>
+
+        {/* Wallet Balance */}
+        <div className="p-4 rounded-xl border bg-card shadow-2xs space-y-1">
+          <div className="flex items-center justify-between text-xs text-emerald-800 dark:text-emerald-300">
+            <span className="font-medium">Wallet Balance</span>
+            <Wallet className="h-3.5 w-3.5 text-emerald-600" />
+          </div>
+          <div className="text-2xl sm:text-3xl font-extrabold text-emerald-600 dark:text-emerald-400">
+            ₦{walletBalance.toLocaleString()}
+          </div>
+          <div className="text-[11px] text-muted-foreground flex items-center justify-between pt-1 border-t">
+            <span>Commissions ready</span>
+            {walletBalance > 0 ? (
+              <button type="button" onClick={handleOpenWithdraw} className="text-emerald-600 hover:underline font-medium">Withdraw</button>
             ) : (
-              <span className="flex items-center gap-1 text-amber-700 dark:text-amber-400 font-medium">
-                <AlertCircle className="h-3.5 w-3.5" /> Setup Bank Details
-              </span>
+              <span>Empty</span>
             )}
-          </Button>
+          </div>
+        </div>
 
-          <Button 
-            variant="ghost" 
-            size="icon" 
-            onClick={onRefresh}
-            className="h-9 w-9 text-muted-foreground hover:text-foreground"
-            title="Refresh Inventory"
-          >
-            <RefreshCw className="h-4 w-4" />
-          </Button>
+        {/* Total Earned */}
+        <div className="p-4 rounded-xl border bg-card shadow-2xs space-y-1">
+          <div className="flex items-center justify-between text-xs text-muted-foreground">
+            <span className="font-medium">Total Earned</span>
+            <TrendingUp className="h-3.5 w-3.5 text-indigo-500" />
+          </div>
+          <div className="text-2xl sm:text-3xl font-extrabold text-foreground">
+            ₦{totalEarned.toLocaleString()}
+          </div>
+          <div className="text-[11px] text-muted-foreground flex items-center justify-between pt-1 border-t">
+            <span>Commission Tier</span>
+            <span className="font-medium text-foreground">{commissionPercentage}% per activation</span>
+          </div>
+        </div>
+
+        {/* Total Withdrawn */}
+        <div className="p-4 rounded-xl border bg-card shadow-2xs space-y-1">
+          <div className="flex items-center justify-between text-xs text-muted-foreground">
+            <span className="font-medium">Total Withdrawn</span>
+            <ArrowDownLeft className="h-3.5 w-3.5 text-muted-foreground" />
+          </div>
+          <div className="text-2xl sm:text-3xl font-extrabold text-foreground">
+            ₦{totalWithdrawn.toLocaleString()}
+          </div>
+          <div className="text-[11px] text-muted-foreground flex items-center justify-between pt-1 border-t truncate">
+            <span>Payout Account</span>
+            <span className="font-mono text-foreground">{accountNumber ? `••${accountNumber.slice(-4)}` : 'None'}</span>
+          </div>
         </div>
       </div>
 
-      {/* Vendor Content Tabs: Inventory, Sold History, Transactions Ledger */}
+      {/* 4. Content Tabs: Inventory, Sold History, Wallet Ledger */}
       <Tabs defaultValue="inventory" className="space-y-4">
-        <TabsList className="grid grid-cols-3 max-w-md">
-          <TabsTrigger value="inventory">
-            Available PINs ({myUnusedPins.length})
-          </TabsTrigger>
-          <TabsTrigger value="sold">
-            Sold & Activated ({myUsedPins.length})
-          </TabsTrigger>
-          <TabsTrigger value="transactions">
-            Wallet Activity ({transactions.length})
-          </TabsTrigger>
-        </TabsList>
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b pb-3">
+          <TabsList className="bg-muted/60 p-1 rounded-xl">
+            <TabsTrigger value="inventory" className="text-xs font-medium px-3 py-1.5 rounded-lg data-[state=active]:bg-background data-[state=active]:shadow-xs">
+              Available PINs ({myUnusedPins.length})
+            </TabsTrigger>
+            <TabsTrigger value="sold" className="text-xs font-medium px-3 py-1.5 rounded-lg data-[state=active]:bg-background data-[state=active]:shadow-xs">
+              Redeemed ({myUsedPins.length})
+            </TabsTrigger>
+            <TabsTrigger value="transactions" className="text-xs font-medium px-3 py-1.5 rounded-lg data-[state=active]:bg-background data-[state=active]:shadow-xs">
+              Wallet Ledger ({transactions.length})
+            </TabsTrigger>
+          </TabsList>
 
-        {/* Tab 1: Available Inventory */}
-        <TabsContent value="inventory" className="space-y-4">
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between pb-3">
+          <div className="text-xs text-muted-foreground flex items-center gap-2">
+            <span>Standard: <strong>₦{standardPrice.toLocaleString()}</strong></span>
+            <span aria-hidden="true">·</span>
+            <span>PLUS: <strong>₦{plusPrice.toLocaleString()}</strong></span>
+          </div>
+        </div>
+
+
+        {/* ================================================================= */}
+        {/* TAB 1: ACTIVE INVENTORY                                           */}
+        {/* ================================================================= */}
+        <TabsContent value="inventory" className="space-y-4 pt-1">
+          {/* Search & Filter Bar */}
+          <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
+            <div className="relative flex-1 max-w-sm">
+              <Search className="h-3.5 w-3.5 absolute left-3 top-2.5 text-muted-foreground" />
+              <Input
+                placeholder="Search active PIN codes..."
+                value={pinSearch}
+                onChange={(e) => setPinSearch(e.target.value)}
+                className="pl-9 h-8 text-xs font-mono"
+              />
+              {pinSearch && (
+                <button 
+                  type="button" 
+                  onClick={() => setPinSearch('')}
+                  className="absolute right-2.5 top-2 text-xs text-muted-foreground hover:text-foreground"
+                >
+                  ✕
+                </button>
+              )}
+            </div>
+
+            {/* Quick Filter Pills */}
+            <div className="flex items-center gap-1.5 overflow-x-auto pb-1 sm:pb-0 text-xs">
+              <button
+                type="button"
+                onClick={() => setPinTypeFilter('all')}
+                className={`px-2.5 py-1 rounded-lg font-medium transition-colors ${
+                  pinTypeFilter === 'all' 
+                    ? 'bg-primary text-primary-foreground font-semibold' 
+                    : 'bg-muted/70 text-muted-foreground hover:bg-muted'
+                }`}
+              >
+                All ({myUnusedPins.length})
+              </button>
+              <button
+                type="button"
+                onClick={() => setPinTypeFilter('standard')}
+                className={`px-2.5 py-1 rounded-lg font-medium transition-colors ${
+                  pinTypeFilter === 'standard' 
+                    ? 'bg-primary text-primary-foreground font-semibold' 
+                    : 'bg-muted/70 text-muted-foreground hover:bg-muted'
+                }`}
+              >
+                Standard
+              </button>
+              <button
+                type="button"
+                onClick={() => setPinTypeFilter('plus')}
+                className={`px-2.5 py-1 rounded-lg font-medium transition-colors ${
+                  pinTypeFilter === 'plus' 
+                    ? 'bg-primary text-primary-foreground font-semibold' 
+                    : 'bg-muted/70 text-muted-foreground hover:bg-muted'
+                }`}
+              >
+                PLUS
+              </button>
+              <button
+                type="button"
+                onClick={() => setPinTypeFilter('on_demand')}
+                className={`px-2.5 py-1 rounded-lg font-medium transition-colors ${
+                  pinTypeFilter === 'on_demand' 
+                    ? 'bg-amber-600 text-white font-semibold' 
+                    : 'bg-muted/70 text-muted-foreground hover:bg-muted'
+                }`}
+              >
+                On-Demand
+              </button>
+              <button
+                type="button"
+                onClick={() => setPinTypeFilter('bulk')}
+                className={`px-2.5 py-1 rounded-lg font-medium transition-colors ${
+                  pinTypeFilter === 'bulk' 
+                    ? 'bg-emerald-600 text-white font-semibold' 
+                    : 'bg-muted/70 text-muted-foreground hover:bg-muted'
+                }`}
+              >
+                Wholesale Restock
+              </button>
+            </div>
+          </div>
+
+          {/* Cards Grid */}
+          {filteredUnusedPins.length === 0 ? (
+            <div className="p-10 border border-dashed rounded-xl text-center space-y-3 bg-muted/20">
+              <Package className="h-9 w-9 text-muted-foreground/40 mx-auto" />
               <div className="space-y-1">
-                <CardTitle className="text-base">Active PIN Inventory</CardTitle>
-                <CardDescription>
-                  12-digit activation codes in your inventory ready to be given or sold to students.
-                </CardDescription>
+                <p className="font-semibold text-sm text-foreground">
+                  {pinSearch || pinTypeFilter !== 'all' ? 'No PINs match your search/filter' : 'No Active Activation PINs'}
+                </p>
+                <p className="text-xs text-muted-foreground max-w-sm mx-auto">
+                  {pinSearch || pinTypeFilter !== 'all' 
+                    ? 'Try clearing the search query or changing your filter criteria.'
+                    : 'Use On-Demand to instantly generate a PIN for a student, or Restock in Bulk at wholesale rates.'}
+                </p>
               </div>
-              <div className="flex gap-2">
-                <Button size="sm" variant="outline" onClick={handleOpenOnDemand} className="text-xs h-8 gap-1">
-                  <Zap className="h-3.5 w-3.5 text-amber-600" /> On-Demand
-                </Button>
-                <Button size="sm" onClick={handleOpenRestock} className="text-xs h-8 gap-1 bg-primary text-primary-foreground">
-                  <Package className="h-3.5 w-3.5" /> Restock
-                </Button>
+              <div className="flex items-center justify-center gap-2 pt-2">
+                {pinSearch || pinTypeFilter !== 'all' ? (
+                  <Button size="sm" variant="outline" onClick={() => { setPinSearch(''); setPinTypeFilter('all'); }} className="text-xs h-8">
+                    Clear Filters
+                  </Button>
+                ) : (
+                  <>
+                    <Button size="sm" onClick={handleOpenOnDemand} className="bg-amber-600 hover:bg-amber-700 text-white text-xs h-8">
+                      <Zap className="h-3.5 w-3.5 mr-1" /> On-Demand PIN
+                    </Button>
+                    <Button size="sm" variant="outline" onClick={handleOpenRestock} className="text-xs h-8">
+                      <Package className="h-3.5 w-3.5 mr-1" /> Restock Bulk
+                    </Button>
+                  </>
+                )}
               </div>
-            </CardHeader>
-            <CardContent>
-              {myUnusedPins.length === 0 ? (
-                <div className="py-12 text-center space-y-3">
-                  <Package className="h-10 w-10 text-muted-foreground/40 mx-auto" />
-                  <div className="space-y-1">
-                    <p className="font-semibold text-foreground">No Available Activation PINs</p>
-                    <p className="text-xs text-muted-foreground max-w-md mx-auto">
-                      Use <strong>On-Demand</strong> to generate a PIN instantly for a paying student without upfront cost, or <strong>Restock</strong> in bulk (min 5) to buy at wholesale rates.
-                    </p>
-                  </div>
-                  <div className="flex items-center justify-center gap-2 pt-2">
-                    <Button size="sm" onClick={handleOpenOnDemand} className="bg-amber-600 hover:bg-amber-700 text-white text-xs">
-                      <Zap className="h-3.5 w-3.5 mr-1" /> Create On-Demand PIN
-                    </Button>
-                    <Button size="sm" variant="outline" onClick={handleOpenRestock} className="text-xs">
-                      <Package className="h-3.5 w-3.5 mr-1" /> Restock in Bulk
-                    </Button>
-                  </div>
-                </div>
-              ) : (
-                <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-                  {myUnusedPins.map((pin) => (
-                    <div 
-                      key={pin.id || pin.code}
-                      className="p-3.5 rounded-xl border bg-card/60 hover:bg-card transition-all flex flex-col justify-between gap-3 shadow-xs"
-                    >
-                      <div className="space-y-1.5">
-                        <div className="flex items-center justify-between">
-                          <Badge 
-                            variant={pin.type === 'plus' ? 'default' : 'secondary'} 
-                            className="text-[10px] font-bold tracking-wider"
-                          >
-                            {pin.type === 'plus' ? 'PLUS GRADE' : 'STANDARD GRADE'}
+            </div>
+          ) : (
+            <div className="grid gap-3.5 grid-cols-1 sm:grid-cols-2 xl:grid-cols-3">
+              {filteredUnusedPins.map((pin) => {
+                const isCopied = copiedCode === pin.code;
+                return (
+                  <div 
+                    key={pin.id || pin.code}
+                    className="group relative p-4 rounded-xl border bg-card hover:border-primary/50 transition-all flex flex-col justify-between gap-3 shadow-2xs min-w-0"
+                  >
+                    <div className="space-y-2.5">
+                      <div className="flex items-center justify-between gap-1.5 flex-wrap">
+                        <Badge 
+                          variant={pin.type === 'plus' ? 'default' : 'secondary'} 
+                          className="text-[10px] font-bold tracking-wider"
+                        >
+                          {pin.type === 'plus' ? 'PLUS GRADE' : 'STANDARD'}
+                        </Badge>
+
+                        {pin.isOnDemand ? (
+                          <Badge variant="outline" className="text-[9px] border-amber-500/50 text-amber-700 dark:text-amber-300 bg-amber-500/10 font-semibold">
+                            ON-DEMAND
                           </Badge>
-                          {pin.isOnDemand && (
-                            <Badge variant="outline" className="text-[9px] border-amber-500 text-amber-700 dark:text-amber-300 bg-amber-50 dark:bg-amber-950/40 font-semibold">
-                              ON-DEMAND (AWAITING ACTIVATION)
-                            </Badge>
-                          )}
-                          {pin.isBulkRestocked && (
-                            <Badge variant="outline" className="text-[9px] border-emerald-500 text-emerald-700 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-950/40">
-                              WHOLESALE RESTOCK
-                            </Badge>
-                          )}
-                        </div>
-
-                        <div className="pt-1">
-                          <code className="text-lg font-mono font-bold tracking-wider text-foreground select-all">
-                            {pin.code}
-                          </code>
-                        </div>
-
-                        <p className="text-[11px] text-muted-foreground">
-                          Created on {pin.createdAt ? new Date(pin.createdAt).toLocaleDateString() : 'N/A'}
-                        </p>
+                        ) : pin.isBulkRestocked ? (
+                          <Badge variant="outline" className="text-[9px] border-emerald-500/50 text-emerald-700 dark:text-emerald-300 bg-emerald-500/10 font-semibold">
+                            WHOLESALE
+                          </Badge>
+                        ) : (
+                          <Badge variant="outline" className="text-[9px] text-muted-foreground">
+                            UPFRONT
+                          </Badge>
+                        )}
                       </div>
 
-                      <div className="flex items-center justify-between pt-2 border-t border-muted/60 text-xs">
-                        <span className="text-[11px] text-muted-foreground font-mono">
-                          Retail: ₦{(pin.type === 'plus' ? plusPrice : standardPrice).toLocaleString()}
+                      <div className="pt-0.5 space-y-1">
+                        <div className="p-2 sm:p-2.5 rounded-lg bg-muted/40 border border-border/50 flex items-center justify-center overflow-hidden">
+                          <code className="text-sm sm:text-base font-mono font-bold tabular-nums tracking-normal sm:tracking-wide text-foreground select-all text-center break-all">
+                            {formatDisplayPin(pin.code)}
+                          </code>
+                        </div>
+                        <span className="text-[11px] text-muted-foreground block text-right font-mono">
+                          Added {pin.createdAt ? new Date(pin.createdAt).toLocaleDateString() : 'N/A'}
                         </span>
-                        <Button 
-                          size="sm" 
-                          variant="secondary" 
-                          onClick={() => copyToClipboard(pin.code)} 
-                          className="h-7 text-xs px-2.5 gap-1"
-                        >
-                          <Copy className="h-3 w-3" /> Copy
-                        </Button>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center justify-between gap-2 pt-2.5 border-t border-muted/70 text-xs">
+                      <span className="text-[11px] text-muted-foreground font-mono shrink-0">
+                        Retail: <strong className="text-foreground">₦{(pin.type === 'plus' ? plusPrice : standardPrice).toLocaleString()}</strong>
+                      </span>
+                      <Button 
+                        size="sm" 
+                        variant={isCopied ? "default" : "secondary"}
+                        onClick={() => copyToClipboard(pin.code)} 
+                        className={`h-7 text-xs px-2.5 gap-1.5 shrink-0 transition-all ${isCopied ? 'bg-emerald-600 text-white' : ''}`}
+                      >
+                        {isCopied ? (
+                          <>
+                            <Check className="h-3 w-3" /> Copied!
+                          </>
+                        ) : (
+                          <>
+                            <Copy className="h-3 w-3" /> Copy PIN
+                          </>
+                        )}
+                      </Button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </TabsContent>
+
+        {/* ================================================================= */}
+        {/* TAB 2: SOLD & REDEEMED ACTIVATION PINS                            */}
+        {/* ================================================================= */}
+        <TabsContent value="sold" className="space-y-4 pt-1">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div className="relative flex-1 max-w-sm">
+              <Search className="h-3.5 w-3.5 absolute left-3 top-2.5 text-muted-foreground" />
+              <Input
+                placeholder="Search by PIN or Student ID..."
+                value={soldSearch}
+                onChange={(e) => setSoldSearch(e.target.value)}
+                className="pl-9 h-8 text-xs font-mono"
+              />
+              {soldSearch && (
+                <button 
+                  type="button" 
+                  onClick={() => setSoldSearch('')}
+                  className="absolute right-2.5 top-2 text-xs text-muted-foreground hover:text-foreground"
+                >
+                  ✕
+                </button>
+              )}
+            </div>
+            <span className="text-xs text-muted-foreground">
+              Total Redeemed: <strong className="text-foreground">{filteredUsedPins.length}</strong>
+            </span>
+          </div>
+
+          <div className="rounded-xl border bg-card overflow-hidden shadow-2xs">
+            {filteredUsedPins.length === 0 ? (
+              <div className="py-12 text-center text-muted-foreground text-xs space-y-1 p-4">
+                <p className="font-semibold text-foreground">No redeemed PINs found</p>
+                <p>When students activate your PINs in their app, records will appear here automatically.</p>
+              </div>
+            ) : (
+              <>
+                {/* Mobile View: Clean Stacked Cards */}
+                <div className="block md:hidden divide-y divide-border">
+                  {filteredUsedPins.map((pin) => (
+                    <div key={pin.id || pin.code} className="p-3.5 space-y-2">
+                      <div className="flex items-center justify-between">
+                        <span className="font-mono font-bold text-sm text-foreground tracking-wider">{pin.code}</span>
+                        <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded bg-muted text-muted-foreground">
+                          {pin.type === 'plus' ? 'PLUS Grade' : 'Standard'}
+                        </span>
+                      </div>
+                      <div className="grid grid-cols-2 gap-2 text-xs text-muted-foreground pt-1">
+                        <div>
+                          <span className="text-[10px] uppercase block">Used By Student</span>
+                          <span className="font-mono text-foreground font-semibold">{pin.usedByStudentId || 'N/A'}</span>
+                        </div>
+                        <div>
+                          <span className="text-[10px] uppercase block">Activation Date</span>
+                          <span>{pin.usedAt ? new Date(pin.usedAt).toLocaleDateString() : 'N/A'}</span>
+                        </div>
+                      </div>
+                      <div className="flex items-center justify-between pt-1 border-t text-xs">
+                        <span className="text-[11px] text-muted-foreground">
+                          {pin.isOnDemand ? 'On-Demand Sale' : pin.isBulkRestocked ? 'Wholesale Restock' : 'Direct Upfront'}
+                        </span>
+                        {pin.isOnDemand ? (
+                          pin.commissionEarned ? (
+                            <span className="text-emerald-600 dark:text-emerald-400 font-semibold text-xs flex items-center gap-1">
+                              <Check className="h-3 w-3" /> +₦{(pin.commissionAmount || onDemandCommission).toLocaleString()} Credited
+                            </span>
+                          ) : (
+                            <span className="text-amber-600 dark:text-amber-400 font-medium text-xs">Processing</span>
+                          )
+                        ) : (
+                          <span className="text-muted-foreground text-xs italic">Wholesale Profit Kept</span>
+                        )}
                       </div>
                     </div>
                   ))}
                 </div>
-              )}
-            </CardContent>
-          </Card>
-        </TabsContent>
 
-        {/* Tab 2: Sold & Activated History */}
-        <TabsContent value="sold" className="space-y-4">
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-base">Sold & Activated PINs History</CardTitle>
-              <CardDescription>
-                Records of activation codes redeemed by students through your vendor portal.
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              {myUsedPins.length === 0 ? (
-                <div className="py-12 text-center text-muted-foreground text-sm">
-                  No activation pins have been redeemed yet.
-                </div>
-              ) : (
-                <div className="overflow-x-auto">
+                {/* Desktop View: Full Table */}
+                <div className="hidden md:block overflow-x-auto">
                   <table className="w-full text-xs text-left">
-                    <thead className="text-[11px] uppercase bg-muted/40 text-muted-foreground border-b">
+                    <thead className="text-[11px] uppercase bg-muted/50 text-muted-foreground border-b font-semibold">
                       <tr>
-                        <th className="px-3 py-2.5">PIN Code</th>
-                        <th className="px-3 py-2.5">Grade</th>
-                        <th className="px-3 py-2.5">Origin / Channel</th>
-                        <th className="px-3 py-2.5">Used By Student ID</th>
-                        <th className="px-3 py-2.5">Activation Date</th>
-                        <th className="px-3 py-2.5 text-right">Commission Status</th>
+                        <th className="px-3.5 py-2.5">PIN Code</th>
+                        <th className="px-3.5 py-2.5">Grade</th>
+                        <th className="px-3.5 py-2.5">Channel</th>
+                        <th className="px-3.5 py-2.5">Used By Student ID</th>
+                        <th className="px-3.5 py-2.5">Activation Date</th>
+                        <th className="px-3.5 py-2.5 text-right">Commission Status</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-border">
-                      {myUsedPins.map((pin) => (
-                        <tr key={pin.id || pin.code} className="hover:bg-muted/30">
-                          <td className="px-3 py-2.5 font-mono font-bold">{pin.code}</td>
-                          <td className="px-3 py-2.5">
-                            <Badge variant={pin.type === 'plus' ? 'default' : 'secondary'} className="text-[10px]">
-                              {pin.type === 'plus' ? 'PLUS' : 'STANDARD'}
-                            </Badge>
+                      {filteredUsedPins.map((pin) => (
+                        <tr key={pin.id || pin.code} className="hover:bg-muted/20 transition-colors">
+                          <td className="px-3.5 py-2.5 font-mono font-bold tracking-wider">{pin.code}</td>
+                          <td className="px-3.5 py-2.5">
+                            <span className="font-semibold text-xs">{pin.type === 'plus' ? 'PLUS' : 'Standard'}</span>
                           </td>
-                          <td className="px-3 py-2.5">
+                          <td className="px-3.5 py-2.5">
                             {pin.isOnDemand ? (
-                              <span className="text-amber-600 dark:text-amber-400 font-medium">On-Demand</span>
+                              <span className="text-amber-600 dark:text-amber-400 font-semibold text-[11px]">On-Demand</span>
                             ) : pin.isBulkRestocked ? (
-                              <span className="text-emerald-600 dark:text-emerald-400 font-medium">Bulk Restock</span>
+                              <span className="text-emerald-600 dark:text-emerald-400 font-medium text-[11px]">Wholesale</span>
                             ) : (
-                              <span className="text-muted-foreground">Standard Transfer</span>
+                              <span className="text-muted-foreground text-[11px]">Upfront</span>
                             )}
                           </td>
-                          <td className="px-3 py-2.5 font-mono">{pin.usedByStudentId || 'N/A'}</td>
-                          <td className="px-3 py-2.5 text-muted-foreground">
-                            {pin.usedAt ? new Date(pin.usedAt).toLocaleString() : 'N/A'}
+                          <td className="px-3.5 py-2.5 font-mono font-medium">{pin.usedByStudentId || 'N/A'}</td>
+                          <td className="px-3.5 py-2.5 text-muted-foreground">
+                            {pin.usedAt ? new Date(pin.usedAt).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' }) : 'N/A'}
                           </td>
-                          <td className="px-3 py-2.5 text-right">
+                          <td className="px-3.5 py-2.5 text-right">
                             {pin.isOnDemand ? (
                               pin.commissionEarned ? (
-                                <Badge className="bg-emerald-600 text-white text-[10px]">
-                                  +₦{(pin.commissionAmount || onDemandCommission).toLocaleString()} Credited
-                                </Badge>
+                                <span className="inline-flex items-center gap-1 font-semibold text-emerald-600 dark:text-emerald-400 text-xs">
+                                  <Check className="h-3 w-3" /> +₦{(pin.commissionAmount || onDemandCommission).toLocaleString()}
+                                </span>
                               ) : (
-                                <Badge variant="outline" className="text-amber-600 text-[10px]">
-                                  Processing
-                                </Badge>
+                                <span className="text-amber-600 dark:text-amber-400 font-medium text-xs">Processing</span>
                               )
                             ) : (
-                              <span className="text-muted-foreground italic text-[11px]">Direct Retail Profit</span>
+                              <span className="text-muted-foreground italic text-[11px]">Wholesale Profit Kept</span>
                             )}
                           </td>
                         </tr>
@@ -1080,83 +1297,144 @@ export default function VendorCommissionDashboard({
                     </tbody>
                   </table>
                 </div>
-              )}
-            </CardContent>
-          </Card>
+              </>
+            )}
+          </div>
         </TabsContent>
 
-        {/* Tab 3: Wallet Transactions */}
-        <TabsContent value="transactions" className="space-y-4">
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between">
-              <div>
-                <CardTitle className="text-base">Wallet Ledger & Payout History</CardTitle>
-                <CardDescription>
-                  Complete audit trail of earned commissions, bulk inventory restocks, and bank withdrawals.
-                </CardDescription>
-              </div>
-              <Button 
-                variant="outline" 
-                size="sm" 
-                onClick={handleOpenWithdraw}
-                disabled={walletBalance <= 0}
-                className="text-xs h-8"
+        {/* ================================================================= */}
+        {/* TAB 3: WALLET AUDIT LEDGER                                        */}
+        {/* ================================================================= */}
+        <TabsContent value="transactions" className="space-y-4 pt-1">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div className="flex items-center gap-1.5 overflow-x-auto text-xs pb-1 sm:pb-0">
+              <button
+                type="button"
+                onClick={() => setTxFilter('all')}
+                className={`px-3 py-1.5 rounded-lg font-medium transition-colors ${
+                  txFilter === 'all' 
+                    ? 'bg-primary text-primary-foreground font-semibold' 
+                    : 'bg-muted/70 text-muted-foreground hover:bg-muted'
+                }`}
               >
-                <ArrowDownLeft className="h-3.5 w-3.5 mr-1 text-emerald-600" />
-                Request Withdrawal
-              </Button>
-            </CardHeader>
-            <CardContent>
-              {loadingTransactions ? (
-                <div className="py-8 text-center text-muted-foreground flex items-center justify-center gap-2 text-sm">
-                  <Loader2 className="h-4 w-4 animate-spin" /> Loading wallet transactions...
+                All ({transactions.length})
+              </button>
+              <button
+                type="button"
+                onClick={() => setTxFilter('commission')}
+                className={`px-3 py-1.5 rounded-lg font-medium transition-colors ${
+                  txFilter === 'commission' 
+                    ? 'bg-primary text-primary-foreground font-semibold' 
+                    : 'bg-muted/70 text-muted-foreground hover:bg-muted'
+                }`}
+              >
+                Commissions
+              </button>
+              <button
+                type="button"
+                onClick={() => setTxFilter('withdrawal')}
+                className={`px-3 py-1.5 rounded-lg font-medium transition-colors ${
+                  txFilter === 'withdrawal' 
+                    ? 'bg-primary text-primary-foreground font-semibold' 
+                    : 'bg-muted/70 text-muted-foreground hover:bg-muted'
+                }`}
+              >
+                Withdrawals
+              </button>
+              <button
+                type="button"
+                onClick={() => setTxFilter('bulk_purchase')}
+                className={`px-3 py-1.5 rounded-lg font-medium transition-colors ${
+                  txFilter === 'bulk_purchase' 
+                    ? 'bg-primary text-primary-foreground font-semibold' 
+                    : 'bg-muted/70 text-muted-foreground hover:bg-muted'
+                }`}
+              >
+                Wholesale Purchases
+              </button>
+            </div>
+
+            <Button 
+              variant="outline" 
+              size="sm" 
+              onClick={handleOpenWithdraw}
+              disabled={walletBalance <= 0 || !recipientCode}
+              className="text-xs h-8 self-end sm:self-auto gap-1.5"
+            >
+              <ArrowDownLeft className="h-3.5 w-3.5 text-emerald-600" />
+              Withdraw Funds
+            </Button>
+          </div>
+
+          <div className="rounded-xl border bg-card overflow-hidden shadow-2xs">
+            {loadingTransactions ? (
+              <div className="py-12 text-center text-muted-foreground flex items-center justify-center gap-2 text-xs">
+                <Loader2 className="h-4 w-4 animate-spin text-primary" /> Loading wallet ledger...
+              </div>
+            ) : filteredTransactions.length === 0 ? (
+              <div className="py-12 text-center text-muted-foreground text-xs space-y-1 p-4">
+                <p className="font-semibold text-foreground">No transactions recorded yet</p>
+                <p>When you earn commissions or process payouts, transaction records will be logged here.</p>
+              </div>
+            ) : (
+              <>
+                {/* Mobile View: Stacked Transaction Cards */}
+                <div className="block md:hidden divide-y divide-border">
+                  {filteredTransactions.map((tx) => (
+                    <div key={tx.id} className="p-3.5 space-y-2">
+                      <div className="flex items-center justify-between">
+                        <span className="font-semibold text-xs text-foreground uppercase tracking-wider">
+                          {tx.type === 'commission' ? 'Commission Deposit' : tx.type === 'withdrawal' ? 'Bank Payout' : 'Wholesale Restock'}
+                        </span>
+                        <span className={`font-mono font-bold text-sm ${
+                          tx.type === 'commission' ? 'text-emerald-600 dark:text-emerald-400' :
+                          tx.type === 'withdrawal' ? 'text-indigo-600 dark:text-indigo-400' : 'text-foreground'
+                        }`}>
+                          {tx.type === 'commission' ? `+₦${tx.amount.toLocaleString()}` :
+                           tx.type === 'withdrawal' ? `-₦${tx.amount.toLocaleString()}` : `₦${tx.amount.toLocaleString()}`}
+                        </span>
+                      </div>
+                      <p className="text-xs text-muted-foreground leading-relaxed">
+                        {tx.description}
+                      </p>
+                      <div className="flex items-center justify-between text-[11px] text-muted-foreground font-mono pt-1 border-t">
+                        <span>{tx.pinCode || tx.transferCode || tx.reference || '—'}</span>
+                        <span>{tx.createdAt ? new Date(tx.createdAt).toLocaleDateString() : 'N/A'}</span>
+                      </div>
+                    </div>
+                  ))}
                 </div>
-              ) : transactions.length === 0 ? (
-                <div className="py-12 text-center text-muted-foreground text-sm">
-                  No wallet transactions recorded yet.
-                </div>
-              ) : (
-                <div className="overflow-x-auto">
+
+                {/* Desktop View: Full Table */}
+                <div className="hidden md:block overflow-x-auto">
                   <table className="w-full text-xs text-left">
-                    <thead className="text-[11px] uppercase bg-muted/40 text-muted-foreground border-b">
+                    <thead className="text-[11px] uppercase bg-muted/50 text-muted-foreground border-b font-semibold">
                       <tr>
-                        <th className="px-3 py-2.5">Date & Time</th>
-                        <th className="px-3 py-2.5">Transaction Type</th>
-                        <th className="px-3 py-2.5">Description</th>
-                        <th className="px-3 py-2.5">Reference / PIN</th>
-                        <th className="px-3 py-2.5 text-right">Amount</th>
+                        <th className="px-3.5 py-2.5">Date & Time</th>
+                        <th className="px-3.5 py-2.5">Type</th>
+                        <th className="px-3.5 py-2.5">Description</th>
+                        <th className="px-3.5 py-2.5">Reference / PIN</th>
+                        <th className="px-3.5 py-2.5 text-right">Amount</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-border">
-                      {transactions.map((tx) => (
-                        <tr key={tx.id} className="hover:bg-muted/30">
-                          <td className="px-3 py-2.5 text-muted-foreground">
-                            {tx.createdAt ? new Date(tx.createdAt).toLocaleString() : 'N/A'}
+                      {filteredTransactions.map((tx) => (
+                        <tr key={tx.id} className="hover:bg-muted/20 transition-colors">
+                          <td className="px-3.5 py-2.5 text-muted-foreground whitespace-nowrap">
+                            {tx.createdAt ? new Date(tx.createdAt).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' }) : 'N/A'}
                           </td>
-                          <td className="px-3 py-2.5">
-                            {tx.type === 'commission' && (
-                              <Badge className="bg-emerald-600 text-white text-[10px]">
-                                Commission
-                              </Badge>
-                            )}
-                            {tx.type === 'withdrawal' && (
-                              <Badge variant="outline" className="border-indigo-500 text-indigo-600 text-[10px]">
-                                Bank Payout
-                              </Badge>
-                            )}
-                            {tx.type === 'bulk_purchase' && (
-                              <Badge variant="secondary" className="text-[10px]">
-                                Bulk Restock
-                              </Badge>
-                            )}
+                          <td className="px-3.5 py-2.5">
+                            <span className="font-semibold text-xs">
+                              {tx.type === 'commission' ? 'Commission' : tx.type === 'withdrawal' ? 'Payout' : 'Restock'}
+                            </span>
                           </td>
-                          <td className="px-3 py-2.5 max-w-xs truncate">{tx.description}</td>
-                          <td className="px-3 py-2.5 font-mono text-[11px]">{tx.pinCode || tx.transferCode || tx.reference || '—'}</td>
-                          <td className="px-3 py-2.5 text-right font-mono font-bold">
+                          <td className="px-3.5 py-2.5 max-w-xs truncate">{tx.description}</td>
+                          <td className="px-3.5 py-2.5 font-mono text-[11px] text-muted-foreground">{tx.pinCode || tx.transferCode || tx.reference || '—'}</td>
+                          <td className="px-3.5 py-2.5 text-right font-mono font-bold">
                             {tx.type === 'commission' ? (
-                              <span className="text-emerald-600">+₦{tx.amount.toLocaleString()}</span>
+                              <span className="text-emerald-600 dark:text-emerald-400">+₦{tx.amount.toLocaleString()}</span>
                             ) : tx.type === 'withdrawal' ? (
-                              <span className="text-indigo-600">-₦{tx.amount.toLocaleString()}</span>
+                              <span className="text-indigo-600 dark:text-indigo-400">-₦{tx.amount.toLocaleString()}</span>
                             ) : (
                               <span className="text-foreground">₦{tx.amount.toLocaleString()}</span>
                             )}
@@ -1166,9 +1444,9 @@ export default function VendorCommissionDashboard({
                     </tbody>
                   </table>
                 </div>
-              )}
-            </CardContent>
-          </Card>
+              </>
+            )}
+          </div>
         </TabsContent>
       </Tabs>
 
@@ -1391,12 +1669,12 @@ export default function VendorCommissionDashboard({
 
           {generatedOnDemandPin && (
             <div className="space-y-4 py-4 text-center">
-              <div className="p-4 bg-muted/60 border rounded-xl space-y-2">
+              <div className="p-3 sm:p-4 bg-muted/60 border rounded-xl space-y-2 overflow-hidden">
                 <span className="text-[11px] uppercase tracking-wider text-muted-foreground block font-semibold">
                   Standard 12-Digit Activation PIN
                 </span>
-                <div className="text-3xl font-mono font-black tracking-widest text-primary select-all">
-                  {generatedOnDemandPin}
+                <div className="text-xl sm:text-2xl md:text-3xl font-mono font-bold tabular-nums tracking-normal sm:tracking-wide text-primary select-all break-all text-center px-1">
+                  {formatDisplayPin(generatedOnDemandPin)}
                 </div>
                 <Button 
                   size="sm" 

@@ -2459,50 +2459,188 @@ export default function AdminPanel() {
     return <Navigate to="/administrator/pins" replace />;
   }
 
-  return (
-    <div className="space-y-8">
-      <div className="flex flex-col gap-2">
-        <h1 className="text-3xl font-bold tracking-tight">Admin Panel</h1>
-        <p className="text-muted-foreground">Manage users, courses, and platform content.</p>
-      </div>
+  // Navigation grouping for clean, uncluttered layout
+  const navSections = useMemo(() => {
+    const sections: {
+      id: string;
+      label: string;
+      items: { path: string; exact?: boolean; label: string; icon: any; badge?: string }[];
+    }[] = [
+      {
+        id: 'core',
+        label: 'Core Platform',
+        items: [
+          { path: '/administrator', exact: true, label: 'Overview', icon: LayoutDashboard },
+          { path: '/administrator/users', label: 'Users', icon: Users },
+          { path: '/administrator/courses', label: 'Courses', icon: BookPlus },
+          { path: '/administrator/notes', label: 'Notes', icon: FileText },
+          { path: '/administrator/news', label: 'News', icon: Newspaper },
+          { path: '/administrator/pins', label: isLevel4 ? 'Activation PINs' : 'Vendor Dashboard', icon: Key },
+        ]
+      },
+      {
+        id: 'academic',
+        label: 'Academic & Media',
+        items: [
+          { path: '/administrator/discipline', label: 'Disciplines', icon: BookPlus },
+          { path: '/administrator/videos', label: 'Video Library', icon: PlayCircle },
+          { path: '/administrator/video-workshop', label: 'Video Workshop', icon: Wand2 },
+          { path: '/administrator/credentials', label: 'Credentials', icon: Key },
+          { path: '/administrator/devices', label: 'Devices', icon: Clock },
+        ]
+      },
+      {
+        id: 'operations',
+        label: 'Operations & Audits',
+        items: [
+          { path: '/administrator/notifier', label: 'Notifier', icon: Bell },
+          { path: '/administrator/feedback', label: 'User Feedback', icon: MessageCircle },
+          { path: '/administrator/reports', label: 'Reports', icon: FileText },
+          { path: '/administrator/system', label: 'System', icon: Settings },
+          { path: '/administrator/manual', label: 'Admin Manual', icon: HelpCircle },
+        ]
+      }
+    ];
 
-      <div className="flex flex-wrap gap-2 border-b pb-4">
-        {isLevel4 && (
-          <Button variant={location.pathname === '/administrator' ? 'default' : 'ghost'} size="sm" onClick={() => navigate('/administrator')}>Overview</Button>
-        )}
-        {isLevel4 && (
-          <>
-            <Button variant={location.pathname.includes('users') ? 'default' : 'ghost'} size="sm" onClick={() => navigate('/administrator/users')}>Users</Button>
-            <Button variant={location.pathname.includes('courses') ? 'default' : 'ghost'} size="sm" onClick={() => navigate('/administrator/courses')}>Courses</Button>
-            <Button variant={location.pathname.includes('discipline') ? 'default' : 'ghost'} size="sm" onClick={() => navigate('/administrator/discipline')}>Discipline</Button>
-            <Button variant={location.pathname.includes('notes') ? 'default' : 'ghost'} size="sm" onClick={() => navigate('/administrator/notes')}>Notes</Button>
-            <Button variant={location.pathname.includes('news') ? 'default' : 'ghost'} size="sm" onClick={() => navigate('/administrator/news')}>News</Button>
-          </>
-        )}
-        <Button variant={location.pathname.includes('pins') ? 'default' : 'ghost'} size="sm" onClick={() => navigate('/administrator/pins')}>
-          {isLevel4 ? 'Pins' : 'Vendor Dashboard'}
-        </Button>
-        {isLevel4 && (
-          <>
-            <Button variant={location.pathname.includes('videos') ? 'default' : 'ghost'} size="sm" onClick={() => navigate('/administrator/videos')}>Video Library</Button>
-            <Button variant={location.pathname.includes('video-workshop') ? 'default' : 'ghost'} size="sm" onClick={() => navigate('/administrator/video-workshop')}>Video Workshop</Button>
-            <Button variant={location.pathname.includes('notifier') ? 'default' : 'ghost'} size="sm" onClick={() => navigate('/administrator/notifier')}>Notifier</Button>
-            <Button variant={location.pathname.includes('credentials') ? 'default' : 'ghost'} size="sm" onClick={() => navigate('/administrator/credentials')}>Credentials</Button>
-            <Button variant={location.pathname.includes('devices') ? 'default' : 'ghost'} size="sm" onClick={() => navigate('/administrator/devices')}>Devices</Button>
-            <Button variant={location.pathname.includes('feedback') ? 'default' : 'ghost'} size="sm" onClick={() => navigate('/administrator/feedback')}>User Feedback</Button>
-            <Button variant={location.pathname.includes('reports') ? 'default' : 'ghost'} size="sm" onClick={() => navigate('/administrator/reports')}>Reports</Button>
-            <Button variant={location.pathname.includes('manual') ? 'default' : 'ghost'} size="sm" onClick={() => navigate('/administrator/manual')}>Admin Manual</Button>
-            <Button variant={location.pathname.includes('system') ? 'default' : 'ghost'} size="sm" onClick={() => navigate('/administrator/system')}>System</Button>
-          </>
-        )}
-        {isLevel5 && (
-          <Button variant={location.pathname.includes('overseer') ? 'default' : 'ghost'} size="sm" onClick={() => navigate('/administrator/overseer')}>Overseer Control</Button>
-        )}
-        {isLevel5 && (
-          <Button variant={location.pathname.includes('mobile') ? 'default' : 'ghost'} size="sm" onClick={() => navigate('/administrator/mobile')}>Mobile Control</Button>
-        )}
-        {isLevel5 && (
-          <Button variant={location.pathname.includes('backup') ? 'default' : 'ghost'} size="sm" onClick={() => navigate('/administrator/backup')}>Academic Backup</Button>
+    if (isLevel5) {
+      sections.push({
+        id: 'overseer',
+        label: 'Overseer Executive',
+        items: [
+          { path: '/administrator/overseer', label: 'Overseer Control', icon: ShieldAlert, badge: 'Executive' },
+          { path: '/administrator/mobile', label: 'Mobile Control', icon: Zap },
+          { path: '/administrator/backup', label: 'Academic Backup', icon: Download },
+        ]
+      });
+    }
+
+    return sections;
+  }, [isLevel4, isLevel5]);
+
+  const currentPath = location.pathname;
+  const activeSectionId = useMemo(() => {
+    for (const section of navSections) {
+      for (const item of section.items) {
+        if (item.exact ? currentPath === item.path : (item.path !== '/administrator' && currentPath.startsWith(item.path))) {
+          return section.id;
+        }
+      }
+    }
+    return 'core';
+  }, [currentPath, navSections]);
+
+  const [activeNavCategory, setActiveNavCategory] = useState<string>(activeSectionId);
+  const [showAllNav, setShowAllNav] = useState(false);
+
+  useEffect(() => {
+    setActiveNavCategory(activeSectionId);
+  }, [activeSectionId]);
+
+  return (
+    <div className="space-y-6">
+      {/* Admin Header with Uncluttered Metadata */}
+      <div className="border-b pb-4 space-y-3">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div className="space-y-1">
+            <h1 className="text-2xl sm:text-3xl font-extrabold tracking-tight text-foreground">
+              Platform Administration
+            </h1>
+            <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground font-medium">
+              <span className="text-primary font-semibold">
+                {isLevel5 ? 'Level 5 Superadmin & Overseer' : 'Level 4 Administrator'}
+              </span>
+              <span aria-hidden="true">·</span>
+              <span>Campus: <strong className="text-foreground">{profile?.At?.toUpperCase() || 'FUTO'}</strong></span>
+              <span aria-hidden="true">·</span>
+              <span>Institutional Master Controls</span>
+            </div>
+          </div>
+
+          {/* Quick Refresh / Status */}
+          <div className="flex items-center gap-2 self-start sm:self-auto">
+            <Button 
+              variant="outline" 
+              size="sm" 
+              onClick={() => navigate('/administrator/manual')}
+              className="text-xs h-8 gap-1.5"
+            >
+              <HelpCircle className="h-3.5 w-3.5" />
+              <span>Admin Manual</span>
+            </Button>
+            <Button 
+              variant="ghost" 
+              size="icon" 
+              onClick={() => window.location.reload()}
+              className="h-8 w-8 text-muted-foreground hover:text-foreground"
+              title="Refresh Admin View"
+            >
+              <RefreshCw className="h-3.5 w-3.5" />
+            </Button>
+          </div>
+        </div>
+
+        {/* Responsive Navigation */}
+        {isLevel4 ? (
+          <div className="space-y-2.5 pt-1">
+            {/* 1. Category Switcher (Scrollable on mobile, flex on desktop) */}
+            <div className="flex items-center gap-1.5 overflow-x-auto pb-1 no-scrollbar border-b">
+              {navSections.map((sec) => (
+                <button
+                  key={sec.id}
+                  type="button"
+                  onClick={() => setActiveNavCategory(sec.id)}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all whitespace-nowrap flex items-center gap-1.5 ${
+                    activeNavCategory === sec.id
+                      ? 'bg-primary text-primary-foreground shadow-xs'
+                      : 'text-muted-foreground hover:text-foreground hover:bg-muted/60'
+                  }`}
+                >
+                  <span>{sec.label}</span>
+                  {sec.id === 'overseer' && (
+                    <span className="text-[9px] bg-amber-500/20 text-amber-700 dark:text-amber-300 font-bold px-1 rounded">
+                      L5
+                    </span>
+                  )}
+                </button>
+              ))}
+            </div>
+
+            {/* 2. Sub-Tools for the Active Category (Scrollable on small screens, flex on large) */}
+            <div className="flex items-center gap-1.5 overflow-x-auto pb-1 no-scrollbar p-1.5 bg-muted/30 rounded-xl border">
+              {navSections.find(s => s.id === activeNavCategory)?.items.map((item) => {
+                const Icon = item.icon;
+                const isActive = item.exact 
+                  ? currentPath === item.path 
+                  : (item.path !== '/administrator' && currentPath.startsWith(item.path));
+                return (
+                  <Button
+                    key={item.path}
+                    size="sm"
+                    variant={isActive ? "default" : "ghost"}
+                    onClick={() => navigate(item.path)}
+                    className={`h-8 text-xs px-3 gap-1.5 shrink-0 transition-all ${
+                      isActive ? 'shadow-xs font-semibold' : 'text-muted-foreground hover:text-foreground'
+                    }`}
+                  >
+                    <Icon className="h-3.5 w-3.5" />
+                    <span>{item.label}</span>
+                    {item.badge && (
+                      <span className="ml-1 text-[9px] bg-amber-500/20 text-amber-700 dark:text-amber-300 px-1 rounded font-bold">
+                        {item.badge}
+                      </span>
+                    )}
+                  </Button>
+                );
+              })}
+            </div>
+          </div>
+        ) : (
+          /* Level 3 Vendor Only Nav */
+          <div className="flex items-center gap-2 border-b pb-3">
+            <Button variant="default" size="sm" onClick={() => navigate('/administrator/pins')}>
+              Vendor Dashboard
+            </Button>
+          </div>
         )}
       </div>
 
@@ -4514,8 +4652,8 @@ export default function AdminPanel() {
                                   }} 
                                 />
                                 <div className="flex flex-col gap-0.5">
-                                  <div className="flex items-center gap-2">
-                                    <code className="font-mono font-bold tracking-wider">{pin.code}</code>
+                                  <div className="flex items-center gap-2 flex-wrap">
+                                    <code className="font-mono font-bold tracking-normal sm:tracking-wider text-xs sm:text-sm tabular-nums break-all">{pin.code}</code>
                                     {pin.type === 'plus' ? (
                                       <Badge variant="default" className="text-[8px] h-4 px-1 leading-none bg-primary">PLUS</Badge>
                                     ) : (
@@ -4579,8 +4717,8 @@ export default function AdminPanel() {
                           usedPins.map(pin => (
                             <div key={pin.id} className="p-3 bg-muted/50 rounded-lg border space-y-2 relative group">
                               <div className="flex items-center justify-between">
-                                <div className="flex items-center gap-2">
-                                  <code className="font-mono font-bold text-primary">{pin.code}</code>
+                                <div className="flex items-center gap-2 flex-wrap">
+                                  <code className="font-mono font-bold text-primary tracking-normal sm:tracking-wider text-xs sm:text-sm tabular-nums break-all">{pin.code}</code>
                                   {pin.type === 'plus' ? (
                                     <Badge variant="default" className="text-[8px] h-4 px-1 leading-none bg-primary">PLUS</Badge>
                                   ) : (

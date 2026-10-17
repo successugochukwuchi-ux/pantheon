@@ -8,6 +8,7 @@ import { Label } from './ui/label';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from './ui/card';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from './ui/dialog';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs';
 import { Badge } from './ui/badge';
 import { toast } from 'sonner';
 import { 
@@ -168,6 +169,9 @@ export default function OverseerControl() {
     plusUsedDirect: number;
     lendingStandardCount: number;
     lendingPlusCount: number;
+    bulkRestockStandardCount: number;
+    bulkRestockPlusCount: number;
+    onDemandStandardCount: number;
     standardTotalRevenue: number;
     plusTotalRevenue: number;
     lendingTotalRevenue: number;
@@ -177,12 +181,15 @@ export default function OverseerControl() {
     pins: {
       code: string;
       type: 'standard' | 'plus';
-      status: 'transferred' | 'used_direct' | 'lending_settled';
+      status: 'transferred' | 'used_direct' | 'lending_settled' | 'bulk_restock' | 'on_demand';
       associatedId: string;
       timestamp: string;
       amount?: number;
     }[];
   } | null>(null);
+
+  // Overseer Browser-style active tab state
+  const [overseerTab, setOverseerTab] = useState<'revenue' | 'pricing' | 'access' | 'universities'>('revenue');
 
   // Fetch initial data
   const fetchData = async () => {
@@ -1244,11 +1251,32 @@ export default function OverseerControl() {
       const plusUsedDirect: any[] = [];
       const lendingSettledStandard: any[] = [];
       const lendingSettledPlus: any[] = [];
+      const bulkRestockStandard: any[] = [];
+      const bulkRestockPlus: any[] = [];
+      const onDemandStandard: any[] = [];
 
       allPins.forEach(pin => {
         const isPlus = pin.type === 'plus';
         
-        if (pin.isLent) {
+        if (pin.isBulkRestocked || (pin.paymentReference && pin.paymentReference.startsWith('restock_'))) {
+          if (pin.createdAt) {
+            const restockDate = new Date(pin.createdAt);
+            if (restockDate >= startOfChosenMonth && restockDate <= endOfChosenMonth) {
+              if (isPlus) {
+                bulkRestockPlus.push(pin);
+              } else {
+                bulkRestockStandard.push(pin);
+              }
+            }
+          }
+        } else if (pin.isOnDemand || (pin.paymentReference && pin.paymentReference.startsWith('ondemand_'))) {
+          if (pin.createdAt) {
+            const onDemandDate = new Date(pin.createdAt);
+            if (onDemandDate >= startOfChosenMonth && onDemandDate <= endOfChosenMonth) {
+              onDemandStandard.push(pin);
+            }
+          }
+        } else if (pin.isLent) {
           // Lending PIN: Only counts towards revenue once settled/paid by vendor
           if (pin.settled && pin.settledAt) {
             const settlementDate = new Date(pin.settledAt);
@@ -1329,7 +1357,7 @@ export default function OverseerControl() {
         standardTotalRevenue += prices.standard;
       });
       if (standardTransferred.length > 0) {
-        details.push(`Transferred Standard PINs: ${standardTransferred.length}`);
+        details.push(`Transferred Standard PINs (Upfront): ${standardTransferred.length}`);
       }
 
       // Process standard used direct
@@ -1341,13 +1369,33 @@ export default function OverseerControl() {
         details.push(`Directly Used Standard PINs: ${standardUsedDirect.length}`);
       }
 
+      // Process bulk restock standard
+      bulkRestockStandard.forEach(p => {
+        const prices = getPricesAtDate(p.createdAt);
+        const amount = p.price !== undefined ? p.price : prices.standardWholesale;
+        standardTotalRevenue += amount;
+      });
+      if (bulkRestockStandard.length > 0) {
+        details.push(`Bulk Restock Standard PINs (Paystack): ${bulkRestockStandard.length}`);
+      }
+
+      // Process on-demand standard
+      onDemandStandard.forEach(p => {
+        const prices = getPricesAtDate(p.createdAt);
+        const amount = p.price !== undefined ? p.price : prices.standard;
+        standardTotalRevenue += amount;
+      });
+      if (onDemandStandard.length > 0) {
+        details.push(`On-Demand Standard PINs (Paystack): ${onDemandStandard.length}`);
+      }
+
       // Process plus transferred
       plusTransferred.forEach(p => {
         const prices = getPricesAtDate(p.createdAt);
         plusTotalRevenue += prices.plus;
       });
       if (plusTransferred.length > 0) {
-        details.push(`Transferred PLUS PINs: ${plusTransferred.length}`);
+        details.push(`Transferred PLUS PINs (Upfront): ${plusTransferred.length}`);
       }
 
       // Process plus used direct
@@ -1357,6 +1405,16 @@ export default function OverseerControl() {
       });
       if (plusUsedDirect.length > 0) {
         details.push(`Directly Used PLUS PINs: ${plusUsedDirect.length}`);
+      }
+
+      // Process bulk restock plus
+      bulkRestockPlus.forEach(p => {
+        const prices = getPricesAtDate(p.createdAt);
+        const amount = p.price !== undefined ? p.price : prices.plusWholesale;
+        plusTotalRevenue += amount;
+      });
+      if (bulkRestockPlus.length > 0) {
+        details.push(`Bulk Restock PLUS PINs (Paystack): ${bulkRestockPlus.length}`);
       }
 
       // Process settled lending pins (Wholesale debt cleared)
@@ -1406,7 +1464,7 @@ export default function OverseerControl() {
       const detailedPins: {
         code: string;
         type: 'standard' | 'plus';
-        status: 'transferred' | 'used_direct' | 'lending_settled';
+        status: 'transferred' | 'used_direct' | 'lending_settled' | 'bulk_restock' | 'on_demand';
         associatedId: string;
         timestamp: string;
         amount?: number;
@@ -1457,6 +1515,42 @@ export default function OverseerControl() {
           associatedId: p.usedByStudentId || 'N/A',
           timestamp: p.usedAt,
           amount: prices.plus
+        });
+      });
+
+      bulkRestockStandard.forEach(p => {
+        const prices = getPricesAtDate(p.createdAt);
+        detailedPins.push({
+          code: p.code || p.id,
+          type: 'standard',
+          status: 'bulk_restock',
+          associatedId: `Vendor Restock: ${p.assignedToStudentId || p.assignedToName || 'Vendor'}`,
+          timestamp: p.createdAt,
+          amount: p.price !== undefined ? p.price : prices.standardWholesale
+        });
+      });
+
+      bulkRestockPlus.forEach(p => {
+        const prices = getPricesAtDate(p.createdAt);
+        detailedPins.push({
+          code: p.code || p.id,
+          type: 'plus',
+          status: 'bulk_restock',
+          associatedId: `Vendor Restock: ${p.assignedToStudentId || p.assignedToName || 'Vendor'}`,
+          timestamp: p.createdAt,
+          amount: p.price !== undefined ? p.price : prices.plusWholesale
+        });
+      });
+
+      onDemandStandard.forEach(p => {
+        const prices = getPricesAtDate(p.createdAt);
+        detailedPins.push({
+          code: p.code || p.id,
+          type: 'standard',
+          status: 'on_demand',
+          associatedId: `On-Demand Sale (Vendor: ${p.assignedToStudentId || p.assignedToName || 'Vendor'})`,
+          timestamp: p.createdAt,
+          amount: p.price !== undefined ? p.price : prices.standard
         });
       });
 
@@ -1523,6 +1617,9 @@ export default function OverseerControl() {
         plusUsedDirect: plusUsedDirect.length,
         lendingStandardCount: lendingSettledStandard.length,
         lendingPlusCount: lendingSettledPlus.length,
+        bulkRestockStandardCount: bulkRestockStandard.length,
+        bulkRestockPlusCount: bulkRestockPlus.length,
+        onDemandStandardCount: onDemandStandard.length,
         standardTotalRevenue,
         plusTotalRevenue,
         lendingTotalRevenue,
@@ -1566,16 +1663,19 @@ export default function OverseerControl() {
         [],
         ["FINANCIAL SUMMARY"],
         ["Grand Total Revenue", `NGN ${calculatedRevenue.grandTotal.toLocaleString()}`],
-        ["Standard PIN Income", `NGN ${calculatedRevenue.standardTotalRevenue.toLocaleString()}`, `${calculatedRevenue.standardTransferred + calculatedRevenue.standardUsedDirect} Pins`],
-        ["PLUS PIN Income", `NGN ${calculatedRevenue.plusTotalRevenue.toLocaleString()}`, `${calculatedRevenue.plusTransferred + calculatedRevenue.plusUsedDirect} Pins`],
+        ["Standard PIN Income", `NGN ${calculatedRevenue.standardTotalRevenue.toLocaleString()}`, `${calculatedRevenue.standardTransferred + calculatedRevenue.standardUsedDirect + calculatedRevenue.bulkRestockStandardCount + calculatedRevenue.onDemandStandardCount} Pins`],
+        ["PLUS PIN Income", `NGN ${calculatedRevenue.plusTotalRevenue.toLocaleString()}`, `${calculatedRevenue.plusTransferred + calculatedRevenue.plusUsedDirect + calculatedRevenue.bulkRestockPlusCount} Pins`],
         ["Lending Settlements Income", `NGN ${(calculatedRevenue.lendingTotalRevenue || 0).toLocaleString()}`, `${(calculatedRevenue.lendingStandardCount || 0) + (calculatedRevenue.lendingPlusCount || 0)} Settled Borrowed Pins`],
         ["CoLodge Commissions", `NGN ${(calculatedRevenue.colodgeCommissionRevenue || 0).toLocaleString()}`, "10% commission on withdrawn agent fees"],
         [],
         ["BREAKDOWN COUNTS"],
         ["Standard Pins Transferred (Upfront)", calculatedRevenue.standardTransferred],
         ["Standard Pins Used Directly", calculatedRevenue.standardUsedDirect],
+        ["Bulk Restock Standard Pins (Paystack)", calculatedRevenue.bulkRestockStandardCount],
+        ["On-Demand Standard Pins (Paystack)", calculatedRevenue.onDemandStandardCount],
         ["PLUS Pins Transferred (Upfront)", calculatedRevenue.plusTransferred],
         ["PLUS Pins Used Directly", calculatedRevenue.plusUsedDirect],
+        ["Bulk Restock PLUS Pins (Paystack)", calculatedRevenue.bulkRestockPlusCount],
         ["Lending Standard PINs Settled", calculatedRevenue.lendingStandardCount || 0],
         ["Lending PLUS PINs Settled", calculatedRevenue.lendingPlusCount || 0],
         ["CoLodge Commission Income", `NGN ${(calculatedRevenue.colodgeCommissionRevenue || 0).toLocaleString()}`],
@@ -1587,7 +1687,7 @@ export default function OverseerControl() {
       const pins = calculatedRevenue.pins || [];
       pins.forEach((p, idx) => {
         const typeStr = p.type.toUpperCase();
-        const statusStr = p.status === 'transferred' ? 'TRANSFERRED (UPFRONT)' : p.status === 'lending_settled' ? 'LENDING (SETTLED DEBT)' : 'USED DIRECT';
+        const statusStr = p.status === 'transferred' ? 'TRANSFERRED (UPFRONT)' : p.status === 'lending_settled' ? 'LENDING (SETTLED DEBT)' : p.status === 'bulk_restock' ? 'BULK RESTOCK (PAYSTACK)' : p.status === 'on_demand' ? 'ON-DEMAND SALE (PAYSTACK)' : 'USED DIRECT';
         const formattedDate = new Date(p.timestamp).toLocaleString();
         
         dataRows.push([
@@ -1991,9 +2091,81 @@ export default function OverseerControl() {
   };
 
   return (
-    <div className="space-y-8">
-      {/* 1. Elevate Level 4 */}
-      <Card>
+    <div className="space-y-6">
+      {/* Overseer Executive Header */}
+      <div className="border-b pb-4 space-y-3">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div className="space-y-1">
+            <h2 className="text-2xl sm:text-3xl font-extrabold tracking-tight text-foreground">
+              Overseer Command Center
+            </h2>
+            <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground font-medium">
+              <span className="text-violet-700 dark:text-violet-400 font-semibold">Level 5 Executive Governance</span>
+              <span aria-hidden="true">·</span>
+              <span>Nationwide CoLearn Network</span>
+              <span aria-hidden="true">·</span>
+              <span><strong className="text-foreground">{universities.length}</strong> Deployed Campuses</span>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2 self-start sm:self-auto shrink-0">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={fetchData}
+              className="text-xs h-8 gap-1.5"
+            >
+              <RefreshCw className="h-3.5 w-3.5" /> Refresh Data
+            </Button>
+          </div>
+        </div>
+      </div>
+
+      {/* Browser-Style Overseer Tabs Container */}
+      <Tabs value={overseerTab} onValueChange={setOverseerTab} className="w-full space-y-0">
+        {/* Browser Tabs Header Bar */}
+        <div className="flex items-center gap-1.5 border-b border-border bg-muted/50 dark:bg-muted/25 px-3 pt-2.5 rounded-t-2xl overflow-x-auto no-scrollbar">
+          <TabsList className="h-auto p-0 bg-transparent flex gap-1.5 border-none">
+            <TabsTrigger
+              value="revenue"
+              className="px-4 py-2.5 text-xs font-bold rounded-t-xl transition-all flex items-center gap-2 border border-b-0 whitespace-nowrap cursor-pointer select-none data-[state=active]:bg-card data-[state=active]:text-foreground data-[state=active]:border-border data-[state=active]:shadow-xs data-[state=active]:border-t-2 data-[state=active]:border-t-amber-500 bg-transparent text-muted-foreground border-transparent hover:bg-muted/60 hover:text-foreground relative -mb-[1px] z-10"
+            >
+              <TrendingUp className="h-3.5 w-3.5 text-amber-500" />
+              <span>Revenue & Audits</span>
+            </TabsTrigger>
+
+            <TabsTrigger
+              value="pricing"
+              className="px-4 py-2.5 text-xs font-bold rounded-t-xl transition-all flex items-center gap-2 border border-b-0 whitespace-nowrap cursor-pointer select-none data-[state=active]:bg-card data-[state=active]:text-foreground data-[state=active]:border-border data-[state=active]:shadow-xs data-[state=active]:border-t-2 data-[state=active]:border-t-emerald-500 bg-transparent text-muted-foreground border-transparent hover:bg-muted/60 hover:text-foreground relative -mb-[1px] z-10"
+            >
+              <DollarSign className="h-3.5 w-3.5 text-emerald-500" />
+              <span>Pricing & Paystack</span>
+            </TabsTrigger>
+
+            <TabsTrigger
+              value="access"
+              className="px-4 py-2.5 text-xs font-bold rounded-t-xl transition-all flex items-center gap-2 border border-b-0 whitespace-nowrap cursor-pointer select-none data-[state=active]:bg-card data-[state=active]:text-foreground data-[state=active]:border-border data-[state=active]:shadow-xs data-[state=active]:border-t-2 data-[state=active]:border-t-violet-500 bg-transparent text-muted-foreground border-transparent hover:bg-muted/60 hover:text-foreground relative -mb-[1px] z-10"
+            >
+              <ShieldCheck className="h-3.5 w-3.5 text-violet-500" />
+              <span>Access & Security</span>
+            </TabsTrigger>
+
+            <TabsTrigger
+              value="universities"
+              className="px-4 py-2.5 text-xs font-bold rounded-t-xl transition-all flex items-center gap-2 border border-b-0 whitespace-nowrap cursor-pointer select-none data-[state=active]:bg-card data-[state=active]:text-foreground data-[state=active]:border-border data-[state=active]:shadow-xs data-[state=active]:border-t-2 data-[state=active]:border-t-blue-500 bg-transparent text-muted-foreground border-transparent hover:bg-muted/60 hover:text-foreground relative -mb-[1px] z-10"
+            >
+              <School className="h-3.5 w-3.5 text-blue-500" />
+              <span>Campuses & Catalog</span>
+            </TabsTrigger>
+          </TabsList>
+        </div>
+
+        {/* Browser Content Body: 100% full width, attached seamlessly */}
+        <div className="w-full rounded-b-2xl border border-t-0 bg-card p-4 sm:p-6 shadow-2xs">
+          {/* TAB 3: ACCESS & SECURITY */}
+          <TabsContent value="access" className="space-y-6 mt-0 focus-visible:outline-none">
+          {/* 1. Elevate Level 4 */}
+          <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <ShieldCheck className="h-5 w-5 text-violet-500" />
@@ -2394,8 +2566,13 @@ export default function OverseerControl() {
           </div>
         </CardContent>
       </Card>
+    </TabsContent>
 
-      {/* 3. Activation PIN Pricing, Bulk Restock Rates, Commission & Paystack Configuration */}
+    {/* ========================================================================= */}
+    {/* TAB 2: PRICING & PAYSTACK                                                 */}
+    {/* ========================================================================= */}
+    <TabsContent value="pricing" className="space-y-6 pt-1">
+      {/* Activation PIN Pricing, Bulk Restock Rates, Commission & Paystack Configuration */}
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
@@ -2560,8 +2737,13 @@ export default function OverseerControl() {
           )}
         </CardContent>
       </Card>
+    </TabsContent>
 
-      {/* 3. University Management */}
+    {/* ========================================================================= */}
+    {/* TAB 4: CAMPUSES & CATALOG                                                 */}
+    {/* ========================================================================= */}
+    <TabsContent value="universities" className="space-y-6 pt-1">
+      {/* University Management */}
       <div className="grid gap-6 md:grid-cols-2">
         <Card>
           <CardHeader>
@@ -2659,8 +2841,13 @@ export default function OverseerControl() {
           </CardContent>
         </Card>
       </div>
+    </TabsContent>
 
-      {/* 4. Monthly Revenue Reporting */}
+    {/* ========================================================================= */}
+    {/* TAB 1: REVENUE & AUDITS                                                   */}
+    {/* ========================================================================= */}
+    <TabsContent value="revenue" className="space-y-6 pt-1">
+      {/* Monthly Revenue Reporting */}
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
@@ -2672,23 +2859,27 @@ export default function OverseerControl() {
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-6">
-          <div className="grid gap-4 md:grid-cols-4">
+          <div className="grid gap-4 grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 items-end">
             <div className="space-y-2">
-              <Label>Select University</Label>
+              <Label className="text-xs font-semibold">Select University</Label>
               <Select value={revUni} onValueChange={setRevUni}>
-                <SelectTrigger><SelectValue placeholder="Select School" /></SelectTrigger>
+                <SelectTrigger className="h-10 text-xs">
+                  <SelectValue placeholder="Select Campus" />
+                </SelectTrigger>
                 <SelectContent>
                   {universities.map(u => (
-                    <SelectItem key={u.id} value={u.id}>{u.shortName}</SelectItem>
+                    <SelectItem key={u.id} value={u.id}>{u.shortName} - {u.name.slice(0, 24)}</SelectItem>
                   ))}
                 </SelectContent>
               </Select>
             </div>
 
             <div className="space-y-2">
-              <Label>Year</Label>
+              <Label className="text-xs font-semibold">Audit Year</Label>
               <Select value={revYear} onValueChange={setRevYear}>
-                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectTrigger className="h-10 text-xs font-mono">
+                  <SelectValue />
+                </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="2026">2026</SelectItem>
                   <SelectItem value="2025">2025</SelectItem>
@@ -2698,9 +2889,11 @@ export default function OverseerControl() {
             </div>
 
             <div className="space-y-2">
-              <Label>Month</Label>
+              <Label className="text-xs font-semibold">Audit Month</Label>
               <Select value={revMonth} onValueChange={setRevMonth}>
-                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectTrigger className="h-10 text-xs">
+                  <SelectValue />
+                </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="1">January</SelectItem>
                   <SelectItem value="2">February</SelectItem>
@@ -2718,78 +2911,126 @@ export default function OverseerControl() {
               </Select>
             </div>
 
-            <Button onClick={handleCalculateRevenue} disabled={revLoading} className="self-end w-full bg-amber-600 hover:bg-amber-700">
+            <Button onClick={handleCalculateRevenue} disabled={revLoading} className="h-10 w-full bg-amber-600 hover:bg-amber-700 text-white font-semibold text-xs gap-1.5 shadow-xs">
+              {revLoading ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <TrendingUp className="h-4 w-4" />}
               {revLoading ? 'Calculating...' : 'Generate Revenue Audit'}
             </Button>
           </div>
 
           {calculatedRevenue && (
-            <div className="p-6 border rounded-xl bg-amber-500/5 border-amber-500/20 space-y-4">
-              <div className="flex justify-between items-start border-b pb-4 gap-4">
-                <div className="space-y-1">
-                  <h3 className="text-lg font-bold">Revenue Report for {revUni.toUpperCase()}</h3>
-                  <p className="text-xs text-muted-foreground">Month: {revMonth}/{revYear}</p>
-                  <div className="flex flex-wrap gap-2 mt-2">
+            <div className="p-5 sm:p-6 border rounded-2xl bg-amber-500/5 border-amber-500/25 space-y-6">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between border-b border-border/80 pb-4 gap-4">
+                <div className="space-y-1.5">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <h3 className="text-lg sm:text-xl font-bold tracking-tight text-foreground">
+                      Monthly Revenue Audit: <span className="text-amber-600 dark:text-amber-400">{revUni.toUpperCase()}</span>
+                    </h3>
+                    <Badge variant="outline" className="text-[10px] font-mono border-amber-500/40 text-amber-700 dark:text-amber-300">
+                      Period: {revMonth}/{revYear}
+                    </Badge>
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    Historical prices and ledger rates applied to all activated and restocked PINs for this cycle.
+                  </p>
+                  <div className="flex flex-wrap items-center gap-2 pt-1">
                     <Button 
                       size="sm" 
                       onClick={downloadRevenuePDF} 
-                      className="bg-amber-600 hover:bg-amber-700 text-white flex items-center gap-1.5 text-xs font-bold px-3 py-1.5 h-8 rounded-lg cursor-pointer"
+                      className="bg-amber-600 hover:bg-amber-700 text-white flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 h-8 rounded-lg cursor-pointer shadow-2xs"
                     >
                       <FileDown className="h-3.5 w-3.5" /> Download Stylized PDF
                     </Button>
                     <Button 
                       size="sm" 
                       onClick={downloadRevenueExcel} 
-                      className="bg-emerald-600 hover:bg-emerald-700 text-white flex items-center gap-1.5 text-xs font-bold px-3 py-1.5 h-8 rounded-lg cursor-pointer"
+                      className="bg-emerald-600 hover:bg-emerald-700 text-white flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 h-8 rounded-lg cursor-pointer shadow-2xs"
                     >
                       <FileDown className="h-3.5 w-3.5" /> Download Spreadsheet
                     </Button>
                   </div>
                 </div>
-                <div className="text-right">
-                  <span className="text-xs text-muted-foreground block">Grand Total Income</span>
-                  <span className="text-2xl font-black text-amber-600">₦{calculatedRevenue.grandTotal.toLocaleString()}</span>
+
+                <div className="sm:text-right bg-card border border-amber-500/30 p-3.5 rounded-xl shadow-2xs shrink-0">
+                  <span className="text-[10px] uppercase font-bold tracking-wider text-muted-foreground block">
+                    Grand Total Income
+                  </span>
+                  <span className="text-2xl sm:text-3xl font-black text-amber-600 dark:text-amber-400 tabular-nums">
+                    ₦{calculatedRevenue.grandTotal.toLocaleString()}
+                  </span>
                 </div>
               </div>
 
-              <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4 text-sm">
-                <div className="space-y-1 p-3 bg-background border rounded-lg">
-                  <span className="text-xs text-muted-foreground block">Standard Pin Income</span>
-                  <span className="font-bold text-lg text-primary">₦{calculatedRevenue.standardTotalRevenue.toLocaleString()}</span>
-                  <p className="text-xs text-muted-foreground">
-                    Transferred: {calculatedRevenue.standardTransferred} • Used directly: {calculatedRevenue.standardUsedDirect}
-                  </p>
+              {/* 4 Responsive Stat Columns */}
+              <div className="grid gap-4 grid-cols-1 sm:grid-cols-2 lg:grid-cols-4">
+                <div className="space-y-2 p-4 bg-card border rounded-xl shadow-2xs">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-medium text-muted-foreground">Standard Pin Income</span>
+                    <Badge variant="outline" className="text-[9px] font-mono">Standard</Badge>
+                  </div>
+                  <span className="font-bold text-xl text-primary block tabular-nums">
+                    ₦{calculatedRevenue.standardTotalRevenue.toLocaleString()}
+                  </span>
+                  <div className="flex flex-wrap gap-1 pt-1.5 border-t border-border/60 text-[10px] text-muted-foreground">
+                    <span className="bg-muted px-1.5 py-0.5 rounded">Transferred: {calculatedRevenue.standardTransferred}</span>
+                    <span className="bg-muted px-1.5 py-0.5 rounded">Used: {calculatedRevenue.standardUsedDirect}</span>
+                    <span className="bg-muted px-1.5 py-0.5 rounded">Restock: {calculatedRevenue.bulkRestockStandardCount}</span>
+                    <span className="bg-muted px-1.5 py-0.5 rounded">On-Demand: {calculatedRevenue.onDemandStandardCount}</span>
+                  </div>
                 </div>
-                <div className="space-y-1 p-3 bg-background border rounded-lg">
-                  <span className="text-xs text-muted-foreground block">PLUS Pin Income</span>
-                  <span className="font-bold text-lg text-primary">₦{calculatedRevenue.plusTotalRevenue.toLocaleString()}</span>
-                  <p className="text-xs text-muted-foreground">
-                    Transferred: {calculatedRevenue.plusTransferred} • Used directly: {calculatedRevenue.plusUsedDirect}
-                  </p>
+
+                <div className="space-y-2 p-4 bg-card border rounded-xl shadow-2xs">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-medium text-muted-foreground">PLUS Pin Income</span>
+                    <Badge variant="default" className="text-[9px] font-mono bg-primary">PLUS</Badge>
+                  </div>
+                  <span className="font-bold text-xl text-primary block tabular-nums">
+                    ₦{calculatedRevenue.plusTotalRevenue.toLocaleString()}
+                  </span>
+                  <div className="flex flex-wrap gap-1 pt-1.5 border-t border-border/60 text-[10px] text-muted-foreground">
+                    <span className="bg-muted px-1.5 py-0.5 rounded">Transferred: {calculatedRevenue.plusTransferred}</span>
+                    <span className="bg-muted px-1.5 py-0.5 rounded">Used: {calculatedRevenue.plusUsedDirect}</span>
+                    <span className="bg-muted px-1.5 py-0.5 rounded">Restock: {calculatedRevenue.bulkRestockPlusCount}</span>
+                  </div>
                 </div>
-                <div className="space-y-1 p-3 bg-background border rounded-lg">
-                  <span className="text-xs text-muted-foreground block">Lending Debt Cleared</span>
-                  <span className="font-bold text-lg text-amber-600">₦{(calculatedRevenue.lendingTotalRevenue || 0).toLocaleString()}</span>
-                  <p className="text-xs text-muted-foreground">
-                    Std: {calculatedRevenue.lendingStandardCount || 0} • PLUS: {calculatedRevenue.lendingPlusCount || 0}
-                  </p>
+
+                <div className="space-y-2 p-4 bg-card border rounded-xl shadow-2xs">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-medium text-muted-foreground">Lending Debt Cleared</span>
+                    <Badge variant="outline" className="text-[9px] font-mono border-amber-500/40 text-amber-700 dark:text-amber-300">Debt</Badge>
+                  </div>
+                  <span className="font-bold text-xl text-amber-600 dark:text-amber-400 block tabular-nums">
+                    ₦{(calculatedRevenue.lendingTotalRevenue || 0).toLocaleString()}
+                  </span>
+                  <div className="flex flex-wrap gap-1 pt-1.5 border-t border-border/60 text-[10px] text-muted-foreground">
+                    <span className="bg-muted px-1.5 py-0.5 rounded">Std Pins: {calculatedRevenue.lendingStandardCount || 0}</span>
+                    <span className="bg-muted px-1.5 py-0.5 rounded">PLUS Pins: {calculatedRevenue.lendingPlusCount || 0}</span>
+                  </div>
                 </div>
-                <div className="space-y-1 p-3 bg-background border rounded-lg">
-                  <span className="text-xs text-muted-foreground block">CoLodge Commission</span>
-                  <span className="font-bold text-lg text-primary">₦{(calculatedRevenue.colodgeCommissionRevenue || 0).toLocaleString()}</span>
-                  <p className="text-xs text-muted-foreground">
+
+                <div className="space-y-2 p-4 bg-card border rounded-xl shadow-2xs">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-medium text-muted-foreground">CoLodge Commission</span>
+                    <Badge variant="outline" className="text-[9px] font-mono border-emerald-500/40 text-emerald-700 dark:text-emerald-300">10%</Badge>
+                  </div>
+                  <span className="font-bold text-xl text-emerald-600 dark:text-emerald-400 block tabular-nums">
+                    ₦{(calculatedRevenue.colodgeCommissionRevenue || 0).toLocaleString()}
+                  </span>
+                  <div className="pt-1.5 border-t border-border/60 text-[10px] text-muted-foreground">
                     10% share of processed agent withdrawals
-                  </p>
+                  </div>
                 </div>
               </div>
 
+              {/* Audit Log Box */}
               <div className="space-y-2">
-                <h4 className="text-xs font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-1">
-                  <Eye className="h-3.5 w-3.5" /> Detailed Calculations Audit Log
+                <h4 className="text-xs font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
+                  <Eye className="h-3.5 w-3.5 text-amber-500" /> Detailed Calculation Audit Ledger
                 </h4>
-                <div className="max-h-40 overflow-y-auto bg-background p-4 border rounded-lg font-mono text-xs space-y-1">
+                <div className="max-h-48 overflow-y-auto bg-card p-3 sm:p-4 border rounded-xl font-mono text-xs space-y-1.5 shadow-inner">
                   {calculatedRevenue.details.map((d, i) => (
-                    <div key={i} className="py-0.5 border-b border-muted/30 last:border-0">{d}</div>
+                    <div key={i} className="py-1 px-1.5 border-b border-border/40 last:border-0 rounded hover:bg-muted/40 transition-colors">
+                      {d}
+                    </div>
                   ))}
                 </div>
               </div>
@@ -2797,6 +3038,9 @@ export default function OverseerControl() {
           )}
         </CardContent>
       </Card>
+    </TabsContent>
+  </div>
+</Tabs>
 
       {/* Question Sheets Consolidation Confirmation Dialog */}
       <Dialog open={showMergeConfirmDialog} onOpenChange={setShowMergeConfirmDialog}>

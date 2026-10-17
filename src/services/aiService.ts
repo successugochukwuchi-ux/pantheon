@@ -282,6 +282,117 @@ ${fileData.data}`
   }
 }
 
+export async function chatWithHermesStream(
+  messages: ChatMessage[],
+  noteContent: string,
+  config?: AIConfig,
+  isVoiceCall?: boolean,
+  onChunk?: (text: string) => void,
+  signal?: AbortSignal
+): Promise<string> {
+  const candidateUrls = getBackendCandidates('/api/hermes/chat');
+
+  let activeConfig = config;
+  if (!activeConfig || !activeConfig.apiKey) {
+    try {
+      const snap = await getDoc(doc(db, 'system', 'hermes'));
+      if (snap.exists()) {
+        activeConfig = snap.data() as AIConfig;
+      }
+    } catch (e) {}
+  }
+
+  const cleanMessagesPayload = (messages || [])
+    .filter(m => !m.isError && m.role !== 'system')
+    .map(m => ({
+      role: m.role === 'assistant' ? 'assistant' : 'user',
+      content: String(m.content || '').trim()
+    }))
+    .filter(m => m.content.length > 0 && !m.content.includes('Hermes Connection Diagnostic') && !m.content.includes('Hermes AI is currently busy'));
+
+  for (const endpoint of candidateUrls) {
+    try {
+      const response = await fetch(endpoint, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          messages: cleanMessagesPayload,
+          noteContent,
+          config: activeConfig,
+          isVoiceCall: Boolean(isVoiceCall),
+        }),
+        signal,
+      });
+
+      if (!response.ok) {
+        continue;
+      }
+
+      const reader = response.body?.getReader();
+      if (!reader) {
+        const data = await response.json();
+        if (data?.content) {
+          if (onChunk) onChunk(data.content);
+          return data.content;
+        }
+        if (data?.error) {
+          throw new Error(data.error);
+        }
+        continue;
+      }
+
+      const decoder = new TextDecoder();
+      let accumulatedText = '';
+      let buffer = '';
+
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop() || '';
+
+        for (const line of lines) {
+          const trimmed = line.trim();
+          if (!trimmed.startsWith('data:')) continue;
+          const dataStr = trimmed.slice(5).trim();
+          if (dataStr === '[DONE]') break;
+
+          let parsed: any = null;
+          try {
+            parsed = JSON.parse(dataStr);
+            if (parsed.text) {
+              accumulatedText += parsed.text;
+              if (onChunk) {
+                onChunk(parsed.text);
+              }
+            }
+            if (parsed.error) {
+              throw new Error(parsed.error);
+            }
+          } catch (e: any) {
+            if (parsed?.error) throw e;
+          }
+        }
+      }
+
+      return accumulatedText;
+    } catch (err: any) {
+      if (signal?.aborted || err?.name === 'AbortError') {
+        throw err;
+      }
+      console.warn(`Streaming endpoint ${endpoint} failed, trying next candidate...`, err);
+    }
+  }
+
+  const fallbackText = await chatWithHermes(messages, noteContent, config, isVoiceCall);
+  if (onChunk) onChunk(fallbackText);
+  return fallbackText;
+}
+
 export async function chatWithHermes(messages: ChatMessage[], noteContent: string, config?: AIConfig, isVoiceCall?: boolean) {
   const attempts: HermesAttemptLog[] = [];
   const candidateUrls = getBackendCandidates('/api/hermes/chat');

@@ -528,8 +528,8 @@ ${truncatedNote}
 
       const latestUserMsg = sanitizedMessages.length > 0 ? sanitizedMessages[sanitizedMessages.length - 1].content : 'Hello';
 
-      // Helper function to call Google Gemini using GenAI SDK with multi-model resiliency
-      const callGeminiFallback = async (key: string, geminiModelName?: string) => {
+      // Helper function to stream Google Gemini using GenAI SDK with multi-model resiliency
+      const callGeminiStream = async (key: string, geminiModelName?: string, onChunk?: (text: string) => void) => {
         const aiGen = new GoogleGenAI({ apiKey: key });
         const candidateModels = [
           geminiModelName,
@@ -548,7 +548,7 @@ ${truncatedNote}
         let lastErr: any = null;
         for (const modelToTry of validModels) {
           try {
-            const response = await aiGen.models.generateContent({
+            const stream = await aiGen.models.generateContentStream({
               model: modelToTry,
               contents: [
                 {
@@ -557,40 +557,62 @@ ${truncatedNote}
                 }
               ]
             });
-            if (response.text) {
-              return response.text;
+            let fullText = '';
+            for await (const chunk of stream) {
+              if (chunk.text) {
+                fullText += chunk.text;
+                if (onChunk) onChunk(chunk.text);
+              }
+            }
+            if (fullText) {
+              return fullText;
             }
           } catch (err: any) {
             lastErr = err;
-            console.warn(`[Hermes Gemini Proxy] Model ${modelToTry} failed:`, err?.message || err);
+            console.warn(`[Hermes Gemini Stream] Model ${modelToTry} failed:`, err?.message || err);
           }
         }
-        throw lastErr || new Error("Failed to generate response from Gemini.");
+        throw lastErr || new Error("Failed to stream response from Gemini.");
       };
 
-      // ─── GOOGLE GEMINI (Direct SDK handler) ───────────────────────────────────
+      // ─── GOOGLE GEMINI (Direct SDK streaming handler) ───────────────────────────
       const isGeminiProvider = provider === 'gemini' || !provider || (config?.baseUrl && config.baseUrl.includes('generativelanguage.googleapis.com'));
       if (isGeminiProvider) {
         const activeGeminiKey = apiKey || serverGeminiKey;
         if (!activeGeminiKey) {
-          return res.status(400).json({ error: 'Google Gemini Chat AI is not configured. Please set an API Key in the Admin Panel.' });
+          res.setHeader('Content-Type', 'text/event-stream');
+          res.write(`data: ${JSON.stringify({ error: 'Google Gemini Chat AI is not configured. Please set an API Key in the Admin Panel.' })}\n\n`);
+          res.write(`data: [DONE]\n\n`);
+          return res.end();
         }
 
+        res.setHeader('Content-Type', 'text/event-stream');
+        res.setHeader('Cache-Control', 'no-cache');
+        res.setHeader('Connection', 'keep-alive');
+        res.flushHeaders?.();
+
         try {
-          const content = await callGeminiFallback(activeGeminiKey, model);
-          return res.json({ content });
+          await callGeminiStream(activeGeminiKey, model, (chunkText) => {
+            res.write(`data: ${JSON.stringify({ text: chunkText })}\n\n`);
+          });
+          res.write(`data: [DONE]\n\n`);
+          return res.end();
         } catch (geminiErr: any) {
-          console.error("Gemini SDK error in Hermes chat proxy:", geminiErr);
-          // If custom key failed and server key is available, try server key
+          console.error("Gemini SDK error in Hermes chat proxy stream:", geminiErr);
           if (apiKey && serverGeminiKey && apiKey !== serverGeminiKey) {
             try {
-              const fallbackContent = await callGeminiFallback(serverGeminiKey, 'gemini-3.8-flash');
-              return res.json({ content: fallbackContent });
+              await callGeminiStream(serverGeminiKey, 'gemini-3.8-flash', (chunkText) => {
+                res.write(`data: ${JSON.stringify({ text: chunkText })}\n\n`);
+              });
+              res.write(`data: [DONE]\n\n`);
+              return res.end();
             } catch (secErr: any) {
               console.error("Server fallback Gemini key also failed:", secErr);
             }
           }
-          return res.status(500).json({ error: geminiErr.message || "Failed to generate response from Gemini." });
+          res.write(`data: ${JSON.stringify({ error: geminiErr.message || "Failed to stream response from Gemini." })}\n\n`);
+          res.write(`data: [DONE]\n\n`);
+          return res.end();
         }
       }
 

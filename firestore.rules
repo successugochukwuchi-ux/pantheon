@@ -186,6 +186,12 @@ service cloud.firestore {
                     );
     }
 
+    match /vendor_profiles/{userId} {
+      allow read, list: if isSignedIn();
+      allow create, update: if isOwner(userId) || isAdmin();
+      allow delete: if isAdmin();
+    }
+
     match /courses/{courseId} {
       allow read, list: if isSignedIn();
       allow create: if isAdmin() && isValidCourse(incoming());

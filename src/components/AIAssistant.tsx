@@ -1,11 +1,11 @@
 
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Bird, Send, X, Loader2, MinusCircle, Maximize2, Mic, MicOff } from 'lucide-react';
+import { Bird, Send, X, Loader2, MinusCircle, Maximize2, Mic, MicOff, Square } from 'lucide-react';
 import { Button } from './ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Input } from './ui/input';
-import { chatWithHermes, ChatMessage } from '../services/aiService';
+import { chatWithHermes, chatWithHermesStream, ChatMessage } from '../services/aiService';
 import { HermesDiagnosticCard } from './HermesDiagnosticCard';
 import { doc, onSnapshot } from 'firebase/firestore';
 import { db } from '../firebase';
@@ -16,6 +16,7 @@ import ReactMarkdown from 'react-markdown';
 import remarkMath from 'remark-math';
 import rehypeMathjax from 'rehype-mathjax';
 import remarkGfm from 'remark-gfm';
+import { cn } from '../lib/utils';
 
 interface AIAssistantProps {
   noteContent: string;
@@ -66,6 +67,16 @@ export function AIAssistant({ noteContent, noteTitle }: AIAssistantProps) {
     };
   }, []);
 
+  const abortControllerRef = useRef<AbortController | null>(null);
+
+  const handleStop = () => {
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+      abortControllerRef.current = null;
+    }
+    setIsLoading(false);
+  };
+
   const handleSend = async (overrideText?: string) => {
     const textToSend = (overrideText !== undefined ? overrideText : input).trim();
     if (!textToSend || isLoading) return;
@@ -78,23 +89,50 @@ export function AIAssistant({ noteContent, noteTitle }: AIAssistantProps) {
     }
     setIsLoading(true);
 
+    const controller = new AbortController();
+    abortControllerRef.current = controller;
+
+    // Push initial empty assistant message to stream into
+    setMessages(prev => [...prev, { role: 'assistant', content: '' }]);
+
     try {
-      const response = await chatWithHermes([...messages, userMessage], noteContent, aiConfig || undefined, false);
-      setMessages(prev => [...prev, { role: 'assistant', content: response }]);
+      await chatWithHermesStream(
+        [...messages, userMessage],
+        noteContent,
+        aiConfig || undefined,
+        false,
+        (chunk) => {
+          setMessages(prev => {
+            const updated = [...prev];
+            const lastMsg = updated[updated.length - 1];
+            if (lastMsg && lastMsg.role === 'assistant') {
+              lastMsg.content += chunk;
+            }
+            return updated;
+          });
+        },
+        controller.signal
+      );
     } catch (error: any) {
+      if (error?.name === 'AbortError' || controller.signal.aborted) {
+        toast.info("Response interrupted.");
+        return;
+      }
       const diag = error?.diagnostics;
       const raw = error?.message || 'Failed to connect to Hermes.';
-      setMessages(prev => [
-        ...prev,
-        {
-          role: 'assistant',
-          content: raw,
-          diagnostics: diag,
-          isError: true,
+      setMessages(prev => {
+        const updated = [...prev];
+        const lastMsg = updated[updated.length - 1];
+        if (lastMsg && lastMsg.role === 'assistant') {
+          lastMsg.content = raw;
+          lastMsg.diagnostics = diag;
+          lastMsg.isError = true;
         }
-      ]);
+        return updated;
+      });
     } finally {
       setIsLoading(false);
+      abortControllerRef.current = null;
     }
   };
 
@@ -368,13 +406,23 @@ export function AIAssistant({ noteContent, noteTitle }: AIAssistantProps) {
                           className="rounded-full bg-muted border-none h-9 text-sm focus-visible:ring-1 flex-1"
                         />
                         <Button
-                          type="submit"
+                          type={isLoading ? "button" : "submit"}
                           size="icon"
-                          className="rounded-full h-9 w-9 shrink-0 cursor-pointer"
-                          disabled={!input.trim() || isLoading}
+                          className={cn(
+                            "rounded-full h-9 w-9 shrink-0 cursor-pointer transition-colors",
+                            isLoading ? "bg-destructive hover:bg-destructive/90 text-destructive-foreground" : ""
+                          )}
+                          onClick={(e) => {
+                            if (isLoading) {
+                              e.preventDefault();
+                              handleStop();
+                            }
+                          }}
+                          disabled={!isLoading && !input.trim()}
+                          title={isLoading ? "Stop generating" : "Send message"}
                         >
                           {isLoading ? (
-                            <Loader2 className="h-4 w-4 animate-spin" />
+                            <Square className="h-4 w-4 fill-current" />
                           ) : (
                             <Send className="h-4 w-4" />
                           )}
