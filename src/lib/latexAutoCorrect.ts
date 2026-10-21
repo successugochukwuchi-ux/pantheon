@@ -290,26 +290,49 @@ export function autoCorrectRoots(str: string): string {
 }
 
 /**
- * Normalizes missing backslashes on Greek letters and mathematical operators
+ * Normalizes missing backslashes on Greek letters and mathematical operators.
+ * Safely ignores plain words (like "sum") and preserves \text{...} blocks.
  */
 export function autoCorrectMissingBackslashes(str: string): string {
   if (!str) return '';
   let s = str;
+
+  // Protect text blocks so English words inside \text{} or \mathrm{} are never modified
+  const textTokens: string[] = [];
+  s = s.replace(/\\(text|mathrm|mathbf|mathit|operatorname)\{([^{}]*)\}/g, (match) => {
+    const idx = textTokens.length;
+    textTokens.push(match);
+    return `___MATH_TEXT_BLOCK_${idx}___`;
+  });
 
   // Greek letters (lowercase & uppercase)
   const greekLetters = 'alpha|beta|gamma|delta|epsilon|zeta|eta|theta|iota|kappa|lambda|mu|nu|xi|pi|rho|sigma|tau|upsilon|phi|chi|psi|omega|Delta|Theta|Lambda|Xi|Pi|Sigma|Phi|Psi|Omega';
   const greekRegex = new RegExp(`(?<![\\\\a-zA-Z0-9])(${greekLetters})(?![a-zA-Z0-9])`, 'g');
   s = s.replace(greekRegex, '\\$1');
 
-  // Math operators & symbols
-  const operators = 'times|div|pm|mp|cdot|leq|geq|neq|approx|equiv|propto|infty|partial|nabla|int|sum|prod|lim';
-  const opRegex = new RegExp(`(?<![\\\\a-zA-Z0-9])(${operators})(?![a-zA-Z0-9])`, 'g');
+  // Math operators that are unambiguously symbols in LaTeX
+  const unambiguousOps = 'cdot|leq|geq|neq|approx|equiv|propto|infty|partial|nabla|pm|mp';
+  const opRegex = new RegExp(`(?<![\\\\a-zA-Z0-9])(${unambiguousOps})(?![a-zA-Z0-9])`, 'g');
   s = s.replace(opRegex, '\\$1');
 
-  // Trig and log functions before parens or braces or numbers
+  // Operators that require subscripts, superscripts, limits, or braces when written without backslash
+  // (Prevents converting the normal English word "sum", "prod", "lim", or "int" into a LaTeX macro)
+  s = s.replace(/(?<![\\a-zA-Z0-9])sum(?=\s*[_^{\\limits])/g, '\\sum');
+  s = s.replace(/(?<![\\a-zA-Z0-9])prod(?=\s*[_^{\\limits])/g, '\\prod');
+  s = s.replace(/(?<![\\a-zA-Z0-9])lim(?=\s*[_^{\\limits])/g, '\\lim');
+  s = s.replace(/(?<![\\a-zA-Z0-9])int(?=\s*[_^{\\limits])/g, '\\int');
+
+  // times & div between operands
+  s = s.replace(/(?<=[0-9a-zA-Z\}\]])\s+times\s+(?=[0-9a-zA-Z\{\\\(])/g, ' \\times ');
+  s = s.replace(/(?<=[0-9a-zA-Z\}\]])\s+div\s+(?=[0-9a-zA-Z\{\\\(])/g, ' \\div ');
+
+  // Trig and log functions before parens, braces, numbers, or backslashes
   const funcs = 'sin|cos|tan|cot|sec|csc|arcsin|arccos|arctan|sinh|cosh|tanh|log|ln|exp';
   const funcRegex = new RegExp(`(?<![\\\\a-zA-Z0-9])(${funcs})(?=\\s*[\\(\\{\\\\0-9a-zA-Z])`, 'g');
   s = s.replace(funcRegex, '\\$1');
+
+  // Restore protected text blocks
+  s = s.replace(/___MATH_TEXT_BLOCK_(\d+)___/g, (_, i) => textTokens[parseInt(i, 10)]);
 
   return s;
 }
@@ -330,17 +353,25 @@ export function autoCorrectMathExpression(math: string): string {
   // Strip any accidental internal dollar signs
   m = m.replace(/\$/g, '');
 
-  // 2. Normalize Unicode symbols
+  // 2. Protect \text{...} blocks from math transformations
+  const textTokens: string[] = [];
+  m = m.replace(/\\(text|mathrm|mathbf|mathit|operatorname)\{([^{}]*)\}/g, (match) => {
+    const idx = textTokens.length;
+    textTokens.push(match);
+    return `___MATH_TEXT_BLOCK_${idx}___`;
+  });
+
+  // 3. Normalize Unicode symbols
   m = normalizeUnicodeMathSymbols(m);
 
-  // 3. Normal fractions & roots
+  // 4. Normal fractions & roots
   m = autoCorrectFractions(m);
   m = autoCorrectRoots(m);
 
-  // 4. Missing backslashes
+  // 5. Missing backslashes
   m = autoCorrectMissingBackslashes(m);
 
-  // 5. Escape unescaped % signs inside math
+  // 6. Escape unescaped % signs inside math
   m = m.replace(/(?<!\\)%/g, '\\%');
 
   // Escape unescaped & unless inside matrix/aligned/cases environments
@@ -348,15 +379,18 @@ export function autoCorrectMathExpression(math: string): string {
     m = m.replace(/(?<!\\)&/g, '\\&');
   }
 
-  // 6. Fix double superscripts / subscripts: x^2^3 -> {x^2}^3
+  // 7. Fix double superscripts / subscripts: x^2^3 -> {x^2}^3
   m = m.replace(/([a-zA-Z0-9_\}\)]+)\^([0-9a-zA-Z]+)\^([0-9a-zA-Z]+)/g, '{$1^{$2}}^{$3}');
   m = m.replace(/([a-zA-Z0-9_\}\)]+)_([0-9a-zA-Z]+)_([0-9a-zA-Z]+)/g, '{$1_{$2}}_{$3}');
 
-  // 7. Balance curly braces
+  // 8. Balance curly braces
   m = balanceCurlyBraces(m);
 
-  // 8. Clean double backslashes that were meant to be single on commands
+  // 9. Clean double backslashes that were meant to be single on commands
   m = m.replace(/\\\\(frac|sqrt|alpha|beta|theta|pi|times|div|pm|leq|geq|neq|approx|infty|sum|int|text)/g, '\\$1');
+
+  // 10. Restore protected \text{...} blocks
+  m = m.replace(/___MATH_TEXT_BLOCK_(\d+)___/g, (_, i) => textTokens[parseInt(i, 10)]);
 
   return m.trim();
 }
@@ -429,123 +463,70 @@ export function autoRepairLatexEnvironments(text: string): string {
 
 /**
  * Intelligent closure and balancing for inline LaTeX dollar signs ($...$).
- * 
- * Heuristic:
- * If an opening $ is followed by math content and then encounters:
- * 1) Common English connecting words (where, when, if, is, are, and, or, for, with, then, given that, such that, in, at, to, by, of, which, as)
- * 2) Punctuation followed by space or capital letter (. , ? ! ;)
- * 3) Newlines (\n)
- * 4) End of text
- * without having found a closing $, it automatically closes the math block right before that transition.
+ * Only operates on lines that genuinely have an odd, unclosed single dollar sign.
+ * Never breaks or splits valid, already-paired math blocks (e.g. $x_1, x_2, \dots, x_n$).
  */
 export function autoCloseInlineMathDollars(str: string): string {
-  if (!str) return '';
+  if (!str || !str.includes('$')) return str;
 
-  // Check if string contains any single dollar signs
-  if (!str.includes('$')) return str;
+  // Process line by line so inline math doesn't bleed across lines
+  const lines = str.split('\n');
+  const processedLines = lines.map((line) => {
+    // If no dollar or display math only, skip
+    if (!line.includes('$')) return line;
 
-  let result = '';
-  let inMath = false;
-  let inBlockMath = false;
-  let mathBuffer = '';
+    // Temporarily mask display math $$...$$
+    const dispTokens: string[] = [];
+    let l = line.replace(/\$\$[\s\S]*?\$\$/g, (m) => {
+      const idx = dispTokens.length;
+      dispTokens.push(m);
+      return `___TMP_DISP_${idx}___`;
+    });
 
-  for (let i = 0; i < str.length; i++) {
-    // Check for double dollar $$
-    if (str[i] === '$' && str[i + 1] === '$') {
-      if (inMath) {
-        // Force close single math before double dollar
-        result += '$' + autoCorrectMathExpression(mathBuffer) + '$';
-        inMath = false;
-        mathBuffer = '';
+    // Count unescaped single dollar signs
+    const singleDollars = (l.match(/(?<!\\)\$/g) || []).length;
+    // If dollar signs are balanced (even number), they are already paired! Never touch them!
+    if (singleDollars % 2 === 0) {
+      // Restore display tokens
+      return l.replace(/___TMP_DISP_(\d+)___/g, (_, i) => dispTokens[parseInt(i, 10)]);
+    }
+
+    // Odd number of dollar signs: exactly one is unclosed.
+    // Find the last unclosed single dollar sign and close it at end of formula or line
+    let lastDollarIndex = -1;
+    for (let i = 0; i < l.length; i++) {
+      if (l[i] === '$' && (i === 0 || l[i - 1] !== '\\')) {
+        lastDollarIndex = i;
       }
-      if (inBlockMath) {
-        result += autoCorrectMathExpression(mathBuffer) + '$$';
-        inBlockMath = false;
-        mathBuffer = '';
+    }
+
+    if (lastDollarIndex !== -1) {
+      const beforeDollar = l.slice(0, lastDollarIndex);
+      const afterDollar = l.slice(lastDollarIndex + 1);
+
+      // Check if there is sentence punctuation at the end of the line
+      const punctIdx = afterDollar.search(/[.\?!]\s*$/);
+      if (punctIdx !== -1) {
+        const mathPart = afterDollar.slice(0, punctIdx).trim();
+        const punctPart = afterDollar.slice(punctIdx);
+        l = `${beforeDollar}$${mathPart}$${punctPart}`;
       } else {
-        result += '$$';
-        inBlockMath = true;
+        l = `${beforeDollar}$${afterDollar.trim()}$`;
       }
-      i++; // skip next $
-      continue;
     }
 
-    // Check for single dollar $
-    if (str[i] === '$' && (i === 0 || str[i - 1] !== '\\')) {
-      if (inBlockMath) {
-        // Inside block math, single $ is likely a stray or internal delimiter, just append
-        mathBuffer += '$';
-        continue;
-      }
+    // Restore display tokens
+    return l.replace(/___TMP_DISP_(\d+)___/g, (_, i) => dispTokens[parseInt(i, 10)]);
+  });
 
-      if (inMath) {
-        // Proper closing dollar!
-        result += autoCorrectMathExpression(mathBuffer) + '$';
-        inMath = false;
-        mathBuffer = '';
-      } else {
-        // Opening dollar!
-        result += '$';
-        inMath = true;
-        mathBuffer = '';
-      }
-      continue;
-    }
-
-    if (inMath) {
-      // Check if we hit an obvious boundary indicating an unclosed $
-      const rest = str.slice(i);
-      
-      // 1. Boundary: newline
-      if (str[i] === '\n') {
-        result += autoCorrectMathExpression(mathBuffer) + '$\n';
-        inMath = false;
-        mathBuffer = '';
-        continue;
-      }
-
-      // 2. Boundary: sentence punctuation followed by space (. , ; ? !)
-      const punctMatch = /^[,\.;\?!]\s+/.exec(rest);
-      if (punctMatch && mathBuffer.trim().length > 0) {
-        result += autoCorrectMathExpression(mathBuffer) + '$';
-        inMath = false;
-        mathBuffer = '';
-        result += str[i];
-        continue;
-      }
-
-      // 3. Boundary: common English transition words
-      const englishTransitionMatch = /^\s+(where|when|if|is|are|was|were|and|or|for|with|then|such that|given that|given|in|at|to|by|of|which|as|find|calculate|determine|solve|evaluate|hence|therefore)\b/i.exec(rest);
-      if (englishTransitionMatch && mathBuffer.trim().length > 0) {
-        result += autoCorrectMathExpression(mathBuffer) + '$';
-        inMath = false;
-        mathBuffer = '';
-        result += str[i];
-        continue;
-      }
-
-      mathBuffer += str[i];
-    } else if (inBlockMath) {
-      mathBuffer += str[i];
-    } else {
-      result += str[i];
-    }
-  }
-
-  // If still in math at the end of the string, auto-close!
-  if (inMath) {
-    result += autoCorrectMathExpression(mathBuffer) + '$';
-  } else if (inBlockMath) {
-    result += autoCorrectMathExpression(mathBuffer) + '$$';
-  }
-
-  return result;
+  return processedLines.join('\n');
 }
 
 /**
  * Wraps bare, undelimited LaTeX commands and mathematical expressions in $...$
  * using a strict tokenized approach that guarantees no nested dollar signs ($...$...$)
  * can ever be created.
+ * Plain English words (like "sum") are NEVER touched.
  */
 export function wrapBareLatexInDollars(plainText: string): string {
   if (!plainText) return '';
@@ -567,7 +548,7 @@ export function wrapBareLatexInDollars(plainText: string): string {
     const isBlock = m.startsWith('$$');
     const inner = isBlock ? m.slice(2, -2) : m.slice(1, -1);
     const cleaned = autoCorrectMathExpression(inner);
-    return makeToken(isBlock ? `$$${cleaned}$$` : `$${cleaned}$`);
+    return makeToken(isBlock ? `$$\n${cleaned}\n$$` : `$${cleaned}$`);
   });
 
   // 3. Tokenize complete balanced fractions: \frac{...}{...}
@@ -584,12 +565,12 @@ export function wrapBareLatexInDollars(plainText: string): string {
   const trigRegex = /\\(?:sin|cos|tan|cot|sec|csc|arcsin|arccos|arctan|sinh|cosh|tanh|log|ln|exp)(?:\^[0-9a-zA-Z]+|\^\{[^{}]+\}|_[0-9a-zA-Z]+|_\{\w+\})?\s*(?:\\[a-zA-Z]+|[0-9a-zA-Z\(\)]+)(?:\s*=\s*-?[0-9a-zA-Z\/\.]+(?:\s*[^,\s;\)]+)?)?/g;
   s = s.replace(trigRegex, (m) => makeToken(`$${m.trim()}$`));
 
-  // 6. Tokenize Greek letters & operators with optional operands
+  // 6. Tokenize Greek letters & operators with optional operands (must begin with a backslash \)
   const mathSymbols = 'alpha|beta|gamma|delta|epsilon|zeta|eta|theta|iota|kappa|lambda|mu|nu|xi|pi|rho|sigma|tau|upsilon|phi|chi|psi|omega|Delta|Theta|Lambda|Xi|Pi|Sigma|Phi|Psi|Omega|times|div|pm|mp|cdot|leq|geq|neq|approx|equiv|propto|infty|partial|nabla|int|sum|prod|lim';
   const symRegex = new RegExp(`(\\\\(${mathSymbols})(?![a-zA-Z])(?:\\s*[=+\\-*/]\\s*[^,\\.\\s;]+|\\s*\\([^)]+\\)|\\s*\\^[0-9a-zA-Z]+|\\s*_[0-9a-zA-Z]+)?)`, 'g');
   s = s.replace(symRegex, (m) => makeToken(`$${m.trim()}$`));
 
-  // 7. Tokenize bare powers on variables or numbers: e.g. x^2, 10^-3, 10^{3}
+  // 7. Tokenize bare powers on variables or numbers: e.g. x^2, 10^-3, 10^{3} (not bare words)
   s = s.replace(/(?<![a-zA-Z0-9\$\\])([a-zA-Z0-9]+(?:\^[0-9a-zA-Z]+|\^\{[^{}]+\}))(?![a-zA-Z0-9\$])/g, (_, pow) => {
     return makeToken(`$${pow}$`);
   });
@@ -597,9 +578,9 @@ export function wrapBareLatexInDollars(plainText: string): string {
   // 8. Restore all tokens in one pass
   let restored = s.replace(/___COLEARN_MATH_TOKEN_(\d+)___/g, (_, i) => tokens[parseInt(i, 10)]);
 
-  // 9. Clean up accidental multiple dollar signs
+  // 9. Clean up accidental multiple dollar signs (avoid stripping valid $$ display delimiters)
   restored = restored.replace(/\${3,}/g, '$$');
-  restored = restored.replace(/\$\s*\$/g, '');
+  restored = restored.replace(/(?<!\$)\$\s+(?!\$)\$/g, '');
 
   return restored;
 }
@@ -607,6 +588,11 @@ export function wrapBareLatexInDollars(plainText: string): string {
 /**
  * Universal Master Auto-Corrector for any string that may contain text, markdown,
  * PLX markup, and LaTeX formulas.
+ * 
+ * Guarantee: Any text written between two dollar sign delimiters ($...$ or $$...$$)
+ * is preserved and rendered cleanly as LaTeX math, without premature truncation
+ * or breaking on commas, punctuation, or transition words.
+ * Plain English words (e.g. "sum") in surrounding text remain normal prose.
  */
 export function autoCorrectLatexSyntax(input: string): string {
   if (!input) return '';
@@ -617,54 +603,64 @@ export function autoCorrectLatexSyntax(input: string): string {
   // 2. Normalize JSON escaping backslashes: \\\\frac -> \frac, \\sqrt -> \sqrt
   text = text.replace(/\\\\([a-zA-Z]+)/g, '\\$1');
 
-  // 3. Normalize Unicode math symbols (±, ×, ÷, etc.)
-  text = normalizeUnicodeMathSymbols(text);
-
-  // 4. Convert LaTeX standard delimiters \( \) to $ and \[ \] to $$
+  // 3. Convert LaTeX standard delimiters \( \) to $ and \[ \] to $$
   text = text.replace(/\\\\\(([\s\S]*?)\\\\\)/g, '$$$1$$');
   text = text.replace(/\\\(([\s\S]*?)\\\)/g, '$$$1$$');
   text = text.replace(/\\\\\[([\s\S]*?)\\\\\]/g, '$$$$$1$$$$');
   text = text.replace(/\\\[([\s\S]*?)\\\]/g, '$$$$$1$$$$');
 
-  // 5. Repair LaTeX environments (cases, aligned, matrix)
+  // 4. Repair LaTeX environments (cases, aligned, matrix)
   text = autoRepairLatexEnvironments(text);
 
-  // 6. Auto-close unclosed inline math dollar signs ($...$)
-  text = autoCloseInlineMathDollars(text);
+  // 5. MASTER TOKENIZER FOR VALID DELIMITED MATH ($$...$$ and $...$)
+  // As long as text is written with the two dollar sign delimiters,
+  // it is tokenized, protected, and rendered as LaTeX math.
+  const masterMathTokens: string[] = [];
+  const createMasterMathToken = (latexContent: string) => {
+    const idx = masterMathTokens.length;
+    masterMathTokens.push(latexContent);
+    return `___COLEARN_MASTER_MATH_TOKEN_${idx}___`;
+  };
 
-  // 7. Wrap any remaining naked LaTeX formulas (bare fractions, roots, Greek letters)
-  // Process non-math parts vs math parts
-  const mathRegex = /(\$\$[\s\S]+?\$\$|\$[^\$\n]+?\$)/g;
-  let lastIndex = 0;
-  let match: RegExpExecArray | null;
-  let finalResult = '';
+  // 5A. Display Math: $$...$$
+  text = text.replace(/\$\$([\s\S]*?)\$\$/g, (_, inner) => {
+    const cleaned = autoCorrectMathExpression(inner);
+    return createMasterMathToken(`$$\n${cleaned}\n$$`);
+  });
 
-  while ((match = mathRegex.exec(text)) !== null) {
-    if (match.index > lastIndex) {
-      const plainChunk = text.slice(lastIndex, match.index);
-      finalResult += wrapBareLatexInDollars(plainChunk);
+  // 5B. Inline Math: $...$ (paired single dollar signs on a single line)
+  // Preserves formulas like $x_1, x_2, \dots, x_n$ completely intact.
+  text = text.replace(/(?<!\\)\$(?!\$)([^\$\n]+?)(?<!\\)\$/g, (fullMatch, inner) => {
+    const trimmed = inner.trim();
+    if (!trimmed) return fullMatch;
+
+    // Currency check: ignore if strictly a currency phrase like "$50 and fee is $20"
+    const isCurrencyText = /^\d+(?:\.\d{2})?\s+(?:and|or|plus|minus|to)\s+\d+(?:\.\d{2})?$/i.test(trimmed);
+    if (isCurrencyText) {
+      return fullMatch;
     }
 
-    const rawMath = match[0];
-    const isBlock = rawMath.startsWith('$$');
-    let mathInner = isBlock ? rawMath.slice(2, -2) : rawMath.slice(1, -1);
+    const cleaned = autoCorrectMathExpression(trimmed);
+    return createMasterMathToken(`$${cleaned}$`);
+  });
 
-    mathInner = autoCorrectMathExpression(mathInner);
+  // 6. Handle any stray unclosed dollar signs in the remaining non-math text
+  text = autoCloseInlineMathDollars(text);
 
-    finalResult += isBlock ? `$$${mathInner}$$` : `$${mathInner}$`;
-    lastIndex = match.index + rawMath.length;
-  }
+  // 7. Wrap any remaining naked LaTeX formulas (bare fractions, roots, Greek letters with \)
+  // in the plain text chunks.
+  text = wrapBareLatexInDollars(text);
 
-  if (lastIndex < text.length) {
-    const plainChunk = text.slice(lastIndex);
-    finalResult += wrapBareLatexInDollars(plainChunk);
-  }
+  // 8. Restore all protected master math tokens
+  text = text.replace(/___COLEARN_MASTER_MATH_TOKEN_(\d+)___/g, (_, idx) => {
+    return masterMathTokens[parseInt(idx, 10)];
+  });
 
-  // 8. Clean up accidental multiple dollar signs like $$$ or empty $ $
-  finalResult = finalResult.replace(/\${3,}/g, '$$');
-  finalResult = finalResult.replace(/\$\s*\$/g, '');
+  // 9. Clean up accidental multiple dollar signs (avoid stripping valid $$ display delimiters)
+  text = text.replace(/\${3,}/g, '$$');
+  text = text.replace(/(?<!\$)\$\s+(?!\$)\$/g, '');
 
-  return finalResult;
+  return text;
 }
 
 /**

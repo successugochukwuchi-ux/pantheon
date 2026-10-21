@@ -330,11 +330,18 @@ export async function chatWithHermesStream(
         continue;
       }
 
-      const reader = response.body?.getReader();
-      if (!reader) {
+      const contentType = response.headers.get('content-type') || '';
+      if (contentType.includes('application/json')) {
         const data = await response.json();
         if (data?.content) {
-          if (onChunk) onChunk(data.content);
+          if (onChunk) {
+            const words = String(data.content).split(/(\s+)/);
+            for (const word of words) {
+              if (signal?.aborted) break;
+              onChunk(word);
+              await new Promise(r => setTimeout(r, 15));
+            }
+          }
           return data.content;
         }
         if (data?.error) {
@@ -343,11 +350,17 @@ export async function chatWithHermesStream(
         continue;
       }
 
+      const reader = response.body?.getReader();
+      if (!reader) {
+        continue;
+      }
+
       const decoder = new TextDecoder();
       let accumulatedText = '';
       let buffer = '';
+      let isStreamFinished = false;
 
-      while (true) {
+      while (!isStreamFinished) {
         const { value, done } = await reader.read();
         if (done) break;
 
@@ -359,7 +372,10 @@ export async function chatWithHermesStream(
           const trimmed = line.trim();
           if (!trimmed.startsWith('data:')) continue;
           const dataStr = trimmed.slice(5).trim();
-          if (dataStr === '[DONE]') break;
+          if (dataStr === '[DONE]') {
+            isStreamFinished = true;
+            break;
+          }
 
           let parsed: any = null;
           try {
@@ -379,7 +395,9 @@ export async function chatWithHermesStream(
         }
       }
 
-      return accumulatedText;
+      if (accumulatedText.trim().length > 0) {
+        return accumulatedText;
+      }
     } catch (err: any) {
       if (signal?.aborted || err?.name === 'AbortError') {
         throw err;
@@ -389,7 +407,14 @@ export async function chatWithHermesStream(
   }
 
   const fallbackText = await chatWithHermes(messages, noteContent, config, isVoiceCall);
-  if (onChunk) onChunk(fallbackText);
+  if (onChunk) {
+    const words = String(fallbackText).split(/(\s+)/);
+    for (const word of words) {
+      if (signal?.aborted) break;
+      onChunk(word);
+      await new Promise(r => setTimeout(r, 15));
+    }
+  }
   return fallbackText;
 }
 
@@ -459,6 +484,34 @@ export async function chatWithHermes(messages: ChatMessage[], noteContent: strin
             success: true,
           });
           return data.content as string;
+        }
+      }
+
+      if (response.ok && contentType.includes('text/event-stream')) {
+        const text = await response.text();
+        let full = '';
+        for (const line of text.split('\n')) {
+          const trimmed = line.trim();
+          if (trimmed.startsWith('data:')) {
+            const dataStr = trimmed.slice(5).trim();
+            if (dataStr === '[DONE]') break;
+            try {
+              const parsed = JSON.parse(dataStr);
+              if (parsed.text) full += parsed.text;
+            } catch {}
+          }
+        }
+        if (full) {
+          attempts.push({
+            target: endpoint,
+            strategy: 'backend_proxy',
+            status: response.status,
+            statusText: response.statusText,
+            contentType,
+            durationMs,
+            success: true,
+          });
+          return full;
         }
       }
 

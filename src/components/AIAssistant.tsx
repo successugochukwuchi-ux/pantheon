@@ -52,7 +52,11 @@ export function AIAssistant({ noteContent, noteTitle }: AIAssistantProps) {
 
   useEffect(() => {
     if (scrollRef.current) {
-      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+      requestAnimationFrame(() => {
+        if (scrollRef.current) {
+          scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+        }
+      });
     }
   }, [messages, isLoading, recordingTranscript]);
 
@@ -103,18 +107,34 @@ export function AIAssistant({ noteContent, noteTitle }: AIAssistantProps) {
         false,
         (chunk) => {
           setMessages(prev => {
+            if (prev.length === 0) return prev;
             const updated = [...prev];
-            const lastMsg = updated[updated.length - 1];
+            const lastIndex = updated.length - 1;
+            const lastMsg = updated[lastIndex];
             if (lastMsg && lastMsg.role === 'assistant') {
-              lastMsg.content += chunk;
+              updated[lastIndex] = {
+                ...lastMsg,
+                content: lastMsg.content + chunk,
+              };
             }
             return updated;
           });
+          if (scrollRef.current) {
+            scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+          }
         },
         controller.signal
       );
     } catch (error: any) {
       if (error?.name === 'AbortError' || controller.signal.aborted) {
+        setMessages(prev => {
+          const updated = [...prev];
+          const lastMsg = updated[updated.length - 1];
+          if (lastMsg && lastMsg.role === 'assistant' && !lastMsg.content) {
+            return updated.slice(0, -1);
+          }
+          return updated;
+        });
         toast.info("Response interrupted.");
         return;
       }
@@ -122,11 +142,15 @@ export function AIAssistant({ noteContent, noteTitle }: AIAssistantProps) {
       const raw = error?.message || 'Failed to connect to Hermes.';
       setMessages(prev => {
         const updated = [...prev];
-        const lastMsg = updated[updated.length - 1];
+        const lastIndex = updated.length - 1;
+        const lastMsg = updated[lastIndex];
         if (lastMsg && lastMsg.role === 'assistant') {
-          lastMsg.content = raw;
-          lastMsg.diagnostics = diag;
-          lastMsg.isError = true;
+          updated[lastIndex] = {
+            ...lastMsg,
+            content: raw,
+            diagnostics: diag,
+            isError: true,
+          };
         }
         return updated;
       });
@@ -337,26 +361,37 @@ export function AIAssistant({ noteContent, noteTitle }: AIAssistantProps) {
                               </div>
                             ) : (
                               <div className="max-w-[88%] rounded-2xl rounded-tl-none px-3.5 py-2.5 text-sm bg-muted text-foreground">
-                                <div className="markdown-body prose dark:prose-invert prose-sm max-w-none">
-                                  <ReactMarkdown 
-                                    remarkPlugins={[remarkMath, remarkGfm]} 
-                                    rehypePlugins={[rehypeMathjax]}
-                                  >
-                                    {m.content}
-                                  </ReactMarkdown>
-                                </div>
+                                {m.content === '' && isLoading && i === messages.length - 1 ? (
+                                  <div className="flex items-center gap-2 py-0.5 text-xs text-muted-foreground select-none">
+                                    <span className="flex space-x-1 items-center">
+                                      <span className="h-1.5 w-1.5 rounded-full bg-primary/80 animate-bounce [animation-delay:-0.3s]"></span>
+                                      <span className="h-1.5 w-1.5 rounded-full bg-primary/80 animate-bounce [animation-delay:-0.15s]"></span>
+                                      <span className="h-1.5 w-1.5 rounded-full bg-primary/80 animate-bounce"></span>
+                                    </span>
+                                    <span className="font-medium text-xs">Hermes is thinking...</span>
+                                  </div>
+                                ) : (
+                                  <div className="relative">
+                                    <div className="markdown-body prose dark:prose-invert prose-sm max-w-none break-words">
+                                      <ReactMarkdown 
+                                        remarkPlugins={[remarkMath, remarkGfm]} 
+                                        rehypePlugins={[rehypeMathjax]}
+                                      >
+                                        {m.content}
+                                      </ReactMarkdown>
+                                    </div>
+                                    {isLoading && i === messages.length - 1 && (
+                                      <span 
+                                        className="inline-block w-1.5 h-3.5 ml-1 bg-primary animate-pulse rounded-xs align-baseline" 
+                                        title="Typing..." 
+                                      />
+                                    )}
+                                  </div>
+                                )}
                               </div>
                             )}
                           </div>
                         ))}
-                        {isLoading && (
-                          <div className="flex justify-start">
-                            <div className="bg-muted rounded-2xl rounded-tl-none px-3 py-2 flex items-center gap-2">
-                              <Loader2 className="h-4 w-4 animate-spin text-primary" />
-                              <span className="text-xs text-muted-foreground">Hermes is thinking...</span>
-                            </div>
-                          </div>
-                        )}
                       </div>
                     </div>
 

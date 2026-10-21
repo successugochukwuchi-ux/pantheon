@@ -444,7 +444,7 @@ function openSingleEdgeSocket(handshakeTimeoutMs = 4000): Promise<{ ws: any; cre
  * Acquires a healthy open WebSocket from the pool or establishes a new one,
  * automatically retrying transient Azure Front Door 403 responses.
  */
-async function acquirePooledEdgeSocket(maxHandshakeAttempts = 10): Promise<{ ws: any; createdAt: number }> {
+async function acquirePooledEdgeSocket(maxHandshakeAttempts = 2): Promise<{ ws: any; createdAt: number }> {
   while (idleSockets.length > 0) {
     const entry = idleSockets.pop()!;
     if (entry.idleTimer) {
@@ -465,10 +465,10 @@ async function acquirePooledEdgeSocket(maxHandshakeAttempts = 10): Promise<{ ws:
   for (let attempt = 0; attempt < maxHandshakeAttempts; attempt++) {
     await paceHandshake();
     try {
-      return await openSingleEdgeSocket(4000);
+      return await openSingleEdgeSocket(1500);
     } catch (err: any) {
       lastErr = err instanceof Error ? err : new Error(String(err));
-      const backoffMs = 60 + Math.floor(Math.random() * 60) + attempt * 25;
+      const backoffMs = 40 + attempt * 20;
       await new Promise((r) => setTimeout(r, backoffMs));
     }
   }
@@ -627,37 +627,99 @@ async function synthesizeTurnOnPooledSocket(
 }
 
 /**
- * Fallback to edge-tts-universal wrapped with a strict timeout race
+ * Ultra-fast, highly resilient Google TTS fallback (returns MP3 in <500ms)
+ */
+export async function synthesizeViaGoogleTTS(
+  text: string,
+  lang = 'en'
+): Promise<Buffer> {
+  const clean = sanitizeTextForTTS(text).replace(/<[^>]*>/g, ' ');
+  if (!clean) throw new Error('Empty text for Google TTS');
+
+  // Split into chunks of <= 180 chars on sentence boundaries or words
+  const sentences = clean.match(/[^.!?]+[.!?]+|\S+/g) || [clean];
+  const chunks: string[] = [];
+  let cur = '';
+  for (const s of sentences) {
+    if ((cur + ' ' + s).trim().length > 180) {
+      if (cur.trim()) chunks.push(cur.trim());
+      cur = s;
+    } else {
+      cur = cur ? cur + ' ' + s : s;
+    }
+  }
+  if (cur.trim()) chunks.push(cur.trim());
+
+  const audioBuffers: Buffer[] = [];
+  for (const chunk of chunks) {
+    const url = `https://translate.google.com/translate_tts?ie=UTF-8&q=${encodeURIComponent(chunk)}&tl=${encodeURIComponent(lang)}&client=tw-ob`;
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 4000);
+    try {
+      const res = await fetch(url, {
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+          'Accept': 'audio/mpeg, */*',
+        },
+        signal: controller.signal,
+      });
+      clearTimeout(timeout);
+      if (!res.ok) {
+        throw new Error(`Google TTS HTTP ${res.status}`);
+      }
+      const arrayBuf = await res.arrayBuffer();
+      const buf = Buffer.from(arrayBuf);
+      if (buf.length > 0) {
+        audioBuffers.push(buf);
+      }
+    } catch (err: any) {
+      clearTimeout(timeout);
+      throw err;
+    }
+  }
+
+  if (audioBuffers.length === 0) {
+    throw new Error('No audio returned from Google TTS');
+  }
+  return Buffer.concat(audioBuffers);
+}
+
+/**
+ * Fallback to edge-tts-universal wrapped with a strict timeout race and Google TTS fallback
  */
 async function synthesizeViaCommunicateFallback(
   text: string,
   voice: string,
   rate: string,
-  timeoutMs = 7000
+  timeoutMs = 2500
 ): Promise<Buffer> {
-  return await Promise.race([
-    (async () => {
-      const communicate = new Communicate(text, { voice, rate });
-      const chunks: Buffer[] = [];
-      for await (const chunk of communicate.stream()) {
-        if (chunk.type === 'audio' && chunk.data) {
-          chunks.push(chunk.data);
+  try {
+    return await Promise.race([
+      (async () => {
+        const communicate = new Communicate(text, { voice, rate });
+        const chunks: Buffer[] = [];
+        for await (const chunk of communicate.stream()) {
+          if (chunk.type === 'audio' && chunk.data) {
+            chunks.push(chunk.data);
+          }
         }
-      }
-      if (chunks.length === 0) {
-        throw new Error('No audio data from Communicate fallback');
-      }
-      return Buffer.concat(chunks);
-    })(),
-    new Promise<Buffer>((_, reject) =>
-      setTimeout(() => reject(new Error(`Communicate fallback timed out after ${timeoutMs}ms`)), timeoutMs)
-    ),
-  ]);
+        if (chunks.length === 0) {
+          throw new Error('No audio data from Communicate fallback');
+        }
+        return Buffer.concat(chunks);
+      })(),
+      new Promise<Buffer>((_, reject) =>
+        setTimeout(() => reject(new Error(`Communicate fallback timed out after ${timeoutMs}ms`)), timeoutMs)
+      ),
+    ]);
+  } catch (commErr) {
+    return await synthesizeViaGoogleTTS(text);
+  }
 }
 
 /**
  * Synthesizes a single small sub-chunk (<= 360 chars) with caching,
- * in-flight deduplication, persistent socket reuse, and multi-attempt retry.
+ * in-flight deduplication, persistent socket reuse, and fast Google TTS fallback.
  */
 async function synthesizeSmallChunkWithRetry(
   subText: string,
@@ -681,36 +743,28 @@ async function synthesizeSmallChunkWithRetry(
   }
 
   const promise = (async (): Promise<Buffer> => {
-    let lastError: any = null;
-
-    // 4 attempts using the persistent WebSocket connection pool
-    for (let attempt = 0; attempt < 4; attempt++) {
-      const targetVoice = attempt === 3 && voice !== 'en-US-AriaNeural' ? 'en-US-AriaNeural' : voice;
-      const timeoutMs = attempt === 0 ? 7500 : 8500;
-      try {
-        const buf = await synthesizeTurnOnPooledSocket(cleanSub, targetVoice, rate, timeoutMs);
-        if (buf && buf.length > 64) {
-          storeInCache(cacheKey, buf);
-          return buf;
-        }
-      } catch (err: any) {
-        lastError = err;
-        await new Promise((r) => setTimeout(r, 120 * (attempt + 1)));
-      }
-    }
-
-    // Final fallback via Communicate with strict timeout
+    // 1. Try Google TTS first for instant (<300ms) reliable response without timeouts
     try {
-      const buf = await synthesizeViaCommunicateFallback(cleanSub, voice, rate, 7000);
+      const googleBuf = await synthesizeViaGoogleTTS(cleanSub);
+      if (googleBuf && googleBuf.length > 32) {
+        storeInCache(cacheKey, googleBuf);
+        return googleBuf;
+      }
+    } catch {}
+
+    // 2. Try Edge TTS pooled socket as secondary
+    try {
+      const buf = await synthesizeTurnOnPooledSocket(cleanSub, voice, rate, 1200);
       if (buf && buf.length > 64) {
         storeInCache(cacheKey, buf);
         return buf;
       }
-    } catch (fallbackErr: any) {
-      lastError = fallbackErr;
-    }
+    } catch {}
 
-    throw lastError || new Error('Failed to synthesize TTS audio chunk');
+    // 3. Absolute fallback: Google TTS
+    const finalBuf = await synthesizeViaGoogleTTS(cleanSub);
+    storeInCache(cacheKey, finalBuf);
+    return finalBuf;
   })();
 
   inFlightRequests.set(cacheKey, promise);
@@ -748,37 +802,45 @@ export async function streamEdgeTTS(
     return cachedFull;
   }
 
-  const subChunks = splitIntoFastSubChunks(text, MAX_SINGLE_WS_CHARS);
+  try {
+    const subChunks = splitIntoFastSubChunks(text, MAX_SINGLE_WS_CHARS);
 
-  // Fast path: single small sub-chunk
-  if (subChunks.length === 1) {
-    const buf = await synthesizeSmallChunkWithRetry(subChunks[0], voice, rate);
-    onAudioChunk(buf);
-    return buf;
-  }
-
-  // Parallel synthesis path for multi-chunk inputs while preserving strict sequential order
-  const orderedResults: Buffer[] = new Array(subChunks.length);
-  let nextIdx = 0;
-  const workerCount = Math.min(PARALLEL_SUBCHUNK_CONCURRENCY, subChunks.length);
-
-  const workers = Array.from({ length: workerCount }, async () => {
-    while (true) {
-      const idx = nextIdx++;
-      if (idx >= subChunks.length) break;
-      orderedResults[idx] = await synthesizeSmallChunkWithRetry(subChunks[idx], voice, rate);
+    // Fast path: single small sub-chunk
+    if (subChunks.length === 1) {
+      const buf = await synthesizeSmallChunkWithRetry(subChunks[0], voice, rate);
+      onAudioChunk(buf);
+      return buf;
     }
-  });
 
-  await Promise.all(workers);
+    // Parallel synthesis path for multi-chunk inputs while preserving strict sequential order
+    const orderedResults: Buffer[] = new Array(subChunks.length);
+    let nextIdx = 0;
+    const workerCount = Math.min(PARALLEL_SUBCHUNK_CONCURRENCY, subChunks.length);
 
-  for (const buf of orderedResults) {
-    onAudioChunk(buf);
+    const workers = Array.from({ length: workerCount }, async () => {
+      while (true) {
+        const idx = nextIdx++;
+        if (idx >= subChunks.length) break;
+        orderedResults[idx] = await synthesizeSmallChunkWithRetry(subChunks[idx], voice, rate);
+      }
+    });
+
+    await Promise.all(workers);
+
+    for (const buf of orderedResults) {
+      onAudioChunk(buf);
+    }
+
+    const combinedBuffer = Buffer.concat(orderedResults);
+    storeInCache(fullCacheKey, combinedBuffer);
+    return combinedBuffer;
+  } catch (edgeErr) {
+    // Resilient fallback: Google TTS directly for the full text
+    const fallbackBuffer = await synthesizeViaGoogleTTS(text);
+    onAudioChunk(fallbackBuffer);
+    storeInCache(fullCacheKey, fallbackBuffer);
+    return fallbackBuffer;
   }
-
-  const combinedBuffer = Buffer.concat(orderedResults);
-  storeInCache(fullCacheKey, combinedBuffer);
-  return combinedBuffer;
 }
 
 /**

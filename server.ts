@@ -7,7 +7,7 @@ import path from "path";
 import fs from "fs";
 import { createServer as createViteServer } from "vite";
 import { GoogleGenAI } from "@google/genai";
-import { generateEdgeTTS, streamEdgeTTS, MICROSOFT_VOICES } from "./src/lib/edge-tts";
+import { generateEdgeTTS, streamEdgeTTS, synthesizeViaGoogleTTS, MICROSOFT_VOICES } from "./src/lib/edge-tts";
 import { autoCorrectQuestionData, autoCorrectLatexSyntax, autoCorrectNoteContent } from "./src/lib/latexAutoCorrect";
 
 async function startServer() {
@@ -329,21 +329,27 @@ async function startServer() {
         );
       }
 
-      const audioChunks: Buffer[] = [];
-      await streamEdgeTTS(
-        {
-          text,
-          voice: typeof voice === 'string' ? voice : undefined,
-          rate: typeof rate === 'string' ? rate : undefined,
-        },
-        (chunk) => {
-          audioChunks.push(chunk);
-        }
-      );
+      let fullAudio: Buffer;
+      try {
+        const audioChunks: Buffer[] = [];
+        await streamEdgeTTS(
+          {
+            text,
+            voice: typeof voice === 'string' ? voice : undefined,
+            rate: typeof rate === 'string' ? rate : undefined,
+          },
+          (chunk) => {
+            audioChunks.push(chunk);
+          }
+        );
+        fullAudio = Buffer.concat(audioChunks);
+      } catch (streamErr: any) {
+        console.warn('streamEdgeTTS failed in GET /api/tts, synthesizing via Google TTS:', streamErr?.message || streamErr);
+        fullAudio = await synthesizeViaGoogleTTS(text);
+      }
 
-      const fullAudio = Buffer.concat(audioChunks);
-      if (fullAudio.length === 0) {
-        return res.status(502).json({ error: 'Empty TTS audio stream returned' });
+      if (!fullAudio || fullAudio.length === 0) {
+        fullAudio = await synthesizeViaGoogleTTS(text);
       }
 
       res.setHeader('Content-Type', 'audio/mpeg');
@@ -353,6 +359,14 @@ async function startServer() {
       return res.send(fullAudio);
     } catch (err: any) {
       console.error('TTS GET endpoint error:', err);
+      try {
+        const rawText = String(req.query?.text || '');
+        if (rawText) {
+          const emergencyAudio = await synthesizeViaGoogleTTS(rawText);
+          res.setHeader('Content-Type', 'audio/mpeg');
+          return res.send(emergencyAudio);
+        }
+      } catch {}
       if (!res.headersSent) {
         return res.status(500).json({ error: err?.message || 'Failed to generate TTS audio' });
       }
@@ -378,17 +392,23 @@ async function startServer() {
         );
       }
 
-      const audioChunks: Buffer[] = [];
-      await streamEdgeTTS(
-        { text, voice, rate },
-        (chunk) => {
-          audioChunks.push(chunk);
-        }
-      );
+      let fullAudio: Buffer;
+      try {
+        const audioChunks: Buffer[] = [];
+        await streamEdgeTTS(
+          { text, voice, rate },
+          (chunk) => {
+            audioChunks.push(chunk);
+          }
+        );
+        fullAudio = Buffer.concat(audioChunks);
+      } catch (streamErr: any) {
+        console.warn('streamEdgeTTS failed in POST /api/tts, synthesizing via Google TTS:', streamErr?.message || streamErr);
+        fullAudio = await synthesizeViaGoogleTTS(text);
+      }
 
-      const fullAudio = Buffer.concat(audioChunks);
-      if (fullAudio.length === 0) {
-        return res.status(502).json({ error: 'Empty TTS audio stream returned' });
+      if (!fullAudio || fullAudio.length === 0) {
+        fullAudio = await synthesizeViaGoogleTTS(text);
       }
 
       res.setHeader('Content-Type', 'audio/mpeg');
@@ -398,6 +418,14 @@ async function startServer() {
       return res.send(fullAudio);
     } catch (err: any) {
       console.error('TTS endpoint error:', err);
+      try {
+        const rawText = String(req.body?.text || '');
+        if (rawText) {
+          const emergencyAudio = await synthesizeViaGoogleTTS(rawText);
+          res.setHeader('Content-Type', 'audio/mpeg');
+          return res.send(emergencyAudio);
+        }
+      } catch {}
       if (!res.headersSent) {
         return res.status(500).json({ error: err?.message || 'Failed to generate TTS audio' });
       }
@@ -462,11 +490,7 @@ async function startServer() {
       const { messages, noteContent, config, isVoiceCall } = req.body || {};
       
       const provider = config?.provider || 'gemini';
-      let model = config?.model;
-      
-      if (!model) {
-        model = provider === 'groq' ? 'llama-3.3-70b-versatile' : provider === 'gemini' ? 'gemini-3.8-flash' : provider === 'openrouter' ? 'google/gemini-2.0-flash-001' : 'gpt-4o-mini';
-      }
+      let model = config?.model || (provider === 'groq' ? 'llama-3.3-70b-versatile' : provider === 'gemini' ? 'gemini-3.5-flash-lite' : provider === 'openrouter' ? 'google/gemini-2.0-flash-001' : 'gpt-4o-mini');
       
       // Clean model ID for Groq
       if (provider === 'groq' && model.includes('/')) {
@@ -528,50 +552,164 @@ ${truncatedNote}
 
       const latestUserMsg = sanitizedMessages.length > 0 ? sanitizedMessages[sanitizedMessages.length - 1].content : 'Hello';
 
-      // Helper function to stream Google Gemini using GenAI SDK with multi-model resiliency
-      const callGeminiStream = async (key: string, geminiModelName?: string, onChunk?: (text: string) => void) => {
-        const aiGen = new GoogleGenAI({ apiKey: key });
-        const candidateModels = [
-          geminiModelName,
-          'gemini-3.8-flash',
-          'gemini-flash-latest',
-          'gemini-3.1-flash-lite',
-        ].filter(Boolean) as string[];
+      // 1. Establish SSE headers immediately
+      res.setHeader('Content-Type', 'text/event-stream');
+      res.setHeader('Cache-Control', 'no-cache, no-transform');
+      res.setHeader('Connection', 'keep-alive');
+      res.setHeader('X-Accel-Buffering', 'no');
+      res.flushHeaders?.();
 
-        // Filter out deprecated 1.5, 2.0, 2.5 models
-        const validModels = Array.from(new Set(
-          candidateModels
-            .filter(m => !m.includes('1.5') && !m.includes('2.0') && !m.includes('2.5'))
-            .concat(['gemini-3.8-flash', 'gemini-flash-latest'])
-        ));
+      let isClientClosed = false;
+      req.on('close', () => {
+        isClientClosed = true;
+      });
+
+      const sendChunk = (text: string) => {
+        if (isClientClosed || !text) return;
+        res.write(`data: ${JSON.stringify({ text })}\n\n`);
+        if (typeof (res as any).flush === 'function') {
+          (res as any).flush();
+        }
+      };
+
+      const sendDone = () => {
+        if (isClientClosed) return;
+        res.write('data: [DONE]\n\n');
+        res.end();
+      };
+
+      const sendError = (errorMessage: string) => {
+        if (isClientClosed) return;
+        res.write(`data: ${JSON.stringify({ error: errorMessage })}\n\n`);
+        res.write('data: [DONE]\n\n');
+        res.end();
+      };
+
+      // Helper function to stream Google Gemini using direct SSE with timeout and multi-model resiliency
+      const callGeminiStream = async (key: string, geminiModelName?: string) => {
+        const primaryModel = geminiModelName || model || 'gemini-3.5-flash-lite';
+        const candidateModels = [
+          primaryModel,
+          'gemini-3-flash-preview',
+          'gemini-3.1-flash-lite-preview',
+        ].filter((v, i, a) => v && a.indexOf(v) === i);
+
+        const customBaseUrl = config?.baseUrl;
+        let apiBase = 'https://generativelanguage.googleapis.com/v1beta';
+        if (customBaseUrl && customBaseUrl.startsWith('http')) {
+          apiBase = customBaseUrl.replace(/\/+$/, '');
+        }
+
+        // Format conversation turns for Gemini
+        const geminiContents = sanitizedMessages.map((m: any) => ({
+          role: m.role === 'assistant' ? 'model' : 'user',
+          parts: [{ text: String(m.content) }]
+        }));
+        if (geminiContents.length === 0) {
+          geminiContents.push({
+            role: 'user',
+            parts: [{ text: latestUserMsg }]
+          });
+        }
+
+        const bodyPayload: any = {
+          contents: geminiContents,
+        };
+        if (systemPrompt.content) {
+          bodyPayload.systemInstruction = {
+            parts: [{ text: systemPrompt.content }]
+          };
+        }
 
         let lastErr: any = null;
-        for (const modelToTry of validModels) {
+        for (const modelToTry of candidateModels) {
+          if (isClientClosed) return true;
+          const controller = new AbortController();
+          const timer = setTimeout(() => controller.abort(), 4000);
+
           try {
-            const stream = await aiGen.models.generateContentStream({
-              model: modelToTry,
-              contents: [
-                {
-                  role: 'user',
-                  parts: [{ text: `SYSTEM INSTRUCTIONS:\n${systemPrompt.content}\n\nUSER QUESTION: ${latestUserMsg}` }]
-                }
-              ]
+            const streamUrl = `${apiBase}/models/${modelToTry}:streamGenerateContent?alt=sse&key=${key}`;
+            const streamRes = await fetch(streamUrl, {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+              },
+              body: JSON.stringify(bodyPayload),
+              signal: controller.signal,
             });
-            let fullText = '';
-            for await (const chunk of stream) {
-              if (chunk.text) {
-                fullText += chunk.text;
-                if (onChunk) onChunk(chunk.text);
+            clearTimeout(timer);
+
+            if (!streamRes.ok) {
+              const errBody = await streamRes.text().catch(() => '');
+              console.warn(`[Hermes Gemini Stream] Model ${modelToTry} returned HTTP ${streamRes.status}:`, errBody.slice(0, 100));
+              continue;
+            }
+
+            if (!streamRes.body) continue;
+
+            const reader = streamRes.body.getReader();
+            const decoder = new TextDecoder();
+            let buffer = '';
+            let textEmitted = false;
+
+            while (true) {
+              if (isClientClosed) break;
+              const { done, value } = await reader.read();
+              if (done) break;
+
+              buffer += decoder.decode(value, { stream: true });
+              const lines = buffer.split('\n');
+              buffer = lines.pop() || '';
+
+              for (const line of lines) {
+                const trimmed = line.trim();
+                if (!trimmed.startsWith('data:')) continue;
+                const jsonStr = trimmed.slice(5).trim();
+                if (!jsonStr || jsonStr === '[DONE]') continue;
+                try {
+                  const data = JSON.parse(jsonStr);
+                  const chunkText = data.candidates?.[0]?.content?.parts?.[0]?.text;
+                  if (chunkText) {
+                    textEmitted = true;
+                    sendChunk(chunkText);
+                  }
+                } catch {}
               }
             }
-            if (fullText) {
-              return fullText;
+
+            if (textEmitted) {
+              return true;
             }
           } catch (err: any) {
+            clearTimeout(timer);
             lastErr = err;
             console.warn(`[Hermes Gemini Stream] Model ${modelToTry} failed:`, err?.message || err);
           }
         }
+
+        // Final fallback: try GoogleGenAI SDK with gemini-3-flash-preview
+        try {
+          const aiGen = new GoogleGenAI({ apiKey: key });
+          const stream = await aiGen.models.generateContentStream({
+            model: 'gemini-3-flash-preview',
+            contents: geminiContents,
+            config: {
+              systemInstruction: systemPrompt.content,
+            }
+          });
+          let sdkText = false;
+          for await (const chunk of stream) {
+            if (isClientClosed) break;
+            if (chunk.text) {
+              sdkText = true;
+              sendChunk(chunk.text);
+            }
+          }
+          if (sdkText) return true;
+        } catch (sdkErr: any) {
+          lastErr = sdkErr;
+        }
+
         throw lastErr || new Error("Failed to stream response from Gemini.");
       };
 
@@ -580,50 +718,39 @@ ${truncatedNote}
       if (isGeminiProvider) {
         const activeGeminiKey = apiKey || serverGeminiKey;
         if (!activeGeminiKey) {
-          res.setHeader('Content-Type', 'text/event-stream');
-          res.write(`data: ${JSON.stringify({ error: 'Google Gemini Chat AI is not configured. Please set an API Key in the Admin Panel.' })}\n\n`);
-          res.write(`data: [DONE]\n\n`);
-          return res.end();
+          sendError('Google Gemini Chat AI is not configured. Please set an API Key in the Admin Panel.');
+          return;
         }
 
-        res.setHeader('Content-Type', 'text/event-stream');
-        res.setHeader('Cache-Control', 'no-cache');
-        res.setHeader('Connection', 'keep-alive');
-        res.flushHeaders?.();
-
         try {
-          await callGeminiStream(activeGeminiKey, model, (chunkText) => {
-            res.write(`data: ${JSON.stringify({ text: chunkText })}\n\n`);
-          });
-          res.write(`data: [DONE]\n\n`);
-          return res.end();
+          await callGeminiStream(activeGeminiKey, model);
+          sendDone();
+          return;
         } catch (geminiErr: any) {
-          console.error("Gemini SDK error in Hermes chat proxy stream:", geminiErr);
+          console.error("Gemini stream error in Hermes chat proxy stream:", geminiErr);
           if (apiKey && serverGeminiKey && apiKey !== serverGeminiKey) {
             try {
-              await callGeminiStream(serverGeminiKey, 'gemini-3.8-flash', (chunkText) => {
-                res.write(`data: ${JSON.stringify({ text: chunkText })}\n\n`);
-              });
-              res.write(`data: [DONE]\n\n`);
-              return res.end();
+              await callGeminiStream(serverGeminiKey, 'gemini-3-flash-preview');
+              sendDone();
+              return;
             } catch (secErr: any) {
               console.error("Server fallback Gemini key also failed:", secErr);
             }
           }
-          res.write(`data: ${JSON.stringify({ error: geminiErr.message || "Failed to stream response from Gemini." })}\n\n`);
-          res.write(`data: [DONE]\n\n`);
-          return res.end();
+          sendError(geminiErr.message || "Failed to stream response from Gemini.");
+          return;
         }
       }
 
       // ─── OPENAI-COMPATIBLE ENDPOINT (Groq, OpenRouter, OpenAI, Custom, etc.) ──────
-      // If provider key is missing, seamlessly fallback to Gemini if server key exists
+      // If provider key is missing, seamlessly stream from Gemini if server key exists
       if (!apiKey && serverGeminiKey) {
         try {
-          const content = await callGeminiFallback(serverGeminiKey, 'gemini-3.8-flash');
-          return res.json({ content });
+          await callGeminiStream(serverGeminiKey, 'gemini-3-flash-preview');
+          sendDone();
+          return;
         } catch (err: any) {
-          console.warn("Fallback to Gemini failed when API key was missing:", err);
+          console.warn("Fallback to Gemini stream failed when API key was missing:", err);
         }
       }
 
@@ -632,7 +759,7 @@ ${truncatedNote}
 
       const headers: Record<string, string> = {
         'Content-Type': 'application/json',
-        'Accept': 'application/json',
+        'Accept': 'text/event-stream, application/json',
         'User-Agent': 'CoLearn-Hermes-AI/1.0',
       };
 
@@ -648,6 +775,7 @@ ${truncatedNote}
       const payload = {
         model: model,
         messages: [systemPrompt, ...sanitizedMessages],
+        stream: true,
       };
 
       let response: Response | null = null;
@@ -688,74 +816,94 @@ ${truncatedNote}
         }
       }
 
-      if (!response || !response.ok) {
-        const rawText = response ? await response.text().catch(() => '') : 'Network Connection Error';
-        let errInfo: any = {};
+      if (response && response.ok && response.body) {
         try {
-          errInfo = JSON.parse(rawText);
-        } catch {
-          errInfo = { message: rawText || (response ? `HTTP ${response.status} from AI endpoint` : 'Network Error') };
-        }
+          const reader = response.body.getReader();
+          const decoder = new TextDecoder();
+          let buffer = '';
+          let streamCompleted = false;
 
-        const nestedErr = errInfo.error?.error || errInfo.error || errInfo;
-        const errMsg = typeof nestedErr === 'string' ? nestedErr : nestedErr.message || `Failed to connect to Hermes via ${provider}`;
-        const errCode = nestedErr.code || (response ? response.status : 500);
-        
-        console.error("Hermes Proxy Chat Error Details:", {
-          status: response ? response.status : 'NO_RESPONSE',
-          code: errCode,
-          error: errInfo,
-          provider,
-          endpoint: primaryEndpoint
-        });
+          while (true) {
+            if (isClientClosed) break;
+            const { value, done } = await reader.read();
+            if (done) break;
 
-        // Resilient Fallback: If third-party provider failed with 405, 404, 401, 429, 500 etc., fallback to server Gemini!
-        if (serverGeminiKey) {
-          try {
-            console.log("Attempting fallback to Gemini 3.8 due to provider error...");
-            const fallbackContent = await callGeminiFallback(serverGeminiKey, 'gemini-3.8-flash');
-            return res.json({ content: fallbackContent });
-          } catch (fbErr) {
-            console.error("Gemini fallback also failed:", fbErr);
+            buffer += decoder.decode(value, { stream: true });
+            const lines = buffer.split('\n');
+            buffer = lines.pop() || '';
+
+            for (const line of lines) {
+              const trimmed = line.trim();
+              if (!trimmed.startsWith('data:')) continue;
+              const dataStr = trimmed.slice(5).trim();
+              if (dataStr === '[DONE]') {
+                streamCompleted = true;
+                break;
+              }
+              try {
+                const parsed = JSON.parse(dataStr);
+                const deltaText = parsed.choices?.[0]?.delta?.content || parsed.choices?.[0]?.text;
+                if (deltaText) {
+                  sendChunk(deltaText);
+                }
+              } catch {}
+            }
+            if (streamCompleted) break;
           }
+          sendDone();
+          return;
+        } catch (streamErr: any) {
+          console.warn("Error reading upstream stream from AI provider:", streamErr);
         }
-
-        const resStatus = response && response.status >= 400 && response.status < 600 && response.status !== 405 ? response.status : 500;
-        const cleanClientErr = String(errMsg || '').includes('405')
-          ? "Hermes AI is currently busy. Please try asking again shortly."
-          : `${errMsg} (Code: ${errCode === 405 || String(errCode) === '405' ? 'BUSY' : errCode})`;
-        return res.status(resStatus).json({ error: cleanClientErr });
       }
 
-      const data = await response.json();
-      if (!data?.choices?.[0]?.message?.content) {
-        // Try fallback if choice is missing
-        if (serverGeminiKey) {
-          try {
-            const fallbackContent = await callGeminiFallback(serverGeminiKey, 'gemini-3.8-flash');
-            return res.json({ content: fallbackContent });
-          } catch (e) {}
+      // If third-party stream was not successful, attempt fallback to Gemini stream
+      if (serverGeminiKey) {
+        try {
+          console.log("Attempting fallback to Gemini stream due to provider error...");
+          await callGeminiStream(serverGeminiKey, 'gemini-3-flash-preview');
+          sendDone();
+          return;
+        } catch (fbErr) {
+          console.error("Gemini stream fallback also failed:", fbErr);
         }
-        return res.status(500).json({ error: "Unexpected response structure from AI provider." });
       }
 
-      return res.json({ content: data.choices[0].message.content });
+      const rawText = response ? await response.text().catch(() => '') : 'Network Connection Error';
+      let errInfo: any = {};
+      try {
+        errInfo = JSON.parse(rawText);
+      } catch {
+        errInfo = { message: rawText || (response ? `HTTP ${response.status} from AI endpoint` : 'Network Error') };
+      }
+      const nestedErr = errInfo.error?.error || errInfo.error || errInfo;
+      const errMsg = typeof nestedErr === 'string' ? nestedErr : nestedErr.message || `Failed to connect to Hermes via ${provider}`;
+      sendError(errMsg);
     } catch (err: any) {
-      console.error("Error in Hermes chat proxy:", err);
-      // Last-resort fallback to server Gemini key
+      console.error("Error in Hermes chat proxy stream:", err);
       if (process.env.GEMINI_API_KEY) {
         try {
-          const aiGen = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
-          const response = await aiGen.models.generateContent({
-            model: 'gemini-3.8-flash',
+          const aiGen = new GoogleGenAI({ 
+            apiKey: process.env.GEMINI_API_KEY,
+            httpOptions: { headers: { 'User-Agent': 'aistudio-build' } }
+          });
+          const stream = await aiGen.models.generateContentStream({
+            model: 'gemini-3-flash-preview',
             contents: `You are Hermes, an academic assistant. Please answer the user: ${(req.body?.messages?.slice(-1)?.[0]?.content) || 'Hello'}`
           });
-          if (response.text) {
-            return res.json({ content: response.text });
+          for await (const chunk of stream) {
+            if (chunk.text) {
+              res.write(`data: ${JSON.stringify({ text: chunk.text })}\n\n`);
+              if (typeof (res as any).flush === 'function') (res as any).flush();
+            }
           }
+          res.write('data: [DONE]\n\n');
+          return res.end();
         } catch (e) {}
       }
-      return res.status(500).json({ error: err.message || "Internal server error" });
+      res.write(`data: ${JSON.stringify({ error: err.message || "Internal server error" })}\n\n`);
+      res.write('data: [DONE]\n\n');
+      res.end();
     }
   });
 
