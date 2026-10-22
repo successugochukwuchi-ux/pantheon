@@ -61,13 +61,25 @@ export async function getFilteredCoursesForStudent(
   applyLevelFilter = true,
   currentSemester?: string
 ): Promise<any[]> {
-  const isLevel4 = profile?.level === '4' || profile?.permissionLevel === '4';
-  const visibleCourses = allCourses.filter(course => isLevel4 || !(course.disabled === 1 || course.disabled === true));
+  const isLevel5 = profile?.level === '5' || profile?.permissionLevel === '5' || profile?.email?.toLowerCase() === 'successugochukwuchi@gmail.com';
+  const isLevel4 = profile?.level === '4' || profile?.permissionLevel === '4' || isLevel5;
+  const userUni = (profile?.At || 'futo').toLowerCase().trim();
+
+  // If not Level 5 superadmin, restrict courses to user's university
+  const uniCourses = isLevel5
+    ? allCourses
+    : allCourses.filter(course => (course.At || 'futo').toLowerCase().trim() === userUni);
+
+  const visibleCourses = uniCourses.filter(course => isLevel4 || !(course.disabled === 1 || course.disabled === true));
 
   if (!profile) return [];
 
-  if (profile.level === '4' || profile.permissionLevel === '4') {
+  if (isLevel5) {
     return sortCoursesAlphabetically(allCourses);
+  }
+
+  if (profile.level === '4' || profile.permissionLevel === '4') {
+    return sortCoursesAlphabetically(visibleCourses);
   }
 
   if (profile.level === '3' || profile.permissionLevel === '3') {

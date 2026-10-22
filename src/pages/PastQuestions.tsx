@@ -41,7 +41,8 @@ export default function PastQuestions() {
   useEffect(() => {
     if (!profile || !systemConfig) return;
 
-    const showAllSemesters = profile.level === '4';
+    const isLevel5 = profile.level === '5' || String(profile.level) === '5' || profile.email?.toLowerCase() === 'successugochukwuchi@gmail.com';
+    const showAllSemesters = profile.level === '4' || isLevel5;
     const isStudent = profile.level === '1' || profile.level === '2';
     
     if (!showAllSemesters && systemConfig.currentSemester === 'none') {
@@ -64,6 +65,10 @@ export default function PastQuestions() {
         filtered = await getFilteredCoursesForStudent(allCourses, profile, true);
       } else {
         filtered = allCourses.filter(c => showAllSemesters || c.semester === systemConfig.currentSemester);
+        if (!isLevel5 && profile?.At) {
+          const userUni = (profile.At || 'futo').toLowerCase().trim();
+          filtered = filtered.filter(c => (c.At || 'futo').toLowerCase().trim() === userUni);
+        }
       }
       
       filtered.sort((a, b) => a.code.localeCompare(b.code));

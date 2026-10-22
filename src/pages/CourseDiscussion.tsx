@@ -38,9 +38,15 @@ export default function CourseDiscussion() {
   // Fetch all notes for referencing
   useEffect(() => {
     if (!user || !profile) return;
+    const isLevel5 = profile.level === '5' || String(profile.level) === '5' || profile.email?.toLowerCase() === 'successugochukwuchi@gmail.com';
+    const userUni = (profile.At || 'futo').toLowerCase().trim();
     const q = query(collection(db, 'notes'));
     getDocs(q).then((snapshot) => {
-      setUserNotes(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Note)));
+      let notesData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Note));
+      if (!isLevel5 && profile?.At) {
+        notesData = notesData.filter(n => (n.At ? n.At.toLowerCase().trim() : 'futo') === userUni);
+      }
+      setUserNotes(notesData);
     }).catch((error) => {
       const isLowLevel = profile.level === '1';
       if (!isLowLevel) {
@@ -52,9 +58,15 @@ export default function CourseDiscussion() {
   // Fetch all courses for note selector
   useEffect(() => {
     if (!profile) return;
+    const isLevel5 = profile.level === '5' || String(profile.level) === '5' || profile.email?.toLowerCase() === 'successugochukwuchi@gmail.com';
+    const userUni = (profile.At || 'futo').toLowerCase().trim();
     const q = query(collection(db, 'courses'), orderBy('code', 'asc'));
     getDocs(q).then((snapshot) => {
-      setCourses(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Course)));
+      let coursesData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Course));
+      if (!isLevel5 && profile?.At) {
+        coursesData = coursesData.filter(c => (c.At || 'futo').toLowerCase().trim() === userUni);
+      }
+      setCourses(coursesData);
     }).catch((error) => {
       const isLowLevel = profile.level === '1';
       if (!isLowLevel) {

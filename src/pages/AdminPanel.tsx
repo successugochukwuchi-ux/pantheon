@@ -215,6 +215,8 @@ export default function AdminPanel() {
 
   const isLevel5 = profile?.level === '5' || String(profile?.level) === '5' || profile?.email?.toLowerCase() === 'successugochukwuchi@gmail.com' || user?.email?.toLowerCase() === 'successugochukwuchi@gmail.com';
   const isLevel4 = profile?.level === '4' || String(profile?.level) === '4' || isLevel5;
+  const isLevel4Only = (profile?.level === '4' || String(profile?.level) === '4') && !isLevel5;
+  const userUni = (profile?.At || 'futo').toLowerCase().trim();
   const isAtLeastLevel3 = profile?.level === '3' || String(profile?.level) === '3' || isLevel4;
   const isLevel2 = profile?.level === '2' || String(profile?.level) === '2';
   const canManageSeasons = isLevel5 || isLevel4;
@@ -551,11 +553,18 @@ export default function AdminPanel() {
     if (!profile) return;
     const path = location.pathname;
 
+    const isLevel4Only = (profile?.level === '4' || String(profile?.level) === '4') && !isLevel5;
+    const userUni = (profile?.At || 'futo').toLowerCase().trim();
+    const isOverview = path === '/administrator' || path === '/administrator/';
+
     // Fetch courses when on courses, notes, questions, videos, or system tabs, or overview
-    const needCourses = path.includes('/courses') || path.includes('/notes') || path.includes('/questions') || path.includes('/videos') || path.includes('/system') || path === '/administrator' || path === '/administrator/';
+    const needCourses = path.includes('/courses') || path.includes('/notes') || path.includes('/questions') || path.includes('/videos') || path.includes('/system') || isOverview;
     if (needCourses && courses.length === 0) {
       getDocs(collection(db, 'courses')).then((snapshot) => {
-        const fetchedCourses = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Course));
+        let fetchedCourses = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Course));
+        if (isLevel4Only && profile?.At) {
+          fetchedCourses = fetchedCourses.filter(c => (c.At || 'futo').toLowerCase().trim() === userUni);
+        }
         fetchedCourses.sort((a, b) => safeCompareStrings(a.code, b.code));
         setCourses(fetchedCourses);
       }).catch((err) => {
@@ -563,21 +572,65 @@ export default function AdminPanel() {
       });
     }
 
-    // Fetch notes when on notes or videos tab
-    const needNotes = path.includes('/notes') || path.includes('/videos');
+    // Fetch notes when on notes or videos tab, or overview for level 4
+    const needNotes = path.includes('/notes') || path.includes('/videos') || (isOverview && isLevel4Only);
     if (needNotes && notes.length === 0) {
-      getDocs(collection(db, 'notes')).then((snapshot) => {
-        setNotes(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Note)));
+      Promise.all([
+        getDocs(collection(db, 'notes')),
+        courses.length === 0 ? getDocs(collection(db, 'courses')) : Promise.resolve(null)
+      ]).then(([notesSnapshot, coursesSnapshot]) => {
+        const courseUniMap: Record<string, string> = {};
+        if (coursesSnapshot) {
+          coursesSnapshot.docs.forEach(d => {
+            const data = d.data();
+            courseUniMap[d.id] = (data.At || 'futo').toLowerCase().trim();
+          });
+        } else {
+          courses.forEach(c => {
+            courseUniMap[c.id] = (c.At || 'futo').toLowerCase().trim();
+          });
+        }
+
+        let fetchedNotes = notesSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Note));
+        if (isLevel4Only && profile?.At) {
+          fetchedNotes = fetchedNotes.filter(n => {
+            const noteUni = n.At ? n.At.toLowerCase().trim() : (n.courseId ? courseUniMap[n.courseId] : undefined);
+            return (noteUni || 'futo') === userUni;
+          });
+        }
+        setNotes(fetchedNotes);
       }).catch((err) => {
         handleFirestoreError(err, OperationType.LIST, 'notes');
       });
     }
 
-    // Fetch questionSheets when on questions tab
-    const needQuestionSheets = path.includes('/questions');
+    // Fetch questionSheets when on questions tab, or overview for level 4
+    const needQuestionSheets = path.includes('/questions') || (isOverview && isLevel4Only);
     if (needQuestionSheets && questionSheets.length === 0) {
-      getDocs(collection(db, 'questionSheets')).then((snapshot) => {
-        setQuestionSheets(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as QuestionSheet)));
+      Promise.all([
+        getDocs(collection(db, 'questionSheets')),
+        courses.length === 0 ? getDocs(collection(db, 'courses')) : Promise.resolve(null)
+      ]).then(([sheetsSnapshot, coursesSnapshot]) => {
+        const courseUniMap: Record<string, string> = {};
+        if (coursesSnapshot) {
+          coursesSnapshot.docs.forEach(d => {
+            const data = d.data();
+            courseUniMap[d.id] = (data.At || 'futo').toLowerCase().trim();
+          });
+        } else {
+          courses.forEach(c => {
+            courseUniMap[c.id] = (c.At || 'futo').toLowerCase().trim();
+          });
+        }
+
+        let fetchedSheets = sheetsSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as QuestionSheet));
+        if (isLevel4Only && profile?.At) {
+          fetchedSheets = fetchedSheets.filter(s => {
+            const sheetUni = s.At ? s.At.toLowerCase().trim() : (s.courseId ? courseUniMap[s.courseId] : undefined);
+            return (sheetUni || 'futo') === userUni;
+          });
+        }
+        setQuestionSheets(fetchedSheets);
       }).catch((err) => {
         handleFirestoreError(err, OperationType.LIST, 'questionSheets');
       });
@@ -613,8 +666,8 @@ export default function AdminPanel() {
       });
     }
 
-    // Fetch activationCodes when on pins tab OR if the user is Level 3 (vendor ONLY receives activation codes)
-    const needPins = path.includes('/pins') || profile.level === '3';
+    // Fetch activationCodes when on pins tab OR if the user is Level 3 (vendor ONLY receives activation codes) OR overview for level 4
+    const needPins = path.includes('/pins') || profile.level === '3' || (isOverview && isLevel4Only);
     if (needPins && unusedPins.length === 0 && usedPins.length === 0) {
       getDocs(collection(db, 'activationCodes')).then((snapshot) => {
         const allPins = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as ActivationCode));
@@ -626,9 +679,27 @@ export default function AdminPanel() {
           setUsedPins(sortedUsed);
           setTransferredPins([]);
         } else {
-          const sortedUnused = allPins.filter(p => !p.isUsed && !p.assignedTo).sort((a, b) => safeCompareDates(a.createdAt, b.createdAt));
-          const sortedUsed = allPins.filter(p => p.isUsed).sort((a, b) => safeCompareDates(a.usedAt || a.createdAt, b.usedAt || b.createdAt));
-          const sortedTransferred = allPins.filter(p => p.assignedTo).sort((a, b) => safeCompareDates(a.createdAt, b.createdAt));
+          // If Level 4 (and not Level 5 Superadmin):
+          // 1. Level 4 Admins should not be able to see activation pins created via paystack purchase (restock/on-demand) by any vendor.
+          // 2. Level 4 Admins should not be able to see activation pins created by level 4 admins of any other university.
+          let visiblePins = allPins;
+          if (isLevel4Only) {
+            visiblePins = allPins.filter(p => {
+              // Exclude vendor paystack purchases (restock or on-demand)
+              const isVendorPaystackPurchase = !!(p.isOnDemand || p.isBulkRestocked || (typeof p.paymentReference === 'string' && p.paymentReference.trim().length > 0));
+              if (isVendorPaystackPurchase) return false;
+
+              // Exclude activation pins created by admins of any other university
+              const pinUni = (p.At || 'futo').toLowerCase().trim();
+              if (pinUni !== userUni) return false;
+
+              return true;
+            });
+          }
+
+          const sortedUnused = visiblePins.filter(p => !p.isUsed && !p.assignedTo).sort((a, b) => safeCompareDates(a.createdAt, b.createdAt));
+          const sortedUsed = visiblePins.filter(p => p.isUsed).sort((a, b) => safeCompareDates(a.usedAt || a.createdAt, b.usedAt || b.createdAt));
+          const sortedTransferred = visiblePins.filter(p => p.assignedTo).sort((a, b) => safeCompareDates(a.createdAt, b.createdAt));
           setUnusedPins(sortedUnused);
           setUsedPins(sortedUsed);
           setTransferredPins(sortedTransferred);
@@ -958,11 +1029,23 @@ export default function AdminPanel() {
     setLoading(true);
     const toastId = toast.loading("Creating new note...");
     try {
-      await addDoc(collection(db, 'notes'), {
+      const noteCourse = courses.find(c => c.id === newNote.courseId);
+      const noteAt = noteCourse?.At || profile?.At || 'futo';
+      const docRef = await addDoc(collection(db, 'notes'), {
         ...newNote,
         authorId: user.uid,
+        At: noteAt,
         createdAt: new Date().toISOString()
       });
+
+      const createdNote: Note = {
+        id: docRef.id,
+        ...newNote,
+        authorId: user.uid,
+        At: noteAt,
+        createdAt: new Date().toISOString()
+      };
+      setNotes(prev => [...prev, createdNote]);
 
       // Update system stats and academic stamp
       await updateStatCount('totalNotes', 1);
@@ -989,6 +1072,7 @@ export default function AdminPanel() {
       await updateStatCount('totalNotes', -1);
       triggerAcademicUpdateStamp();
 
+      setNotes(prev => prev.filter(n => n.id !== noteToDelete));
       toast.success('Note deleted');
       setNoteToDelete(null);
     } catch (error: any) {
@@ -1051,12 +1135,25 @@ export default function AdminPanel() {
     if (!user) return;
     setLoading(true);
     try {
-      await addDoc(collection(db, 'questionSheets'), {
+      const sheetCourse = courses.find(c => c.id === newSheet.courseId);
+      const sheetAt = sheetCourse?.At || profile?.At || 'futo';
+      const docRef = await addDoc(collection(db, 'questionSheets'), {
         ...newSheet,
         questions: [],
         authorId: user.uid,
+        At: sheetAt,
         createdAt: new Date().toISOString()
       });
+
+      const createdSheet: QuestionSheet = {
+        id: docRef.id,
+        ...newSheet,
+        questions: [],
+        authorId: user.uid,
+        At: sheetAt,
+        createdAt: new Date().toISOString()
+      };
+      setQuestionSheets(prev => [...prev, createdSheet]);
 
       // Update system stats
       await updateStatCount('totalQuestionSheets', 1);
@@ -1112,6 +1209,7 @@ export default function AdminPanel() {
       await updateStatCount('totalQuestionSheets', -1);
       triggerAcademicUpdateStamp();
 
+      setQuestionSheets(prev => prev.filter(s => s.id !== sheetToDelete));
       toast.success('Sheet and all questions deleted');
       setSheetToDelete(null);
       if (selectedSheet?.id === sheetToDelete) setSelectedSheet(null);
@@ -1581,7 +1679,7 @@ export default function AdminPanel() {
     const pin = Math.floor(100000000000 + Math.random() * 900000000000).toString();
     const path = `activationCodes/${pin}`;
     const creatorId = profile?.studentId || 'N/A';
-    const creatorAt = profile?.At || 'futo';
+    const creatorAt = (profile?.At || 'futo').toLowerCase().trim();
     const nowIso = new Date().toISOString();
     setLoading(true);
     try {
@@ -1647,6 +1745,15 @@ export default function AdminPanel() {
             setLoading(false);
             return;
           }
+          if (isLevel4Only) {
+            const isVendorPaystack = !!(pinData.isOnDemand || pinData.isBulkRestocked || (typeof pinData.paymentReference === 'string' && pinData.paymentReference.trim().length > 0));
+            const pinUni = (pinData.At || 'futo').toLowerCase().trim();
+            if (isVendorPaystack || pinUni !== userUni) {
+              toast.error("You do not have permission to delete this pin.");
+              setLoading(false);
+              return;
+            }
+          }
         }
       }
       await deleteDoc(pinRef);
@@ -1669,6 +1776,7 @@ export default function AdminPanel() {
 
       toast.success('Pin removed');
       setPinToDelete(null);
+      triggerRefresh();
     } catch (error: any) {
       console.error("Delete pin error:", error);
       toast.error('Failed to delete: ' + (error.message || 'Unknown error'));
@@ -1816,7 +1924,7 @@ export default function AdminPanel() {
       const batch = writeBatch(db);
       const now = new Date().toISOString();
       const creatorId = profile?.studentId || 'Admin';
-      const creatorAt = profile?.At || 'futo';
+      const creatorAt = (profile?.At || 'futo').toLowerCase().trim();
       for (let i = 0; i < bulkCount; i++) {
         const pin = Math.floor(100000000000 + Math.random() * 900000000000).toString();
         // Determine whether this pin is PLUS or Standard based on includePlus and plusCount
@@ -1895,6 +2003,15 @@ export default function AdminPanel() {
         toast.error('The school ID matches a non-vendor account. Only Level 3 role can receive transfers.');
         setLoading(false);
         return;
+      }
+
+      if (isLevel4Only) {
+        const vendorUni = (vendorData.At || 'futo').toLowerCase().trim();
+        if (vendorUni !== userUni) {
+          toast.error(`You can only transfer pins to vendors registered at your university (${(profile?.At || 'futo').toUpperCase()}).`);
+          setLoading(false);
+          return;
+        }
       }
       
       const vendorUid = vendorDoc.id;
@@ -2648,7 +2765,7 @@ export default function AdminPanel() {
         <Route index element={
           profile?.level === '3' 
             ? <Navigate to="/administrator/pins" replace />
-            : <AdminOverview courses={courses} notes={notes} questions={questions} unusedPins={unusedPins} usedPins={usedPins} stats={stats} />
+            : <AdminOverview courses={courses} notes={notes} questions={questions} unusedPins={unusedPins} usedPins={usedPins} stats={stats} questionSheets={questionSheets} />
         } />
         <Route path="/manual" element={<AdminManual />} />
         <Route path="/discipline" element={<AdminDiscipline />} />
@@ -4612,7 +4729,9 @@ export default function AdminPanel() {
                     <CardHeader className="flex flex-row items-center justify-between pb-2">
                       <div className="space-y-1">
                         <CardTitle>Unused Pins ({unusedPins.length})</CardTitle>
-                        <CardDescription>Manage master distribution inventory.</CardDescription>
+                        <CardDescription>
+                          {isLevel4Only ? `Master distribution inventory for ${(profile?.At || 'FUTO').toUpperCase()} campus.` : 'Manage master distribution inventory.'}
+                        </CardDescription>
                       </div>
                       {unusedPins.length > 0 && (
                         <div className="flex items-center gap-2">
@@ -4697,7 +4816,9 @@ export default function AdminPanel() {
                     <CardHeader className="flex flex-row items-center justify-between space-y-0">
                       <div className="space-y-1">
                         <CardTitle>Used Pins History ({usedPins.length})</CardTitle>
-                        <CardDescription>Pins activated by students this semester.</CardDescription>
+                        <CardDescription>
+                          {isLevel4Only ? `Pins activated by ${(profile?.At || 'FUTO').toUpperCase()} students this semester.` : 'Pins activated by students this semester.'}
+                        </CardDescription>
                       </div>
                       {usedPins.length > 0 && (
                         <Button 
@@ -4761,7 +4882,9 @@ export default function AdminPanel() {
                 <Card className="mt-6">
                   <CardHeader>
                     <CardTitle>Transferred Pins History ({transferredPins.length})</CardTitle>
-                    <CardDescription>Pins that have been transferred out to vendors (Level 3 students).</CardDescription>
+                    <CardDescription>
+                      {isLevel4Only ? `Pins transferred to vendors (Level 3 students) in ${(profile?.At || 'FUTO').toUpperCase()} campus.` : 'Pins that have been transferred out to vendors (Level 3 students).'}
+                    </CardDescription>
                   </CardHeader>
                   <CardContent>
                     <div className="max-h-[300px] overflow-y-auto space-y-2">
@@ -5879,14 +6002,18 @@ function AdminManual() {
   );
 }
 
-function AdminOverview({ courses, notes, questions, unusedPins, usedPins, stats }: { 
+function AdminOverview({ courses, notes, questions, unusedPins, usedPins, stats, questionSheets }: { 
   courses: Course[], 
   notes: Note[], 
   questions: Question[], 
   unusedPins: ActivationCode[], 
   usedPins: ActivationCode[],
-  stats: any
+  stats: any,
+  questionSheets?: QuestionSheet[]
 }) {
+  const { profile, user } = useAuth();
+  const isLevel5 = profile?.level === '5' || String(profile?.level) === '5' || profile?.email?.toLowerCase() === 'successugochukwuchi@gmail.com' || user?.email?.toLowerCase() === 'successugochukwuchi@gmail.com';
+  const isLevel4Only = (profile?.level === '4' || String(profile?.level) === '4') && !isLevel5;
   const [userStats, setUserStats] = useState<{ date: string, count: number }[]>([]);
   const [cbtStats, setCbtStats] = useState<{ name: string, value: number }[]>([]);
 
@@ -5949,7 +6076,14 @@ function AdminOverview({ courses, notes, questions, unusedPins, usedPins, stats 
             <BookPlus className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{stats.totalCourses || 0}</div>
+            <div className="text-2xl font-bold">
+              {isLevel4Only && profile?.At ? courses.length : (stats.totalCourses || 0)}
+            </div>
+            {isLevel4Only && profile?.At && (
+              <p className="text-[10px] text-muted-foreground uppercase tracking-wider font-semibold mt-1">
+                {profile.At} Campus
+              </p>
+            )}
           </CardContent>
         </Card>
         <Card>
@@ -5958,7 +6092,14 @@ function AdminOverview({ courses, notes, questions, unusedPins, usedPins, stats 
             <FileText className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{stats.totalNotes || 0}</div>
+            <div className="text-2xl font-bold">
+              {isLevel4Only && profile?.At ? notes.length : (stats.totalNotes || 0)}
+            </div>
+            {isLevel4Only && profile?.At && (
+              <p className="text-[10px] text-muted-foreground uppercase tracking-wider font-semibold mt-1">
+                {profile.At} Campus
+              </p>
+            )}
           </CardContent>
         </Card>
         <Card>
@@ -5967,7 +6108,14 @@ function AdminOverview({ courses, notes, questions, unusedPins, usedPins, stats 
             <HelpCircle className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{stats.totalQuestionSheets || 0}</div>
+            <div className="text-2xl font-bold">
+              {isLevel4Only && profile?.At ? (questionSheets?.length || 0) : (stats.totalQuestionSheets || 0)}
+            </div>
+            {isLevel4Only && profile?.At && (
+              <p className="text-[10px] text-muted-foreground uppercase tracking-wider font-semibold mt-1">
+                {profile.At} Campus
+              </p>
+            )}
           </CardContent>
         </Card>
         <Card>
@@ -5976,8 +6124,17 @@ function AdminOverview({ courses, notes, questions, unusedPins, usedPins, stats 
             <Key className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{stats.totalUnusedPins || 0}</div>
-            <p className="text-xs text-muted-foreground">{stats.totalUsedPins || 0} used so far</p>
+            <div className="text-2xl font-bold">
+              {isLevel4Only && profile?.At ? unusedPins.length : (stats.totalUnusedPins || 0)}
+            </div>
+            <p className="text-xs text-muted-foreground">
+              {isLevel4Only && profile?.At ? `${usedPins.length} used so far` : `${stats.totalUsedPins || 0} used so far`}
+            </p>
+            {isLevel4Only && profile?.At && (
+              <p className="text-[10px] text-muted-foreground uppercase tracking-wider font-semibold mt-1">
+                {profile.At} Campus
+              </p>
+            )}
           </CardContent>
         </Card>
       </div>

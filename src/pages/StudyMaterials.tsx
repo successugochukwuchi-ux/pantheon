@@ -44,10 +44,11 @@ export default function StudyMaterials() {
   const [noteSearchQuery, setNoteSearchQuery] = useState('');
   const [viewingImage, setViewingImage] = useState<string | null>(null);
 
-  const isAdmin = profile?.level === '3' || profile?.level === '4' || profile?.level === '5';
-  const showAllSemesters = profile?.level === '4' || profile?.level === '5';
+  const isLevel5 = profile?.level === '5' || String(profile?.level) === '5' || profile?.email?.toLowerCase() === 'successugochukwuchi@gmail.com';
+  const isAdmin = profile?.level === '3' || profile?.level === '4' || isLevel5;
+  const showAllSemesters = profile?.level === '4' || isLevel5;
   const isHoliday = systemConfig && systemConfig.currentSemester === 'none' && !showAllSemesters;
-  const isUnactivatedStudent = (!profile || !profile.isActivated) && profile?.level !== '3' && profile?.level !== '4' && profile?.level !== '5';
+  const isUnactivatedStudent = (!profile || !profile.isActivated) && profile?.level !== '3' && profile?.level !== '4' && !isLevel5;
 
   const typeLabels: Record<string, string> = {
     'lecture': 'Lecture Notes',
@@ -125,6 +126,9 @@ export default function StudyMaterials() {
       // Level 3 vendors can see all departments/levels but restricted to current semester
       if (isStudent) {
         loadedCourses = await getFilteredCoursesForStudent(loadedCourses, profile, true);
+      } else if (!isLevel5 && profile?.At) {
+        const userUni = (profile.At || 'futo').toLowerCase().trim();
+        loadedCourses = loadedCourses.filter(c => (c.At || 'futo').toLowerCase().trim() === userUni);
       }
       
       loadedCourses.sort((a, b) => a.code.localeCompare(b.code));

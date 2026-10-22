@@ -11,17 +11,30 @@ export async function getFilteredCoursesForStudent(
   applyLevelFilter = true,
   currentSemester?: string
 ): Promise<Course[]> {
-  const isLevel4 = profile?.level === '4' || profile?.level === '5';
-  const visibleCourses = allCourses.filter(course => isLevel4 || !course.disabled);
+  const isLevel5 = profile?.level === '5' || profile?.email?.toLowerCase() === 'successugochukwuchi@gmail.com';
+  const isLevel4 = profile?.level === '4' || isLevel5;
+  const userUni = (profile?.At || 'futo').toLowerCase().trim();
+
+  // If not Level 5 superadmin, restrict courses to the user's university
+  const uniCourses = isLevel5
+    ? allCourses
+    : allCourses.filter(course => (course.At || 'futo').toLowerCase().trim() === userUni);
+
+  const visibleCourses = uniCourses.filter(course => isLevel4 || !course.disabled);
 
   if (!profile) return [];
 
-  // Level 4 (admins) and Level 5 can see everything
-  if (profile.level === '4' || profile.level === '5') {
+  // Level 5 (superadmin) can see everything
+  if (isLevel5) {
     return allCourses;
   }
 
-  // Level 3 (vendors) can see all non-disabled courses
+  // Level 4 (university admin) can see all courses from their own university
+  if (profile.level === '4') {
+    return visibleCourses;
+  }
+
+  // Level 3 (vendors) can see all non-disabled courses from their university
   if (profile.level === '3') {
     return visibleCourses;
   }

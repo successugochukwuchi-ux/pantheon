@@ -51,8 +51,13 @@ export default function CBTResults() {
 
     getDocs(coursesQ).then((snapshot) => {
       const courseMap: Record<string, Course> = {};
+      const isLevel5 = profile?.level === '5' || String(profile?.level) === '5' || profile?.email?.toLowerCase() === 'successugochukwuchi@gmail.com';
+      const userUni = (profile?.At || 'futo').toLowerCase().trim();
       snapshot.docs.forEach(doc => {
-        courseMap[doc.id] = { id: doc.id, ...doc.data() } as Course;
+        const data = doc.data() as Course;
+        if (isLevel5 || !profile?.At || (data.At || 'futo').toLowerCase().trim() === userUni) {
+          courseMap[doc.id] = { id: doc.id, ...data };
+        }
       });
       setCourses(courseMap);
     }).catch((err) => {
