@@ -15,7 +15,7 @@ import {
   ShieldCheck, School, BookOpen, DollarSign, Calendar, TrendingUp, Key, Plus, 
   List, Eye, FileDown, Loader2, Wand2, Sparkles, CheckCircle2, AlertTriangle, 
   Terminal, RefreshCw, XCircle, FileText, HelpCircle, Bot, Cpu, StopCircle,
-  Camera, Smartphone, Lock, Unlock, CreditCard, Percent, Building2, Server, Mail, Radio, Play
+  Camera, Smartphone, Lock, Unlock, CreditCard, Percent, Building2, Server, Mail, Radio, Play, Copy
 } from 'lucide-react';
 import { jsPDF } from 'jspdf';
 import * as XLSX from 'xlsx';
@@ -171,6 +171,13 @@ export default function OverseerControl() {
     bulkRestockStandardCount: number;
     bulkRestockPlusCount: number;
     onDemandStandardCount: number;
+    takanoStandardCount: number;
+    takanoPlusCount: number;
+    takanoTotalRevenue: number;
+    takanoOrdersCount: number;
+    paystackStandardCount: number;
+    paystackPlusCount: number;
+    paystackTotalRevenue: number;
     standardTotalRevenue: number;
     plusTotalRevenue: number;
     lendingTotalRevenue: number;
@@ -180,12 +187,19 @@ export default function OverseerControl() {
     pins: {
       code: string;
       type: 'standard' | 'plus';
-      status: 'transferred' | 'used_direct' | 'lending_settled' | 'bulk_restock' | 'on_demand';
+      status: string;
+      provider?: string;
+      orderId?: string;
+      payerName?: string;
       associatedId: string;
       timestamp: string;
       amount?: number;
     }[];
   } | null>(null);
+
+  // Pin Records Audit Explorer Filters
+  const [pinFilterCategory, setPinFilterCategory] = useState<'all' | 'takano' | 'paystack' | 'transferred' | 'used'>('all');
+  const [pinFilterSearch, setPinFilterSearch] = useState('');
 
   // Overseer Browser-style active tab state
   const [overseerTab, setOverseerTab] = useState<'revenue' | 'pricing' | 'takano' | 'access' | 'universities'>('revenue');
@@ -1347,32 +1361,71 @@ export default function OverseerControl() {
 
       const allPins = pinsSnap.docs.map(d => ({ id: d.id, ...d.data() } as any));
 
+      // Fetch Takano Pay orders from payment_orders collection for this university
+      let takanoOrders: any[] = [];
+      try {
+        const ordersQ = query(collection(db, 'payment_orders'), where('status', '==', 'PAID'));
+        const ordersSnap = await getDocs(ordersQ);
+        takanoOrders = ordersSnap.docs
+          .map(d => ({ id: d.id, ...d.data() } as any))
+          .filter(ord => {
+            const ordUni = (ord.university || 'futo').toLowerCase().trim();
+            if (ordUni !== revUni.toLowerCase().trim()) return false;
+            const dateStr = ord.paidAt || ord.createdAt;
+            if (!dateStr) return false;
+            const ordDate = new Date(dateStr);
+            return ordDate >= startOfChosenMonth && ordDate <= endOfChosenMonth;
+          });
+      } catch (ordErr) {
+        console.warn("Could not query payment_orders for revenue report:", ordErr);
+      }
+
       // Filter pins transferred, used directly, or settled via lending in the selected month:
       // - Standard / Plus upfront transferred: has a vendor (assignedTo is set), isLent != true. Transfer date = createdAt.
       // - Standard / Plus used directly: isUsed is true, no vendor (assignedTo is not set), isLent != true. Usage date = usedAt.
       // - Lending Settled: isLent is true, settled is true. Settlement date = settledAt.
+      // - Takano Pay Restock: isTakanoPay === true or paymentProvider === 'takano_pay' or orderId/paymentReference starts with TKNO_
+      // - Paystack Restock: isBulkRestocked === true (non-Takano)
       
+      const takanoRestockStandard: any[] = [];
+      const takanoRestockPlus: any[] = [];
+      const paystackRestockStandard: any[] = [];
+      const paystackRestockPlus: any[] = [];
       const standardTransferred: any[] = [];
       const standardUsedDirect: any[] = [];
       const plusTransferred: any[] = [];
       const plusUsedDirect: any[] = [];
       const lendingSettledStandard: any[] = [];
       const lendingSettledPlus: any[] = [];
-      const bulkRestockStandard: any[] = [];
-      const bulkRestockPlus: any[] = [];
       const onDemandStandard: any[] = [];
 
       allPins.forEach(pin => {
         const isPlus = pin.type === 'plus';
-        
-        if (pin.isBulkRestocked || (pin.paymentReference && pin.paymentReference.startsWith('restock_'))) {
+        const isTakanoPin = pin.isTakanoPay === true || 
+                            pin.paymentProvider === 'takano_pay' || 
+                            pin.source === 'takano_pay' ||
+                            (typeof pin.paymentReference === 'string' && pin.paymentReference.startsWith('TKNO_')) ||
+                            (typeof pin.orderId === 'string' && pin.orderId.startsWith('TKNO_'));
+
+        if (isTakanoPin) {
+          if (pin.createdAt) {
+            const pinDate = new Date(pin.createdAt);
+            if (pinDate >= startOfChosenMonth && pinDate <= endOfChosenMonth) {
+              if (isPlus) {
+                takanoRestockPlus.push(pin);
+              } else {
+                takanoRestockStandard.push(pin);
+              }
+            }
+          }
+        } else if (pin.isBulkRestocked || (pin.paymentReference && pin.paymentReference.startsWith('restock_'))) {
           if (pin.createdAt) {
             const restockDate = new Date(pin.createdAt);
             if (restockDate >= startOfChosenMonth && restockDate <= endOfChosenMonth) {
               if (isPlus) {
-                bulkRestockPlus.push(pin);
+                paystackRestockPlus.push(pin);
               } else {
-                bulkRestockStandard.push(pin);
+                paystackRestockStandard.push(pin);
               }
             }
           }
@@ -1456,9 +1509,67 @@ export default function OverseerControl() {
       let standardTotalRevenue = 0;
       let plusTotalRevenue = 0;
       let lendingTotalRevenue = 0;
+      let takanoStandardRevenue = 0;
+      let takanoPlusRevenue = 0;
+      let paystackStandardRevenue = 0;
+      let paystackPlusRevenue = 0;
       const details: string[] = [];
 
-      // Process standard transferred
+      // 1. Process Takano Pay Standard Restocks
+      takanoRestockStandard.forEach(p => {
+        const prices = getPricesAtDate(p.createdAt);
+        const amount = p.price !== undefined ? p.price : (p.unitPrice !== undefined ? p.unitPrice : prices.standardWholesale);
+        takanoStandardRevenue += amount;
+        standardTotalRevenue += amount;
+      });
+
+      // 2. Process Takano Pay PLUS Restocks
+      takanoRestockPlus.forEach(p => {
+        const prices = getPricesAtDate(p.createdAt);
+        const amount = p.price !== undefined ? p.price : (p.unitPrice !== undefined ? p.unitPrice : prices.plusWholesale);
+        takanoPlusRevenue += amount;
+        plusTotalRevenue += amount;
+      });
+
+      const takanoTotalRevenue = takanoStandardRevenue + takanoPlusRevenue;
+      if (takanoRestockStandard.length > 0 || takanoRestockPlus.length > 0 || takanoOrders.length > 0) {
+        details.push(
+          `Takano Pay (Bank Transfer) Restock: ${takanoRestockStandard.length} Standard, ${takanoRestockPlus.length} PLUS (${takanoOrders.length} Paid Bank Transfer Orders) -> NGN ${takanoTotalRevenue.toLocaleString()}`
+        );
+        takanoOrders.forEach(ord => {
+          const payer = ord.payerName ? `Payer: "${ord.payerName}"` : 'Bank Transfer Credit Alert';
+          const vendor = ord.vendorStudentId || ord.vendorName || ord.vendorId || 'Vendor';
+          details.push(
+            `  • [Order ${ord.id}] NGN ${(ord.exactPayableAmount || ord.baseAmount || 0).toLocaleString()} | ${payer} -> Vendor: ${vendor} (${ord.numStandard || 0} Std, ${ord.numPlus || 0} PLUS @ ${ord.ratePercentage || 50}% wholesale tier)`
+          );
+        });
+      }
+
+      // 3. Process Paystack Gateway Restock Standard
+      paystackRestockStandard.forEach(p => {
+        const prices = getPricesAtDate(p.createdAt);
+        const amount = p.price !== undefined ? p.price : prices.standardWholesale;
+        paystackStandardRevenue += amount;
+        standardTotalRevenue += amount;
+      });
+      if (paystackRestockStandard.length > 0) {
+        details.push(`Paystack Gateway Restock Standard PINs: ${paystackRestockStandard.length} -> NGN ${paystackStandardRevenue.toLocaleString()}`);
+      }
+
+      // 4. Process Paystack Gateway Restock PLUS
+      paystackRestockPlus.forEach(p => {
+        const prices = getPricesAtDate(p.createdAt);
+        const amount = p.price !== undefined ? p.price : prices.plusWholesale;
+        paystackPlusRevenue += amount;
+        plusTotalRevenue += amount;
+      });
+      if (paystackRestockPlus.length > 0) {
+        details.push(`Paystack Gateway Restock PLUS PINs: ${paystackRestockPlus.length} -> NGN ${paystackPlusRevenue.toLocaleString()}`);
+      }
+
+      const paystackTotalRevenue = paystackStandardRevenue + paystackPlusRevenue;
+
+      // 5. Process standard transferred
       standardTransferred.forEach(p => {
         const prices = getPricesAtDate(p.createdAt);
         standardTotalRevenue += prices.standard;
@@ -1467,7 +1578,7 @@ export default function OverseerControl() {
         details.push(`Transferred Standard PINs (Upfront): ${standardTransferred.length}`);
       }
 
-      // Process standard used direct
+      // 6. Process standard used direct
       standardUsedDirect.forEach(p => {
         const prices = getPricesAtDate(p.usedAt);
         standardTotalRevenue += prices.standard;
@@ -1476,17 +1587,7 @@ export default function OverseerControl() {
         details.push(`Directly Used Standard PINs: ${standardUsedDirect.length}`);
       }
 
-      // Process bulk restock standard
-      bulkRestockStandard.forEach(p => {
-        const prices = getPricesAtDate(p.createdAt);
-        const amount = p.price !== undefined ? p.price : prices.standardWholesale;
-        standardTotalRevenue += amount;
-      });
-      if (bulkRestockStandard.length > 0) {
-        details.push(`Bulk Restock Standard PINs (Paystack): ${bulkRestockStandard.length}`);
-      }
-
-      // Process on-demand standard
+      // 7. Process on-demand standard
       onDemandStandard.forEach(p => {
         const prices = getPricesAtDate(p.createdAt);
         const amount = p.price !== undefined ? p.price : prices.standard;
@@ -1496,7 +1597,7 @@ export default function OverseerControl() {
         details.push(`On-Demand Standard PINs (Paystack): ${onDemandStandard.length}`);
       }
 
-      // Process plus transferred
+      // 8. Process plus transferred
       plusTransferred.forEach(p => {
         const prices = getPricesAtDate(p.createdAt);
         plusTotalRevenue += prices.plus;
@@ -1505,7 +1606,7 @@ export default function OverseerControl() {
         details.push(`Transferred PLUS PINs (Upfront): ${plusTransferred.length}`);
       }
 
-      // Process plus used direct
+      // 9. Process plus used direct
       plusUsedDirect.forEach(p => {
         const prices = getPricesAtDate(p.usedAt);
         plusTotalRevenue += prices.plus;
@@ -1514,17 +1615,7 @@ export default function OverseerControl() {
         details.push(`Directly Used PLUS PINs: ${plusUsedDirect.length}`);
       }
 
-      // Process bulk restock plus
-      bulkRestockPlus.forEach(p => {
-        const prices = getPricesAtDate(p.createdAt);
-        const amount = p.price !== undefined ? p.price : prices.plusWholesale;
-        plusTotalRevenue += amount;
-      });
-      if (bulkRestockPlus.length > 0) {
-        details.push(`Bulk Restock PLUS PINs (Paystack): ${bulkRestockPlus.length}`);
-      }
-
-      // Process settled lending pins (Wholesale debt cleared)
+      // 10. Process settled lending pins (Wholesale debt cleared)
       lendingSettledStandard.forEach(p => {
         const prices = getPricesAtDate(p.settledAt || p.createdAt);
         const amount = p.lentWholesalePrice !== undefined ? p.lentWholesalePrice : prices.standardWholesale;
@@ -1571,11 +1662,78 @@ export default function OverseerControl() {
       const detailedPins: {
         code: string;
         type: 'standard' | 'plus';
-        status: 'transferred' | 'used_direct' | 'lending_settled' | 'bulk_restock' | 'on_demand';
+        status: string;
+        provider?: string;
+        orderId?: string;
+        payerName?: string;
         associatedId: string;
         timestamp: string;
         amount?: number;
       }[] = [];
+
+      // Takano Pay Standard Pins
+      takanoRestockStandard.forEach(p => {
+        const prices = getPricesAtDate(p.createdAt);
+        const amount = p.price !== undefined ? p.price : (p.unitPrice !== undefined ? p.unitPrice : prices.standardWholesale);
+        detailedPins.push({
+          code: p.code || p.id,
+          type: 'standard',
+          status: 'takano_restock',
+          provider: 'takano_pay',
+          orderId: p.orderId || p.paymentReference || 'Takano Pay',
+          payerName: p.payerName || '',
+          associatedId: `Takano Restock (Vendor: ${p.assignedToStudentId || p.assignedToName || 'Vendor'}${p.payerName ? ` | Payer: ${p.payerName}` : ''})`,
+          timestamp: p.createdAt,
+          amount
+        });
+      });
+
+      // Takano Pay PLUS Pins
+      takanoRestockPlus.forEach(p => {
+        const prices = getPricesAtDate(p.createdAt);
+        const amount = p.price !== undefined ? p.price : (p.unitPrice !== undefined ? p.unitPrice : prices.plusWholesale);
+        detailedPins.push({
+          code: p.code || p.id,
+          type: 'plus',
+          status: 'takano_restock',
+          provider: 'takano_pay',
+          orderId: p.orderId || p.paymentReference || 'Takano Pay',
+          payerName: p.payerName || '',
+          associatedId: `Takano Restock (Vendor: ${p.assignedToStudentId || p.assignedToName || 'Vendor'}${p.payerName ? ` | Payer: ${p.payerName}` : ''})`,
+          timestamp: p.createdAt,
+          amount
+        });
+      });
+
+      // Paystack Restock Standard
+      paystackRestockStandard.forEach(p => {
+        const prices = getPricesAtDate(p.createdAt);
+        detailedPins.push({
+          code: p.code || p.id,
+          type: 'standard',
+          status: 'paystack_restock',
+          provider: 'paystack',
+          orderId: p.paymentReference || 'Paystack',
+          associatedId: `Paystack Restock: ${p.assignedToStudentId || p.assignedToName || 'Vendor'}`,
+          timestamp: p.createdAt,
+          amount: p.price !== undefined ? p.price : prices.standardWholesale
+        });
+      });
+
+      // Paystack Restock PLUS
+      paystackRestockPlus.forEach(p => {
+        const prices = getPricesAtDate(p.createdAt);
+        detailedPins.push({
+          code: p.code || p.id,
+          type: 'plus',
+          status: 'paystack_restock',
+          provider: 'paystack',
+          orderId: p.paymentReference || 'Paystack',
+          associatedId: `Paystack Restock: ${p.assignedToStudentId || p.assignedToName || 'Vendor'}`,
+          timestamp: p.createdAt,
+          amount: p.price !== undefined ? p.price : prices.plusWholesale
+        });
+      });
 
       standardTransferred.forEach(p => {
         const prices = getPricesAtDate(p.createdAt);
@@ -1583,6 +1741,7 @@ export default function OverseerControl() {
           code: p.code || p.id,
           type: 'standard',
           status: 'transferred',
+          provider: 'manual',
           associatedId: p.assignedToStudentId || p.owner || 'Unknown Vendor',
           timestamp: p.createdAt,
           amount: prices.standard
@@ -1595,6 +1754,7 @@ export default function OverseerControl() {
           code: p.code || p.id,
           type: 'plus',
           status: 'transferred',
+          provider: 'manual',
           associatedId: p.assignedToStudentId || p.owner || 'Unknown Vendor',
           timestamp: p.createdAt,
           amount: prices.plus
@@ -1607,6 +1767,7 @@ export default function OverseerControl() {
           code: p.code || p.id,
           type: 'standard',
           status: 'used_direct',
+          provider: 'direct',
           associatedId: p.usedByStudentId || 'N/A',
           timestamp: p.usedAt,
           amount: prices.standard
@@ -1619,33 +1780,10 @@ export default function OverseerControl() {
           code: p.code || p.id,
           type: 'plus',
           status: 'used_direct',
+          provider: 'direct',
           associatedId: p.usedByStudentId || 'N/A',
           timestamp: p.usedAt,
           amount: prices.plus
-        });
-      });
-
-      bulkRestockStandard.forEach(p => {
-        const prices = getPricesAtDate(p.createdAt);
-        detailedPins.push({
-          code: p.code || p.id,
-          type: 'standard',
-          status: 'bulk_restock',
-          associatedId: `Vendor Restock: ${p.assignedToStudentId || p.assignedToName || 'Vendor'}`,
-          timestamp: p.createdAt,
-          amount: p.price !== undefined ? p.price : prices.standardWholesale
-        });
-      });
-
-      bulkRestockPlus.forEach(p => {
-        const prices = getPricesAtDate(p.createdAt);
-        detailedPins.push({
-          code: p.code || p.id,
-          type: 'plus',
-          status: 'bulk_restock',
-          associatedId: `Vendor Restock: ${p.assignedToStudentId || p.assignedToName || 'Vendor'}`,
-          timestamp: p.createdAt,
-          amount: p.price !== undefined ? p.price : prices.plusWholesale
         });
       });
 
@@ -1655,6 +1793,8 @@ export default function OverseerControl() {
           code: p.code || p.id,
           type: 'standard',
           status: 'on_demand',
+          provider: 'paystack',
+          orderId: p.paymentReference || 'OnDemand',
           associatedId: `On-Demand Sale (Vendor: ${p.assignedToStudentId || p.assignedToName || 'Vendor'})`,
           timestamp: p.createdAt,
           amount: p.price !== undefined ? p.price : prices.standard
@@ -1668,6 +1808,7 @@ export default function OverseerControl() {
           code: p.code || p.id,
           type: 'standard',
           status: 'lending_settled',
+          provider: 'lending',
           associatedId: `Settled Vendor: ${p.assignedToStudentId || 'Vendor'} (User: ${p.usedByStudentId || 'Student'})`,
           timestamp: p.settledAt || p.usedAt || p.createdAt,
           amount
@@ -1681,6 +1822,7 @@ export default function OverseerControl() {
           code: p.code || p.id,
           type: 'plus',
           status: 'lending_settled',
+          provider: 'lending',
           associatedId: `Settled Vendor: ${p.assignedToStudentId || 'Vendor'} (User: ${p.usedByStudentId || 'Student'})`,
           timestamp: p.settledAt || p.usedAt || p.createdAt,
           amount
@@ -1724,9 +1866,16 @@ export default function OverseerControl() {
         plusUsedDirect: plusUsedDirect.length,
         lendingStandardCount: lendingSettledStandard.length,
         lendingPlusCount: lendingSettledPlus.length,
-        bulkRestockStandardCount: bulkRestockStandard.length,
-        bulkRestockPlusCount: bulkRestockPlus.length,
+        bulkRestockStandardCount: paystackRestockStandard.length,
+        bulkRestockPlusCount: paystackRestockPlus.length,
         onDemandStandardCount: onDemandStandard.length,
+        takanoStandardCount: takanoRestockStandard.length,
+        takanoPlusCount: takanoRestockPlus.length,
+        takanoTotalRevenue,
+        takanoOrdersCount: takanoOrders.length,
+        paystackStandardCount: paystackRestockStandard.length,
+        paystackPlusCount: paystackRestockPlus.length,
+        paystackTotalRevenue,
         standardTotalRevenue,
         plusTotalRevenue,
         lendingTotalRevenue,
@@ -1770,31 +1919,53 @@ export default function OverseerControl() {
         [],
         ["FINANCIAL SUMMARY"],
         ["Grand Total Revenue", `NGN ${calculatedRevenue.grandTotal.toLocaleString()}`],
-        ["Standard PIN Income", `NGN ${calculatedRevenue.standardTotalRevenue.toLocaleString()}`, `${calculatedRevenue.standardTransferred + calculatedRevenue.standardUsedDirect + calculatedRevenue.bulkRestockStandardCount + calculatedRevenue.onDemandStandardCount} Pins`],
-        ["PLUS PIN Income", `NGN ${calculatedRevenue.plusTotalRevenue.toLocaleString()}`, `${calculatedRevenue.plusTransferred + calculatedRevenue.plusUsedDirect + calculatedRevenue.bulkRestockPlusCount} Pins`],
+        ["Takano Pay (Bank Transfer) Revenue", `NGN ${(calculatedRevenue.takanoTotalRevenue || 0).toLocaleString()}`, `${(calculatedRevenue.takanoStandardCount || 0) + (calculatedRevenue.takanoPlusCount || 0)} PINs Generated (${calculatedRevenue.takanoOrdersCount || 0} Orders Fulfilled)`],
+        ["Paystack Gateway Restock Revenue", `NGN ${(calculatedRevenue.paystackTotalRevenue || 0).toLocaleString()}`, `${(calculatedRevenue.paystackStandardCount || 0) + (calculatedRevenue.paystackPlusCount || 0)} PINs`],
+        ["Standard PIN Income (All Sources)", `NGN ${calculatedRevenue.standardTotalRevenue.toLocaleString()}`, `${calculatedRevenue.standardTransferred + calculatedRevenue.standardUsedDirect + (calculatedRevenue.takanoStandardCount || 0) + (calculatedRevenue.paystackStandardCount || 0) + calculatedRevenue.onDemandStandardCount} Pins`],
+        ["PLUS PIN Income (All Sources)", `NGN ${calculatedRevenue.plusTotalRevenue.toLocaleString()}`, `${calculatedRevenue.plusTransferred + calculatedRevenue.plusUsedDirect + (calculatedRevenue.takanoPlusCount || 0) + (calculatedRevenue.paystackPlusCount || 0)} Pins`],
         ["Lending Settlements Income", `NGN ${(calculatedRevenue.lendingTotalRevenue || 0).toLocaleString()}`, `${(calculatedRevenue.lendingStandardCount || 0) + (calculatedRevenue.lendingPlusCount || 0)} Settled Borrowed Pins`],
         ["CoLodge Commissions", `NGN ${(calculatedRevenue.colodgeCommissionRevenue || 0).toLocaleString()}`, "10% commission on withdrawn agent fees"],
         [],
         ["BREAKDOWN COUNTS"],
+        ["Takano Pay Standard PINs Generated (Bank Transfer)", calculatedRevenue.takanoStandardCount || 0],
+        ["Takano Pay PLUS PINs Generated (Bank Transfer)", calculatedRevenue.takanoPlusCount || 0],
+        ["Takano Pay Fulfilled Bank Orders", calculatedRevenue.takanoOrdersCount || 0],
+        ["Paystack Restock Standard PINs", calculatedRevenue.paystackStandardCount || 0],
+        ["Paystack Restock PLUS PINs", calculatedRevenue.paystackPlusCount || 0],
+        ["On-Demand Standard Pins (Paystack)", calculatedRevenue.onDemandStandardCount || 0],
         ["Standard Pins Transferred (Upfront)", calculatedRevenue.standardTransferred],
         ["Standard Pins Used Directly", calculatedRevenue.standardUsedDirect],
-        ["Bulk Restock Standard Pins (Paystack)", calculatedRevenue.bulkRestockStandardCount],
-        ["On-Demand Standard Pins (Paystack)", calculatedRevenue.onDemandStandardCount],
         ["PLUS Pins Transferred (Upfront)", calculatedRevenue.plusTransferred],
         ["PLUS Pins Used Directly", calculatedRevenue.plusUsedDirect],
-        ["Bulk Restock PLUS Pins (Paystack)", calculatedRevenue.bulkRestockPlusCount],
         ["Lending Standard PINs Settled", calculatedRevenue.lendingStandardCount || 0],
         ["Lending PLUS PINs Settled", calculatedRevenue.lendingPlusCount || 0],
         ["CoLodge Commission Income", `NGN ${(calculatedRevenue.colodgeCommissionRevenue || 0).toLocaleString()}`],
         [],
         ["DETAILED ACTIVATION PIN RECORDS"],
-        ["S/N", "PIN Code", "Type", "Category/Status", "Associated Student ID (Vendor or User)", "Date & Time", "Revenue Amount (NGN)"]
+        ["S/N", "PIN Code", "Type", "Category/Status", "Payment Gateway / Channel", "Order Reference", "Associated Student / Vendor ID", "Date & Time", "Revenue Amount (NGN)"]
       ];
 
       const pins = calculatedRevenue.pins || [];
       pins.forEach((p, idx) => {
         const typeStr = p.type.toUpperCase();
-        const statusStr = p.status === 'transferred' ? 'TRANSFERRED (UPFRONT)' : p.status === 'lending_settled' ? 'LENDING (SETTLED DEBT)' : p.status === 'bulk_restock' ? 'BULK RESTOCK (PAYSTACK)' : p.status === 'on_demand' ? 'ON-DEMAND SALE (PAYSTACK)' : 'USED DIRECT';
+        let statusStr = 'USED DIRECT';
+        let providerStr = 'DIRECT USAGE';
+        if (p.status === 'takano_restock') {
+          statusStr = 'TAKANO RESTOCK (BANK TRANSFER)';
+          providerStr = 'TAKANO PAY';
+        } else if (p.status === 'paystack_restock') {
+          statusStr = 'PAYSTACK RESTOCK';
+          providerStr = 'PAYSTACK';
+        } else if (p.status === 'transferred') {
+          statusStr = 'TRANSFERRED (UPFRONT)';
+          providerStr = 'MANUAL/ADMIN';
+        } else if (p.status === 'lending_settled') {
+          statusStr = 'LENDING (SETTLED DEBT)';
+          providerStr = 'LENDING RECOVERY';
+        } else if (p.status === 'on_demand') {
+          statusStr = 'ON-DEMAND SALE';
+          providerStr = 'PAYSTACK';
+        }
         const formattedDate = new Date(p.timestamp).toLocaleString();
         
         dataRows.push([
@@ -1802,6 +1973,8 @@ export default function OverseerControl() {
           p.code,
           typeStr,
           statusStr,
+          providerStr,
+          p.orderId || 'N/A',
           p.associatedId,
           formattedDate,
           p.amount !== undefined ? `NGN ${p.amount.toLocaleString()}` : 'N/A'
@@ -1811,7 +1984,7 @@ export default function OverseerControl() {
       const ws = XLSX.utils.aoa_to_sheet(dataRows);
 
       // Force string format for PIN Code so Excel doesn't show them in scientific notation
-      const pinsStartRow = 19; // 0-indexed row 19 is where PIN rows start (S/N is row 18)
+      const pinsStartRow = 22; // 0-indexed row where PIN rows start
       for (let i = pinsStartRow; i < dataRows.length; i++) {
         const pinCellRef = XLSX.utils.encode_cell({ r: i, c: 1 }); // Row i, Col 1 (PIN Code column B)
         if (ws[pinCellRef]) {
@@ -1824,9 +1997,12 @@ export default function OverseerControl() {
         { wch: 8 },   // S/N (Col A)
         { wch: 20 },  // PIN Code (Col B)
         { wch: 12 },  // Type (Col C)
-        { wch: 22 },  // Category/Status (Col D)
-        { wch: 45 },  // Associated Student ID (Col E)
-        { wch: 28 }   // Date & Time (Col F)
+        { wch: 32 },  // Category/Status (Col D)
+        { wch: 24 },  // Payment Gateway / Channel (Col E)
+        { wch: 26 },  // Order Reference (Col F)
+        { wch: 45 },  // Associated Student ID (Col G)
+        { wch: 26 },  // Date & Time (Col H)
+        { wch: 22 }   // Revenue Amount (Col I)
       ];
       ws['!cols'] = colWidths;
 
@@ -1886,176 +2062,198 @@ export default function OverseerControl() {
       // 2. Metadata Information Block
       doc.setFillColor(248, 250, 252); // slate-50
       doc.setDrawColor(226, 232, 240); // slate-200
-      doc.rect(15, 55, 180, 25, "FD");
+      doc.rect(15, 53, 180, 24, "FD");
 
       // Column 1
       doc.setTextColor(100, 116, 139); // slate-500
       doc.setFont("Helvetica", "bold");
       doc.setFontSize(8);
-      doc.text("UNIVERSITY INSTITUTION", 20, 62);
+      doc.text("UNIVERSITY INSTITUTION", 20, 60);
       
       doc.setTextColor(15, 23, 42); // slate-900
       doc.setFont("Helvetica", "bold");
       doc.setFontSize(11);
-      doc.text(`${schoolShort}`, 20, 68);
+      doc.text(`${schoolShort}`, 20, 66);
       doc.setFont("Helvetica", "normal");
-      doc.setFontSize(9);
-      doc.text(`${schoolName.substring(0, 50)}${schoolName.length > 50 ? '...' : ''}`, 20, 73);
+      doc.setFontSize(8.5);
+      doc.text(`${schoolName.substring(0, 50)}${schoolName.length > 50 ? '...' : ''}`, 20, 71);
 
       // Column 2
       doc.setTextColor(100, 116, 139); // slate-500
       doc.setFont("Helvetica", "bold");
       doc.setFontSize(8);
-      doc.text("AUDIT REPORT PERIOD", 130, 62);
+      doc.text("AUDIT REPORT PERIOD", 130, 60);
 
       doc.setTextColor(217, 119, 6); // amber-600
       doc.setFont("Helvetica", "bold");
       doc.setFontSize(12);
-      doc.text(`${monthName.toUpperCase()} ${revYear}`, 130, 69);
+      doc.text(`${monthName.toUpperCase()} ${revYear}`, 130, 67);
       
       doc.setTextColor(100, 116, 139);
       doc.setFont("Helvetica", "normal");
-      doc.setFontSize(9);
-      doc.text(`System ID: REF-${revUni.toUpperCase()}-${revYear}`, 130, 74);
+      doc.setFontSize(8.5);
+      doc.text(`System ID: REF-${revUni.toUpperCase()}-${revYear}`, 130, 72);
 
-      // 3. Financial Summary Cards
+      // 3. Financial Summary Cards (5 Cards Layout)
       // Card 1: Grand Total
       doc.setFillColor(254, 243, 199); // amber-100 background
       doc.setDrawColor(245, 158, 11); // amber-500 border
-      doc.rect(15, 90, 56, 32, "FD");
+      doc.rect(15, 83, 42, 32, "FD");
       
       doc.setTextColor(146, 64, 14); // amber-800
       doc.setFont("Helvetica", "bold");
-      doc.setFontSize(8);
-      doc.text("GRAND TOTAL REVENUE", 20, 97);
+      doc.setFontSize(7.5);
+      doc.text("GRAND TOTAL", 18, 90);
       
       doc.setTextColor(217, 119, 6); // amber-600
       doc.setFont("Helvetica", "bold");
-      doc.setFontSize(16);
-      doc.text(`N${calculatedRevenue.grandTotal.toLocaleString()}`, 20, 107);
+      doc.setFontSize(12);
+      doc.text(`N${calculatedRevenue.grandTotal.toLocaleString()}`, 18, 99);
       
       doc.setFont("Helvetica", "normal");
-      doc.setFontSize(8);
+      doc.setFontSize(7);
       doc.setTextColor(180, 83, 9);
-      doc.text("Fully Audited Income", 20, 115);
+      doc.text("Audited Net Income", 18, 107);
 
-      // Card 2: Standard PIN
-      doc.setFillColor(248, 250, 252); // slate-50
-      doc.setDrawColor(226, 232, 240); // slate-200
-      doc.rect(77, 90, 56, 32, "FD");
+      // Card 2: Takano Pay Bank Income (Teal Theme)
+      doc.setFillColor(240, 253, 250); // teal-50
+      doc.setDrawColor(20, 184, 166); // teal-500 border
+      doc.rect(60, 83, 42, 32, "FD");
 
-      doc.setTextColor(100, 116, 139); // slate-500
+      doc.setTextColor(15, 118, 110); // teal-700
       doc.setFont("Helvetica", "bold");
-      doc.setFontSize(8);
-      doc.text("STANDARD PIN INCOME", 82, 97);
+      doc.setFontSize(7.5);
+      doc.text("TAKANO PAY (BANK)", 63, 90);
 
-      doc.setTextColor(15, 23, 42); // slate-900
+      doc.setTextColor(13, 148, 136); // teal-600
       doc.setFont("Helvetica", "bold");
-      doc.setFontSize(14);
-      doc.text(`N${calculatedRevenue.standardTotalRevenue.toLocaleString()}`, 82, 107);
+      doc.setFontSize(12);
+      doc.text(`N${(calculatedRevenue.takanoTotalRevenue || 0).toLocaleString()}`, 63, 99);
 
       doc.setFont("Helvetica", "normal");
-      doc.setFontSize(8);
+      doc.setFontSize(7);
+      doc.setTextColor(15, 118, 110);
+      doc.text(`${(calculatedRevenue.takanoStandardCount || 0) + (calculatedRevenue.takanoPlusCount || 0)} Pins (${calculatedRevenue.takanoOrdersCount || 0} Orders)`, 63, 107);
+
+      // Card 3: Standard PIN Income
+      doc.setFillColor(248, 250, 252); // slate-50
+      doc.setDrawColor(226, 232, 240); // slate-200
+      doc.rect(105, 83, 44, 32, "FD");
+
+      doc.setTextColor(100, 116, 139); // slate-500
+      doc.setFont("Helvetica", "bold");
+      doc.setFontSize(7.5);
+      doc.text("STANDARD PIN INCOME", 108, 90);
+
+      doc.setTextColor(15, 23, 42); // slate-900
+      doc.setFont("Helvetica", "bold");
+      doc.setFontSize(11);
+      doc.text(`N${calculatedRevenue.standardTotalRevenue.toLocaleString()}`, 108, 99);
+
+      doc.setFont("Helvetica", "normal");
+      doc.setFontSize(7);
       doc.setTextColor(100, 116, 139);
-      doc.text(`${calculatedRevenue.standardTransferred + calculatedRevenue.standardUsedDirect} Pins Processed`, 82, 115);
+      doc.text(`${calculatedRevenue.standardTransferred + calculatedRevenue.standardUsedDirect + (calculatedRevenue.takanoStandardCount || 0) + (calculatedRevenue.paystackStandardCount || 0)} Pins`, 108, 107);
 
-      // Card 3: PLUS PIN
+      // Card 4: PLUS PIN
       doc.setFillColor(248, 250, 252); // slate-50
       doc.setDrawColor(226, 232, 240); // slate-200
-      doc.rect(139, 90, 56, 15, "FD");
+      doc.rect(152, 83, 43, 15, "FD");
 
       doc.setTextColor(100, 116, 139); // slate-500
       doc.setFont("Helvetica", "bold");
-      doc.setFontSize(7.5);
-      doc.text("PLUS PIN INCOME", 143, 95);
+      doc.setFontSize(7);
+      doc.text("PLUS PIN INCOME", 155, 89);
 
       doc.setTextColor(15, 23, 42); // slate-900
       doc.setFont("Helvetica", "bold");
-      doc.setFontSize(11);
-      doc.text(`N${calculatedRevenue.plusTotalRevenue.toLocaleString()}`, 143, 101);
+      doc.setFontSize(9.5);
+      doc.text(`N${calculatedRevenue.plusTotalRevenue.toLocaleString()}`, 155, 95);
 
-      // Card 4: Lending Settlements
+      // Card 5: Lending Settlements
       doc.setFillColor(248, 250, 252); // slate-50
       doc.setDrawColor(226, 232, 240); // slate-200
-      doc.rect(139, 107, 56, 15, "FD");
+      doc.rect(152, 100, 43, 15, "FD");
 
       doc.setTextColor(100, 116, 139); // slate-500
       doc.setFont("Helvetica", "bold");
-      doc.setFontSize(7.5);
-      doc.text("LENDING RECOVERY INCOME", 143, 112);
+      doc.setFontSize(7);
+      doc.text("LENDING RECOVERY", 155, 106);
 
       doc.setTextColor(15, 23, 42); // slate-900
       doc.setFont("Helvetica", "bold");
-      doc.setFontSize(11);
-      doc.text(`N${(calculatedRevenue.lendingTotalRevenue || 0).toLocaleString()}`, 143, 118);
+      doc.setFontSize(9.5);
+      doc.text(`N${(calculatedRevenue.lendingTotalRevenue || 0).toLocaleString()}`, 155, 112);
 
       // 4. Breakdown Table
       doc.setFont("Helvetica", "bold");
-      doc.setFontSize(11);
+      doc.setFontSize(10.5);
       doc.setTextColor(15, 23, 42);
-      doc.text("ACTIVATION SOURCE & BREAKDOWN", 15, 133);
+      doc.text("ACTIVATION SOURCE & BREAKDOWN", 15, 124);
 
       // Table Header Row
       doc.setFillColor(30, 41, 59); // slate-800
-      doc.rect(15, 137, 180, 8, "F");
+      doc.rect(15, 127, 180, 7.5, "F");
       
       doc.setTextColor(255, 255, 255);
       doc.setFont("Helvetica", "bold");
-      doc.setFontSize(8);
-      doc.text("ACTIVATION PIN DESCRIPTION", 18, 142);
-      doc.text("TRANSFERRED", 100, 142, { align: "center" });
-      doc.text("USED DIRECT", 135, 142, { align: "center" });
-      doc.text("TOTAL PINS", 165, 142, { align: "center" });
+      doc.setFontSize(7.5);
+      doc.text("ACTIVATION PIN DESCRIPTION", 18, 132);
+      doc.text("STANDARD", 100, 132, { align: "center" });
+      doc.text("PLUS", 135, 132, { align: "center" });
+      doc.text("TOTAL PINS", 168, 132, { align: "center" });
 
       // Row helper function
-      const drawRow = (yPos: number, description: string, transCount: number, directCount: number, bgEven: boolean) => {
+      const drawRow = (yPos: number, description: string, stdCount: number, plusCount: number, bgEven: boolean) => {
         if (bgEven) {
           doc.setFillColor(248, 250, 252);
-          doc.rect(15, yPos, 180, 10, "F");
+          doc.rect(15, yPos, 180, 8, "F");
         }
         doc.setDrawColor(241, 245, 249);
-        doc.line(15, yPos + 10, 195, yPos + 10);
+        doc.line(15, yPos + 8, 195, yPos + 8);
 
         doc.setTextColor(51, 65, 85);
         doc.setFont("Helvetica", "normal");
-        doc.setFontSize(9);
-        doc.text(description, 18, yPos + 6);
+        doc.setFontSize(8);
+        doc.text(description, 18, yPos + 5.5);
         
         doc.setFont("Helvetica", "bold");
-        doc.text(transCount.toString(), 100, yPos + 6, { align: "center" });
-        doc.text(directCount.toString(), 135, yPos + 6, { align: "center" });
+        doc.text(stdCount.toString(), 100, yPos + 5.5, { align: "center" });
+        doc.text(plusCount.toString(), 135, yPos + 5.5, { align: "center" });
         
         doc.setTextColor(15, 23, 42);
-        doc.text((transCount + directCount).toString(), 165, yPos + 6, { align: "center" });
+        doc.text((stdCount + plusCount).toString(), 168, yPos + 5.5, { align: "center" });
       };
 
       // Draw rows
-      drawRow(145, "Standard Pin Activations (Regular Grade Access)", calculatedRevenue.standardTransferred, calculatedRevenue.standardUsedDirect, false);
-      drawRow(155, "PLUS Pin Activations (Premium Advanced Access)", calculatedRevenue.plusTransferred, calculatedRevenue.plusUsedDirect, true);
-      drawRow(165, "Settled Borrowed/Lent PINs (Wholesale Debt Cleared)", calculatedRevenue.lendingStandardCount || 0, calculatedRevenue.lendingPlusCount || 0, false);
+      drawRow(134.5, "Takano Pay Bank Transfer Restock PINs (Automated IMAP Alerts)", calculatedRevenue.takanoStandardCount || 0, calculatedRevenue.takanoPlusCount || 0, true);
+      drawRow(142.5, "Paystack Gateway Restock PINs (Standard & PLUS)", calculatedRevenue.paystackStandardCount || 0, calculatedRevenue.paystackPlusCount || 0, false);
+      drawRow(150.5, "Standard / PLUS Transferred Non-Lent PINs (Upfront)", calculatedRevenue.standardTransferred, calculatedRevenue.plusTransferred, true);
+      drawRow(158.5, "Directly Activated Student Portal PINs", calculatedRevenue.standardUsedDirect, calculatedRevenue.plusUsedDirect, false);
+      drawRow(166.5, "Settled Borrowed/Lent PINs (Wholesale Debt Cleared)", calculatedRevenue.lendingStandardCount || 0, calculatedRevenue.lendingPlusCount || 0, true);
 
       // 5. Audit Log Details
       doc.setFont("Helvetica", "bold");
-      doc.setFontSize(11);
+      doc.setFontSize(10.5);
       doc.setTextColor(15, 23, 42);
-      doc.text("CHRONOLOGICAL CALCULATION STEPS", 15, 178);
+      doc.text("CHRONOLOGICAL CALCULATION STEPS & ORDERS", 15, 183);
 
       // Log Panel background
       doc.setFillColor(248, 250, 252); // slate-50
       doc.setDrawColor(226, 232, 240); // slate-200
       
-      const logBoxHeight = Math.min(80, 10 + (calculatedRevenue.details.length * 6));
-      doc.rect(15, 182, 180, logBoxHeight, "FD");
+      const logBoxHeight = Math.min(78, 10 + (calculatedRevenue.details.length * 5.2));
+      doc.rect(15, 187, 180, logBoxHeight, "FD");
 
       doc.setTextColor(71, 85, 105);
       doc.setFont("Courier", "normal"); // Monospaced feel
-      doc.setFontSize(8);
+      doc.setFontSize(7.5);
 
-      let lineY = 188;
+      let lineY = 193;
       calculatedRevenue.details.forEach((line) => {
-        if (lineY < 182 + logBoxHeight - 4) {
-          doc.text(line, 20, lineY);
-          lineY += 5.5;
+        if (lineY < 187 + logBoxHeight - 4) {
+          doc.text(line.substring(0, 95), 20, lineY);
+          lineY += 5;
         }
       });
 
@@ -2115,11 +2313,11 @@ export default function OverseerControl() {
         doc.setFont("Helvetica", "bold");
         doc.setFontSize(8);
         doc.text("S/N", 18, tableTop + 5);
-        doc.text("PIN CODE", 30, tableTop + 5);
-        doc.text("TYPE", 70, tableTop + 5);
-        doc.text("CATEGORY/STATUS", 90, tableTop + 5);
-        doc.text("STUDENT / VENDOR ID", 130, tableTop + 5);
-        doc.text("DATE & TIME", 165, tableTop + 5);
+        doc.text("PIN CODE", 28, tableTop + 5);
+        doc.text("TYPE", 62, tableTop + 5);
+        doc.text("SOURCE / GATEWAY", 78, tableTop + 5);
+        doc.text("ORDER / ASSOCIATED ID", 125, tableTop + 5);
+        doc.text("DATE & TIME", 168, tableTop + 5);
 
         // Draw up to 22 records on this page
         let yPos = tableTop + 8;
@@ -2143,25 +2341,38 @@ export default function OverseerControl() {
           doc.text((i + 1).toString(), 18, yPos + 5);
           
           doc.setFont("Courier", "bold");
-          doc.text(pin.code, 30, yPos + 5);
+          doc.text(pin.code, 28, yPos + 5);
           
           doc.setFont("Helvetica", "bold");
           if (pin.type === 'plus') {
             doc.setTextColor(79, 70, 229); // indigo-600
-            doc.text("PLUS", 70, yPos + 5);
+            doc.text("PLUS", 62, yPos + 5);
           } else {
             doc.setTextColor(100, 116, 139); // slate-500
-            doc.text("STD", 70, yPos + 5);
+            doc.text("STD", 62, yPos + 5);
           }
           
-          doc.setTextColor(51, 65, 85);
-          doc.setFont("Helvetica", "normal");
-          doc.text(pin.status === 'transferred' ? "TRANSFERRED" : "USED DIRECT", 90, yPos + 5);
-          doc.text(pin.associatedId, 130, yPos + 5);
+          if (pin.status === 'takano_restock' || pin.provider === 'takano_pay') {
+            doc.setTextColor(13, 148, 136); // teal-600
+            doc.setFont("Helvetica", "bold");
+            doc.text("TAKANO PAY", 78, yPos + 5);
+          } else if (pin.status === 'paystack_restock') {
+            doc.setTextColor(59, 130, 246);
+            doc.setFont("Helvetica", "bold");
+            doc.text("PAYSTACK", 78, yPos + 5);
+          } else {
+            doc.setTextColor(51, 65, 85);
+            doc.setFont("Helvetica", "normal");
+            doc.text(pin.status === 'transferred' ? "TRANSFERRED" : "USED DIRECT", 78, yPos + 5);
+          }
           
-          const formattedDate = new Date(pin.timestamp).toLocaleString();
+          doc.setFont("Helvetica", "normal");
+          doc.setTextColor(51, 65, 85);
+          doc.text((pin.associatedId || '').substring(0, 28), 125, yPos + 5);
+          
+          const formattedDate = new Date(pin.timestamp).toLocaleDateString();
           doc.setFontSize(7.5);
-          doc.text(formattedDate, 165, yPos + 5);
+          doc.text(formattedDate, 168, yPos + 5);
           
           yPos += 8;
         }
@@ -3476,8 +3687,29 @@ export default function OverseerControl() {
                 </div>
               </div>
 
-              {/* 4 Responsive Stat Columns */}
-              <div className="grid gap-4 grid-cols-1 sm:grid-cols-2 lg:grid-cols-4">
+              {/* 5 Responsive Stat Columns */}
+              <div className="grid gap-4 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
+                {/* 1. Takano Pay Bank Transfer Restock Card */}
+                <div className="space-y-2 p-4 bg-teal-50/50 dark:bg-teal-950/20 border border-teal-200 dark:border-teal-900 rounded-xl shadow-2xs">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-bold text-teal-900 dark:text-teal-200 flex items-center gap-1">
+                      <Building2 className="h-3.5 w-3.5 text-teal-600" /> Takano Pay (Bank)
+                    </span>
+                    <Badge variant="outline" className="text-[9px] font-mono bg-teal-100 text-teal-800 border-teal-300 dark:bg-teal-900/60 dark:text-teal-300">
+                      Live FinTech
+                    </Badge>
+                  </div>
+                  <span className="font-bold text-xl text-teal-700 dark:text-teal-300 block tabular-nums">
+                    ₦{(calculatedRevenue.takanoTotalRevenue || 0).toLocaleString()}
+                  </span>
+                  <div className="flex flex-wrap gap-1 pt-1.5 border-t border-teal-200/60 dark:border-teal-900/60 text-[10px] text-teal-800 dark:text-teal-300">
+                    <span className="bg-teal-100/70 dark:bg-teal-900/40 px-1.5 py-0.5 rounded">Std: {calculatedRevenue.takanoStandardCount || 0}</span>
+                    <span className="bg-teal-100/70 dark:bg-teal-900/40 px-1.5 py-0.5 rounded">PLUS: {calculatedRevenue.takanoPlusCount || 0}</span>
+                    <span className="bg-teal-100/70 dark:bg-teal-900/40 px-1.5 py-0.5 rounded">Orders: {calculatedRevenue.takanoOrdersCount || 0}</span>
+                  </div>
+                </div>
+
+                {/* 2. Standard Pin Income */}
                 <div className="space-y-2 p-4 bg-card border rounded-xl shadow-2xs">
                   <div className="flex items-center justify-between">
                     <span className="text-xs font-medium text-muted-foreground">Standard Pin Income</span>
@@ -3487,13 +3719,14 @@ export default function OverseerControl() {
                     ₦{calculatedRevenue.standardTotalRevenue.toLocaleString()}
                   </span>
                   <div className="flex flex-wrap gap-1 pt-1.5 border-t border-border/60 text-[10px] text-muted-foreground">
+                    <span className="bg-muted px-1.5 py-0.5 rounded">Takano: {calculatedRevenue.takanoStandardCount || 0}</span>
+                    <span className="bg-muted px-1.5 py-0.5 rounded">Paystack: {calculatedRevenue.bulkRestockStandardCount}</span>
                     <span className="bg-muted px-1.5 py-0.5 rounded">Transferred: {calculatedRevenue.standardTransferred}</span>
                     <span className="bg-muted px-1.5 py-0.5 rounded">Used: {calculatedRevenue.standardUsedDirect}</span>
-                    <span className="bg-muted px-1.5 py-0.5 rounded">Restock: {calculatedRevenue.bulkRestockStandardCount}</span>
-                    <span className="bg-muted px-1.5 py-0.5 rounded">On-Demand: {calculatedRevenue.onDemandStandardCount}</span>
                   </div>
                 </div>
 
+                {/* 3. PLUS Pin Income */}
                 <div className="space-y-2 p-4 bg-card border rounded-xl shadow-2xs">
                   <div className="flex items-center justify-between">
                     <span className="text-xs font-medium text-muted-foreground">PLUS Pin Income</span>
@@ -3503,12 +3736,14 @@ export default function OverseerControl() {
                     ₦{calculatedRevenue.plusTotalRevenue.toLocaleString()}
                   </span>
                   <div className="flex flex-wrap gap-1 pt-1.5 border-t border-border/60 text-[10px] text-muted-foreground">
+                    <span className="bg-muted px-1.5 py-0.5 rounded">Takano: {calculatedRevenue.takanoPlusCount || 0}</span>
+                    <span className="bg-muted px-1.5 py-0.5 rounded">Paystack: {calculatedRevenue.bulkRestockPlusCount}</span>
                     <span className="bg-muted px-1.5 py-0.5 rounded">Transferred: {calculatedRevenue.plusTransferred}</span>
                     <span className="bg-muted px-1.5 py-0.5 rounded">Used: {calculatedRevenue.plusUsedDirect}</span>
-                    <span className="bg-muted px-1.5 py-0.5 rounded">Restock: {calculatedRevenue.bulkRestockPlusCount}</span>
                   </div>
                 </div>
 
+                {/* 4. Lending Debt Cleared */}
                 <div className="space-y-2 p-4 bg-card border rounded-xl shadow-2xs">
                   <div className="flex items-center justify-between">
                     <span className="text-xs font-medium text-muted-foreground">Lending Debt Cleared</span>
@@ -3523,6 +3758,7 @@ export default function OverseerControl() {
                   </div>
                 </div>
 
+                {/* 5. CoLodge Commission */}
                 <div className="space-y-2 p-4 bg-card border rounded-xl shadow-2xs">
                   <div className="flex items-center justify-between">
                     <span className="text-xs font-medium text-muted-foreground">CoLodge Commission</span>
@@ -3549,6 +3785,203 @@ export default function OverseerControl() {
                     </div>
                   ))}
                 </div>
+              </div>
+
+              {/* Interactive Audited PIN Records Explorer */}
+              <div className="space-y-3 pt-3 border-t">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                  <div>
+                    <h4 className="text-sm font-bold flex items-center gap-1.5 text-foreground">
+                      <Key className="h-4 w-4 text-amber-500" /> Audited Activation PIN Records Explorer ({calculatedRevenue.pins?.length || 0})
+                    </h4>
+                    <p className="text-xs text-muted-foreground">
+                      Search, inspect, and verify PIN codes generated via Takano Pay bank transfers and other channels.
+                    </p>
+                  </div>
+
+                  {/* Filter Pills */}
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    <Button
+                      size="sm"
+                      variant={pinFilterCategory === 'all' ? 'default' : 'outline'}
+                      onClick={() => setPinFilterCategory('all')}
+                      className="text-xs h-7 px-2.5"
+                    >
+                      All ({calculatedRevenue.pins?.length || 0})
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant={pinFilterCategory === 'takano' ? 'default' : 'outline'}
+                      onClick={() => setPinFilterCategory('takano')}
+                      className={`text-xs h-7 px-2.5 ${pinFilterCategory === 'takano' ? 'bg-teal-600 hover:bg-teal-700 text-white' : 'text-teal-700 dark:text-teal-300 border-teal-300'}`}
+                    >
+                      <Building2 className="h-3 w-3 mr-1" />
+                      Takano Pay ({(calculatedRevenue.takanoStandardCount || 0) + (calculatedRevenue.takanoPlusCount || 0)})
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant={pinFilterCategory === 'paystack' ? 'default' : 'outline'}
+                      onClick={() => setPinFilterCategory('paystack')}
+                      className="text-xs h-7 px-2.5"
+                    >
+                      Paystack ({(calculatedRevenue.paystackStandardCount || 0) + (calculatedRevenue.paystackPlusCount || 0)})
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant={pinFilterCategory === 'transferred' ? 'default' : 'outline'}
+                      onClick={() => setPinFilterCategory('transferred')}
+                      className="text-xs h-7 px-2.5"
+                    >
+                      Transferred ({calculatedRevenue.standardTransferred + calculatedRevenue.plusTransferred})
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant={pinFilterCategory === 'used' ? 'default' : 'outline'}
+                      onClick={() => setPinFilterCategory('used')}
+                      className="text-xs h-7 px-2.5"
+                    >
+                      Used Directly ({calculatedRevenue.standardUsedDirect + calculatedRevenue.plusUsedDirect})
+                    </Button>
+                  </div>
+                </div>
+
+                {/* Search Bar */}
+                <div className="flex items-center gap-2">
+                  <Input 
+                    placeholder="Search by PIN Code, Student ID, Vendor, or Order Reference (e.g. TKNO_)..."
+                    value={pinFilterSearch}
+                    onChange={(e) => setPinFilterSearch(e.target.value)}
+                    className="h-8 text-xs font-mono max-w-md"
+                  />
+                  {pinFilterSearch && (
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      onClick={() => setPinFilterSearch('')}
+                      className="text-xs h-8 px-2"
+                    >
+                      Clear
+                    </Button>
+                  )}
+                </div>
+
+                {/* Table of Filtered PINs */}
+                {(() => {
+                  const filtered = (calculatedRevenue.pins || []).filter(p => {
+                    // Category filter
+                    if (pinFilterCategory === 'takano') {
+                      if (p.status !== 'takano_restock' && p.provider !== 'takano_pay') return false;
+                    } else if (pinFilterCategory === 'paystack') {
+                      if (p.status !== 'paystack_restock' && p.status !== 'on_demand') return false;
+                    } else if (pinFilterCategory === 'transferred') {
+                      if (p.status !== 'transferred') return false;
+                    } else if (pinFilterCategory === 'used') {
+                      if (p.status !== 'used_direct') return false;
+                    }
+
+                    // Search query
+                    if (pinFilterSearch.trim()) {
+                      const q = pinFilterSearch.trim().toLowerCase();
+                      const matchCode = p.code.toLowerCase().includes(q);
+                      const matchAssoc = (p.associatedId || '').toLowerCase().includes(q);
+                      const matchOrder = (p.orderId || '').toLowerCase().includes(q);
+                      if (!matchCode && !matchAssoc && !matchOrder) return false;
+                    }
+
+                    return true;
+                  });
+
+                  if (filtered.length === 0) {
+                    return (
+                      <div className="text-center py-6 border rounded-xl bg-card text-xs text-muted-foreground italic">
+                        No activation PIN records matching the selected filter/search.
+                      </div>
+                    );
+                  }
+
+                  return (
+                    <div className="border rounded-xl bg-card overflow-hidden shadow-2xs">
+                      <div className="max-h-72 overflow-y-auto">
+                        <table className="w-full text-left border-collapse text-xs">
+                          <thead className="bg-muted/70 text-muted-foreground sticky top-0 border-b z-10">
+                            <tr>
+                              <th className="py-2 px-3 font-semibold text-[10px] uppercase">#</th>
+                              <th className="py-2 px-3 font-semibold text-[10px] uppercase">PIN Code</th>
+                              <th className="py-2 px-3 font-semibold text-[10px] uppercase">Type</th>
+                              <th className="py-2 px-3 font-semibold text-[10px] uppercase">Channel / Gateway</th>
+                              <th className="py-2 px-3 font-semibold text-[10px] uppercase">Order Reference</th>
+                              <th className="py-2 px-3 font-semibold text-[10px] uppercase">Associated Vendor / User</th>
+                              <th className="py-2 px-3 font-semibold text-[10px] uppercase">Date</th>
+                              <th className="py-2 px-3 font-semibold text-[10px] uppercase text-right">Amount</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-border/60 font-mono text-[11px]">
+                            {filtered.slice(0, 100).map((p, idx) => (
+                              <tr key={p.code + idx} className="hover:bg-muted/40 transition-colors">
+                                <td className="py-2 px-3 text-muted-foreground text-[10px]">{idx + 1}</td>
+                                <td className="py-2 px-3 font-bold text-foreground">
+                                  <div className="flex items-center gap-1.5">
+                                    <span>{p.code}</span>
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        navigator.clipboard.writeText(p.code);
+                                        toast.success(`PIN ${p.code} copied!`);
+                                      }}
+                                      className="text-muted-foreground hover:text-foreground cursor-pointer"
+                                      title="Copy PIN"
+                                    >
+                                      <Copy className="h-3 w-3" />
+                                    </button>
+                                  </div>
+                                </td>
+                                <td className="py-2 px-3 font-sans">
+                                  {p.type === 'plus' ? (
+                                    <Badge className="bg-purple-600 text-[10px] py-0 px-1.5">PLUS</Badge>
+                                  ) : (
+                                    <Badge variant="outline" className="text-[10px] py-0 px-1.5">STD</Badge>
+                                  )}
+                                </td>
+                                <td className="py-2 px-3 font-sans">
+                                  {p.status === 'takano_restock' || p.provider === 'takano_pay' ? (
+                                    <Badge variant="outline" className="bg-teal-50 text-teal-700 border-teal-300 dark:bg-teal-950/60 dark:text-teal-300 text-[10px] py-0 px-1.5 font-bold flex items-center gap-1 w-fit">
+                                      <Building2 className="h-3 w-3 text-teal-600" /> Takano Pay
+                                    </Badge>
+                                  ) : p.status === 'paystack_restock' ? (
+                                    <Badge variant="outline" className="bg-blue-50 text-blue-700 border-blue-300 dark:bg-blue-950/60 dark:text-blue-300 text-[10px] py-0 px-1.5 font-medium w-fit">
+                                      Paystack
+                                    </Badge>
+                                  ) : (
+                                    <Badge variant="secondary" className="text-[10px] py-0 px-1.5 font-normal w-fit">
+                                      {p.status === 'transferred' ? 'Transferred' : p.status === 'lending_settled' ? 'Lending Settled' : 'Direct Used'}
+                                    </Badge>
+                                  )}
+                                </td>
+                                <td className="py-2 px-3 text-[10px] text-muted-foreground truncate max-w-[120px]" title={p.orderId || 'N/A'}>
+                                  {p.orderId || '—'}
+                                </td>
+                                <td className="py-2 px-3 font-sans text-muted-foreground truncate max-w-[200px]" title={p.associatedId}>
+                                  {p.associatedId}
+                                </td>
+                                <td className="py-2 px-3 text-[10px] text-muted-foreground font-sans">
+                                  {new Date(p.timestamp).toLocaleDateString()}
+                                </td>
+                                <td className="py-2 px-3 font-bold text-foreground text-right tabular-nums">
+                                  {p.amount !== undefined ? `₦${p.amount.toLocaleString()}` : '—'}
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                      {filtered.length > 100 && (
+                        <div className="p-2 text-center text-[10px] text-muted-foreground bg-muted/30 border-t">
+                          Showing first 100 of {filtered.length} records. Download Excel spreadsheet or PDF for full archival export.
+                        </div>
+                      )}
+                    </div>
+                  );
+                })()}
               </div>
             </div>
           )}

@@ -377,6 +377,10 @@ class TakanoStore {
     const batch = writeBatch(serverDb);
     const generatedPins: { code: string; type: 'standard' | 'plus' }[] = [];
 
+    const unitBasePrice = Number((order.baseAmount / (order.totalPins || 1)).toFixed(2));
+    const unitExactPrice = Number((order.exactPayableAmount / (order.totalPins || 1)).toFixed(2));
+    const targetUni = (order.university || 'futo').toLowerCase().trim();
+
     // 1. Generate Standard PINs (12-digit format)
     for (let i = 0; i < order.numStandard; i++) {
       const code = Math.floor(100000000000 + Math.random() * 900000000000).toString();
@@ -391,12 +395,18 @@ class TakanoStore {
         createdBy: order.vendorId,
         createdAt: nowStr,
         owner: order.vendorStudentId || order.vendorId,
-        At: order.university || 'futo',
+        At: targetUni,
         isBulkRestocked: true,
-        price: order.baseAmount / (order.totalPins || 1),
+        isTakanoPay: true,
+        price: unitBasePrice,
+        unitPrice: unitExactPrice,
+        exactAmountPaid: order.exactPayableAmount,
         paymentReference: order.id,
         paymentProvider: 'takano_pay',
+        source: 'takano_pay',
         orderId: order.id,
+        ratePercentage: order.ratePercentage,
+        payerName: senderName,
         verificationMethod,
       });
     }
@@ -415,12 +425,18 @@ class TakanoStore {
         createdBy: order.vendorId,
         createdAt: nowStr,
         owner: order.vendorStudentId || order.vendorId,
-        At: order.university || 'futo',
+        At: targetUni,
         isBulkRestocked: true,
-        price: order.baseAmount / (order.totalPins || 1),
+        isTakanoPay: true,
+        price: unitBasePrice,
+        unitPrice: unitExactPrice,
+        exactAmountPaid: order.exactPayableAmount,
         paymentReference: order.id,
         paymentProvider: 'takano_pay',
+        source: 'takano_pay',
         orderId: order.id,
+        ratePercentage: order.ratePercentage,
+        payerName: senderName,
         verificationMethod,
       });
     }
