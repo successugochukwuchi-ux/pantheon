@@ -9,6 +9,8 @@ import { createServer as createViteServer } from "vite";
 import { GoogleGenAI } from "@google/genai";
 import { generateEdgeTTS, streamEdgeTTS, synthesizeViaGoogleTTS, MICROSOFT_VOICES } from "./src/lib/edge-tts";
 import { autoCorrectQuestionData, autoCorrectLatexSyntax, autoCorrectNoteContent } from "./src/lib/latexAutoCorrect";
+import { takanoStore } from "./server/takanoStore.js";
+import { emailWorker } from "./server/emailWorker.js";
 
 async function startServer() {
   const app = express();
@@ -56,140 +58,137 @@ async function startServer() {
     res.json({ status: "ok" });
   });
 
-  // --- Paystack Secure Backend Proxy Endpoints ---
-  const getPaystackSecretKey = (req: express.Request): string => {
-    return (
-      (req.headers["x-paystack-secret-key"] as string) ||
-      (req.body && typeof req.body === "object" ? req.body.secretKey : "") ||
-      (req.query?.secretKey as string) ||
-      process.env.PAYSTACK_SECRET_KEY ||
-      ""
-    ).trim();
-  };
+  // --- Takano Pay Automated Bank Transfer Engine Endpoints ---
 
-  // 1. GET /api/paystack/banks
-  app.get("/api/paystack/banks", async (req, res) => {
+  // 1. GET /api/takano/config - Get bank details and current configuration for checkout
+  app.get("/api/takano/config", async (req, res) => {
     try {
-      const secretKey = getPaystackSecretKey(req);
-      const headers: Record<string, string> = {};
-      if (secretKey) headers["Authorization"] = `Bearer ${secretKey}`;
-      const response = await fetch("https://api.paystack.co/bank?country=nigeria&perPage=100", { headers });
-      const json = await response.json();
-      res.status(response.status).json(json);
+      const config = await takanoStore.loadConfig();
+      const retailPrices = await takanoStore.getRetailPrices();
+      res.json({
+        success: true,
+        bankName: config.bankName,
+        accountNumber: config.accountNumber,
+        accountName: config.accountName,
+        renderBackendUrl: config.renderBackendUrl,
+        scannerEnabled: config.scannerEnabled,
+        retailPrices,
+        wholesaleTiers: {
+          tier1To4Percent: 60,
+          tier5PlusPercent: 50,
+        },
+        imapUser: config.imapUser,
+        targetSender: config.targetSender,
+        llmModel: config.llmModel,
+      });
     } catch (err: any) {
-      res.status(500).json({ status: false, message: err.message });
+      res.status(500).json({ success: false, error: err.message });
     }
   });
 
-  // 2. GET /api/paystack/resolve-account
-  app.get("/api/paystack/resolve-account", async (req, res) => {
+  // 2. POST /api/takano/order/create - Allocate slot and create order
+  app.post("/api/takano/order/create", async (req, res) => {
     try {
-      const secretKey = getPaystackSecretKey(req);
-      const accountNumber = req.query.account_number as string;
-      const bankCode = req.query.bank_code as string;
-      if (!accountNumber || !bankCode) {
-        return res.status(400).json({ status: false, message: "account_number and bank_code are required" });
+      const { vendorId, vendorStudentId, vendorName, numStandard = 0, numPlus = 0, university } = req.body;
+      if (!vendorId) {
+        return res.status(400).json({ success: false, error: "vendorId is required" });
       }
-      const response = await fetch(
-        `https://api.paystack.co/bank/resolve?account_number=${encodeURIComponent(accountNumber)}&bank_code=${encodeURIComponent(bankCode)}`,
-        { headers: { Authorization: `Bearer ${secretKey}` } }
-      );
-      const json = await response.json();
-      res.status(response.status).json(json);
-    } catch (err: any) {
-      res.status(500).json({ status: false, message: err.message });
-    }
-  });
-
-  // 3. POST /api/paystack/create-recipient
-  app.post("/api/paystack/create-recipient", async (req, res) => {
-    try {
-      const secretKey = getPaystackSecretKey(req);
-      const { name, account_number, bank_code } = req.body;
-      const response = await fetch("https://api.paystack.co/transferrecipient", {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${secretKey}`,
-          "Content-Type": "application/json",
+      const order = await takanoStore.createRestockOrder({
+        vendorId,
+        vendorStudentId: vendorStudentId || vendorId,
+        vendorName,
+        numStandard: Number(numStandard) || 0,
+        numPlus: Number(numPlus) || 0,
+        university: university || "futo",
+      });
+      const config = takanoStore.getConfig();
+      res.json({
+        success: true,
+        order,
+        bankDetails: {
+          bankName: config.bankName,
+          accountNumber: config.accountNumber,
+          accountName: config.accountName,
         },
-        body: JSON.stringify({
-          type: "nuban",
-          name,
-          account_number,
-          bank_code,
-          currency: "NGN",
-        }),
       });
-      const json = await response.json();
-      res.status(response.status).json(json);
     } catch (err: any) {
-      res.status(500).json({ status: false, message: err.message });
+      res.status(500).json({ success: false, error: err.message });
     }
   });
 
-  // 4. POST /api/paystack/initialize
-  app.post("/api/paystack/initialize", async (req, res) => {
+  // 3. GET /api/takano/order/status/:orderId - Poll order status
+  app.get("/api/takano/order/status/:orderId", async (req, res) => {
     try {
-      const secretKey = getPaystackSecretKey(req);
-      const { email, amount, reference, metadata, callback_url } = req.body;
-      const response = await fetch("https://api.paystack.co/transaction/initialize", {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${secretKey}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          email,
-          amount, // in kobo
-          reference,
-          metadata,
-          callback_url,
-        }),
-      });
-      const json = await response.json();
-      res.status(response.status).json(json);
+      const order = await takanoStore.getOrder(req.params.orderId);
+      if (!order) {
+        return res.status(404).json({ success: false, error: "Order not found" });
+      }
+      res.json({ success: true, order });
     } catch (err: any) {
-      res.status(500).json({ status: false, message: err.message });
+      res.status(500).json({ success: false, error: err.message });
     }
   });
 
-  // 5. GET /api/paystack/verify/:reference
-  app.get("/api/paystack/verify/:reference", async (req, res) => {
+  // 4. POST /api/takano/order/cancel - Cancel pending order
+  app.post("/api/takano/order/cancel", async (req, res) => {
     try {
-      const secretKey = getPaystackSecretKey(req);
-      const ref = req.params.reference;
-      const response = await fetch(`https://api.paystack.co/transaction/verify/${encodeURIComponent(ref)}`, {
-        headers: { Authorization: `Bearer ${secretKey}` },
-      });
-      const json = await response.json();
-      res.status(response.status).json(json);
+      const { orderId } = req.body;
+      const cancelled = await takanoStore.cancelOrder(orderId);
+      res.json({ success: cancelled });
     } catch (err: any) {
-      res.status(500).json({ status: false, message: err.message });
+      res.status(500).json({ success: false, error: err.message });
     }
   });
 
-  // 6. POST /api/paystack/transfer
-  app.post("/api/paystack/transfer", async (req, res) => {
+  // 5. POST /api/takano/simulate-test-credit - Immediate test simulation
+  app.post("/api/takano/simulate-test-credit", async (req, res) => {
     try {
-      const secretKey = getPaystackSecretKey(req);
-      const { amount, recipient, reason } = req.body;
-      const response = await fetch("https://api.paystack.co/transfer", {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${secretKey}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          source: "balance",
-          amount, // in kobo
-          recipient,
-          reason,
-        }),
-      });
-      const json = await response.json();
-      res.status(response.status).json(json);
+      const { amount, senderName = "TAKANOPAYMENTTEST Payer" } = req.body;
+      const parsedAmount = typeof amount === "number" ? amount : parseFloat(amount);
+      if (!parsedAmount || isNaN(parsedAmount)) {
+        return res.status(400).json({ success: false, error: "Valid amount is required" });
+      }
+      const result = await takanoStore.handleIncomingCredit(parsedAmount, senderName, true);
+      res.json({ success: true, result });
     } catch (err: any) {
-      res.status(500).json({ status: false, message: err.message });
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  // 6. GET /api/takano/audit-logs - Real-time audit logs
+  app.get("/api/takano/audit-logs", (req, res) => {
+    res.json({ success: true, logs: takanoStore.getAuditLogs() });
+  });
+
+  // 7. POST /api/takano/scan-now - Trigger an immediate IMAP scan
+  app.post("/api/takano/scan-now", async (req, res) => {
+    try {
+      const result = await emailWorker.scanOnce();
+      res.json({ success: true, result });
+    } catch (err: any) {
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  // 8. POST /api/takano/save-config - Update bank & IMAP config from Overseer
+  app.post("/api/takano/save-config", async (req, res) => {
+    try {
+      const updated = await takanoStore.saveConfig(req.body);
+      res.json({ success: true, config: updated });
+    } catch (err: any) {
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  // 9. POST /api/takano/test-email-parser - Test email parser & authenticity validation directly
+  app.post("/api/takano/test-email-parser", async (req, res) => {
+    try {
+      const { body = "", subject = "", from = "" } = req.body;
+      const { analyzeEmailWithLLM } = await import("./server/llmService.js");
+      const result = await analyzeEmailWithLLM(body, subject, from);
+      res.json({ success: true, result });
+    } catch (err: any) {
+      res.status(500).json({ success: false, error: err.message });
     }
   });
 
@@ -1623,6 +1622,10 @@ CRITICAL REQUIREMENTS:
 
   server.listen(PORT, "0.0.0.0", () => {
     console.log(`Server running on http://localhost:${PORT}`);
+    // Start Takano Pay background IMAP scanning daemon
+    emailWorker.start().catch((err) => {
+      console.warn("Background email worker start issue:", err.message);
+    });
   });
 }
 

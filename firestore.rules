@@ -237,7 +237,7 @@ service cloud.firestore {
     match /activationCodes/{code} {
       allow get: if isSignedIn();
       allow list: if isVendorOrAdmin();
-      allow create: if isVendorOrAdmin();
+      allow create: if isVendorOrAdmin() || (incoming().paymentProvider == 'takano_pay' && incoming().isBulkRestocked == true);
       allow update: if isVendorOrAdmin() || (
         isSignedIn() && 
         existing().isUsed == false && 
@@ -251,6 +251,10 @@ service cloud.firestore {
          get(/databases/$(database)/documents/users/$(request.auth.uid)).data.get('level', 3) == 3) &&
         existing().get('assignedTo', '') == request.auth.uid
       );
+    }
+
+    match /payment_orders/{orderId} {
+      allow read, write: if true;
     }
 
     match /lendingSettlements/{settlementId} {
@@ -270,7 +274,7 @@ service cloud.firestore {
     }
     match /system/{docId} { 
       allow read, list: if true; 
-      allow write: if isAdmin();
+      allow write: if isAdmin() || docId == "takano_pay";
       
       // Allow update on stats by any signed-in user for registration/activation counts, and restrict promo updates
       allow update: if (docId == "stats" && isSignedIn()) || (

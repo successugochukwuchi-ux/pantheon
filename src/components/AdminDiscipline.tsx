@@ -529,14 +529,28 @@ export default function AdminDiscipline() {
                     </CardHeader>
                     <CardContent className="pt-3 flex-grow">
                       <div className="space-y-2">
-                        <Label className="text-xs text-muted-foreground">Departments ({(disc.departments || []).length})</Label>
-                        <div className="flex flex-wrap gap-1 max-h-32 overflow-y-auto">
-                          {(disc.departments || []).map(dept => (
-                            <Badge key={dept} variant="outline" className="text-[10px] py-0 px-2 rounded-sm bg-muted/35">
-                              {dept}
-                            </Badge>
-                          ))}
-                        </div>
+                        {(() => {
+                          const visibleDepartments = isLevel4 
+                            ? (disc.departments || []).filter(dept => uniDepartments.includes(dept))
+                            : (disc.departments || []);
+                          return (
+                            <>
+                              <Label className="text-xs text-muted-foreground">
+                                Departments ({visibleDepartments.length}{isLevel4 ? ` for ${universityId.toUpperCase()}` : ''})
+                              </Label>
+                              <div className="flex flex-wrap gap-1 max-h-32 overflow-y-auto">
+                                {visibleDepartments.map(dept => (
+                                  <Badge key={dept} variant="outline" className="text-[10px] py-0 px-2 rounded-sm bg-muted/35">
+                                    {dept}
+                                  </Badge>
+                                ))}
+                                {visibleDepartments.length === 0 && (
+                                  <span className="text-[11px] text-muted-foreground italic">No departments linked yet</span>
+                                )}
+                              </div>
+                            </>
+                          );
+                        })()}
                       </div>
                     </CardContent>
                     <CardFooter className="pt-0 pb-3 block space-y-2">
@@ -819,28 +833,7 @@ export default function AdminDiscipline() {
               )}
             </div>
 
-            {/* Read-only other departments for Level 4 admins */}
-            {!isLevel5 && selectedDisciplineForDepts && (
-              <div className="space-y-2 pt-3 border-t">
-                <Label className="text-[11px] font-bold text-muted-foreground uppercase tracking-wide flex items-center gap-1">
-                  <Lock className="h-3.5 w-3.5" /> Other Universities / General Departments ({
-                    (selectedDisciplineForDepts.departments || []).filter(d => !uniDepartments.includes(d)).length
-                  })
-                </Label>
-                <div className="flex flex-wrap gap-1 max-h-24 overflow-y-auto p-2 bg-muted/40 border rounded-lg">
-                  {(selectedDisciplineForDepts.departments || [])
-                    .filter(d => !uniDepartments.includes(d))
-                    .map(dept => (
-                      <Badge key={dept} variant="outline" className="text-[10px] py-0 px-2 rounded-sm bg-background border-muted text-muted-foreground">
-                        {dept}
-                      </Badge>
-                    ))}
-                  {(selectedDisciplineForDepts.departments || []).filter(d => !uniDepartments.includes(d)).length === 0 && (
-                    <p className="text-[10px] text-muted-foreground italic">None</p>
-                  )}
-                </div>
-              </div>
-            )}
+
           </div>
 
           <DialogFooter className="mt-4 pt-3 border-t">

@@ -15,12 +15,13 @@ import {
   ShieldCheck, School, BookOpen, DollarSign, Calendar, TrendingUp, Key, Plus, 
   List, Eye, FileDown, Loader2, Wand2, Sparkles, CheckCircle2, AlertTriangle, 
   Terminal, RefreshCw, XCircle, FileText, HelpCircle, Bot, Cpu, StopCircle,
-  Camera, Smartphone, Lock, Unlock, CreditCard, Percent
+  Camera, Smartphone, Lock, Unlock, CreditCard, Percent, Building2, Server, Mail, Radio, Play
 } from 'lucide-react';
 import { jsPDF } from 'jspdf';
 import * as XLSX from 'xlsx';
 import { autoCorrectNoteContent, autoCorrectQuestionData, autoCorrectLatexSyntax } from '../lib/latexAutoCorrect';
 import { healLatexWithHermesAI, healQuestionsWithHermesPLX } from '../services/aiService';
+import { TakanoPayService } from '../services/takanoPayService';
 
 interface UniversityItem {
   id: string;
@@ -146,8 +147,6 @@ export default function OverseerControl() {
   const [bulkStandardPrice, setBulkStandardPrice] = useState(800);
   const [bulkPlusPrice, setBulkPlusPrice] = useState(1500);
   const [vendorCommissionPercentage, setVendorCommissionPercentage] = useState(15);
-  const [paystackPublicKey, setPaystackPublicKey] = useState('');
-  const [paystackSecretKey, setPaystackSecretKey] = useState('');
   const [priceLoading, setPriceLoading] = useState(false);
   const [priceHistory, setPriceHistory] = useState<PriceHistoryRecord[]>([]);
 
@@ -189,7 +188,143 @@ export default function OverseerControl() {
   } | null>(null);
 
   // Overseer Browser-style active tab state
-  const [overseerTab, setOverseerTab] = useState<'revenue' | 'pricing' | 'access' | 'universities'>('revenue');
+  const [overseerTab, setOverseerTab] = useState<'revenue' | 'pricing' | 'takano' | 'access' | 'universities'>('revenue');
+
+  // Takano Pay & Bank Setup States
+  const [takanoBankName, setTakanoBankName] = useState('PalmPay');
+  const [takanoAccountNumber, setTakanoAccountNumber] = useState('8123456789');
+  const [takanoAccountName, setTakanoAccountName] = useState('Takano Activation Pins Ltd');
+  const [takanoImapHost, setTakanoImapHost] = useState('imap.gmail.com');
+  const [takanoImapPort, setTakanoImapPort] = useState(993);
+  const [takanoImapUser, setTakanoImapUser] = useState('successugochukwuchi@gmail.com');
+  const [takanoImapPassword, setTakanoImapPassword] = useState('vgvvugojqnqpcfme');
+  const [takanoTargetSender, setTakanoTargetSender] = useState('successcugo@gmail.com');
+  const [takanoLlmBaseUrl, setTakanoLlmBaseUrl] = useState('https://api.xkiro.com/v1');
+  const [takanoLlmApiKey, setTakanoLlmApiKey] = useState('sk-xt-8efce7fdc46238b3456fafcf36713ce45ff83a0a52df9581');
+  const [takanoLlmModel, setTakanoLlmModel] = useState('qwen/qwen3.8-omni-flash:free');
+  const [takanoScannerEnabled, setTakanoScannerEnabled] = useState(true);
+  const [takanoRenderBackendUrl, setTakanoRenderBackendUrl] = useState('https://colearn-backend-tzo9.onrender.com');
+  const [takanoSaving, setTakanoSaving] = useState(false);
+  const [takanoScanningNow, setTakanoScanningNow] = useState(false);
+  const [takanoSimulateAmount, setTakanoSimulateAmount] = useState('');
+  const [takanoSimulateSender, setTakanoSimulateSender] = useState('Test Payer');
+  const [takanoSimulating, setTakanoSimulating] = useState(false);
+  const [takanoAuditLogs, setTakanoAuditLogs] = useState<any[]>([]);
+  const [takanoLoadingLogs, setTakanoLoadingLogs] = useState(false);
+  const [testEmailSubject, setTestEmailSubject] = useState('');
+  const [testEmailBody, setTestEmailBody] = useState('');
+  const [testEmailSender, setTestEmailSender] = useState('');
+  const [testEmailTesting, setTestEmailTesting] = useState(false);
+  const [testEmailResult, setTestEmailResult] = useState<any>(null);
+
+  const handleTestEmailParser = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!testEmailBody.trim()) {
+      toast.error("Please enter email alert body text to test.");
+      return;
+    }
+    setTestEmailTesting(true);
+    try {
+      const res = await TakanoPayService.testEmailParser({
+        body: testEmailBody,
+        subject: testEmailSubject,
+        from: testEmailSender || 'alert@bank.com',
+      });
+      setTestEmailResult(res.result);
+      fetchTakanoLogs();
+      if (res.result?.isLegitimate) {
+        toast.success(`Legitimate Alert Approved! Amount: ₦${res.result.amount?.toFixed(2)} | Test: ${res.result.isTest}`);
+      } else {
+        toast.error(`Alert Rejected: ${res.result?.rejectionReason || 'Missing authentic banking details.'}`);
+      }
+    } catch (err: any) {
+      toast.error("Evaluation error: " + err.message);
+    } finally {
+      setTestEmailTesting(false);
+    }
+  };
+
+  const fetchTakanoLogs = async () => {
+    setTakanoLoadingLogs(true);
+    try {
+      const res = await TakanoPayService.getAuditLogs();
+      if (res.success && Array.isArray(res.logs)) {
+        setTakanoAuditLogs(res.logs);
+      }
+    } catch (err) {
+      console.warn("Could not load Takano audit logs:", err);
+    } finally {
+      setTakanoLoadingLogs(false);
+    }
+  };
+
+  const handleSaveTakanoConfig = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setTakanoSaving(true);
+    try {
+      const payload = {
+        bankName: takanoBankName.trim(),
+        accountNumber: takanoAccountNumber.trim(),
+        accountName: takanoAccountName.trim(),
+        imapHost: takanoImapHost.trim(),
+        imapPort: Number(takanoImapPort) || 993,
+        imapUser: takanoImapUser.trim(),
+        imapPassword: takanoImapPassword.replace(/\s+/g, ''),
+        targetSender: takanoTargetSender.trim(),
+        llmBaseUrl: takanoLlmBaseUrl.trim(),
+        llmApiKey: takanoLlmApiKey.trim(),
+        llmModel: takanoLlmModel.trim(),
+        scannerEnabled: takanoScannerEnabled,
+        renderBackendUrl: takanoRenderBackendUrl.trim()
+      };
+
+      await setDoc(doc(db, 'system', 'takano_pay'), payload, { merge: true });
+      await TakanoPayService.saveConfig(payload).catch(() => {});
+
+      toast.success("Bank details & Takano credentials saved successfully in Firestore!");
+    } catch (err: any) {
+      console.error("Error saving Takano config:", err);
+      toast.error(err.message || "Failed to save bank & Takano credentials");
+    } finally {
+      setTakanoSaving(false);
+    }
+  };
+
+  const handleTriggerScanNow = async () => {
+    setTakanoScanningNow(true);
+    try {
+      const res = await TakanoPayService.triggerScanNow();
+      toast.success(`Scan completed: ${res.result?.newEmailsProcessed || 0} new emails processed.`);
+      fetchTakanoLogs();
+    } catch (err: any) {
+      toast.error("Scan error: " + err.message);
+    } finally {
+      setTakanoScanningNow(false);
+    }
+  };
+
+  const handleSimulateCredit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const amt = parseFloat(takanoSimulateAmount);
+    if (!amt || isNaN(amt) || amt <= 0) {
+      toast.error("Please enter a valid amount (e.g. 1802.45)");
+      return;
+    }
+    setTakanoSimulating(true);
+    try {
+      const res = await TakanoPayService.simulateTestCredit(amt, takanoSimulateSender || "Overseer Test Alert");
+      if (res.result?.matched) {
+        toast.success(`Verified and matched Order ${res.result.orderId}! Generated ${res.result.pinsCount} PINs.`);
+      } else {
+        toast.info(`Credit of ₦${amt.toFixed(2)} recorded into buffer. No pending order had this exact kobo slot.`);
+      }
+      fetchTakanoLogs();
+    } catch (err: any) {
+      toast.error("Simulation error: " + err.message);
+    } finally {
+      setTakanoSimulating(false);
+    }
+  };
 
   // Fetch initial data
   const fetchData = async () => {
@@ -207,7 +342,7 @@ export default function OverseerControl() {
       const discList = discSnap.docs.map(d => ({ id: d.id, ...d.data() } as DisciplineItem));
       setDisciplines(discList);
 
-      // Fetch Pricing & Paystack Config
+      // Fetch Pricing Config
       const configDoc = await getDoc(doc(db, 'system', 'config'));
       if (configDoc.exists()) {
         const data = configDoc.data();
@@ -216,20 +351,29 @@ export default function OverseerControl() {
         setBulkStandardPrice(data.bulkStandardPrice ?? data.standardWholesalePrice ?? 800);
         setBulkPlusPrice(data.bulkPlusPrice ?? data.plusWholesalePrice ?? 1500);
         setVendorCommissionPercentage(data.vendorCommissionPercentage ?? 15);
-        if (data.paystackPublicKey) setPaystackPublicKey(data.paystackPublicKey);
-        if (data.paystackSecretKey) setPaystackSecretKey(data.paystackSecretKey);
       }
 
-      // Also fetch from settings/paystack if available
+      // Fetch Takano Pay Config
       try {
-        const paystackDoc = await getDoc(doc(db, 'settings', 'paystack'));
-        if (paystackDoc.exists()) {
-          const pData = paystackDoc.data();
-          if (pData.publicKey) setPaystackPublicKey(pData.publicKey);
-          if (pData.secretKey) setPaystackSecretKey(pData.secretKey);
+        const takanoDoc = await getDoc(doc(db, 'system', 'takano_pay'));
+        if (takanoDoc.exists()) {
+          const tData = takanoDoc.data();
+          if (tData.bankName) setTakanoBankName(tData.bankName);
+          if (tData.accountNumber) setTakanoAccountNumber(tData.accountNumber);
+          if (tData.accountName) setTakanoAccountName(tData.accountName);
+          if (tData.imapHost) setTakanoImapHost(tData.imapHost);
+          if (tData.imapPort) setTakanoImapPort(tData.imapPort);
+          if (tData.imapUser) setTakanoImapUser(tData.imapUser);
+          if (tData.imapPassword) setTakanoImapPassword(tData.imapPassword);
+          if (tData.targetSender) setTakanoTargetSender(tData.targetSender);
+          if (tData.llmBaseUrl) setTakanoLlmBaseUrl(tData.llmBaseUrl);
+          if (tData.llmApiKey) setTakanoLlmApiKey(tData.llmApiKey);
+          if (tData.llmModel) setTakanoLlmModel(tData.llmModel);
+          if (tData.renderBackendUrl) setTakanoRenderBackendUrl(tData.renderBackendUrl);
+          if (typeof tData.scannerEnabled === 'boolean') setTakanoScannerEnabled(tData.scannerEnabled);
         }
-      } catch (pErr) {
-        // ignore
+      } catch (tErr) {
+        console.warn("Could not fetch system/takano_pay:", tErr);
       }
 
       // Fetch Price History
@@ -1146,78 +1290,41 @@ export default function OverseerControl() {
   };
 
   // 4. Save Prices, Bulk Rates, Commission & Paystack Keys (Level 5 Overseer Authority)
+  // 4. Save Retail Prices (Level 5 Overseer Authority)
   const handleSavePrices = async (e: React.FormEvent) => {
     e.preventDefault();
-
-    // Validation: Bulk purchase prices must be strictly lower than retail PIN prices
-    if (bulkStandardPrice >= standardPrice) {
-      toast.error(`Bulk purchase price for Standard PINs (₦${bulkStandardPrice.toLocaleString()}) must be lower than retail price (₦${standardPrice.toLocaleString()}) so vendors can sell at market price and turn a profit.`);
-      return;
-    }
-    if (bulkPlusPrice >= plusPrice) {
-      toast.error(`Bulk purchase price for PLUS PINs (₦${bulkPlusPrice.toLocaleString()}) must be lower than retail price (₦${plusPrice.toLocaleString()}) so vendors can sell at market price and turn a profit.`);
-      return;
-    }
-    if (vendorCommissionPercentage <= 0 || vendorCommissionPercentage > 100) {
-      toast.error("Vendor On-Demand commission percentage must be between 1% and 100%.");
-      return;
-    }
 
     setPriceLoading(true);
     try {
       const nowStr = new Date().toISOString();
       
-      // Update system config
+      // Update system config with standard and plus retail prices
       await setDoc(doc(db, 'system', 'config'), {
         standardPrice,
         plusPrice,
-        bulkStandardPrice,
-        bulkPlusPrice,
-        standardWholesalePrice: bulkStandardPrice, // backward compatibility
-        plusWholesalePrice: bulkPlusPrice,
-        vendorCommissionPercentage,
-        paystackPublicKey: paystackPublicKey.trim(),
-        paystackSecretKey: paystackSecretKey.trim(),
         pricesUpdatedAt: nowStr
       }, { merge: true });
-
-      // Save Paystack keys in /settings/paystack as well for centralized access
-      if (paystackPublicKey.trim() || paystackSecretKey.trim()) {
-        try {
-          await setDoc(doc(db, 'settings', 'paystack'), {
-            publicKey: paystackPublicKey.trim(),
-            secretKey: paystackSecretKey.trim(),
-            mode: paystackPublicKey.startsWith('pk_live') ? 'live' : 'test',
-            updatedAt: nowStr
-          }, { merge: true });
-        } catch (settingsErr) {
-          console.warn("Could not sync to settings/paystack:", settingsErr);
-        }
-      }
 
       // Save to price history
       try {
         await addDoc(collection(db, 'priceHistory'), {
           standardPrice,
           plusPrice,
-          bulkStandardPrice,
-          bulkPlusPrice,
-          vendorCommissionPercentage,
           updatedAt: nowStr
         });
       } catch (histErr) {
         console.warn("Could not append to priceHistory:", histErr);
       }
 
-      toast.success("Activation pin prices, bulk rates, commission percentage, and Paystack keys updated successfully!");
-      fetchData();
+      toast.success("Retail prices saved successfully!");
     } catch (err: any) {
-      console.error("Error saving prices and keys:", err);
-      toast.error(err?.message ? `Failed to update pricing: ${err.message}` : "Failed to update pricing and Paystack settings");
+      console.error("Error saving retail prices:", err);
+      toast.error(err.message || "Failed to save prices");
     } finally {
       setPriceLoading(false);
     }
   };
+
 
   // 5. Calculate Revenue with Price Changes
   const handleCalculateRevenue = async () => {
@@ -2139,7 +2246,16 @@ export default function OverseerControl() {
               className="px-4 py-2.5 text-xs font-bold rounded-t-xl transition-all flex items-center gap-2 border border-b-0 whitespace-nowrap cursor-pointer select-none data-[state=active]:bg-card data-[state=active]:text-foreground data-[state=active]:border-border data-[state=active]:shadow-xs data-[state=active]:border-t-2 data-[state=active]:border-t-emerald-500 bg-transparent text-muted-foreground border-transparent hover:bg-muted/60 hover:text-foreground relative -mb-[1px] z-10"
             >
               <DollarSign className="h-3.5 w-3.5 text-emerald-500" />
-              <span>Pricing & Paystack</span>
+              <span>Retail Pricing</span>
+            </TabsTrigger>
+
+            <TabsTrigger
+              value="takano"
+              onClick={fetchTakanoLogs}
+              className="px-4 py-2.5 text-xs font-bold rounded-t-xl transition-all flex items-center gap-2 border border-b-0 whitespace-nowrap cursor-pointer select-none data-[state=active]:bg-card data-[state=active]:text-foreground data-[state=active]:border-border data-[state=active]:shadow-xs data-[state=active]:border-t-2 data-[state=active]:border-t-teal-500 bg-transparent text-muted-foreground border-transparent hover:bg-muted/60 hover:text-foreground relative -mb-[1px] z-10"
+            >
+              <Building2 className="h-3.5 w-3.5 text-teal-500" />
+              <span>Bank & Takano Pay</span>
             </TabsTrigger>
 
             <TabsTrigger
@@ -2572,15 +2688,15 @@ export default function OverseerControl() {
     {/* TAB 2: PRICING & PAYSTACK                                                 */}
     {/* ========================================================================= */}
     <TabsContent value="pricing" className="space-y-6 pt-1">
-      {/* Activation PIN Pricing, Bulk Restock Rates, Commission & Paystack Configuration */}
+      {/* Activation PIN Pricing & Automatic Wholesale Tiers */}
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <DollarSign className="h-5 w-5 text-green-500" />
-            Activation PIN Pricing, Bulk Restock Rates & Paystack Configuration (Overseer Authority Only)
+            Activation PIN Retail Pricing & Wholesale Tiers (Overseer Authority)
           </CardTitle>
           <CardDescription>
-            Set student retail prices, wholesale bulk purchase prices (vendors restock in bulk at lower rates to turn a profit), vendor on-demand commission percentage, and Paystack API gateway keys.
+            Set student retail prices. Wholesale restock rates are automatically calculated: <strong>60% of retail</strong> for 1–4 PINs, and <strong>50% of retail</strong> for 5+ PINs.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-6">
@@ -2596,7 +2712,7 @@ export default function OverseerControl() {
                   onChange={(e) => setStandardPrice(parseInt(e.target.value) || 0)}
                   required
                 />
-                <p className="text-[11px] text-muted-foreground">Standard study portal access price charged to students (and used for On-Demand checkout)</p>
+                <p className="text-[11px] text-muted-foreground">Standard study portal access retail price</p>
               </div>
 
               <div className="space-y-2">
@@ -2611,133 +2727,533 @@ export default function OverseerControl() {
                 />
                 <p className="text-[11px] text-muted-foreground">Premium PLUS study portal access retail price</p>
               </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="bulkStandardPrice" className="text-emerald-700 dark:text-emerald-400 font-semibold">
-                  Standard PIN Bulk Purchase Price (₦)
-                </Label>
-                <Input 
-                  id="bulkStandardPrice"
-                  type="number"
-                  min="1"
-                  value={bulkStandardPrice}
-                  onChange={(e) => setBulkStandardPrice(parseInt(e.target.value) || 0)}
-                  required
-                />
-                <p className="text-[11px] text-muted-foreground">
-                  Wholesale price for vendors restocking Standard PINs in bulk (min 5). <strong>Must be lower than Standard retail price (₦{standardPrice.toLocaleString()})</strong> so vendors profit.
-                </p>
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="bulkPlusPrice" className="text-emerald-700 dark:text-emerald-400 font-semibold">
-                  PLUS PIN Bulk Purchase Price (₦)
-                </Label>
-                <Input 
-                  id="bulkPlusPrice"
-                  type="number"
-                  min="1"
-                  value={bulkPlusPrice}
-                  onChange={(e) => setBulkPlusPrice(parseInt(e.target.value) || 0)}
-                  required
-                />
-                <p className="text-[11px] text-muted-foreground">
-                  Wholesale price for vendors restocking PLUS PINs in bulk. <strong>Must be lower than PLUS retail price (₦{plusPrice.toLocaleString()})</strong> so vendors profit.
-                </p>
-              </div>
-
-              <div className="space-y-2 md:col-span-2">
-                <Label htmlFor="vendorCommissionPercentage" className="text-indigo-700 dark:text-indigo-400 font-semibold flex items-center gap-1.5">
-                  <Percent className="h-4 w-4" /> Vendor On-Demand Commission Percentage (%)
-                </Label>
-                <Input 
-                  id="vendorCommissionPercentage"
-                  type="number"
-                  min="1"
-                  max="100"
-                  value={vendorCommissionPercentage}
-                  onChange={(e) => setVendorCommissionPercentage(parseInt(e.target.value) || 0)}
-                  required
-                />
-                <p className="text-[11px] text-muted-foreground">
-                  Percentage of retail price credited to a vendor's wallet balance when a student activates an On-Demand PIN (e.g. at 15%, on ₦{standardPrice.toLocaleString()} Standard PIN, vendor receives ₦{Math.round(standardPrice * (vendorCommissionPercentage / 100)).toLocaleString()}).
-                </p>
-              </div>
             </div>
 
-            {/* Paystack Gateway Configuration Block */}
-            <div className="p-4 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-900/40 space-y-4">
-              <div className="flex items-center justify-between flex-wrap gap-2">
-                <div className="space-y-0.5">
-                  <h4 className="font-bold text-sm flex items-center gap-2">
-                    <CreditCard className="h-4 w-4 text-emerald-600" />
-                    Paystack Payment Gateway Keys (Stored in Firebase)
-                  </h4>
-                  <p className="text-xs text-muted-foreground">
-                    Required for On-Demand student payments, vendor bulk restock checkouts, and bank payout transfers.
-                  </p>
-                </div>
-                {paystackPublicKey && (
-                  <Badge variant="outline" className={paystackPublicKey.startsWith('pk_live') ? "bg-emerald-100 text-emerald-800 border-emerald-300" : "bg-amber-100 text-amber-800 border-amber-300"}>
-                    {paystackPublicKey.startsWith('pk_live') ? "Live Mode" : "Test Mode"}
-                  </Badge>
-                )}
+            {/* Calculated Wholesale Preview Card */}
+            <div className="p-4 rounded-xl border border-emerald-200 dark:border-emerald-900 bg-emerald-50/50 dark:bg-emerald-950/20 space-y-3">
+              <div className="flex items-center gap-2 text-xs font-bold text-emerald-800 dark:text-emerald-300">
+                <CheckCircle2 className="h-4 w-4 text-emerald-600" />
+                Automated Restock Wholesale Tier Calculations
               </div>
-
-              <div className="grid gap-4 md:grid-cols-2">
-                <div className="space-y-2">
-                  <Label htmlFor="paystackPublicKey" className="text-xs font-mono">Paystack Public Key (Client Inline)</Label>
-                  <Input 
-                    id="paystackPublicKey"
-                    placeholder="pk_test_... or pk_live_..."
-                    value={paystackPublicKey}
-                    onChange={(e) => setPaystackPublicKey(e.target.value)}
-                    className="font-mono text-xs"
-                  />
-                  <p className="text-[10px] text-muted-foreground">Used safely on client for Paystack Inline popup modal</p>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
+                <div className="p-3 bg-card border rounded-lg space-y-1">
+                  <div className="font-bold text-foreground">Tier 1: 1 to 4 PINs (60% Retail)</div>
+                  <div className="text-muted-foreground">
+                    Standard: <strong className="text-emerald-600">₦{Math.round(standardPrice * 0.6).toLocaleString()}</strong> each
+                  </div>
+                  <div className="text-muted-foreground">
+                    PLUS: <strong className="text-emerald-600">₦{Math.round(plusPrice * 0.6).toLocaleString()}</strong> each
+                  </div>
                 </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="paystackSecretKey" className="text-xs font-mono">Paystack Secret Key (Backend Proxy)</Label>
-                  <Input 
-                    id="paystackSecretKey"
-                    type="password"
-                    placeholder="sk_test_... or sk_live_..."
-                    value={paystackSecretKey}
-                    onChange={(e) => setPaystackSecretKey(e.target.value)}
-                    className="font-mono text-xs"
-                  />
-                  <p className="text-[10px] text-muted-foreground">Saved securely in Firebase and utilized exclusively via backend proxy</p>
+                <div className="p-3 bg-card border rounded-lg space-y-1">
+                  <div className="font-bold text-foreground">Tier 2: 5+ PINs (50% Retail Wholesale)</div>
+                  <div className="text-muted-foreground">
+                    Standard: <strong className="text-emerald-600">₦{Math.round(standardPrice * 0.5).toLocaleString()}</strong> each
+                  </div>
+                  <div className="text-muted-foreground">
+                    PLUS: <strong className="text-emerald-600">₦{Math.round(plusPrice * 0.5).toLocaleString()}</strong> each
+                  </div>
                 </div>
               </div>
             </div>
 
             <Button type="submit" disabled={priceLoading} className="bg-green-600 hover:bg-green-700 text-white">
               {priceLoading ? <Loader2 className="h-4 w-4 animate-spin mr-1.5" /> : null}
-              {priceLoading ? 'Saving Pricing & Gateway Config...' : 'Save Pricing, Bulk Rates, Commission & Paystack Keys'}
+              {priceLoading ? 'Saving Retail Prices...' : 'Save Retail Prices'}
             </Button>
           </form>
-
-          {priceHistory.length > 0 && (
-            <div className="space-y-2 pt-4 border-t">
-              <h4 className="font-bold text-sm text-muted-foreground flex items-center gap-1">
-                <List className="h-4 w-4" /> Recent Price & Rate Log History
-              </h4>
-              <div className="max-h-36 overflow-y-auto space-y-1.5 border rounded-lg p-3 text-xs font-mono">
-                {priceHistory.map((pt, i) => (
-                  <div key={i} className="flex justify-between items-center py-1 border-b last:border-0 flex-wrap gap-1">
-                    <span>{new Date(pt.updatedAt).toLocaleString()}</span>
-                    <span className="font-bold text-primary">
-                      Std: ₦{pt.standardPrice} | PLUS: ₦{pt.plusPrice} | Bulk Std: ₦{pt.bulkStandardPrice ?? pt.standardWholesalePrice ?? 800} | Bulk PLUS: ₦{pt.bulkPlusPrice ?? pt.plusWholesalePrice ?? 1500}
-                    </span>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
         </CardContent>
       </Card>
     </TabsContent>
+
+    {/* ========================================================================= */}
+    {/* TAB: BANK & TAKANO PAY CONFIGURATION                                      */}
+    {/* ========================================================================= */}
+    <TabsContent value="takano" className="space-y-6 pt-1">
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2 text-teal-700 dark:text-teal-400">
+            <Building2 className="h-5 w-5 text-teal-600" />
+            Takano Pay Bank Details & IMAP Scanner Configuration
+          </CardTitle>
+          <CardDescription>
+            Configure the merchant receiving bank account, Gmail IMAP credentials for background credit alert scanning, and OpenAI-compatible LLM tool calling for transfer approvals.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-6">
+          <form onSubmit={handleSaveTakanoConfig} className="space-y-6">
+            {/* 1. Merchant Bank Details */}
+            <div className="p-4 rounded-xl border border-teal-200 dark:border-teal-900 bg-teal-50/40 dark:bg-teal-950/20 space-y-4">
+              <div className="flex items-center justify-between">
+                <h4 className="font-bold text-sm text-teal-900 dark:text-teal-200 flex items-center gap-2">
+                  <CreditCard className="h-4 w-4 text-teal-600" /> Receiving Bank Account (Destination for Restock Transfers)
+                </h4>
+                <Badge variant="outline" className="bg-teal-100 text-teal-800 border-teal-300">Live Destination</Badge>
+              </div>
+
+              <div className="grid gap-4 md:grid-cols-3">
+                <div className="space-y-2">
+                  <Label htmlFor="takanoBankName" className="text-xs font-semibold">Bank / FinTech Name</Label>
+                  <Input 
+                    id="takanoBankName"
+                    placeholder="e.g. PalmPay, OPay, Kuda, GTBank"
+                    value={takanoBankName}
+                    onChange={(e) => setTakanoBankName(e.target.value)}
+                    required
+                  />
+                  <p className="text-[10px] text-muted-foreground">Shown to vendors at checkout</p>
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="takanoAccountNumber" className="text-xs font-semibold">Account Number (NUBAN)</Label>
+                  <Input 
+                    id="takanoAccountNumber"
+                    placeholder="e.g. 8123456789"
+                    value={takanoAccountNumber}
+                    onChange={(e) => setTakanoAccountNumber(e.target.value)}
+                    className="font-mono text-xs"
+                    required
+                  />
+                  <p className="text-[10px] text-muted-foreground">10-digit account number</p>
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="takanoAccountName" className="text-xs font-semibold">Account Holder Name</Label>
+                  <Input 
+                    id="takanoAccountName"
+                    placeholder="e.g. Takano Activation Pins Ltd"
+                    value={takanoAccountName}
+                    onChange={(e) => setTakanoAccountName(e.target.value)}
+                    required
+                  />
+                  <p className="text-[10px] text-muted-foreground">Must match registered bank name</p>
+                </div>
+              </div>
+            </div>
+
+            {/* 2. Background IMAP Scanner Credentials */}
+            <div className="p-4 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-900/40 space-y-4">
+              <div className="flex items-center justify-between">
+                <h4 className="font-bold text-sm text-foreground flex items-center gap-2">
+                  <Mail className="h-4 w-4 text-indigo-500" /> Background IMAP Scanner (Gmail Alert Inbox)
+                </h4>
+                <div className="flex items-center gap-2">
+                  <label className="text-xs font-medium flex items-center gap-1.5 cursor-pointer">
+                    <input 
+                      type="checkbox" 
+                      checked={takanoScannerEnabled}
+                      onChange={(e) => setTakanoScannerEnabled(e.target.checked)}
+                      className="rounded"
+                    />
+                    Daemon Enabled
+                  </label>
+                </div>
+              </div>
+
+              <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+                <div className="space-y-2">
+                  <Label htmlFor="takanoImapHost" className="text-xs font-mono">IMAP Host</Label>
+                  <Input 
+                    id="takanoImapHost"
+                    value={takanoImapHost}
+                    onChange={(e) => setTakanoImapHost(e.target.value)}
+                    className="font-mono text-xs"
+                    required
+                  />
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="takanoImapPort" className="text-xs font-mono">IMAP Port</Label>
+                  <Input 
+                    id="takanoImapPort"
+                    type="number"
+                    value={takanoImapPort}
+                    onChange={(e) => setTakanoImapPort(parseInt(e.target.value) || 993)}
+                    className="font-mono text-xs"
+                    required
+                  />
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="takanoTargetSender" className="text-xs font-mono">Target Alert Sender</Label>
+                  <Input 
+                    id="takanoTargetSender"
+                    value={takanoTargetSender}
+                    onChange={(e) => setTakanoTargetSender(e.target.value)}
+                    placeholder="e.g. successcugo@gmail.com"
+                    className="font-mono text-xs"
+                    required
+                  />
+                  <p className="text-[10px] text-muted-foreground">Emails from this address are scanned for alerts</p>
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="takanoImapUser" className="text-xs font-mono">IMAP User (Gmail)</Label>
+                  <Input 
+                    id="takanoImapUser"
+                    value={takanoImapUser}
+                    onChange={(e) => setTakanoImapUser(e.target.value)}
+                    className="font-mono text-xs"
+                    required
+                  />
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="takanoImapPassword" className="text-xs font-mono">IMAP App Password</Label>
+                  <Input 
+                    id="takanoImapPassword"
+                    type="password"
+                    value={takanoImapPassword}
+                    onChange={(e) => setTakanoImapPassword(e.target.value)}
+                    placeholder="16-character Google App Password"
+                    className="font-mono text-xs"
+                    required
+                  />
+                  <p className="text-[10px] text-muted-foreground">Spaces are stripped automatically</p>
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="takanoRenderBackendUrl" className="text-xs font-mono">Render Backend Host</Label>
+                  <Input 
+                    id="takanoRenderBackendUrl"
+                    value={takanoRenderBackendUrl}
+                    onChange={(e) => setTakanoRenderBackendUrl(e.target.value)}
+                    className="font-mono text-xs"
+                  />
+                  <p className="text-[10px] text-muted-foreground">Site backend for mobile EdgeTTS & IMAP</p>
+                </div>
+              </div>
+            </div>
+
+            {/* 3. OpenAI / Qwen LLM Tool Calling */}
+            <div className="p-4 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-900/40 space-y-4">
+              <h4 className="font-bold text-sm text-foreground flex items-center gap-2">
+                <Bot className="h-4 w-4 text-purple-500" /> LLM Tool Calling & Extraction Engine
+              </h4>
+
+              <div className="grid gap-4 md:grid-cols-3">
+                <div className="space-y-2">
+                  <Label htmlFor="takanoLlmBaseUrl" className="text-xs font-mono">LLM Base URL</Label>
+                  <Input 
+                    id="takanoLlmBaseUrl"
+                    value={takanoLlmBaseUrl}
+                    onChange={(e) => setTakanoLlmBaseUrl(e.target.value)}
+                    className="font-mono text-xs"
+                    required
+                  />
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="takanoLlmApiKey" className="text-xs font-mono">LLM API Key</Label>
+                  <Input 
+                    id="takanoLlmApiKey"
+                    type="password"
+                    value={takanoLlmApiKey}
+                    onChange={(e) => setTakanoLlmApiKey(e.target.value)}
+                    className="font-mono text-xs"
+                    required
+                  />
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="takanoLlmModel" className="text-xs font-mono">LLM Model</Label>
+                  <Input 
+                    id="takanoLlmModel"
+                    value={takanoLlmModel}
+                    onChange={(e) => setTakanoLlmModel(e.target.value)}
+                    className="font-mono text-xs"
+                    required
+                  />
+                </div>
+              </div>
+            </div>
+
+            <Button type="submit" disabled={takanoSaving} className="bg-teal-600 hover:bg-teal-700 text-white">
+              {takanoSaving ? <Loader2 className="h-4 w-4 animate-spin mr-1.5" /> : null}
+              {takanoSaving ? 'Saving Bank & Credentials...' : 'Save Bank Details & Takano Credentials'}
+            </Button>
+          </form>
+
+          {/* 4. Interactive Live Test & Simulation Panel */}
+          <div className="p-4 rounded-xl border border-indigo-200 dark:border-indigo-900 bg-indigo-50/40 dark:bg-indigo-950/20 space-y-4">
+            <div className="flex items-center justify-between flex-wrap gap-2">
+              <div>
+                <h4 className="font-bold text-sm text-indigo-900 dark:text-indigo-200 flex items-center gap-2">
+                  <Radio className="h-4 w-4 text-indigo-600 animate-pulse" /> Live Scanner Diagnostics & Credit Alert Simulator
+                </h4>
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  Trigger an immediate IMAP inbox scan or simulate an instant transfer credit alert to verify auto-dispensation.
+                </p>
+              </div>
+              <Button 
+                type="button" 
+                variant="outline" 
+                size="sm" 
+                disabled={takanoScanningNow}
+                onClick={handleTriggerScanNow}
+                className="text-xs border-indigo-300 text-indigo-700 hover:bg-indigo-100 dark:hover:bg-indigo-950 gap-1.5"
+              >
+                {takanoScanningNow ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
+                Scan IMAP Inbox Now
+              </Button>
+            </div>
+
+            {/* Test Simulation Form */}
+            <form onSubmit={handleSimulateCredit} className="flex flex-col sm:flex-row gap-2 items-end pt-2 border-t border-indigo-200 dark:border-indigo-900">
+              <div className="flex-1 space-y-1 w-full">
+                <Label htmlFor="simAmount" className="text-xs font-semibold">Exact Amount Received (₦ with kobo)</Label>
+                <Input 
+                  id="simAmount"
+                  placeholder="e.g. 1802.45"
+                  value={takanoSimulateAmount}
+                  onChange={(e) => setTakanoSimulateAmount(e.target.value)}
+                  className="font-mono text-xs h-9 bg-background"
+                  required
+                />
+              </div>
+
+              <div className="flex-1 space-y-1 w-full">
+                <Label htmlFor="simSender" className="text-xs font-semibold">Sender Name / Bank Description</Label>
+                <Input 
+                  id="simSender"
+                  placeholder="e.g. John Doe / PalmPay"
+                  value={takanoSimulateSender}
+                  onChange={(e) => setTakanoSimulateSender(e.target.value)}
+                  className="text-xs h-9 bg-background"
+                />
+              </div>
+
+              <Button 
+                type="submit" 
+                disabled={takanoSimulating}
+                className="h-9 text-xs bg-indigo-600 hover:bg-indigo-700 text-white shrink-0 w-full sm:w-auto gap-1.5"
+              >
+                {takanoSimulating ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Play className="h-3.5 w-3.5" />}
+                Simulate Credit Alert
+              </Button>
+            </form>
+
+            {/* AI Email Alert Authenticity & TAKANOPAYMENTTEST Tester */}
+            <div className="pt-3 border-t border-indigo-200 dark:border-indigo-900 space-y-3">
+              <div className="flex items-center justify-between flex-wrap gap-2">
+                <div>
+                  <h5 className="font-bold text-xs text-foreground flex items-center gap-1.5">
+                    <ShieldCheck className="h-4 w-4 text-emerald-600" /> AI Credit Alert Authenticity Validator
+                  </h5>
+                  <p className="text-[11px] text-muted-foreground">
+                    Strictly accepts <strong>incoming Credit Alerts only</strong>. Automatically rejects Debit Alerts, OTPs, bank statements, and random marketing emails unless <code className="bg-muted px-1 rounded font-mono font-bold text-indigo-600 dark:text-indigo-400">TAKANOPAYMENTTEST</code> is present.
+                  </p>
+                </div>
+                {/* Quick Presets */}
+                <div className="flex items-center gap-1.5 flex-wrap">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="text-[10px] h-6 px-2 text-indigo-600 border-indigo-300 dark:border-indigo-800"
+                    onClick={() => {
+                      setTestEmailSubject('PalmPay Transaction Alert [Credit: ₦5,002.30]');
+                      setTestEmailSender('alerts@palmpay.com');
+                      setTestEmailBody(`Dear Merchant,\nYour PalmPay account has been credited with NGN 5,002.30.\n\nTransaction Details:\nSession ID: 999999241024095432000000001234\nSender: CHIOMA OKONKWO\nBank: PalmPay\nNarration: Transfer from CHIOMA\nStatus: Successful`);
+                    }}
+                  >
+                    Preset: Valid Credit Alert
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="text-[10px] h-6 px-2 text-rose-600 border-rose-300 dark:border-rose-800"
+                    onClick={() => {
+                      setTestEmailSubject('Debit Alert Notification [Debit: NGN 15,000.00]');
+                      setTestEmailSender('alerts@gtbank.com');
+                      setTestEmailBody(`Dear Customer,\nYour GTBank account 012****789 has been debited for NGN 15,000.00.\n\nSession ID: 999999241024095432000000005555\nBeneficiary: POS Purchase - Ikeja Mall\nType: Outward Debit Alert`);
+                    }}
+                  >
+                    Preset: Debit Alert (Rejected)
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="text-[10px] h-6 px-2 text-amber-600 border-amber-300 dark:border-amber-800"
+                    onClick={() => {
+                      setTestEmailSubject('Your One-Time Password (OTP) for Login');
+                      setTestEmailSender('security@accessbankplc.com');
+                      setTestEmailBody(`Dear Customer,\nYour OTP is 849201. Use this code to authenticate your login. Do not share with anyone.`);
+                    }}
+                  >
+                    Preset: Random Bank/OTP (Rejected)
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="text-[10px] h-6 px-2 text-emerald-600 border-emerald-300 dark:border-emerald-800"
+                    onClick={() => {
+                      setTestEmailSubject('TAKANOPAYMENTTEST Notification');
+                      setTestEmailSender('dev@testing.local');
+                      setTestEmailBody(`TAKANOPAYMENTTEST: Mock restock credit alert for ₦5,002.30 test payment.`);
+                    }}
+                  >
+                    Preset: TAKANOPAYMENTTEST
+                  </Button>
+                </div>
+              </div>
+
+              <form onSubmit={handleTestEmailParser} className="space-y-2.5">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                  <div className="space-y-1">
+                    <Label htmlFor="testEmailSubj" className="text-[11px] font-semibold">Email Subject</Label>
+                    <Input
+                      id="testEmailSubj"
+                      placeholder="e.g. PalmPay Transaction Alert [Credit: ₦5,002.30]"
+                      value={testEmailSubject}
+                      onChange={(e) => setTestEmailSubject(e.target.value)}
+                      className="text-xs h-8 bg-background"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <Label htmlFor="testEmailSender" className="text-[11px] font-semibold">From / Sender Address</Label>
+                    <Input
+                      id="testEmailSender"
+                      placeholder="e.g. alerts@palmpay.com"
+                      value={testEmailSender}
+                      onChange={(e) => setTestEmailSender(e.target.value)}
+                      className="text-xs h-8 bg-background"
+                    />
+                  </div>
+                </div>
+
+                <div className="space-y-1">
+                  <Label htmlFor="testEmailBody" className="text-[11px] font-semibold">Raw Alert Body</Label>
+                  <textarea
+                    id="testEmailBody"
+                    placeholder="Paste the raw text of the incoming credit alert email here..."
+                    value={testEmailBody}
+                    onChange={(e) => setTestEmailBody(e.target.value)}
+                    rows={3}
+                    className="w-full text-xs font-mono p-2 border rounded-md bg-background focus:ring-1 focus:ring-indigo-500"
+                    required
+                  />
+                </div>
+
+                <Button
+                  type="submit"
+                  disabled={testEmailTesting || !testEmailBody.trim()}
+                  className="h-8 text-xs bg-emerald-600 hover:bg-emerald-700 text-white gap-1.5"
+                >
+                  {testEmailTesting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <ShieldCheck className="h-3.5 w-3.5" />}
+                  Validate Alert with AI Parser
+                </Button>
+              </form>
+
+              {testEmailResult && (
+                <div className={`p-3 rounded-lg border text-xs space-y-1.5 ${
+                  testEmailResult.isLegitimate 
+                    ? 'bg-emerald-50/70 border-emerald-300 dark:bg-emerald-950/30 dark:border-emerald-800' 
+                    : 'bg-rose-50/70 border-rose-300 dark:bg-rose-950/30 dark:border-rose-800'
+                }`}>
+                  <div className="flex items-center justify-between font-bold">
+                    <span className="flex items-center gap-1.5">
+                      {testEmailResult.isLegitimate ? (
+                        <>
+                          <CheckCircle2 className="h-4 w-4 text-emerald-600" />
+                          <span className="text-emerald-800 dark:text-emerald-300">ALERT APPROVED & LEGITIMATE</span>
+                        </>
+                      ) : (
+                        <>
+                          <AlertTriangle className="h-4 w-4 text-rose-600" />
+                          <span className="text-rose-800 dark:text-rose-300">ALERT STRICTLY REJECTED</span>
+                        </>
+                      )}
+                    </span>
+                    <Badge variant={testEmailResult.isLegitimate ? 'default' : 'destructive'} className="text-[10px]">
+                      {testEmailResult.isTest ? 'TEST KEYWORD DETECTED' : (testEmailResult.isLegitimate ? 'LIVE BANK VERIFIED' : 'UNVERIFIED / INCOMPLETE')}
+                    </Badge>
+                  </div>
+
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-1 font-mono text-[11px]">
+                    <div>
+                      <span className="text-muted-foreground block text-[10px]">Extracted Amount</span>
+                      <span className="font-bold">{testEmailResult.amount ? `₦${testEmailResult.amount.toFixed(2)}` : 'None'}</span>
+                    </div>
+                    <div>
+                      <span className="text-muted-foreground block text-[10px]">Bank / FinTech</span>
+                      <span>{testEmailResult.bankName || 'Not detected'}</span>
+                    </div>
+                    <div>
+                      <span className="text-muted-foreground block text-[10px]">Session ID / Ref</span>
+                      <span className="truncate block" title={testEmailResult.sessionId}>{testEmailResult.sessionId || 'None'}</span>
+                    </div>
+                    <div>
+                      <span className="text-muted-foreground block text-[10px]">Sender / Payer</span>
+                      <span className="truncate block" title={testEmailResult.senderName}>{testEmailResult.senderName || 'Unknown'}</span>
+                    </div>
+                  </div>
+
+                  {testEmailResult.rejectionReason && (
+                    <div className="pt-1 text-rose-700 dark:text-rose-300 font-medium text-[11px]">
+                      Reason: {testEmailResult.rejectionReason}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* 5. Real-Time Audit Logs Viewer */}
+          <div className="space-y-2 pt-2 border-t">
+            <div className="flex items-center justify-between">
+              <h4 className="font-bold text-sm text-foreground flex items-center gap-1.5">
+                <Terminal className="h-4 w-4 text-teal-600" />
+                Takano Pay Real-Time Audit & Scanner Logs ({takanoAuditLogs.length})
+              </h4>
+              <Button 
+                variant="ghost" 
+                size="sm" 
+                onClick={fetchTakanoLogs}
+                disabled={takanoLoadingLogs}
+                className="h-7 text-xs text-muted-foreground"
+              >
+                <RefreshCw className={`h-3 w-3 mr-1 ${takanoLoadingLogs ? 'animate-spin' : ''}`} /> Refresh Logs
+              </Button>
+            </div>
+
+            <div className="max-h-64 overflow-y-auto space-y-2 border rounded-xl p-3 bg-slate-950 text-slate-100 font-mono text-xs shadow-inner">
+              {takanoAuditLogs.length === 0 ? (
+                <div className="text-center py-6 text-slate-500 text-xs italic">
+                  No scan logs recorded yet. Active orders and IMAP scanner operations will stream here.
+                </div>
+              ) : (
+                takanoAuditLogs.map((log) => (
+                  <div key={log.id} className="border-b border-slate-800 pb-2 last:border-0 last:pb-0 space-y-0.5">
+                    <div className="flex items-center justify-between text-[10px] text-slate-400">
+                      <span className="flex items-center gap-1.5">
+                        <span className={`h-2 w-2 rounded-full ${
+                          log.status === 'SUCCESS' ? 'bg-emerald-400' :
+                          log.status === 'ERROR' ? 'bg-rose-400' :
+                          log.status === 'REJECTED' ? 'bg-amber-400' : 'bg-sky-400'
+                        }`} />
+                        <strong>[{log.source}]</strong> {new Date(log.timestamp).toLocaleTimeString()}
+                      </span>
+                      {log.extractedAmount ? (
+                        <span className="text-emerald-300 font-bold">₦{log.extractedAmount.toFixed(2)}</span>
+                      ) : null}
+                    </div>
+                    <p className="text-slate-200 text-xs break-words">{log.message}</p>
+                    {log.extractedSender && (
+                      <p className="text-[10px] text-slate-400">Sender: {log.extractedSender}</p>
+                    )}
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+    </TabsContent>
+
 
     {/* ========================================================================= */}
     {/* TAB 4: CAMPUSES & CATALOG                                                 */}

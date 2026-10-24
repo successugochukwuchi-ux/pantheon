@@ -177,6 +177,8 @@ export interface ActivationCode {
   commissionCreditedAt?: string;
   isBulkRestocked?: boolean;
   paymentReference?: string;
+  paymentProvider?: string;
+  orderId?: string;
   price?: number;
   // Lending System Extensions (Legacy/Historical)
   isLent?: boolean;

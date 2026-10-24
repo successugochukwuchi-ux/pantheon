@@ -61,7 +61,8 @@ import {
   CreditCard,
   ArrowDownLeft,
   Undo2,
-  ShieldAlert
+  ShieldAlert,
+  Package
 } from 'lucide-react';
 import { Course, UserLevel, Semester, Note, Question, ActivationCode, VerificationRequest, QuestionSheet, VideoQuestion, NotificationTarget, Announcement, TelegramConfig, AIConfig, NewsItem, LendingSettlement } from '../types';
 import { sendTelegramAlert, testTelegramConnection } from '../services/telegramService';
@@ -323,6 +324,7 @@ export default function AdminPanel() {
   const [bulkCount, setBulkCount] = useState(10);
   const [bulkIncludePlus, setBulkIncludePlus] = useState(false);
   const [bulkPlusCount, setBulkPlusCount] = useState(0);
+  const [showVendorRestockView, setShowVendorRestockView] = useState(false);
   const [selectedPinIds, setSelectedPinIds] = useState<string[]>([]);
   const [transferStudentId, setTransferStudentId] = useState('');
   const [standardPriceSetting, setStandardPriceSetting] = useState(3000);
@@ -680,14 +682,14 @@ export default function AdminPanel() {
           setTransferredPins([]);
         } else {
           // If Level 4 (and not Level 5 Superadmin):
-          // 1. Level 4 Admins should not be able to see activation pins created via paystack purchase (restock/on-demand) by any vendor.
+          // 1. Level 4 Admins should not be able to see activation pins created via vendor purchases (restock via Takano Pay).
           // 2. Level 4 Admins should not be able to see activation pins created by level 4 admins of any other university.
           let visiblePins = allPins;
           if (isLevel4Only) {
             visiblePins = allPins.filter(p => {
-              // Exclude vendor paystack purchases (restock or on-demand)
-              const isVendorPaystackPurchase = !!(p.isOnDemand || p.isBulkRestocked || (typeof p.paymentReference === 'string' && p.paymentReference.trim().length > 0));
-              if (isVendorPaystackPurchase) return false;
+              // Exclude vendor purchases (restock or on-demand, Takano Pay or previous payment methods)
+              const isVendorPurchase = !!(p.isOnDemand || p.isBulkRestocked || (typeof p.paymentReference === 'string' && p.paymentReference.trim().length > 0) || p.paymentProvider === 'takano_pay');
+              if (isVendorPurchase) return false;
 
               // Exclude activation pins created by admins of any other university
               const pinUni = (p.At || 'futo').toLowerCase().trim();
@@ -1746,9 +1748,9 @@ export default function AdminPanel() {
             return;
           }
           if (isLevel4Only) {
-            const isVendorPaystack = !!(pinData.isOnDemand || pinData.isBulkRestocked || (typeof pinData.paymentReference === 'string' && pinData.paymentReference.trim().length > 0));
+            const isVendorPurchase = !!(pinData.isOnDemand || pinData.isBulkRestocked || (typeof pinData.paymentReference === 'string' && pinData.paymentReference.trim().length > 0) || pinData.paymentProvider === 'takano_pay');
             const pinUni = (pinData.At || 'futo').toLowerCase().trim();
-            if (isVendorPaystack || pinUni !== userUni) {
+            if (isVendorPurchase || pinUni !== userUni) {
               toast.error("You do not have permission to delete this pin.");
               setLoading(false);
               return;
@@ -4479,23 +4481,55 @@ export default function AdminPanel() {
 
         <Route path="/pins" element={
           <div className="space-y-6">
-            {!isLevel4 ? (
+            {!isLevel4 || showVendorRestockView ? (
               /* ========================================== */
-              /* LEVEL 3 VENDOR COMMISSION DASHBOARD      */
+              /* VENDOR RESTOCK & PURCHASE DASHBOARD       */
               /* ========================================== */
-              <VendorCommissionDashboard
-                user={user}
-                profile={profile}
-                systemConfig={systemConfig}
-                unusedPins={unusedPins}
-                usedPins={usedPins}
-                onRefresh={triggerRefresh}
-              />
+              <div className="space-y-4">
+                {isLevel4 && (
+                  <div className="flex items-center justify-between p-3.5 bg-muted/40 border rounded-xl">
+                    <span className="text-xs text-muted-foreground font-medium">Viewing Vendor Restock & Purchase Portal (Takano Pay)</span>
+                    <Button 
+                      variant="outline" 
+                      size="sm" 
+                      onClick={() => setShowVendorRestockView(false)}
+                      className="text-xs h-8"
+                    >
+                      ← Back to Admin PIN Generation
+                    </Button>
+                  </div>
+                )}
+                <VendorCommissionDashboard
+                  user={user}
+                  profile={profile}
+                  systemConfig={systemConfig}
+                  unusedPins={unusedPins}
+                  usedPins={usedPins}
+                  onRefresh={triggerRefresh}
+                />
+              </div>
             ) : (
               /* ========================================== */
               /* LEVEL 4 FULL ADMIN ELEMENT               */
               /* ========================================== */
               <div className="space-y-6">
+                <div className="flex items-center justify-between flex-wrap gap-2">
+                  <div>
+                    <h3 className="text-xl font-bold flex items-center gap-2">
+                      <Key className="h-5 w-5 text-primary" /> Admin PIN Management
+                    </h3>
+                    <p className="text-xs text-muted-foreground">Generate pins directly for your university or restock inventory via Takano Pay.</p>
+                  </div>
+                  <Button 
+                    variant="outline" 
+                    size="sm" 
+                    onClick={() => setShowVendorRestockView(true)}
+                    className="gap-1.5 border-emerald-500/40 text-emerald-700 dark:text-emerald-300 font-bold hover:bg-emerald-50 dark:hover:bg-emerald-950/30 text-xs h-9"
+                  >
+                    <Package className="h-4 w-4 text-emerald-600" /> Restock PINs (Wholesale Rate)
+                  </Button>
+                </div>
+
                 <div className="grid gap-6 md:grid-cols-2">
                   {/* Single PIN Generation */}
                   <Card>
