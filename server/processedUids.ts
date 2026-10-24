@@ -1,10 +1,14 @@
 import fs from 'fs';
 import path from 'path';
-import { fileURLToPath } from 'url';
+// Resolve storage file path safely in both CJS bundle and TSX/ESM dev
+const possiblePaths = [
+  path.resolve(process.cwd(), 'server', 'processed_uids.json'),
+  path.resolve(process.cwd(), 'processed_uids.json'),
+  typeof __dirname !== 'undefined' ? path.resolve(__dirname, 'server', 'processed_uids.json') : '',
+  typeof __dirname !== 'undefined' ? path.resolve(__dirname, 'processed_uids.json') : '',
+].filter(Boolean);
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-const FILE_PATH = path.resolve(__dirname, 'processed_uids.json');
+const FILE_PATH = possiblePaths.find(p => fs.existsSync(p)) || path.resolve(process.cwd(), 'server', 'processed_uids.json');
 
 export class ProcessedUidsTracker {
   private uids: Set<number> = new Set();
@@ -29,6 +33,10 @@ export class ProcessedUidsTracker {
 
   public save() {
     try {
+      const dir = path.dirname(FILE_PATH);
+      if (!fs.existsSync(dir)) {
+        fs.mkdirSync(dir, { recursive: true });
+      }
       fs.writeFileSync(FILE_PATH, JSON.stringify(Array.from(this.uids)), 'utf-8');
     } catch (e) {
       console.warn('[UID Tracker] Could not save processed_uids.json:', e);

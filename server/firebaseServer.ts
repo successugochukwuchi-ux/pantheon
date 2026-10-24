@@ -2,11 +2,15 @@ import { initializeApp, getApps, getApp } from 'firebase/app';
 import { getFirestore } from 'firebase/firestore';
 import fs from 'fs';
 import path from 'path';
-import { fileURLToPath } from 'url';
+// Locate firebase-applet-config.json safely in both CJS bundle and TSX/ESM dev
+const possibleConfigPaths = [
+  path.resolve(process.cwd(), 'firebase-applet-config.json'),
+  path.resolve(process.cwd(), '../firebase-applet-config.json'),
+  typeof __dirname !== 'undefined' ? path.resolve(__dirname, '../firebase-applet-config.json') : '',
+  typeof __dirname !== 'undefined' ? path.resolve(__dirname, 'firebase-applet-config.json') : '',
+].filter(Boolean);
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-const configPath = path.resolve(__dirname, '../firebase-applet-config.json');
+const configPath = possibleConfigPaths.find(p => fs.existsSync(p)) || possibleConfigPaths[0];
 
 let firebaseConfig: Record<string, string> = {
   projectId: 'pantheon-study',

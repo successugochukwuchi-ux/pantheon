@@ -1,0 +1,187 @@
+2026-10-24T10:33:10.615415097Z ==> Downloading cache...
+2026-10-24T10:33:10.639847264Z ==> Cloning from https://github.com/successugochukwuchi-ux/pantheon
+2026-10-24T10:33:16.425982709Z ==> Checking out commit 58ab1d6234f4dc93ee5a1fbd4edeca2fb6a74d56 in branch main
+2026-10-24T10:33:33.291976078Z ==> Downloaded and extracted 1.7 GiB cache in 22s.
+2026-10-24T10:33:33.862710909Z ==> Using Node.js version 24.14.1 (default)
+2026-10-24T10:33:33.862715084Z ==> Docs on specifying a Node.js version: https://render.com/docs/node-version
+2026-10-24T10:33:33.862803472Z ==> Installing Node.js version 24.14.1...
+2026-10-24T10:33:34.582681101Z ==> Running build command 'npm install && npm run build'...
+2026-10-24T10:33:58.298761593Z 
+2026-10-24T10:33:58.298780757Z changed 393 packages, and audited 1452 packages in 24s
+2026-10-24T10:33:58.298835684Z 
+2026-10-24T10:33:58.29893514Z 322 packages are looking for funding
+2026-10-24T10:33:58.29902338Z   run `npm fund` for details
+2026-10-24T10:33:58.373938204Z 
+2026-10-24T10:33:58.373955849Z 50 vulnerabilities (7 low, 14 moderate, 25 high, 4 critical)
+2026-10-24T10:33:58.373957363Z 
+2026-10-24T10:33:58.373958983Z To address issues that do not require attention, run:
+2026-10-24T10:33:58.373960348Z   npm audit fix
+2026-10-24T10:33:58.373961619Z 
+2026-10-24T10:33:58.373963469Z To address all issues possible (including breaking changes), run:
+2026-10-24T10:33:58.373965356Z   npm audit fix --force
+2026-10-24T10:33:58.373966611Z 
+2026-10-24T10:33:58.373967954Z Some issues need review, and may require choosing
+2026-10-24T10:33:58.373969284Z a different dependency.
+2026-10-24T10:33:58.373970567Z 
+2026-10-24T10:33:58.373972224Z Run `npm audit` for details.
+2026-10-24T10:33:58.546485756Z 
+2026-10-24T10:33:58.546499321Z > react-example@0.0.0 build
+2026-10-24T10:33:58.546503247Z > vite build && cp dist/index.html dist/404.html && esbuild server.ts --bundle --platform=node --format=cjs --packages=external --sourcemap --outfile=dist/server.cjs
+2026-10-24T10:33:58.54650645Z 
+2026-10-24T10:33:58.806858631Z vite v6.4.2 building for production...
+2026-10-24T10:33:58.871979247Z transforming...
+2026-10-24T10:34:13.930159915Z ✓ 5488 modules transformed.
+2026-10-24T10:34:15.689883019Z rendering chunks...
+2026-10-24T10:34:17.696364272Z [plugin vite:reporter] 
+2026-10-24T10:34:17.696375589Z (!) /opt/render/project/src/node_modules/firebase/auth/dist/esm/index.esm.js is dynamically imported by /opt/render/project/src/src/components/Sidebar.tsx but also statically imported by /opt/render/project/src/src/contexts/AuthContext.tsx, /opt/render/project/src/src/firebase.ts, /opt/render/project/src/src/pages/Diagnostic.tsx, /opt/render/project/src/src/pages/Login.tsx, /opt/render/project/src/src/pages/Register.tsx, /opt/render/project/src/src/pages/Settings.tsx, dynamic import will not move module into another chunk.
+2026-10-24T10:34:17.696384435Z 
+2026-10-24T10:34:17.696536254Z [plugin vite:reporter] 
+2026-10-24T10:34:17.696545289Z (!) /opt/render/project/src/node_modules/firebase/firestore/dist/esm/index.esm.js is dynamically imported by /opt/render/project/src/src/components/OverseerControl.tsx, /opt/render/project/src/src/components/OverseerControl.tsx, /opt/render/project/src/src/components/OverseerControl.tsx but also statically imported by /opt/render/project/src/src/components/AIAssistant.tsx, /opt/render/project/src/src/components/AdminBackup.tsx, /opt/render/project/src/src/components/AdminCredentials.tsx, /opt/render/project/src/src/components/AdminDevices.tsx, /opt/render/project/src/src/components/AdminDiscipline.tsx, /opt/render/project/src/src/components/AdminMobileControl.tsx, /opt/render/project/src/src/components/Layout.tsx, /opt/render/project/src/src/components/NoteBuilder.tsx, /opt/render/project/src/src/components/NoteProgressTracker.tsx, /opt/render/project/src/src/components/OverseerControl.tsx, /opt/render/project/src/src/components/UserSearch.tsx, /opt/render/project/src/src/components/admin/AdminFeedback.tsx, /opt/render/project/src/src/contexts/AuthContext.tsx, /opt/render/project/src/src/firebase.ts, /opt/render/project/src/src/lib/courseFilter.ts, /opt/render/project/src/src/pages/Activate.tsx, /opt/render/project/src/src/pages/AdminPanel.tsx, /opt/render/project/src/src/pages/AdminReports.tsx, /opt/render/project/src/src/pages/CBTPractice.tsx, /opt/render/project/src/src/pages/CBTResults.tsx, /opt/render/project/src/src/pages/Chat.tsx, /opt/render/project/src/src/pages/Compete.tsx, /opt/render/project/src/src/pages/CourseDiscussion.tsx, /opt/render/project/src/src/pages/Dashboard.tsx, /opt/render/project/src/src/pages/Diagnostic.tsx, /opt/render/project/src/src/pages/Download.tsx, /opt/render/project/src/src/pages/Feedback.tsx, /opt/render/project/src/src/pages/Friends.tsx, /opt/render/project/src/src/pages/News.tsx, /opt/render/project/src/src/pages/Notifications.tsx, /opt/render/project/src/src/pages/Onboarding.tsx, /opt/render/project/src/src/pages/PastQuestions.tsx, /opt/render/project/src/src/pages/PublicProfile.tsx, /opt/render/project/src/src/pages/Referrals.tsx, /opt/render/project/src/src/pages/Register.tsx, /opt/render/project/src/src/pages/SearchResults.tsx, /opt/render/project/src/src/pages/Settings.tsx, /opt/render/project/src/src/pages/StudyMaterials.tsx, /opt/render/project/src/src/pages/StudyTimetable.tsx, /opt/render/project/src/src/pages/VideoLibrary.tsx, /opt/render/project/src/src/pages/flux/FluxAdmin.tsx, /opt/render/project/src/src/pages/flux/FluxBrowse.tsx, /opt/render/project/src/src/pages/flux/FluxPortfolio.tsx, /opt/render/project/src/src/pages/flux/FluxTracks.tsx, /opt/render/project/src/src/services/aiService.ts, /opt/render/project/src/src/services/credentialService.ts, /opt/render/project/src/src/services/telegramService.ts, dynamic import will not move module into another chunk.
+2026-10-24T10:34:17.696555916Z 
+2026-10-24T10:34:17.696605156Z [plugin vite:reporter] 
+2026-10-24T10:34:17.696609784Z (!) /opt/render/project/src/src/firebase.ts is dynamically imported by /opt/render/project/src/src/components/Sidebar.tsx but also statically imported by /opt/render/project/src/src/components/AIAssistant.tsx, /opt/render/project/src/src/components/AdminBackup.tsx, /opt/render/project/src/src/components/AdminCredentials.tsx, /opt/render/project/src/src/components/AdminDevices.tsx, /opt/render/project/src/src/components/AdminDiscipline.tsx, /opt/render/project/src/src/components/AdminMobileControl.tsx, /opt/render/project/src/src/components/Layout.tsx, /opt/render/project/src/src/components/NoteBuilder.tsx, /opt/render/project/src/src/components/NoteProgressTracker.tsx, /opt/render/project/src/src/components/OverseerControl.tsx, /opt/render/project/src/src/components/UserSearch.tsx, /opt/render/project/src/src/components/admin/AdminFeedback.tsx, /opt/render/project/src/src/contexts/AuthContext.tsx, /opt/render/project/src/src/lib/courseFilter.ts, /opt/render/project/src/src/pages/Activate.tsx, /opt/render/project/src/src/pages/AdminPanel.tsx, /opt/render/project/src/src/pages/AdminReports.tsx, /opt/render/project/src/src/pages/CBTPractice.tsx, /opt/render/project/src/src/pages/CBTResults.tsx, /opt/render/project/src/src/pages/Chat.tsx, /opt/render/project/src/src/pages/Compete.tsx, /opt/render/project/src/src/pages/CourseDiscussion.tsx, /opt/render/project/src/src/pages/Dashboard.tsx, /opt/render/project/src/src/pages/Diagnostic.tsx, /opt/render/project/src/src/pages/Download.tsx, /opt/render/project/src/src/pages/Feedback.tsx, /opt/render/project/src/src/pages/Friends.tsx, /opt/render/project/src/src/pages/Login.tsx, /opt/render/project/src/src/pages/News.tsx, /opt/render/project/src/src/pages/Notifications.tsx, /opt/render/project/src/src/pages/Onboarding.tsx, /opt/render/project/src/src/pages/PastQuestions.tsx, /opt/render/project/src/src/pages/PublicProfile.tsx, /opt/render/project/src/src/pages/Referrals.tsx, /opt/render/project/src/src/pages/Register.tsx, /opt/render/project/src/src/pages/SearchResults.tsx, /opt/render/project/src/src/pages/Settings.tsx, /opt/render/project/src/src/pages/StudyMaterials.tsx, /opt/render/project/src/src/pages/StudyTimetable.tsx, /opt/render/project/src/src/pages/VideoLibrary.tsx, /opt/render/project/src/src/pages/flux/FluxAdmin.tsx, /opt/render/project/src/src/pages/flux/FluxBrowse.tsx, /opt/render/project/src/src/pages/flux/FluxPortfolio.tsx, /opt/render/project/src/src/pages/flux/FluxTracks.tsx, /opt/render/project/src/src/services/aiService.ts, /opt/render/project/src/src/services/credentialService.ts, /opt/render/project/src/src/services/telegramService.ts, dynamic import will not move module into another chunk.
+2026-10-24T10:34:17.696618369Z 
+2026-10-24T10:34:18.424057475Z computing gzip size...
+2026-10-24T10:34:18.608562563Z dist/index.html                                             0.68 kB │ gzip:     0.42 kB
+2026-10-24T10:34:18.608583077Z dist/assets/KaTeX_Size3-Regular-CTq5MqoE.woff               4.42 kB
+2026-10-24T10:34:18.608585366Z dist/assets/KaTeX_Size4-Regular-Dl5lxZxV.woff2              4.93 kB
+2026-10-24T10:34:18.608589595Z dist/assets/KaTeX_Size2-Regular-Dy4dx90m.woff2              5.21 kB
+2026-10-24T10:34:18.608613606Z dist/assets/KaTeX_Size1-Regular-mCD8mA8B.woff2              5.47 kB
+2026-10-24T10:34:18.608648055Z dist/assets/KaTeX_Size4-Regular-BF-4gkZK.woff               5.98 kB
+2026-10-24T10:34:18.60865254Z dist/assets/KaTeX_Size2-Regular-oD1tc_U0.woff               6.19 kB
+2026-10-24T10:34:18.608666161Z dist/assets/KaTeX_Size1-Regular-C195tn64.woff               6.50 kB
+2026-10-24T10:34:18.608673004Z dist/assets/KaTeX_Caligraphic-Regular-Di6jR-x-.woff2        6.91 kB
+2026-10-24T10:34:18.608676703Z dist/assets/KaTeX_Caligraphic-Bold-Dq_IR9rO.woff2           6.91 kB
+2026-10-24T10:34:18.608678313Z dist/assets/KaTeX_Size3-Regular-DgpXs0kz.ttf                7.59 kB
+2026-10-24T10:34:18.608697743Z dist/assets/KaTeX_Caligraphic-Regular-CTRA-rTL.woff         7.66 kB
+2026-10-24T10:34:18.608700564Z dist/assets/KaTeX_Caligraphic-Bold-BEiXGLvX.woff            7.72 kB
+2026-10-24T10:34:18.608704629Z dist/assets/KaTeX_Script-Regular-D3wIWfF6.woff2             9.64 kB
+2026-10-24T10:34:18.608706622Z dist/assets/KaTeX_SansSerif-Regular-DDBCnlJ7.woff2         10.34 kB
+2026-10-24T10:34:18.608734139Z dist/assets/KaTeX_Size4-Regular-DWFBv043.ttf               10.36 kB
+2026-10-24T10:34:18.608738062Z dist/assets/KaTeX_Script-Regular-D5yQViql.woff             10.59 kB
+2026-10-24T10:34:18.608740389Z dist/assets/KaTeX_Fraktur-Regular-CTYiF6lA.woff2           11.32 kB
+2026-10-24T10:34:18.608746136Z dist/assets/KaTeX_Fraktur-Bold-CL6g_b3V.woff2              11.35 kB
+2026-10-24T10:34:18.608748306Z dist/assets/KaTeX_Size2-Regular-B7gKUWhC.ttf               11.51 kB
+2026-10-24T10:34:18.608777989Z dist/assets/KaTeX_SansSerif-Italic-C3H0VqGB.woff2          12.03 kB
+2026-10-24T10:34:18.608780593Z dist/assets/KaTeX_SansSerif-Bold-D1sUS0GD.woff2            12.22 kB
+2026-10-24T10:34:18.608788604Z dist/assets/KaTeX_Size1-Regular-Dbsnue_I.ttf               12.23 kB
+2026-10-24T10:34:18.608790692Z dist/assets/KaTeX_SansSerif-Regular-CS6fqUqJ.woff          12.32 kB
+2026-10-24T10:34:18.608794679Z dist/assets/KaTeX_Caligraphic-Regular-wX97UBjC.ttf         12.34 kB
+2026-10-24T10:34:18.608807736Z dist/assets/KaTeX_Caligraphic-Bold-ATXxdsX0.ttf            12.37 kB
+2026-10-24T10:34:18.608815359Z dist/assets/KaTeX_Fraktur-Regular-Dxdc4cR9.woff            13.21 kB
+2026-10-24T10:34:18.608829536Z dist/assets/KaTeX_Fraktur-Bold-BsDP51OF.woff               13.30 kB
+2026-10-24T10:34:18.608836214Z dist/assets/KaTeX_Typewriter-Regular-CO6r4hn1.woff2        13.57 kB
+2026-10-24T10:34:18.608837635Z dist/assets/KaTeX_SansSerif-Italic-DN2j7dab.woff           14.11 kB
+2026-10-24T10:34:18.608841993Z dist/assets/KaTeX_SansSerif-Bold-DbIhKOiC.woff             14.41 kB
+2026-10-24T10:34:18.608873709Z dist/assets/geist-cyrillic-wght-normal-CHSlOQsW.woff2      14.69 kB
+2026-10-24T10:34:18.608875533Z dist/assets/geist-latin-ext-wght-normal-DMtmJ5ZE.woff2     15.31 kB
+2026-10-24T10:34:18.608878584Z dist/assets/KaTeX_Typewriter-Regular-C0xS9mPB.woff         16.03 kB
+2026-10-24T10:34:18.608880025Z dist/assets/KaTeX_Math-BoldItalic-CZnvNsCZ.woff2           16.40 kB
+2026-10-24T10:34:18.60889554Z dist/assets/KaTeX_Math-Italic-t53AETM-.woff2               16.44 kB
+2026-10-24T10:34:18.608897123Z dist/assets/KaTeX_Script-Regular-C5JkGWo-.ttf              16.65 kB
+2026-10-24T10:34:18.608898386Z dist/assets/KaTeX_Main-BoldItalic-DxDJ3AOS.woff2           16.78 kB
+2026-10-24T10:34:18.608938433Z dist/assets/KaTeX_Main-Italic-NWA7e6Wa.woff2               16.99 kB
+2026-10-24T10:34:18.608944049Z dist/assets/KaTeX_Math-BoldItalic-iY-2wyZ7.woff            18.67 kB
+2026-10-24T10:34:18.608945472Z dist/assets/KaTeX_Math-Italic-DA0__PXp.woff                18.75 kB
+2026-10-24T10:34:18.60895714Z dist/assets/KaTeX_Main-BoldItalic-SpSLRI95.woff            19.41 kB
+2026-10-24T10:34:18.608963805Z dist/assets/KaTeX_SansSerif-Regular-BNo7hRIc.ttf           19.44 kB
+2026-10-24T10:34:18.608966175Z dist/assets/KaTeX_Fraktur-Regular-CB_wures.ttf             19.57 kB
+2026-10-24T10:34:18.608969328Z dist/assets/KaTeX_Fraktur-Bold-BdnERNNW.ttf                19.58 kB
+2026-10-24T10:34:18.608970646Z dist/assets/KaTeX_Main-Italic-BMLOBm91.woff                19.68 kB
+2026-10-24T10:34:18.608989187Z dist/assets/KaTeX_SansSerif-Italic-YYjJ1zSn.ttf            22.36 kB
+2026-10-24T10:34:18.608990941Z dist/assets/KaTeX_SansSerif-Bold-CFMepnvq.ttf              24.50 kB
+2026-10-24T10:34:18.608994143Z dist/assets/KaTeX_Main-Bold-Cx986IdX.woff2                 25.32 kB
+2026-10-24T10:34:18.609007198Z dist/assets/KaTeX_Main-Regular-B22Nviop.woff2              26.27 kB
+2026-10-24T10:34:18.609008647Z dist/assets/KaTeX_Typewriter-Regular-D3Ib7_Hf.ttf          27.56 kB
+2026-10-24T10:34:18.609010024Z dist/assets/KaTeX_AMS-Regular-BQhdFMY1.woff2               28.08 kB
+2026-10-24T10:34:18.609025562Z dist/assets/geist-latin-wght-normal-Dm3htQBi.woff2         28.40 kB
+2026-10-24T10:34:18.609026969Z dist/assets/KaTeX_Main-Bold-Jm3AIy58.woff                  29.91 kB
+2026-10-24T10:34:18.609028297Z dist/assets/KaTeX_Main-Regular-Dr94JaBh.woff               30.77 kB
+2026-10-24T10:34:18.609047649Z dist/assets/KaTeX_Math-BoldItalic-B3XSjfu4.ttf             31.20 kB
+2026-10-24T10:34:18.609049365Z dist/assets/KaTeX_Math-Italic-flOr_0UB.ttf                 31.31 kB
+2026-10-24T10:34:18.609050657Z dist/assets/KaTeX_Main-BoldItalic-DzxPMmG6.ttf             32.97 kB
+2026-10-24T10:34:18.609058216Z dist/assets/KaTeX_AMS-Regular-DMm9YOAa.woff                33.52 kB
+2026-10-24T10:34:18.609094838Z dist/assets/KaTeX_Main-Italic-3WenGoN9.ttf                 33.58 kB
+2026-10-24T10:34:18.609098201Z dist/assets/KaTeX_Main-Bold-waoOVXN0.ttf                   51.34 kB
+2026-10-24T10:34:18.609102464Z dist/assets/KaTeX_Main-Regular-ypZvNtVU.ttf                53.58 kB
+2026-10-24T10:34:18.609107243Z dist/assets/KaTeX_AMS-Regular-DRggAlZN.ttf                 63.63 kB
+2026-10-24T10:34:18.609126095Z dist/assets/index-BRkcfkQ2.css                            271.60 kB │ gzip:    41.16 kB
+2026-10-24T10:34:18.609146266Z dist/assets/Mixcloud-CO6xsVVD.js                            2.70 kB │ gzip:     1.32 kB
+2026-10-24T10:34:18.609147718Z dist/assets/Kaltura-Ffke9U8N.js                             2.85 kB │ gzip:     1.36 kB
+2026-10-24T10:34:18.609162873Z dist/assets/Vidyard-BScf1Hdo.js                             2.92 kB │ gzip:     1.38 kB
+2026-10-24T10:34:18.609164439Z dist/assets/SoundCloud-Da-Zuw62.js                          2.98 kB │ gzip:     1.40 kB
+2026-10-24T10:34:18.609182287Z dist/assets/Streamable-D7fW3RtF.js                          3.00 kB │ gzip:     1.38 kB
+2026-10-24T10:34:18.609183946Z dist/assets/DailyMotion-BKUpBX9J.js                         3.02 kB │ gzip:     1.43 kB
+2026-10-24T10:34:18.609187223Z dist/assets/Preview-BvOnKZiz.js                             3.07 kB │ gzip:     1.49 kB
+2026-10-24T10:34:18.609190279Z dist/assets/Twitch-GjL7z9IE.js                              3.14 kB │ gzip:     1.47 kB
+2026-10-24T10:34:18.609210857Z dist/assets/Facebook-CBfZ_e_w.js                            3.28 kB │ gzip:     1.48 kB
+2026-10-24T10:34:18.609212326Z dist/assets/Wistia-GbfmnahW.js                              3.58 kB │ gzip:     1.57 kB
+2026-10-24T10:34:18.609236198Z dist/assets/Vimeo-D8bRzGqh.js                               3.69 kB │ gzip:     1.55 kB
+2026-10-24T10:34:18.609238487Z dist/assets/YouTube-DSHQCWtm.js                             4.51 kB │ gzip:     2.10 kB
+2026-10-24T10:34:18.609239862Z dist/assets/Mux-CYbIZvNq.js                                 5.42 kB │ gzip:     1.97 kB
+2026-10-24T10:34:18.609242962Z dist/assets/FilePlayer-yHk2dkcu.js                          9.10 kB │ gzip:     3.13 kB
+2026-10-24T10:34:18.609261672Z dist/assets/purify.es-Csrj9YNg.js                          28.14 kB │ gzip:    10.69 kB
+2026-10-24T10:34:18.609263343Z dist/assets/index.es-Hocs4O4y.js                          159.16 kB │ gzip:    53.34 kB
+2026-10-24T10:34:18.609280557Z dist/assets/html2canvas.esm-QH1iLAAe.js                   202.38 kB │ gzip:    48.04 kB
+2026-10-24T10:34:18.609282233Z dist/assets/index-D50ItGW9.js                           7,114.91 kB │ gzip: 2,128.73 kB
+2026-10-24T10:34:18.609394393Z 
+2026-10-24T10:34:18.609396469Z (!) Some chunks are larger than 500 kB after minification. Consider:
+2026-10-24T10:34:18.609398239Z - Using dynamic import() to code-split the application
+2026-10-24T10:34:18.609399892Z - Use build.rollupOptions.output.manualChunks to improve chunking: https://rollupjs.org/configuration-options/#output-manualchunks
+2026-10-24T10:34:18.609401562Z - Adjust chunk size limit for this warning via build.chunkSizeWarningLimit.
+2026-10-24T10:34:18.609674169Z ✓ built in 19.77s
+2026-10-24T10:34:18.778677226Z ▲ [WARNING] "import.meta" is not available with the "cjs" output format and will be empty [empty-import-meta]
+2026-10-24T10:34:18.778685676Z 
+2026-10-24T10:34:18.7786877Z     server/processedUids.ts:5:33:
+2026-10-24T10:34:18.778689731Z       5 │ const __filename = fileURLToPath(import.meta.url);
+2026-10-24T10:34:18.77869121Z         ╵                                  ~~~~~~~~~~~
+2026-10-24T10:34:18.778692676Z 
+2026-10-24T10:34:18.778694459Z   You need to set the output format to "esm" for "import.meta" to work correctly.
+2026-10-24T10:34:18.778695713Z 
+2026-10-24T10:34:18.778701707Z ▲ [WARNING] "import.meta" is not available with the "cjs" output format and will be empty [empty-import-meta]
+2026-10-24T10:34:18.778702933Z 
+2026-10-24T10:34:18.778704303Z     server/firebaseServer.ts:7:33:
+2026-10-24T10:34:18.77870566Z       7 │ const __filename = fileURLToPath(import.meta.url);
+2026-10-24T10:34:18.778711177Z         ╵                                  ~~~~~~~~~~~
+2026-10-24T10:34:18.778712373Z 
+2026-10-24T10:34:18.778713752Z   You need to set the output format to "esm" for "import.meta" to work correctly.
+2026-10-24T10:34:18.778715341Z 
+2026-10-24T10:34:18.782496616Z 2 warnings
+2026-10-24T10:34:18.78252146Z 
+2026-10-24T10:34:18.782531884Z   dist/server.cjs      148.8kb
+2026-10-24T10:34:18.782533626Z   dist/server.cjs.map  258.8kb
+2026-10-24T10:34:18.782534889Z 
+2026-10-24T10:34:18.782536422Z ⚡ Done in 8ms
+2026-10-24T10:34:19.971561932Z ==> Uploading build...
+2026-10-24T10:34:33.480201187Z ==> Uploaded in 7.2s. Compression took 6.3s
+2026-10-24T10:34:33.485810635Z ==> Build successful 🎉
+2026-10-24T10:34:35.499973577Z ==> Deploying...
+2026-10-24T10:34:35.68267175Z ==> Setting WEB_CONCURRENCY=1 by default, based on available CPUs in the instance
+2026-10-24T10:35:23.314906117Z ==> Running 'npm run start'
+2026-10-24T10:35:24.623569435Z 
+2026-10-24T10:35:24.623594746Z > react-example@0.0.0 start
+2026-10-24T10:35:24.623600056Z > node dist/server.cjs
+2026-10-24T10:35:24.623602116Z 
+2026-10-24T10:35:28.813642048Z node:internal/url:1606
+2026-10-24T10:35:28.813665199Z     throw new ERR_INVALID_ARG_TYPE('path', ['string', 'URL'], path);
+2026-10-24T10:35:28.813669119Z     ^
+2026-10-24T10:35:28.813671719Z 
+2026-10-24T10:35:28.813675009Z TypeError [ERR_INVALID_ARG_TYPE]: The "path" argument must be of type string or an instance of URL. Received undefined
+2026-10-24T10:35:28.813680169Z     at fileURLToPath (node:internal/url:1606:11)
+2026-10-24T10:35:28.813682969Z     at server/firebaseServer.ts (/opt/render/project/src/dist/server.cjs:41:47)
+2026-10-24T10:35:28.813686159Z     at __init (/opt/render/project/src/dist/server.cjs:8:56)
+2026-10-24T10:35:28.813688729Z     at server/takanoStore.ts (/opt/render/project/src/dist/server.cjs:64:5)
+2026-10-24T10:35:28.813691279Z     at __init (/opt/render/project/src/dist/server.cjs:8:56)
+2026-10-24T10:35:28.813693789Z     at Object.<anonymous> (/opt/render/project/src/dist/server.cjs:1974:1)
+2026-10-24T10:35:28.813696149Z     at Module._compile (node:internal/modules/cjs/loader:1812:14)
+2026-10-24T10:35:28.813698979Z     at Object..js (node:internal/modules/cjs/loader:1943:10)
+2026-10-24T10:35:28.81370167Z     at Module.load (node:internal/modules/cjs/loader:1533:32)
+2026-10-24T10:35:28.81370467Z     at Module._load (node:internal/modules/cjs/loader:1335:12) {
+2026-10-24T10:35:28.81370828Z   code: 'ERR_INVALID_ARG_TYPE'
+2026-10-24T10:35:28.81371113Z }
+2026-10-24T10:35:28.8137228Z 
+2026-10-24T10:35:28.81372493Z Node.js v24.14.1
+2026-10-24T10:35:34.575380672Z ==> Exited with status 1
+2026-10-24T10:35:34.582899013Z ==> Common ways to troubleshoot your deploy: https://render.com/docs/troubleshooting-deploys
+2026-10-24T10:35:37.798234492Z ==> No open ports detected, continuing to scan...
+2026-10-24T10:35:38.184303293Z ==> Docs on specifying a port: https://render.com/docs/web-services#port-binding
