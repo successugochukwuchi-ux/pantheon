@@ -62,7 +62,8 @@ import {
   ArrowDownLeft,
   Undo2,
   ShieldAlert,
-  Package
+  Package,
+  Bot
 } from 'lucide-react';
 import { Course, UserLevel, Semester, Note, Question, ActivationCode, VerificationRequest, QuestionSheet, VideoQuestion, NotificationTarget, Announcement, TelegramConfig, AIConfig, NewsItem, LendingSettlement } from '../types';
 import { sendTelegramAlert, testTelegramConnection } from '../services/telegramService';
@@ -79,6 +80,7 @@ import AdminMobileControl from '../components/AdminMobileControl';
 import { AdminBackup } from '../components/AdminBackup';
 import { VideoWorkshop } from '../components/VideoWorkshop';
 import { AdminFeedback } from '../components/admin/AdminFeedback';
+import { AdminMcp } from '../components/admin/AdminMcp';
 import VendorCommissionDashboard from '../components/VendorCommissionDashboard';
 import { CloudinaryUpload } from '../components/CloudinaryUpload';
 import ReactMarkdown from 'react-markdown';
@@ -795,6 +797,10 @@ export default function AdminPanel() {
 
   const handleElevate = async (level: UserLevel) => {
     if (!targetUid) return;
+    if (level === '4' && !isLevel5) {
+      toast.error('Level 4 admins cannot move users to Level 4. Only Level 5 Superadmin can assign Level 4.');
+      return;
+    }
     setLoading(true);
     try {
       const q = query(collection(db, 'users'), where('studentId', '==', targetUid.toString().trim()));
@@ -2593,6 +2599,7 @@ export default function AdminPanel() {
           { path: '/administrator/users', label: 'Users', icon: Users },
           { path: '/administrator/courses', label: 'Courses', icon: BookPlus },
           { path: '/administrator/notes', label: 'Notes', icon: FileText },
+          { path: '/administrator/mcp', label: 'MCP Agents', icon: Bot, badge: 'MCP' },
           { path: '/administrator/news', label: 'News', icon: Newspaper },
           { path: '/administrator/pins', label: isLevel4 ? 'Activation PINs' : 'Vendor Dashboard', icon: Key },
         ]
@@ -2770,6 +2777,7 @@ export default function AdminPanel() {
             : <AdminOverview courses={courses} notes={notes} questions={questions} unusedPins={unusedPins} usedPins={usedPins} stats={stats} questionSheets={questionSheets} />
         } />
         <Route path="/manual" element={<AdminManual />} />
+        <Route path="/mcp" element={isLevel4 ? <AdminMcp userProfile={profile} userEmail={user?.email || profile?.email} isLevel5={isLevel5} university={profile?.At || 'futo'} /> : <Navigate to="/administrator" replace />} />
         <Route path="/discipline" element={<AdminDiscipline />} />
         <Route path="/credentials" element={<AdminCredentials />} />
         <Route path="/feedback" element={isLevel4 ? <AdminFeedback /> : <Navigate to="/administrator" replace />} />
@@ -3185,10 +3193,10 @@ export default function AdminPanel() {
                   <Button onClick={() => handleElevate('1')} variant="outline" disabled={loading || !targetUid}>Level 1</Button>
                   <Button onClick={() => handleElevate('2')} disabled={loading || !targetUid}>Level 2</Button>
                   {isLevel4 && (
-                    <>
-                      <Button onClick={() => handleElevate('3')} variant="outline" disabled={loading || !targetUid}>Level 3</Button>
-                      <Button onClick={() => handleElevate('4')} variant="destructive" disabled={loading || !targetUid}>Level 4</Button>
-                    </>
+                    <Button onClick={() => handleElevate('3')} variant="outline" disabled={loading || !targetUid}>Level 3 (Vendor)</Button>
+                  )}
+                  {isLevel5 && (
+                    <Button onClick={() => handleElevate('4')} variant="destructive" disabled={loading || !targetUid}>Level 4 (Admin)</Button>
                   )}
                 </CardFooter>
               </Card>

@@ -1,0 +1,6 @@
+{
+  "summary":  "Architectural implementation plan for CoLearn Model Context Protocol (MCP) server running on the Render backend. Includes Level 4/Admin MCP management tab in the Admin Panel, permanent agent token issuance with university-scoped RBAC, one-click tailored SKILL.md export for hands-off agent setup, full MCP tool suite for courses, notes, and past question sheets, and embedded Base64 PNG visual preview rendering for student-view notes and 20-question grid inspection.",
+  "updatedAt":  "2026-10-27T14:09:36.858224071Z",
+  "requestFeedback":  true,
+  "userFacing":  true
+}

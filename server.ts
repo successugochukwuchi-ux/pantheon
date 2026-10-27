@@ -12,6 +12,8 @@ import { autoCorrectQuestionData, autoCorrectLatexSyntax, autoCorrectNoteContent
 import { takanoStore } from "./server/takanoStore.js";
 import { emailWorker } from "./server/emailWorker.js";
 
+import { mcpRouter } from "./server/mcpRoutes.js";
+
 async function startServer() {
   const app = express();
   const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;
@@ -52,6 +54,9 @@ async function startServer() {
   app.use(express.json({ limit: "500mb" }));
   app.use(express.urlencoded({ limit: "500mb", extended: true }));
   app.use(express.raw({ limit: "500mb", type: "*/*" }));
+
+  // CoLearn Model Context Protocol (MCP) Router
+  app.use("/api/mcp", mcpRouter);
 
   // API routes FIRST
   app.get("/api/health", (req, res) => {

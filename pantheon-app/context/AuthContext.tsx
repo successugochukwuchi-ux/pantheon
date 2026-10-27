@@ -2,13 +2,14 @@ const LOCAL_ACTIVE_SESSION_ID = Math.random().toString(36).substring(2, 15);
 import React, { createContext, useContext, useEffect, useState } from 'react';
 import { onAuthStateChanged, User, signOut } from 'firebase/auth';
 import { doc, onSnapshot, updateDoc, collection, query, where, getDocs, getDoc, orderBy, limit } from 'firebase/firestore';
-import { Alert, AppState, Platform } from 'react-native';
+import { Alert, AppState, Platform, Modal, View, Text, TouchableOpacity, Linking, StyleSheet } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Notifications from 'expo-notifications';
 import { auth, db } from '../lib/firebase';
 import { saveCoursesFromServer, clearUserProfileLocal, clearAllCoursesLocal, saveLastLoggedInStudentId, saveProfileLocal, getUserProfileLocal } from '../lib/db';
 import { getFilteredCoursesForStudent } from '../lib/courseFilter';
 import { getDeviceUUID, getUserDeviceUUID, generateNewDeviceUUID, getMobileDeviceName } from '../lib/device';
+import { fetchMobileAdminContactForUniversity, MobileAdminContact } from '../lib/support';
 
 Notifications.setNotificationHandler({
   handleNotification: async () => ({
@@ -84,6 +85,20 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [isOffline, setIsOffline] = useState(false);
   const [prevSemester, setPrevSemester] = useState<string | null>(null);
   const [prevAcademicLevel, setPrevAcademicLevel] = useState<string | null>(null);
+
+  const [deviceLimitModalInfo, setDeviceLimitModalInfo] = useState<{
+    visible: boolean;
+    admin: MobileAdminContact | null;
+    email: string;
+    studentId: string;
+    semester: string;
+  }>({
+    visible: false,
+    admin: null,
+    email: '',
+    studentId: '',
+    semester: '1st',
+  });
 
   useEffect(() => {
     if (systemConfig) {
@@ -236,11 +251,35 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           const matched = currentDevices.find((d: any) => d.id === deviceId);
           if (!matched) {
             if (!isLevel5 && currentDevices.length >= 2) {
+              const adminContact = await fetchMobileAdminContactForUniversity(userData.At);
+              setDeviceLimitModalInfo({
+                visible: true,
+                admin: adminContact,
+                email: user.email || userData.email || '',
+                studentId: userData.studentId || '',
+                semester: currentSemester,
+              });
               setProfile(null);
               signOut(auth).catch(() => {});
               Alert.alert(
                 "Device Limit Reached",
-                `This account has reached the maximum number of devices (2) for the current semester. Please contact an admin for ${userData.At || 'futo'} for further assistance.`
+                `This account has reached the maximum of 2 devices for this semester.\n\nAvailable Administrator for ${(userData.At || 'futo').toUpperCase()}:\n• Name: ${adminContact.name}\n• WhatsApp: +${adminContact.whatsapp}`,
+                [
+                  { text: "Dismiss", style: "cancel" },
+                  {
+                    text: "Chat on WhatsApp",
+                    onPress: () => {
+                      const msg = encodeURIComponent(`Hello ${adminContact.name}, I reached the 2-device limit on my CoLearn account (${user.email || userData.email || ''}${userData.studentId ? `, Student ID: ${userData.studentId}` : ''}) for ${currentSemester} semester. Please help reset or unlink my device.`);
+                      Linking.openURL(`https://wa.me/${adminContact.whatsapp}?text=${msg}`).catch(() => {});
+                    }
+                  },
+                  {
+                    text: "Call Admin",
+                    onPress: () => {
+                      Linking.openURL(`tel:${adminContact.phone.replace(/\s+/g, '')}`).catch(() => {});
+                    }
+                  }
+                ]
               );
               return;
             } else {
@@ -262,12 +301,36 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         } else {
           // First time on this device for this user account
           if (!isLevel5 && currentDevices.length >= 2) {
+            const adminContact = await fetchMobileAdminContactForUniversity(userData.At);
+            setDeviceLimitModalInfo({
+              visible: true,
+              admin: adminContact,
+              email: user.email || userData.email || '',
+              studentId: userData.studentId || '',
+              semester: currentSemester,
+            });
             setProfile(null);
             signOut(auth).catch(() => {});
             Alert.alert(
-              "Device Limit Reached",
-              `This account has reached the maximum number of devices (2) for the current semester. Please contact an admin for ${userData.At || 'futo'} for further assistance.`
-            );
+                "Device Limit Reached",
+                `This account has reached the maximum of 2 devices for this semester.\n\nAvailable Administrator for ${(userData.At || 'futo').toUpperCase()}:\n• Name: ${adminContact.name}\n• WhatsApp: +${adminContact.whatsapp}`,
+                [
+                  { text: "Dismiss", style: "cancel" },
+                  {
+                    text: "Chat on WhatsApp",
+                    onPress: () => {
+                      const msg = encodeURIComponent(`Hello ${adminContact.name}, I reached the 2-device limit on my CoLearn account (${user.email || userData.email || ''}${userData.studentId ? `, Student ID: ${userData.studentId}` : ''}) for ${currentSemester} semester. Please help reset or unlink my device.`);
+                      Linking.openURL(`https://wa.me/${adminContact.whatsapp}?text=${msg}`).catch(() => {});
+                    }
+                  },
+                  {
+                    text: "Call Admin",
+                    onPress: () => {
+                      Linking.openURL(`tel:${adminContact.phone.replace(/\s+/g, '')}`).catch(() => {});
+                    }
+                  }
+                ]
+              );
             return;
           } else {
             deviceId = await generateNewDeviceUUID(user.uid);
@@ -669,6 +732,189 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   return (
     <AuthContext.Provider value={{ user, profile, systemConfig, promoConfig, loading, isOffline, logout }}>
       {children}
+
+      {deviceLimitModalInfo.visible && deviceLimitModalInfo.admin && (
+        <Modal
+          visible={deviceLimitModalInfo.visible}
+          transparent={true}
+          animationType="fade"
+          onRequestClose={() => setDeviceLimitModalInfo(prev => ({ ...prev, visible: false }))}
+        >
+          <View style={mobileDeviceLimitStyles.overlay}>
+            <View style={mobileDeviceLimitStyles.card}>
+              <View style={mobileDeviceLimitStyles.badge}>
+                <Text style={mobileDeviceLimitStyles.badgeText}>
+                  {deviceLimitModalInfo.admin.university} CAMPUS DESK
+                </Text>
+              </View>
+
+              <Text style={mobileDeviceLimitStyles.title}>Device Limit Reached</Text>
+              <Text style={mobileDeviceLimitStyles.description}>
+                This account has reached the maximum of 2 devices for the current semester ({deviceLimitModalInfo.semester}).
+              </Text>
+
+              <View style={mobileDeviceLimitStyles.adminBox}>
+                <Text style={mobileDeviceLimitStyles.adminRole}>Available Administrator</Text>
+                <Text style={mobileDeviceLimitStyles.adminName}>{deviceLimitModalInfo.admin.name}</Text>
+                <Text style={mobileDeviceLimitStyles.adminPhone}>{deviceLimitModalInfo.admin.phone}</Text>
+              </View>
+
+              <TouchableOpacity
+                style={mobileDeviceLimitStyles.whatsappButton}
+                activeOpacity={0.8}
+                onPress={() => {
+                  const msg = encodeURIComponent(
+                    `Hello ${deviceLimitModalInfo.admin?.name}, I reached the 2-device limit on my CoLearn account (${deviceLimitModalInfo.email}${deviceLimitModalInfo.studentId ? `, Student ID: ${deviceLimitModalInfo.studentId}` : ''}) for ${deviceLimitModalInfo.semester} semester. Please help reset or unlink my device.`
+                  );
+                  Linking.openURL(`https://wa.me/${deviceLimitModalInfo.admin?.whatsapp}?text=${msg}`).catch(() => {});
+                }}
+              >
+                <Text style={mobileDeviceLimitStyles.whatsappButtonText}>💬 Chat on WhatsApp</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={mobileDeviceLimitStyles.callButton}
+                activeOpacity={0.8}
+                onPress={() => {
+                  if (deviceLimitModalInfo.admin?.phone) {
+                    Linking.openURL(`tel:${deviceLimitModalInfo.admin.phone.replace(/\s+/g, '')}`).catch(() => {});
+                  }
+                }}
+              >
+                <Text style={mobileDeviceLimitStyles.callButtonText}>📞 Call Administrator</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={mobileDeviceLimitStyles.dismissButton}
+                activeOpacity={0.7}
+                onPress={() => setDeviceLimitModalInfo(prev => ({ ...prev, visible: false }))}
+              >
+                <Text style={mobileDeviceLimitStyles.dismissButtonText}>Close</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </Modal>
+      )}
     </AuthContext.Provider>
   );
 }
+
+const mobileDeviceLimitStyles = StyleSheet.create({
+  overlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.75)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 24,
+  },
+  card: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 24,
+    padding: 24,
+    width: '100%',
+    maxWidth: 380,
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.25,
+    shadowRadius: 20,
+    elevation: 10,
+  },
+  badge: {
+    backgroundColor: '#FEF3C7',
+    paddingHorizontal: 12,
+    paddingVertical: 4,
+    borderRadius: 12,
+    marginBottom: 12,
+  },
+  badgeText: {
+    color: '#D97706',
+    fontSize: 11,
+    fontWeight: '700',
+    letterSpacing: 0.5,
+  },
+  title: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    color: '#111827',
+    marginBottom: 8,
+    textAlign: 'center',
+  },
+  description: {
+    fontSize: 13,
+    color: '#6B7280',
+    textAlign: 'center',
+    lineHeight: 18,
+    marginBottom: 18,
+  },
+  adminBox: {
+    backgroundColor: '#F3F4F6',
+    borderRadius: 16,
+    padding: 14,
+    width: '100%',
+    alignItems: 'center',
+    marginBottom: 16,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+  },
+  adminRole: {
+    fontSize: 10,
+    fontWeight: '700',
+    color: '#9CA3AF',
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+    marginBottom: 2,
+  },
+  adminName: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: '#1F2937',
+    marginBottom: 2,
+  },
+  adminPhone: {
+    fontSize: 13,
+    color: '#4B5563',
+    fontWeight: '500',
+  },
+  whatsappButton: {
+    backgroundColor: '#10B981',
+    borderRadius: 14,
+    height: 48,
+    width: '100%',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  whatsappButtonText: {
+    color: '#FFFFFF',
+    fontSize: 15,
+    fontWeight: '700',
+  },
+  callButton: {
+    backgroundColor: '#F9FAFB',
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+    borderRadius: 14,
+    height: 44,
+    width: '100%',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  callButtonText: {
+    color: '#374151',
+    fontSize: 13,
+    fontWeight: '600',
+  },
+  dismissButton: {
+    paddingVertical: 8,
+    width: '100%',
+    alignItems: 'center',
+  },
+  dismissButtonText: {
+    color: '#9CA3AF',
+    fontSize: 13,
+    fontWeight: '600',
+  },
+});
+

@@ -200,9 +200,12 @@ export default function Landing() {
               </Button>
             </div>
             <div className="bg-white/10 p-12 md:w-1/3 flex flex-col items-center justify-center text-center border-l border-white/10">
-              <div className="text-6xl font-bold mb-2">₦{Math.round((systemConfig?.standardPrice ?? 3000) / 1000)}k</div>
-              <div className="text-primary-foreground/60 uppercase tracking-widest text-sm font-bold">Per Semester</div>
-              <div className="mt-4 text-2xl font-bold">₦{Math.round((systemConfig?.plusPrice ?? 5000) / 1000)}k PLUS</div>
+              <div className="text-5xl md:text-6xl font-extrabold mb-2 tracking-tight">₦{(systemConfig?.standardPrice ?? 3000).toLocaleString()}</div>
+              <div className="text-primary-foreground/75 uppercase tracking-widest text-xs font-bold">Standard • Per Semester</div>
+              <div className="mt-6 pt-4 border-t border-white/20 w-full text-center">
+                <div className="text-2xl font-bold">₦{(systemConfig?.plusPrice ?? 5000).toLocaleString()}</div>
+                <div className="text-primary-foreground/75 uppercase tracking-wider text-xs font-semibold">Two Semesters (PLUS)</div>
+              </div>
             </div>
           </div>
         </div>

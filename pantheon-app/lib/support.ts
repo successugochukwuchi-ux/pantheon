@@ -68,6 +68,78 @@ export async function contactAdmin(
           }
         }
       }
-    ]
-  );
+}
+
+export interface MobileAdminContact {
+  name: string;
+  whatsapp: string;
+  phone: string;
+  email?: string;
+  university: string;
+}
+
+/**
+ * Fetches available administrator contact details matching the given university ID (At).
+ */
+export async function fetchMobileAdminContactForUniversity(universityId?: string): Promise<MobileAdminContact> {
+  const uniId = (universityId || 'futo').toLowerCase().trim();
+  const defaultWhatsapp = "2348118429150";
+  const defaultPhone = "+234 811 842 9150";
+
+  const fallback: MobileAdminContact = {
+    name: `${uniId.toUpperCase()} Campus Administrator`,
+    whatsapp: defaultWhatsapp,
+    phone: defaultPhone,
+    university: uniId.toUpperCase(),
+  };
+
+  try {
+    const q = query(
+      collection(db, 'credentialSets'),
+      where('At', '==', uniId),
+      where('enabled', '==', true)
+    );
+    const snap = await getDocs(q);
+    if (!snap.empty) {
+      const enabledSets = snap.docs.map(doc => doc.data());
+      if (enabledSets.length > 0) {
+        const randomIndex = Math.floor(Math.random() * enabledSets.length);
+        const selected = enabledSets[randomIndex];
+        const rawWa = selected.whatsapp ? selected.whatsapp.replace(/\D/g, '') : defaultWhatsapp;
+        const cleanWa = rawWa.startsWith('234') ? rawWa : (rawWa.startsWith('0') ? '234' + rawWa.substring(1) : rawWa);
+        return {
+          name: selected.name || `${uniId.toUpperCase()} Administrator`,
+          whatsapp: cleanWa,
+          phone: selected.phone || selected.whatsapp || defaultPhone,
+          email: selected.email,
+          university: uniId.toUpperCase(),
+        };
+      }
+    }
+
+    // Try Level 4 admin in users
+    const adminQ = query(
+      collection(db, 'users'),
+      where('At', '==', uniId),
+      where('level', '==', '4')
+    );
+    const adminSnap = await getDocs(adminQ);
+    if (!adminSnap.empty) {
+      const aData = adminSnap.docs[0].data();
+      const rawContact = aData.phoneNumber || aData.phone || aData.whatsapp || defaultPhone;
+      const rawWa = rawContact.replace(/\D/g, '');
+      const cleanWa = rawWa.startsWith('234') ? rawWa : (rawWa.startsWith('0') ? '234' + rawWa.substring(1) : (rawWa || defaultWhatsapp));
+      return {
+        name: aData.username || aData.displayName || `${uniId.toUpperCase()} Administrator`,
+        whatsapp: cleanWa,
+        phone: rawContact,
+        email: aData.email,
+        university: uniId.toUpperCase(),
+      };
+    }
+  } catch (e) {
+    console.warn("Error fetching mobile admin contact:", e);
+  }
+
+  return fallback;
 }

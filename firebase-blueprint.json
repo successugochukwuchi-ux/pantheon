@@ -1163,9 +1163,31 @@
         "mode": { "type": "string" },
         "updatedAt": { "type": "string" }
       }
+    },
+    "McpAgentToken": {
+      "title": "McpAgentToken",
+      "description": "Permanent agent tokens for autonomous Model Context Protocol agents",
+      "type": "object",
+      "properties": {
+        "tokenHash": { "type": "string" },
+        "tokenPrefix": { "type": "string" },
+        "name": { "type": "string" },
+        "university": { "type": "string" },
+        "adminUid": { "type": "string" },
+        "adminEmail": { "type": "string" },
+        "level": { "type": "string" },
+        "status": { "type": "string", "enum": ["active", "revoked"] },
+        "createdAt": { "type": "string" },
+        "lastUsedAt": { "type": "string" }
+      },
+      "required": ["tokenHash", "name", "university", "adminUid", "adminEmail", "status", "createdAt"]
     }
   },
   "firestore": {
+    "/mcp_agent_tokens/{tokenId}": {
+      "schema": "McpAgentToken",
+      "description": "Scoped agent tokens for CoLearn MCP Server"
+    },
     "/feedback/{feedbackId}": {
       "schema": "Feedback",
       "description": "User submitted feedback with university-scoped admin routing and escalation"
