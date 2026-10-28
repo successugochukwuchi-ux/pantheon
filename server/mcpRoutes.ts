@@ -687,12 +687,12 @@ mcpRouter.get('/skill-template', (req: Request, res: Response) => {
 export function generateSkillMarkdown(token: string, university: string, baseUrl: string): string {
   return `---
 name: "colearn-academic-agent"
-description: "Model Context Protocol (MCP) skill for autonomous curriculum creation, lecture notes authoring, and past question sheet compiling on CoLearn."
+description: "Model Context Protocol (MCP) skill for autonomous curriculum creation, lecture notes authoring, and past question sheet compiling on CoLearn using official PLX markup."
 ---
 
 # CoLearn Academic Agent Skill
 
-This skill grants autonomous agents capabilities to search, author, inspect, and fix university-scoped courses, lecture notes, and past question sheets on CoLearn.
+This skill grants autonomous AI agents full capabilities to search, author, inspect, and fix university-scoped courses, lecture notes, and past question sheets on CoLearn.
 
 ## Authentication & Server Configuration
 
@@ -702,7 +702,7 @@ This skill grants autonomous agents capabilities to search, author, inspect, and
 - **Stateless HTTP Endpoint**: \`${baseUrl}/api/mcp\`
 - **Agent Bearer Token**: \`${token}\`
 
-### MCP Client Configuration (claude_desktop_config.json / Cursor MCP)
+### MCP Client Configuration (\`claude_desktop_config.json\` / Cursor MCP)
 
 \`\`\`json
 {
@@ -719,93 +719,155 @@ This skill grants autonomous agents capabilities to search, author, inspect, and
 
 ---
 
-## Rigid Rules & Boundaries
+## Operating Protocol: Emulating a Human Hand
 
-1. **University Isolation**:
-   - This agent is bound strictly to \`${university}\`.
-   - Never attempt to query or edit courses, notes, or question sheets belonging to other universities.
-2. **PLX as Universal Standard (Web & Mobile Unifier)**:
-   - **PLX Markup** (\`<PLX> ... </PLX>\`) is the official native standard understood identically across both **CoLearn Web Portal** and **CoLearn Mobile App**.
-   - Always author lecture notes and content inside clean PLX blocks. Emulate a human administrator: write PLX, upload to CoLearn via MCP, inspect the student-view image, and refine.
-3. **PLX Specification & Tags**:
-   - Root Container: Wrap all note content in \`<PLX> ... </PLX>\`.
-   - Headings: \`<H1>Title / Major Topic</H1>\`, \`<H2>Subtitle / Section</H2>\`
-   - Text & Paragraphs: \`<TEXT>Paragraph content with $inline\\_math$ and text tags <B>bold</B>, <I>italic</I>, <U>underline</U></TEXT>\`
-   - Mathematics: \`<MATH>display_mode_latex_formula</MATH>\` (e.g., \`<MATH>\\Delta U = Q - W</MATH>\`). Also supports inline \`$E = mc^2$\`.
-   - Tables: \`<TABLE>Header 1, Header 2\\nCell 1, Cell 2</TABLE>\` (comma-separated or pipe-separated)
-   - Lists: \`<LIST>Bullet 1\\nBullet 2</LIST>\` and \`<ORDERED>Step 1\\nStep 2</ORDERED>\`
-   - Question Cards: \`<QUES ="1">Question prompt text\\n<COR>Correct Answer</COR>\\n<INC>Distractor 1</INC>\\n<INC>Distractor 2</INC>\\n<INC>Distractor 3</INC>\\n<EXP>Detailed step-by-step academic explanation</EXP></QUES>\`
-4. **Visual Crosscheck Workflow (Human-Hand Emulation)**:
-   - **Notes**: When you call \`create_note\` or \`update_note\`, an embedded Base64 PNG screenshot of the web student view is returned.
-   - **KaTeX Error Inspection**: Inspect the returned image carefully. Any LaTeX syntax error or invalid command is rendered in bright **RED** (\`color: #f87171\`), exactly as a student sees it on the website.
-   - If red error boxes or formatting defects appear in the preview image, immediately fix the PLX markup and call \`update_note\` until the image is 100% clean and pristine.
-5. **No Image or Diagram Uploads**:
-   - Image and binary uploads are restricted in this version. Do not inject diagram markup or external image URLs.
+When asked to create, review, or fix notes and past questions for \`${university}\`, follow the **Human-Hand Protocol**:
+
+1. **Locate or Discover**:
+   - If asked to fix or locate a note (e.g. *"There's an issue in the 100 level note on Sequence and series, fix it"*), call \`search_notes({ query: "Sequence and series", level: "100" })\`.
+   - Extract the \`noteId\` from the search results, then call \`get_note({ noteId })\` to read the content.
+
+2. **Author in Official PLX Format**:
+   - Both the **CoLearn Web Portal** and **CoLearn Mobile App** render PLX markup natively with zero quality drop-off.
+   - Always structure lecture notes and question sheets in clean PLX markup wrapped inside \`<PLX> ... </PLX>\`.
+
+3. **Upload via MCP**:
+   - Use \`create_note\`, \`update_note\`, \`upload_questions\`, or \`update_question\`.
+
+4. **Inspect Visual Preview & Red KaTeX Errors**:
+   - The MCP tool response embeds a Base64 PNG screenshot of the web student view.
+   - **RED Error Check**: Any LaTeX syntax error or invalid command is highlighted in bright **RED** (\`katex-error\` in \`#f87171\`), exactly as students see it.
+   - If a red error box appears in the preview image, immediately correct the LaTeX syntax in your PLX content and call \`update_note\` or \`update_question\` until the rendered preview is 100% clean and pristine.
+
+5. **University Boundary Isolation**:
+   - All mutations are quarantined strictly to \`${university}\`. Never attempt to alter other campuses' resources.
 
 ---
 
-## Available MCP Tools
+## PLX Format Specification & Examples
+
+Always wrap content in \`<PLX> ... </PLX>\`. Supported PLX tags:
+
+### 1. Root Container
+\`\`\`xml
+<PLX>
+  <!-- All tags must be placed inside <PLX> -->
+</PLX>
+\`\`\`
+
+### 2. Headings (\`<H1>\`, \`<H2>\`)
+\`\`\`xml
+<H1>Module 1: Thermodynamics and Energy Transfer</H1>
+<H2>1.1 The First Law of Thermodynamics</H2>
+\`\`\`
+
+### 3. Text Paragraphs (\`<TEXT>\`)
+Use \`<TEXT>\` for standard text. Inline math \`$ ... $\` and formatting tags (\`<B>\`, \`<I>\`, \`<U>\`) are fully supported:
+\`\`\`xml
+<TEXT>The change in internal energy $\\Delta U$ of a system is given by $\\Delta U = Q - W$, where $Q$ is heat added and $W$ is work done. <B>Important:</B> For an isothermal process, $\\Delta U = 0$.</TEXT>
+\`\`\`
+
+### 4. Display Math Equations (\`<MATH>\`)
+Use \`<MATH>\` for standalone display formulas:
+\`\`\`xml
+<MATH>\\int_{0}^{\\infty} e^{-x^2} dx = \\frac{\\sqrt{\\pi}}{2}</MATH>
+\`\`\`
+
+### 5. Tables (\`<TABLE>\`)
+Tables can be comma-separated or pipe-separated. The first row is treated as header:
+\`\`\`xml
+<TABLE>
+  Process, State Variable, Heat Transfer $Q$
+  Isothermal, $\\Delta U = 0$, $Q = W = nRT \\ln\\left(\\frac{V_2}{V_1}\\right)$
+  Isochoric, $W = 0$, $Q = \\Delta U = n C_v \\Delta T$
+</TABLE>
+\`\`\`
+
+### 6. Lists (\`<LIST>\`, \`<ORDERED>\`)
+\`\`\`xml
+<LIST>
+  First bullet item with $inline\\_math$
+  Second bullet item
+</LIST>
+
+<ORDERED>
+  Step 1: Calculate heat capacity $C_p$
+  Step 2: Apply first law of thermodynamics
+</ORDERED>
+\`\`\`
+
+### 7. Question Cards (\`<QUES>\`)
+Used for CBT questions embedded inside notes or sheets:
+\`\`\`xml
+<QUES ="1">
+  What is the work done $W$ in an isobaric process at $P = 200\\text{ kPa}$ when volume changes from $1\\text{ m}^3$ to $3\\text{ m}^3$?
+  <COR>$400\\text{ kJ}$</COR>
+  <INC>$200\\text{ kJ}$</INC>
+  <INC>$600\\text{ kJ}$</INC>
+  <INC>$800\\text{ kJ}$</INC>
+  <EXP>For an isobaric process, $W = P \\Delta V = 200 \\times (3 - 1) = 400\\text{ kJ}$.</EXP>
+</QUES>
+\`\`\`
+
+---
+
+## MCP Tools Reference
 
 ### 1. \`search_notes\`
-Search and pinpoint lecture notes across \`${university}\` by natural query, topic, course code, or academic level.
-- **When to use**: Whenever instructed to inspect, fix, or update a topic (e.g. *"There's an issue in the 100 level note on Sequence and series, fix it"*).
-- **Parameters**:
-  - \`query\` (string, required): Topic, keyword, or phrase (e.g. \`"Sequence and series"\`)
-  - \`level\` (string, optional): Academic level filter (e.g. \`"100"\`, \`"200"\`)
-  - \`semester\` (string, optional): \`"1st"\` or \`"2nd"\`
-  - \`courseCode\` (string, optional): e.g. \`"MTH 101"\`
-- **Output**: Returns matching notes with their \`noteId\`, \`title\`, \`courseCode\`, \`level\`, and context \`snippet\`. Use the returned \`noteId\` with \`get_note\` and \`update_note\`.
+Search and pinpoint lecture notes across \`${university}\` by topic, keyword, course code, or academic level.
+- **Parameters**: \`query\` (required), \`level\` (optional), \`semester\` (optional), \`courseCode\` (optional)
+- **Output**: Returns matching notes with \`noteId\`, \`title\`, \`courseCode\`, \`level\`, and context \`snippet\`.
 
 ### 2. \`list_courses\`
-List available courses for \`${university}\`.
-- Parameters: \`level\` (e.g. "100", "200"), \`semester\` ("1st" | "2nd"), \`department\`
+List available academic courses for \`${university}\`.
+- **Parameters**: \`level\` (optional), \`semester\` (optional), \`department\` (optional)
 
 ### 3. \`create_course\`
 Create a new course under \`${university}\`.
-- Parameters: \`code\`, \`title\`, \`semester\`, \`level\`, \`department\`, \`units\`
+- **Parameters**: \`code\`, \`title\`, \`semester\`, \`level\`, \`department\`, \`units\`
 
 ### 4. \`list_notes\`
-List existing lecture notes for a course.
-- Parameters: \`courseId\`
+List existing lecture notes for a course ID.
+- **Parameters**: \`courseId\`
 
 ### 5. \`get_note\`
-Get complete markdown content of a note.
-- Parameters: \`noteId\`
+Retrieve full content and metadata for a note ID.
+- **Parameters**: \`noteId\`
 
 ### 6. \`create_note\`
-Create a lecture note and immediately receive an embedded Base64 PNG preview of the student view.
-- Parameters: \`courseId\`, \`title\`, \`content\`
+Create a new lecture note. Content is automatically converted to PLX format. Returns embedded Base64 PNG preview.
+- **Parameters**: \`courseId\`, \`title\`, \`content\` (PLX markup string)
 
 ### 7. \`update_note\`
-Update and fix an existing note. Returns updated Base64 PNG preview.
-- Parameters: \`noteId\`, \`title\` (optional), \`content\` (optional)
+Update and fix an existing note. Returns updated Base64 PNG preview with red KaTeX error highlighting if errors remain.
+- **Parameters**: \`noteId\`, \`title\` (optional), \`content\` (optional PLX markup string)
 
 ### 8. \`preview_note\`
-Fetch the rendered Base64 PNG reading view for a note.
-- Parameters: \`noteId\`
+Fetch the Base64 PNG student-view reading image for a note ID.
+- **Parameters**: \`noteId\`
 
 ### 9. \`create_question_sheet\`
 Create a past question sheet container.
-- Parameters: \`courseId\`, \`semester\`, \`academicLevel\`, \`year\` (e.g. "2023/2024")
+- **Parameters**: \`courseId\`, \`semester\`, \`academicLevel\`, \`year\`
 
 ### 10. \`list_question_sheets\`
-List question sheets for a course.
-- Parameters: \`courseId\`
+List past question sheets for a course.
+- **Parameters**: \`courseId\`
 
 ### 11. \`get_question_sheet\`
-Fetch questions and metadata for a sheet.
-- Parameters: \`sheetId\`
+Retrieve questions and metadata for a question sheet.
+- **Parameters**: \`sheetId\`
 
 ### 12. \`upload_questions\`
-Add multiple questions to a sheet with options and explanations.
-- Parameters: \`sheetId\`, \`questions: [{ text, correctAnswer, incorrectAnswers, explanation }]\`
+Upload multiple CBT questions to a sheet with options and explanations.
+- **Parameters**: \`sheetId\`, \`questions: [{ text, correctAnswer, incorrectAnswers, explanation }]\`
 
 ### 13. \`update_question\`
-Fix or refine an individual question in a sheet.
-- Parameters: \`questionId\`, \`text\`, \`correctAnswer\`, \`incorrectAnswers\`, \`explanation\`, \`order\`
+Update an individual question in a sheet.
+- **Parameters**: \`questionId\`, \`text\`, \`correctAnswer\`, \`incorrectAnswers\`, \`explanation\`, \`order\`
 
 ### 14. \`preview_question_sheet\`
-Visually inspect questions in batches of 20 arranged in a grid-style snapshot.
-- Parameters: \`sheetId\`, \`batchIndex\` (0 for Q1-Q20, 1 for Q21-Q40, etc.)
+Inspect questions in 20-question grid snapshots matching the website student CBT viewer.
+- **Parameters**: \`sheetId\`, \`batchIndex\` (0 for Q1-Q20, 1 for Q21-Q40, etc.)
 `;
 }
