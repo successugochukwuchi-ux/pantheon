@@ -724,26 +724,23 @@ This skill grants autonomous agents capabilities to search, author, inspect, and
 1. **University Isolation**:
    - This agent is bound strictly to \`${university}\`.
    - Never attempt to query or edit courses, notes, or question sheets belonging to other universities.
-2. **Direct Publishing**:
-   - Content created by this agent publishes directly to student apps for \`${university}\`. Maintain pristine academic precision.
-3. **No Image or Diagram Uploads**:
-   - Image and diagram uploads are restricted in this version. Do not attempt to inject diagram markup, image URLs, or upload files until the diagram system is released.
-4. **Note Builder Formatting Rules**:
-   - **Headings**: Use standard Markdown headings (\`# Heading 1\`, \`## Heading 2\`, \`### Heading 3\`, \`#### Heading 4\`).
-   - **Mathematics**: Full LaTeX support. Use single dollar signs \`$E = mc^2$\` for inline math and double dollar signs \`$$\\int_a^b f(x)dx$$\` for display formulas.
-   - **Tables**: Use standard GitHub-flavored Markdown tables:
-     \`\`\`markdown
-     | Concept | Formula | Unit / Remarks |
-     | --- | --- | --- |
-     | Kinetic Energy | $E_k = \\frac{1}{2}mv^2$ | Joules (J) |
-     | Momentum | $\\vec{p} = m\\vec{v}$ | $\\text{kg}\\cdot\\text{m}/\\text{s}$ |
-     \`\`\`
-   - **Blockquotes & Callouts**: Use \`> Note/Definition\`.
-   - **Lists**: Use \`- Item\` for bullets and \`1. Item\` for numbered sequences.
-   - **Code Blocks**: Use triple backticks with language tag.
-5. **Visual Crosscheck Workflow**:
-   - **Notes**: Whenever you create or update a note with \`create_note\` or \`update_note\`, an embedded Base64 PNG image of the note in student view is returned. Always inspect this image to ensure LaTeX math and markdown tables rendered cleanly.
-   - **Past Questions**: Upload questions in batches using \`upload_questions\`. After uploading, call \`preview_question_sheet\` to inspect questions in 20-question grid snapshots (Batch 0 = Q1-Q20, Batch 1 = Q21-Q40) to verify question prompts, answers (marked with ✓), and explanations.
+2. **PLX as Universal Standard (Web & Mobile Unifier)**:
+   - **PLX Markup** (\`<PLX> ... </PLX>\`) is the official native standard understood identically across both **CoLearn Web Portal** and **CoLearn Mobile App**.
+   - Always author lecture notes and content inside clean PLX blocks. Emulate a human administrator: write PLX, upload to CoLearn via MCP, inspect the student-view image, and refine.
+3. **PLX Specification & Tags**:
+   - Root Container: Wrap all note content in \`<PLX> ... </PLX>\`.
+   - Headings: \`<H1>Title / Major Topic</H1>\`, \`<H2>Subtitle / Section</H2>\`
+   - Text & Paragraphs: \`<TEXT>Paragraph content with $inline\\_math$ and text tags <B>bold</B>, <I>italic</I>, <U>underline</U></TEXT>\`
+   - Mathematics: \`<MATH>display_mode_latex_formula</MATH>\` (e.g., \`<MATH>\\Delta U = Q - W</MATH>\`). Also supports inline \`$E = mc^2$\`.
+   - Tables: \`<TABLE>Header 1, Header 2\\nCell 1, Cell 2</TABLE>\` (comma-separated or pipe-separated)
+   - Lists: \`<LIST>Bullet 1\\nBullet 2</LIST>\` and \`<ORDERED>Step 1\\nStep 2</ORDERED>\`
+   - Question Cards: \`<QUES ="1">Question prompt text\\n<COR>Correct Answer</COR>\\n<INC>Distractor 1</INC>\\n<INC>Distractor 2</INC>\\n<INC>Distractor 3</INC>\\n<EXP>Detailed step-by-step academic explanation</EXP></QUES>\`
+4. **Visual Crosscheck Workflow (Human-Hand Emulation)**:
+   - **Notes**: When you call \`create_note\` or \`update_note\`, an embedded Base64 PNG screenshot of the web student view is returned.
+   - **KaTeX Error Inspection**: Inspect the returned image carefully. Any LaTeX syntax error or invalid command is rendered in bright **RED** (\`color: #f87171\`), exactly as a student sees it on the website.
+   - If red error boxes or formatting defects appear in the preview image, immediately fix the PLX markup and call \`update_note\` until the image is 100% clean and pristine.
+5. **No Image or Diagram Uploads**:
+   - Image and binary uploads are restricted in this version. Do not inject diagram markup or external image URLs.
 
 ---
 

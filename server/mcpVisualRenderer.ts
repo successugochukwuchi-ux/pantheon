@@ -1,5 +1,7 @@
 import sharp from 'sharp';
 import katex from 'katex';
+import fs from 'fs';
+import path from 'path';
 import { decodeHtmlEntities } from '../src/lib/latexAutoCorrect.js';
 
 function escapeXml(unsafe: string): string {
@@ -12,50 +14,65 @@ function escapeXml(unsafe: string): string {
     .replace(/'/g, '&apos;');
 }
 
-/**
- * Strips basic markdown markers for clean SVG text rendering while preserving structure
- */
-function cleanMarkdownForSvg(md: string): string {
-  if (!md) return '';
-  let text = decodeHtmlEntities(md);
-  // Format inline LaTeX formulas: $...$ -> clean unicode math
-  text = text.replace(/\$([^\$\n]+?)\$/g, (_, math) => formatLatexToUnicodeMath(math));
-  // Replace HTML bold/italic/underline tags
-  text = text.replace(/<[B|b]>([\s\S]*?)<\/[B|b]>/gi, '$1');
-  text = text.replace(/<[I|i]>([\s\S]*?)<\/[I|i]>/gi, '$1');
-  text = text.replace(/<[U|u]>([\s\S]*?)<\/[U|u]>/gi, '$1');
-  // Strip bold/italic markdown
-  text = text.replace(/\*\*(.*?)\*\*/g, '$1');
-  text = text.replace(/\*(.*?)\*/g, '$1');
-  text = text.replace(/__(.*?)__/g, '$1');
-  text = text.replace(/_(.*?)_/g, '$1');
-  text = text.replace(/`([^`]+)`/g, '$1');
-  return text;
+// Load KaTeX CSS for embedded SVG rendering
+let cachedKatexCss = '';
+function getKatexCss(): string {
+  if (cachedKatexCss) return cachedKatexCss;
+  try {
+    const cssPath = path.join(process.cwd(), 'node_modules', 'katex', 'dist', 'katex.min.css');
+    if (fs.existsSync(cssPath)) {
+      cachedKatexCss = fs.readFileSync(cssPath, 'utf8');
+    }
+  } catch (err) {
+    console.warn('[MCP Renderer] Could not load local katex.min.css:', err);
+  }
+  return cachedKatexCss;
 }
 
 /**
- * Word wrap helper for SVG text
+ * Renders LaTeX math via KaTeX into HTML spans.
+ * If LaTeX contains invalid commands or syntax errors, KaTeX outputs a red error span.
  */
-function wrapText(text: string, maxCharsPerLine: number = 75): string[] {
-  if (!text) return [];
-  const words = text.split(/\s+/);
-  const lines: string[] = [];
-  let currentLine = '';
+function renderMathToHtml(math: string, displayMode: boolean = false): string {
+  if (!math) return '';
+  try {
+    return katex.renderToString(math.trim(), {
+      displayMode,
+      throwOnError: false,
+      errorColor: '#f87171',
+      strict: false,
+      trust: true
+    });
+  } catch (err: any) {
+    return `<span class="katex-error" style="color: #f87171; background: rgba(239,68,68,0.15); border: 1px solid rgba(239,68,68,0.4); padding: 2px 6px; border-radius: 4px; font-family: monospace;">${escapeXml(math)}</span>`;
+  }
+}
 
-  for (const word of words) {
-    if (currentLine.length + word.length + 1 <= maxCharsPerLine) {
-      currentLine += (currentLine.length === 0 ? '' : ' ') + word;
-    } else {
-      if (currentLine.length > 0) {
-        lines.push(currentLine);
-      }
-      currentLine = word;
-    }
-  }
-  if (currentLine.length > 0) {
-    lines.push(currentLine);
-  }
-  return lines;
+/**
+ * Escapes ampersands and converts inline math ($...$) and PLX text tags (<B>, <I>, <U>) into HTML
+ */
+function processInlineMathAndTags(text: string): string {
+  if (!text) return '';
+  let html = text;
+
+  // Escape bare ampersands that aren't XML entities
+  html = html.replace(/&(?!amp;|lt;|gt;|quot;|apos;|#\d+;|#x[0-9a-f]+;)/gi, '&amp;');
+
+  // Process PLX text tags
+  html = html.replace(/<B>([\s\S]*?)<\/B>/gi, '<strong>$1</strong>');
+  html = html.replace(/<I>([\s\S]*?)<\/I>/gi, '<em>$1</em>');
+  html = html.replace(/<U>([\s\S]*?)<\/U>/gi, '<u>$1</u>');
+
+  // Process Markdown bold/italic
+  html = html.replace(/\*\*([\s\S]+?)\*\*/g, '<strong>$1</strong>');
+  html = html.replace(/(?<!\*)\*([^\*\n]+?)\*(?!\*)/g, '<em>$1</em>');
+
+  // Process inline LaTeX math $...$
+  html = html.replace(/\$([^\$\n]+?)\$/g, (_, math) => {
+    return renderMathToHtml(math, false);
+  });
+
+  return html;
 }
 
 export interface NoteRenderOptions {
@@ -65,518 +82,172 @@ export interface NoteRenderOptions {
   content: string;
 }
 
-interface TableRow {
-  isHeader: boolean;
-  cells: string[];
-}
-
 /**
- * Generates an image representing the student reading view of a lecture note
- * Supports: Headings (H1-H4), KaTeX math blocks, markdown tables, blockquotes, lists, code blocks
+ * Generates a high-fidelity image representing the exact website student reading view of a lecture note.
+ * Parses PLX tags (<PLX>, <H1>, <H2>, <TEXT>, <MATH>, <TABLE>, <LIST>, <ORDERED>, <QUES>) and renders KaTeX math.
+ * Any LaTeX syntax errors are rendered in bright RED, matching the web student reading view.
  */
-/**
- * Converts common LaTeX math expressions to clear, readable Unicode mathematical notation
- * for pristine SVG rendering without unparsed raw backslashes
- */
-export function formatLatexToUnicodeMath(latex: string): string {
-  if (!latex) return '';
-  let s = latex;
-
-  // Fractions: \frac{a}{b} -> (a)/(b)
-  s = s.replace(/\\frac\{([^}]+)\}\{([^}]+)\}/g, '($1)/($2)');
-  // Square root: \sqrt{x} -> √(x), \sqrt[n]{x} -> ⁿ√(x)
-  s = s.replace(/\\sqrt\[([^\]]+)\]\{([^}]+)\}/g, '$1√($2)');
-  s = s.replace(/\\sqrt\{([^}]+)\}/g, '√($1)');
-  
-  // Integrals & Summations & Limits
-  s = s.replace(/\\int_\{([^}]+)\}\^\{([^}]+)\}/g, '∫_{$1}^{$2}');
-  s = s.replace(/\\int/g, '∫');
-  s = s.replace(/\\iint/g, '∬');
-  s = s.replace(/\\iiint/g, '∭');
-  s = s.replace(/\\oint/g, '∮');
-  s = s.replace(/\\sum_\{([^}]+)\}\^\{([^}]+)\}/g, '∑_{$1}^{$2}');
-  s = s.replace(/\\sum/g, '∑');
-  s = s.replace(/\\prod/g, '∏');
-  s = s.replace(/\\lim_\{([^}]+)\}/g, 'lim_{$1}');
-
-  // Greek letters
-  const greek: Record<string, string> = {
-    '\\alpha': 'α', '\\beta': 'β', '\\gamma': 'γ', '\\delta': 'δ', '\\epsilon': 'ε',
-    '\\zeta': 'ζ', '\\eta': 'η', '\\theta': 'θ', '\\iota': 'ι', '\\kappa': 'κ',
-    '\\lambda': 'λ', '\\mu': 'μ', '\\nu': 'ν', '\\xi': 'ξ', '\\pi': 'π',
-    '\\rho': 'ρ', '\\sigma': 'σ', '\\tau': 'τ', '\\upsilon': 'υ', '\\phi': 'φ',
-    '\\chi': 'χ', '\\psi': 'ψ', '\\omega': 'ω',
-    '\\Gamma': 'Γ', '\\Delta': 'Δ', '\\Theta': 'Θ', '\\Lambda': 'Λ', '\\Xi': 'Ξ',
-    '\\Pi': 'Π', '\\Sigma': 'Σ', '\\Phi': 'Φ', '\\Psi': 'Ψ', '\\Omega': 'Ω'
-  };
-  for (const [cmd, sym] of Object.entries(greek)) {
-    s = s.split(cmd).join(sym);
-  }
-
-  // Operators & symbols
-  const syms: Record<string, string> = {
-    '\\partial': '∂', '\\nabla': '∇', '\\infty': '∞', '\\pm': '±', '\\mp': '∓',
-    '\\times': '×', '\\cdot': '·', '\\div': '÷', '\\leq': '≤', '\\geq': '≥',
-    '\\neq': '≠', '\\approx': '≈', '\\sim': '~', '\\equiv': '≡',
-    '\\forall': '∀', '\\exists': '∃', '\\in': '∈', '\\notin': '∉',
-    '\\subset': '⊂', '\\subseteq': '⊆', '\\cup': '∪', '\\cap': '∩',
-    '\\rightarrow': '→', '\\to': '→', '\\leftarrow': '←', '\\Rightarrow': '⇒', '\\Leftrightarrow': '⇔',
-    '\\therefore': '∴', '\\because': '∵', '\\hbar': 'ℏ'
-  };
-  for (const [cmd, sym] of Object.entries(syms)) {
-    s = s.split(cmd).join(sym);
-  }
-
-  // Superscript shortcuts
-  s = s.replace(/\^2\b/g, '²');
-  s = s.replace(/\^3\b/g, '³');
-  s = s.replace(/\^0\b/g, '⁰');
-  s = s.replace(/\^1\b/g, '¹');
-  s = s.replace(/\^\{([^}]+)\}/g, '^($1)');
-  s = s.replace(/\_\{([^}]+)\}/g, '_($1)');
-
-  // Clean remaining braces and commands
-  s = s.replace(/\\left\(/g, '(').replace(/\\right\)/g, ')');
-  s = s.replace(/\\left\[/g, '[').replace(/\\right\]/g, ']');
-  s = s.replace(/\\text\{([^}]+)\}/g, '$1');
-  s = s.replace(/\\mathbf\{([^}]+)\}/g, '$1');
-  s = s.replace(/\\mathit\{([^}]+)\}/g, '$1');
-  s = s.replace(/\\mathrm\{([^}]+)\}/g, '$1');
-
-  return s.trim();
-}
-
-/**
- * Normalizes content from NoteBuilder JSON blocks or PLX markup into standard Markdown
- */
-export function normalizeToMarkdown(content: string): string {
-  if (!content) return '';
-  let str = content.trim();
-
-  // If content is JSON array of NoteBlocks
-  if (str.startsWith('[') && str.endsWith(']')) {
-    try {
-      const parsed = JSON.parse(str);
-      if (Array.isArray(parsed) && parsed.length > 0 && parsed[0].type) {
-        return parsed.map((b: any) => {
-          if (b.type === 'h1') return `# ${b.content}`;
-          if (b.type === 'h2') return `## ${b.content}`;
-          if (b.type === 'h3') return `### ${b.content}`;
-          if (b.type === 'h4') return `#### ${b.content}`;
-          if (b.type === 'math') return `$$\n${b.content}\n$$`;
-          if (b.type === 'table') {
-            try {
-              const grid = typeof b.content === 'string' ? JSON.parse(b.content) : b.content;
-              if (Array.isArray(grid)) {
-                return grid.map((row: any[], rIdx: number) => {
-                  const line = `| ${row.join(' | ')} |`;
-                  if (rIdx === 0) {
-                    const sep = `| ${row.map(() => '---').join(' | ')} |`;
-                    return `${line}\n${sep}`;
-                  }
-                  return line;
-                }).join('\n');
-              }
-            } catch {
-              return b.content;
-            }
-          }
-          if (b.type === 'bullet-list') {
-            return b.content.split('\n').map((l: string) => `- ${l}`).join('\n');
-          }
-          if (b.type === 'numbered-list') {
-            return b.content.split('\n').map((l: string, i: number) => `${i + 1}. ${l}`).join('\n');
-          }
-          return b.content;
-        }).join('\n\n');
-      }
-    } catch {
-      // not json, continue
-    }
-  }
-
-  // If content has PLX tags (<PLX>, <H1>, <H2>, <MATH>, <TABLE>, <LIST>, <ORDERED>)
-  if (str.includes('<H1>') || str.includes('<H2>') || str.includes('<MATH>') || str.includes('<TABLE>') || str.includes('<PLX>')) {
-    const plxMatch = /<PLX>([\s\S]*?)<\/PLX>/i.exec(str);
-    if (plxMatch) str = plxMatch[1].trim();
-
-    str = str.replace(/<H1>([\s\S]*?)<\/H1>/gi, (_, c) => `# ${c.trim()}`);
-    str = str.replace(/<H2>([\s\S]*?)<\/H2>/gi, (_, c) => `## ${c.trim()}`);
-    str = str.replace(/<MATH>([\s\S]*?)<\/MATH>/gi, (_, c) => `$$\n${c.trim()}\n$$`);
-    str = str.replace(/<TABLE>([\s\S]*?)<\/TABLE>/gi, (_, c) => {
-      const rows = c.trim().split('\n').map((r: string) => r.trim()).filter((r: string) => r.length > 0);
-      if (rows.length === 0) return '';
-      return rows.map((r: string, rIdx: number) => {
-        const cells = r.includes('|') ? r.split('|').map((s: string) => s.trim()) : r.split(',').map((s: string) => s.trim());
-        const rowStr = `| ${cells.join(' | ')} |`;
-        if (rIdx === 0) {
-          const sep = `| ${cells.map(() => '---').join(' | ')} |`;
-          return `${rowStr}\n${sep}`;
-        }
-        return rowStr;
-      }).join('\n');
-    });
-    str = str.replace(/<LIST>([\s\S]*?)<\/LIST>/gi, (_, c) => {
-      return c.trim().split('\n').map((l: string) => `- ${l.trim()}`).join('\n');
-    });
-    str = str.replace(/<ORDERED>([\s\S]*?)<\/ORDERED>/gi, (_, c) => {
-      return c.trim().split('\n').map((l: string, i: number) => `${i + 1}. ${l.trim()}`).join('\n');
-    });
-  }
-
-  return str;
-}
-
 export async function renderNotePreviewImage(options: NoteRenderOptions): Promise<string> {
   const { title, courseCode = 'COURSE', university = 'COLEARN ACADEMIC', content } = options;
   
-  const width = 1100;
-  let currentY = 180;
-  const elements: string[] = [];
+  const width = 1000;
+  const katexCss = getKatexCss();
 
-  // Normalize NoteBuilder blocks, PLX tags, or raw markdown
-  const normalized = normalizeToMarkdown(content);
+  let str = content ? content.trim() : '';
+  const plxMatch = /<PLX>([\s\S]*?)<\/PLX>/i.exec(str);
+  if (plxMatch) str = plxMatch[1].trim();
 
-  // Parse markdown content into structured blocks
-  const rawLines = normalized.split('\n');
-  type BlockItem = 
-    | { type: 'h1'; text: string }
-    | { type: 'h2'; text: string }
-    | { type: 'h3'; text: string }
-    | { type: 'h4'; text: string }
-    | { type: 'math_block'; text: string }
-    | { type: 'bullet'; text: string }
-    | { type: 'numbered'; text: string; num: string }
-    | { type: 'quote'; text: string }
-    | { type: 'code_block'; lines: string[] }
-    | { type: 'table'; rows: TableRow[] }
-    | { type: 'paragraph'; text: string };
+  const blocksHtml: string[] = [];
+  let blockCount = 0;
 
-  const blocks: BlockItem[] = [];
+  // If content contains explicit PLX tags
+  if (str.includes('<H1>') || str.includes('<H2>') || str.includes('<MATH>') || str.includes('<TABLE>') || str.includes('<TEXT>') || str.includes('<QUES>')) {
+    const tagRegex = /<(H1|H2|TEXT|MATH|TABLE|LIST|ORDERED|QUES)(?:\s*=\s*"([^"]*)")?>([\s\S]*?)<\/\1>/gi;
+    let match;
 
-  let inMathBlock = false;
-  let mathBuffer: string[] = [];
+    while ((match = tagRegex.exec(str)) !== null) {
+      blockCount++;
+      const tagName = match[1].toUpperCase();
+      const attr = match[2] || '';
+      const body = match[3].trim();
 
-  let inCodeBlock = false;
-  let codeBuffer: string[] = [];
+      if (tagName === 'H1') {
+        blocksHtml.push(`<h1 style="font-size: 22px; font-weight: 800; color: #38bdf8; margin: 22px 0 10px 0; border-bottom: 1px solid #334155; padding-bottom: 8px;">${processInlineMathAndTags(body)}</h1>`);
+      } else if (tagName === 'H2') {
+        blocksHtml.push(`<h2 style="font-size: 17px; font-weight: 700; color: #818cf8; margin: 18px 0 8px 0;">${processInlineMathAndTags(body)}</h2>`);
+      } else if (tagName === 'TEXT') {
+        blocksHtml.push(`<p style="font-size: 14px; line-height: 1.6; color: #cbd5e1; margin: 8px 0;">${processInlineMathAndTags(body)}</p>`);
+      } else if (tagName === 'MATH') {
+        const renderedMath = renderMathToHtml(body, true);
+        blocksHtml.push(`<div style="background: #090d16; border: 1px solid #1e293b; border-radius: 8px; padding: 14px; margin: 12px 0; text-align: center; overflow-x: auto;">${renderedMath}</div>`);
+      } else if (tagName === 'TABLE') {
+        const rows = body.split('\n').map(r => r.trim()).filter(r => r.length > 0);
+        let tableRowsHtml = '';
+        rows.forEach((r, idx) => {
+          const cells = r.includes('|') ? r.split('|').map(c => c.trim()) : r.split(',').map(c => c.trim());
+          const isHeader = idx === 0;
+          const cellTag = isHeader ? 'th' : 'td';
+          const bg = isHeader ? '#1e293b' : (idx % 2 === 1 ? '#0f172a' : '#141d2e');
+          const color = isHeader ? '#38bdf8' : '#e2e8f0';
+          const weight = isHeader ? '700' : '400';
 
-  let inTable = false;
-  let tableRows: TableRow[] = [];
+          const cellsHtml = cells.map(c => `<${cellTag} style="padding: 10px 14px; border: 1px solid #334155; background: ${bg}; color: ${color}; font-weight: ${weight}; font-size: 13px; text-align: left;">${processInlineMathAndTags(c)}</${cellTag}>`).join('');
+          tableRowsHtml += `<tr>${cellsHtml}</tr>`;
+        });
+        blocksHtml.push(`<table style="width: 100%; border-collapse: collapse; margin: 14px 0; border-radius: 8px; overflow: hidden; border: 1px solid #334155;">${tableRowsHtml}</table>`);
+      } else if (tagName === 'LIST' || tagName === 'ORDERED') {
+        const isOrdered = tagName === 'ORDERED';
+        const listTag = isOrdered ? 'ol' : 'ul';
+        const items = body.split('\n').map(i => i.trim()).filter(i => i.length > 0);
+        const itemsHtml = items.map(i => `<li style="margin-bottom: 6px; font-size: 14px; color: #cbd5e1;">${processInlineMathAndTags(i.replace(/^[-*]\s*/, '').replace(/^\d+\.\s*/, ''))}</li>`).join('');
+        blocksHtml.push(`<${listTag} style="padding-left: 24px; margin: 10px 0;">${itemsHtml}</${listTag}>`);
+      } else if (tagName === 'QUES') {
+        const corMatch = /<COR>([\s\S]*?)<\/COR>/i.exec(body);
+        const incMatches = [...body.matchAll(/<INC>([\s\S]*?)<\/INC>/gi)].map(m => m[1]);
+        const expMatch = /<EXP>([\s\S]*?)<\/EXP>/i.exec(body);
+        
+        const firstSub = body.search(/<(COR|INC|EXP)/i);
+        const qPrompt = firstSub !== -1 ? body.substring(0, firstSub).trim() : body;
 
-  for (let i = 0; i < rawLines.length; i++) {
-    const rawLine = rawLines[i];
-    const trimmed = rawLine.trim();
-
-    // 1. Code blocks (```)
-    if (trimmed.startsWith('```')) {
-      if (inCodeBlock) {
-        blocks.push({ type: 'code_block', lines: [...codeBuffer] });
-        codeBuffer = [];
-        inCodeBlock = false;
-      } else {
-        inCodeBlock = true;
-      }
-      continue;
-    }
-    if (inCodeBlock) {
-      codeBuffer.push(rawLine);
-      continue;
-    }
-
-    // 2. Math blocks ($$)
-    if (trimmed.startsWith('$$')) {
-      if (inMathBlock) {
-        mathBuffer.push(trimmed.replace(/\$\$/g, ''));
-        blocks.push({ type: 'math_block', text: mathBuffer.join(' ') });
-        mathBuffer = [];
-        inMathBlock = false;
-      } else {
-        inMathBlock = true;
-        const remaining = trimmed.replace(/^\$\$/, '');
-        if (remaining.endsWith('$$') && remaining.length > 2) {
-          blocks.push({ type: 'math_block', text: remaining.replace(/\$\$$/, '') });
-          inMathBlock = false;
-        } else if (remaining) {
-          mathBuffer.push(remaining);
+        let optionsHtml = '';
+        if (corMatch) {
+          optionsHtml += `<div style="display: flex; align-items: center; gap: 10px; background: rgba(16, 185, 129, 0.1); border: 1px solid rgba(16, 185, 129, 0.3); padding: 10px 14px; border-radius: 8px; margin-bottom: 6px; color: #34d399; font-size: 13px; font-weight: 600;"><span style="background: #059669; color: #ffffff; padding: 2px 8px; border-radius: 4px; font-size: 11px; font-weight: 700;">A ✓</span> ${processInlineMathAndTags(corMatch[1].trim())}</div>`;
         }
-      }
-      continue;
-    }
-    if (inMathBlock) {
-      mathBuffer.push(trimmed);
-      continue;
-    }
+        incMatches.forEach((inc, i) => {
+          const letter = String.fromCharCode(66 + i);
+          optionsHtml += `<div style="display: flex; align-items: center; gap: 10px; background: #0f172a; border: 1px solid #1e293b; padding: 10px 14px; border-radius: 8px; margin-bottom: 6px; color: #94a3b8; font-size: 13px;"><span style="background: #334155; color: #f8fafc; padding: 2px 8px; border-radius: 4px; font-size: 11px; font-weight: 700;">${letter}</span> ${processInlineMathAndTags(inc.trim())}</div>`;
+        });
 
-    // 3. Tables (| Cell | Cell |)
-    if (trimmed.startsWith('|') && trimmed.endsWith('|')) {
-      // Check if separator line (| --- | --- |)
-      const isSeparator = /^\|(\s*:?-+:?\s*\|)+$/.test(trimmed);
-      if (isSeparator) {
-        // Marks that preceding row was header
-        if (tableRows.length > 0) {
-          tableRows[0].isHeader = true;
+        let expHtml = '';
+        if (expMatch) {
+          expHtml = `<div style="background: rgba(234, 179, 8, 0.1); border: 1px solid rgba(234, 179, 8, 0.25); padding: 12px 14px; border-radius: 8px; margin-top: 10px; font-size: 12px; color: #fef08a;"><strong style="color: #eab308; display: block; margin-bottom: 4px;">EXPLANATION:</strong> ${processInlineMathAndTags(expMatch[1].trim())}</div>`;
+        }
+
+        blocksHtml.push(`
+          <div style="background: #0f172a; border: 1px solid #2563eb; border-radius: 10px; padding: 16px; margin: 16px 0;">
+            <div style="font-size: 11px; font-weight: 700; color: #3b82f6; text-transform: uppercase; margin-bottom: 8px;">Question ${attr ? `#${attr}` : ''}</div>
+            <div style="font-size: 15px; font-weight: 600; color: #f8fafc; margin-bottom: 12px;">${processInlineMathAndTags(qPrompt)}</div>
+            ${optionsHtml}
+            ${expHtml}
+          </div>
+        `);
+      }
+    }
+  }
+
+  // Fallback if raw Markdown without PLX tags was provided
+  if (blocksHtml.length === 0) {
+    const lines = str.split('\n');
+    let inMath = false;
+    let mathBuf: string[] = [];
+
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i];
+      const trimmed = line.trim();
+
+      if (trimmed.startsWith('$$')) {
+        if (inMath) {
+          mathBuf.push(trimmed.replace(/\$\$/g, ''));
+          blocksHtml.push(`<div style="background: #090d16; border: 1px solid #1e293b; border-radius: 8px; padding: 14px; margin: 12px 0; text-align: center;">${renderMathToHtml(mathBuf.join(' '), true)}</div>`);
+          mathBuf = [];
+          inMath = false;
+        } else {
+          inMath = true;
+          const rem = trimmed.replace(/^\$\$/, '');
+          if (rem.endsWith('$$') && rem.length > 2) {
+            blocksHtml.push(`<div style="background: #090d16; border: 1px solid #1e293b; border-radius: 8px; padding: 14px; margin: 12px 0; text-align: center;">${renderMathToHtml(rem.replace(/\$\$$/, ''), true)}</div>`);
+            inMath = false;
+          } else if (rem) {
+            mathBuf.push(rem);
+          }
         }
         continue;
       }
-
-      const cells = trimmed
-        .slice(1, -1)
-        .split('|')
-        .map(c => c.trim());
-
-      tableRows.push({
-        isHeader: false,
-        cells
-      });
-      inTable = true;
-      continue;
-    } else if (inTable) {
-      // End of table
-      if (tableRows.length > 0) {
-        blocks.push({ type: 'table', rows: [...tableRows] });
+      if (inMath) {
+        mathBuf.push(trimmed);
+        continue;
       }
-      tableRows = [];
-      inTable = false;
-    }
 
-    if (!trimmed) continue;
+      if (!trimmed) continue;
+      blockCount++;
 
-    // 4. Headings
-    if (trimmed.startsWith('# ')) {
-      blocks.push({ type: 'h1', text: trimmed.slice(2).trim() });
-    } else if (trimmed.startsWith('## ')) {
-      blocks.push({ type: 'h2', text: trimmed.slice(3).trim() });
-    } else if (trimmed.startsWith('### ')) {
-      blocks.push({ type: 'h3', text: trimmed.slice(4).trim() });
-    } else if (trimmed.startsWith('#### ')) {
-      blocks.push({ type: 'h4', text: trimmed.slice(5).trim() });
-    } else if (trimmed.startsWith('> ')) {
-      blocks.push({ type: 'quote', text: trimmed.slice(2).trim() });
-    } else if (/^\d+\.\s/.test(trimmed)) {
-      const match = trimmed.match(/^(\d+)\.\s(.*)$/);
-      if (match) {
-        blocks.push({ type: 'numbered', num: match[1], text: match[2].trim() });
+      if (trimmed.startsWith('# ')) {
+        blocksHtml.push(`<h1 style="font-size: 22px; font-weight: 800; color: #38bdf8; margin: 22px 0 10px 0; border-bottom: 1px solid #334155; padding-bottom: 8px;">${processInlineMathAndTags(trimmed.slice(2))}</h1>`);
+      } else if (trimmed.startsWith('## ')) {
+        blocksHtml.push(`<h2 style="font-size: 17px; font-weight: 700; color: #818cf8; margin: 18px 0 8px 0;">${processInlineMathAndTags(trimmed.slice(3))}</h2>`);
       } else {
-        blocks.push({ type: 'paragraph', text: trimmed });
+        blocksHtml.push(`<p style="font-size: 14px; line-height: 1.6; color: #cbd5e1; margin: 8px 0;">${processInlineMathAndTags(trimmed)}</p>`);
       }
-    } else if (trimmed.startsWith('- ') || trimmed.startsWith('* ')) {
-      blocks.push({ type: 'bullet', text: trimmed.slice(2).trim() });
-    } else {
-      blocks.push({ type: 'paragraph', text: trimmed });
     }
   }
 
-  // Flush any lingering table or code
-  if (inTable && tableRows.length > 0) {
-    blocks.push({ type: 'table', rows: [...tableRows] });
-  }
-  if (inCodeBlock && codeBuffer.length > 0) {
-    blocks.push({ type: 'code_block', lines: [...codeBuffer] });
-  }
-
-  // Cap lines to reasonable preview height (up to ~60 blocks)
-  const renderedBlocks = blocks.slice(0, 55);
-
-  for (const block of renderedBlocks) {
-    if (block.type === 'h1') {
-      currentY += 28;
-      const wrapped = wrapText(cleanMarkdownForSvg(block.text), 45);
-      for (const l of wrapped) {
-        elements.push(`<text x="60" y="${currentY}" font-family="Plus Jakarta Sans, sans-serif" font-size="24" font-weight="700" fill="#0f172a">${escapeXml(l)}</text>`);
-        currentY += 32;
-      }
-      elements.push(`<line x1="60" y1="${currentY - 10}" x2="1040" y2="${currentY - 10}" stroke="#e2e8f0" stroke-width="1.5" />`);
-      currentY += 14;
-    } else if (block.type === 'h2') {
-      currentY += 22;
-      const wrapped = wrapText(cleanMarkdownForSvg(block.text), 50);
-      for (const l of wrapped) {
-        elements.push(`<text x="60" y="${currentY}" font-family="Plus Jakarta Sans, sans-serif" font-size="20" font-weight="600" fill="#1e293b">${escapeXml(l)}</text>`);
-        currentY += 28;
-      }
-      currentY += 10;
-    } else if (block.type === 'h3') {
-      currentY += 16;
-      const wrapped = wrapText(cleanMarkdownForSvg(block.text), 55);
-      for (const l of wrapped) {
-        elements.push(`<text x="60" y="${currentY}" font-family="Plus Jakarta Sans, sans-serif" font-size="17" font-weight="600" fill="#334155">${escapeXml(l)}</text>`);
-        currentY += 24;
-      }
-      currentY += 6;
-    } else if (block.type === 'h4') {
-      currentY += 14;
-      const wrapped = wrapText(cleanMarkdownForSvg(block.text), 60);
-      for (const l of wrapped) {
-        elements.push(`<text x="60" y="${currentY}" font-family="Plus Jakarta Sans, sans-serif" font-size="15" font-weight="600" fill="#475569">${escapeXml(l)}</text>`);
-        currentY += 22;
-      }
-      currentY += 6;
-    } else if (block.type === 'math_block') {
-      currentY += 12;
-      const cleanFormula = formatLatexToUnicodeMath(decodeHtmlEntities(block.text));
-      elements.push(`
-        <rect x="60" y="${currentY}" width="980" height="54" rx="8" fill="#f8fafc" stroke="#cbd5e1" stroke-width="1"/>
-        <text x="550" y="${currentY + 34}" font-family="JetBrains Mono, monospace" font-size="16" font-weight="600" fill="#0f172a" text-anchor="middle">
-          ${escapeXml(cleanFormula)}
-        </text>
-      `);
-      currentY += 70;
-    } else if (block.type === 'table') {
-      currentY += 14;
-      const tableX = 60;
-      const tableWidth = 980;
-      const rows = block.rows;
-      const colCount = Math.max(...rows.map(r => r.cells.length), 1);
-      const colWidth = Math.floor(tableWidth / colCount);
-      const rowHeight = 36;
-      const tableHeight = rows.length * rowHeight;
-
-      // Table outer box
-      elements.push(`
-        <rect x="${tableX}" y="${currentY}" width="${tableWidth}" height="${tableHeight}" rx="6" fill="#ffffff" stroke="#cbd5e1" stroke-width="1.5"/>
-      `);
-
-      // Rows
-      rows.forEach((row, rIdx) => {
-        const rowY = currentY + rIdx * rowHeight;
-        if (row.isHeader || rIdx === 0) {
-          elements.push(`<rect x="${tableX}" y="${rowY}" width="${tableWidth}" height="${rowHeight}" rx="5" fill="#f1f5f9"/>`);
-        } else if (rIdx % 2 === 1) {
-          elements.push(`<rect x="${tableX}" y="${rowY}" width="${tableWidth}" height="${rowHeight}" fill="#fafafa"/>`);
-        }
-
-        // Horizontal line between rows
-        if (rIdx > 0) {
-          elements.push(`<line x1="${tableX}" y1="${rowY}" x2="${tableX + tableWidth}" y2="${rowY}" stroke="#e2e8f0" stroke-width="1"/>`);
-        }
-
-        // Cells
-        row.cells.forEach((cellText, cIdx) => {
-          const cellX = tableX + cIdx * colWidth;
-          if (cIdx > 0) {
-            elements.push(`<line x1="${cellX}" y1="${currentY}" x2="${cellX}" y2="${currentY + tableHeight}" stroke="#e2e8f0" stroke-width="1"/>`);
-          }
-          const cleanCell = cleanMarkdownForSvg(cellText).slice(0, 35);
-          const isH = row.isHeader || rIdx === 0;
-          elements.push(`
-            <text x="${cellX + 12}" y="${rowY + 23}" font-family="Plus Jakarta Sans, sans-serif" font-size="${isH ? '13' : '12'}" font-weight="${isH ? '700' : '400'}" fill="${isH ? '#0f172a' : '#334155'}">
-              ${escapeXml(cleanCell)}
-            </text>
-          `);
-        });
-      });
-
-      currentY += tableHeight + 20;
-    } else if (block.type === 'quote') {
-      currentY += 12;
-      const wrapped = wrapText(cleanMarkdownForSvg(block.text), 70);
-      const qHeight = wrapped.length * 24 + 20;
-      elements.push(`
-        <rect x="60" y="${currentY}" width="980" height="${qHeight}" rx="6" fill="#eff6ff" stroke="#bfdbfe" stroke-width="1"/>
-        <line x1="60" y1="${currentY}" x2="60" y2="${currentY + qHeight}" stroke="#3b82f6" stroke-width="5"/>
-      `);
-      let textY = currentY + 24;
-      for (const line of wrapped) {
-        elements.push(`<text x="80" y="${textY}" font-family="Plus Jakarta Sans, sans-serif" font-size="14" font-style="italic" fill="#1e40af">${escapeXml(line)}</text>`);
-        textY += 24;
-      }
-      currentY += qHeight + 14;
-    } else if (block.type === 'code_block') {
-      currentY += 12;
-      const cLines = block.lines.slice(0, 10);
-      const cHeight = cLines.length * 22 + 28;
-      elements.push(`
-        <rect x="60" y="${currentY}" width="980" height="${cHeight}" rx="8" fill="#0f172a" stroke="#334155" stroke-width="1"/>
-      `);
-      let codeY = currentY + 26;
-      for (const line of cLines) {
-        elements.push(`<text x="80" y="${codeY}" font-family="JetBrains Mono, monospace" font-size="13" fill="#38bdf8">${escapeXml(line)}</text>`);
-        codeY += 22;
-      }
-      currentY += cHeight + 16;
-    } else if (block.type === 'numbered') {
-      const wrapped = wrapText(cleanMarkdownForSvg(block.text), 70);
-      elements.push(`
-        <rect x="64" y="${currentY - 14}" width="22" height="20" rx="4" fill="#e0e7ff"/>
-        <text x="75" y="${currentY}" font-family="Plus Jakarta Sans, sans-serif" font-size="12" font-weight="700" fill="#3730a3" text-anchor="middle">${escapeXml(block.num)}</text>
-      `);
-      for (let i = 0; i < wrapped.length; i++) {
-        elements.push(`<text x="96" y="${currentY}" font-family="Plus Jakarta Sans, sans-serif" font-size="15" fill="#334155">${escapeXml(wrapped[i])}</text>`);
-        currentY += 24;
-      }
-      currentY += 6;
-    } else if (block.type === 'bullet') {
-      const wrapped = wrapText(cleanMarkdownForSvg(block.text), 70);
-      elements.push(`<circle cx="72" cy="${currentY - 5}" r="3.5" fill="#3b82f6" />`);
-      for (let i = 0; i < wrapped.length; i++) {
-        elements.push(`<text x="90" y="${currentY}" font-family="Plus Jakarta Sans, sans-serif" font-size="15" fill="#334155">${escapeXml(wrapped[i])}</text>`);
-        currentY += 24;
-      }
-      currentY += 6;
-    } else {
-      const wrapped = wrapText(cleanMarkdownForSvg(block.text), 75);
-      for (const l of wrapped) {
-        elements.push(`<text x="60" y="${currentY}" font-family="Plus Jakarta Sans, sans-serif" font-size="15" fill="#334155">${escapeXml(l)}</text>`);
-        currentY += 24;
-      }
-      currentY += 10;
-    }
-  }
-
-  if (blocks.length > 55) {
-    elements.push(`
-      <rect x="60" y="${currentY + 10}" width="980" height="40" rx="6" fill="#e2e8f0" opacity="0.6"/>
-      <text x="550" y="${currentY + 35}" font-family="Plus Jakarta Sans, sans-serif" font-size="14" fill="#64748b" text-anchor="middle">
-        + ${blocks.length - 55} more blocks in full note...
-      </text>
-    `);
-    currentY += 60;
-  }
-
-  const height = Math.max(currentY + 60, 500);
+  // Calculate dynamic container height based on rendered blocks
+  const contentHeight = Math.max(600, Math.min(3500, 200 + blocksHtml.length * 85));
 
   const svg = `
-<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}">
-  <defs>
-    <linearGradient id="headerGrad" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" stop-color="#1e1b4b"/>
-      <stop offset="100%" stop-color="#0f172a"/>
-    </linearGradient>
-  </defs>
-
-  <!-- Background -->
-  <rect width="${width}" height="${height}" fill="#f8fafc"/>
-
-  <!-- Top Banner (Student Reading View Bar) -->
-  <rect x="0" y="0" width="${width}" height="130" fill="url(#headerGrad)"/>
-  
-  <!-- University & Badge -->
-  <rect x="60" y="26" width="130" height="26" rx="6" fill="#3b82f6"/>
-  <text x="125" y="44" font-family="Plus Jakarta Sans, sans-serif" font-size="13" font-weight="700" fill="#ffffff" text-anchor="middle">
-    ${escapeXml(courseCode.toUpperCase())}
-  </text>
-  
-  <text x="210" y="44" font-family="Plus Jakarta Sans, sans-serif" font-size="13" font-weight="600" fill="#94a3b8" letter-spacing="1">
-    ${escapeXml(university.toUpperCase())} · STUDENT READING PREVIEW
-  </text>
-
-  <!-- Note Title -->
-  <text x="60" y="96" font-family="Plus Jakarta Sans, sans-serif" font-size="28" font-weight="800" fill="#ffffff">
-    ${escapeXml(title)}
-  </text>
-
-  <!-- Content Elements -->
-  ${elements.join('\n')}
-
-  <!-- Footer Watermark -->
-  <rect x="0" y="${height - 40}" width="${width}" height="40" fill="#0f172a"/>
-  <text x="60" y="${height - 16}" font-family="Plus Jakarta Sans, sans-serif" font-size="12" fill="#94a3b8">
-    CoLearn MCP Inspection Engine · Verified Student Reading View
-  </text>
-  <text x="${width - 60}" y="${height - 16}" font-family="JetBrains Mono, monospace" font-size="12" fill="#64748b" text-anchor="end">
-    ${new Date().toISOString().split('T')[0]}
-  </text>
-</svg>
+  <svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${contentHeight}" viewBox="0 0 ${width} ${contentHeight}">
+    <foreignObject x="0" y="0" width="${width}" height="${contentHeight}">
+      <div xmlns="http://www.w3.org/1999/xhtml" style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background-color: #0b0f19; color: #f1f5f9; padding: 28px; width: 100%; height: 100%; box-sizing: border-box;">
+        <style>
+          /*<![CDATA[*/
+          ${katexCss}
+          .katex-error { color: #f87171 !important; background: rgba(239, 68, 68, 0.15) !important; padding: 2px 6px !important; border-radius: 4px !important; border: 1px solid rgba(239, 68, 68, 0.4) !important; font-family: monospace !important; }
+          /*]]>*/
+        </style>
+        <div style="background: #141d2e; border: 1px solid #243044; border-radius: 14px; padding: 24px; box-shadow: 0 10px 30px rgba(0,0,0,0.4);">
+          <div style="display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid #243044; padding-bottom: 14px; margin-bottom: 16px;">
+            <div style="display: flex; align-items: center; gap: 10px;">
+              <span style="background: #2563eb; color: #ffffff; font-weight: 700; font-size: 12px; padding: 4px 10px; border-radius: 6px;">${escapeXml(courseCode.toUpperCase())}</span>
+              <span style="font-size: 12px; font-weight: 600; color: #94a3b8; letter-spacing: 0.5px;">${escapeXml(university.toUpperCase())} · STUDENT READING VIEW</span>
+            </div>
+            <span style="font-size: 11px; font-family: monospace; color: #38bdf8; background: rgba(56, 189, 248, 0.1); padding: 2px 8px; border-radius: 4px; border: 1px solid rgba(56, 189, 248, 0.2);">PLX FORMAT VERIFIED</span>
+          </div>
+          <h1 style="font-size: 26px; font-weight: 800; color: #ffffff; margin: 0 0 16px 0;">${processInlineMathAndTags(title)}</h1>
+          ${blocksHtml.join('')}
+        </div>
+      </div>
+    </foreignObject>
+  </svg>
   `;
 
   const pngBuffer = await sharp(Buffer.from(svg)).png().toBuffer();
@@ -603,28 +274,24 @@ export interface QuestionGridOptions {
 }
 
 /**
- * Generates a 20-question grid-style photo preview showing Question, Options, and Explanation
+ * Generates a 20-question grid-style photo preview matching the website student CBT view.
+ * Shows Question Prompts with KaTeX math, Option pills with green correct badge, and Yellow Explanation callout boxes.
+ * Invalid LaTeX syntax errors are rendered in bright RED box/text.
  */
 export async function renderQuestionGridImage(options: QuestionGridOptions): Promise<string> {
   const { sheetTitle, courseCode, semester, year, batchIndex, totalQuestions, questions } = options;
 
-  const width = 1600;
-  const colWidth = 730;
-  const colGap = 40;
-  const startX = 50;
-  const startY = 160;
+  const width = 1200;
+  const katexCss = getKatexCss();
 
-  // We arrange 2 columns (left column Q1-Q10, right column Q11-Q20)
-  const itemsPerCol = 10;
-  const leftColItems = questions.slice(0, itemsPerCol);
-  const rightColItems = questions.slice(itemsPerCol, 20);
+  const totalBatches = Math.max(1, Math.ceil(totalQuestions / 20));
+  const currentBatchNum = batchIndex + 1;
+  const startQNum = batchIndex * 20 + 1;
+  const endQNum = Math.min(totalQuestions, batchIndex * 20 + questions.length);
 
-  function renderCard(q: QuestionItem, index: number, x: number, y: number, cardHeight: number): string {
-    const qNum = batchIndex * 20 + index + 1;
-    const cleanText = cleanMarkdownForSvg(q.text);
-    const qLines = wrapText(cleanText, 70).slice(0, 3); // Max 3 lines for question text
+  const questionCardsHtml = questions.slice(0, 20).map((q, idx) => {
+    const qNum = batchIndex * 20 + idx + 1;
 
-    // Combine and label options
     const allOptions = [
       { letter: 'A', text: q.correctAnswer, isCorrect: true },
       ...(q.incorrectAnswers || []).map((ans, i) => ({
@@ -634,144 +301,80 @@ export async function renderQuestionGridImage(options: QuestionGridOptions): Pro
       }))
     ];
 
-    // Option rows
-    let optY = y + 36 + qLines.length * 20;
-    const optionElements: string[] = [];
-
+    let optionsHtml = '';
     for (const opt of allOptions.slice(0, 4)) {
       const isCorrect = opt.isCorrect;
-      const bg = isCorrect ? '#ecfdf5' : '#f8fafc';
-      const border = isCorrect ? '#10b981' : '#e2e8f0';
-      const textColor = isCorrect ? '#065f46' : '#334155';
-      const labelBadge = isCorrect ? '#059669' : '#64748b';
+      const bg = isCorrect ? 'rgba(16, 185, 129, 0.1)' : '#0f172a';
+      const border = isCorrect ? 'rgba(16, 185, 129, 0.3)' : '#1e293b';
+      const textColor = isCorrect ? '#34d399' : '#cbd5e1';
+      const badgeBg = isCorrect ? '#059669' : '#334155';
       const badgeText = isCorrect ? `${opt.letter} ✓` : opt.letter;
-      const optTextSnippet = cleanMarkdownForSvg(opt.text).slice(0, 65);
 
-      optionElements.push(`
-        <rect x="${x + 14}" y="${optY}" width="${colWidth - 28}" height="28" rx="5" fill="${bg}" stroke="${border}" stroke-width="${isCorrect ? '1.5' : '1'}"/>
-        <rect x="${x + 18}" y="${optY + 4}" width="${isCorrect ? 34 : 22}" height="20" rx="3" fill="${labelBadge}"/>
-        <text x="${x + 20 + (isCorrect ? 15 : 9)}" y="${optY + 18}" font-family="JetBrains Mono, monospace" font-size="11" font-weight="700" fill="#ffffff" text-anchor="middle">
-          ${escapeXml(badgeText)}
-        </text>
-        <text x="${x + 60}" y="${optY + 18}" font-family="Plus Jakarta Sans, sans-serif" font-size="12" font-weight="${isCorrect ? '600' : '400'}" fill="${textColor}">
-          ${escapeXml(optTextSnippet)}
-        </text>
-      `);
-      optY += 34;
+      optionsHtml += `
+        <div style="display: flex; align-items: center; gap: 10px; background: ${bg}; border: 1px solid ${border}; padding: 8px 12px; border-radius: 6px; margin-bottom: 6px; color: ${textColor}; font-size: 12px;">
+          <span style="background: ${badgeBg}; color: #ffffff; padding: 2px 8px; border-radius: 4px; font-size: 11px; font-weight: 700; shrink: 0;">${badgeText}</span>
+          <span>${processInlineMathAndTags(opt.text)}</span>
+        </div>
+      `;
     }
 
-    // Explanation Box
-    let expElement = '';
+    let expHtml = '';
     if (q.explanation) {
-      const expSnippet = cleanMarkdownForSvg(q.explanation).slice(0, 130);
-      const expLines = wrapText(expSnippet, 75).slice(0, 2);
-      expElement = `
-        <rect x="${x + 14}" y="${optY + 4}" width="${colWidth - 28}" height="42" rx="5" fill="#fefce8" stroke="#fef08a" stroke-width="1"/>
-        <text x="${x + 22}" y="${optY + 20}" font-family="Plus Jakarta Sans, sans-serif" font-size="11" font-weight="700" fill="#854d0e">EXPLANATION:</text>
-        <text x="${x + 22}" y="${optY + 36}" font-family="Plus Jakarta Sans, sans-serif" font-size="11" fill="#713f12">
-          ${escapeXml(expLines.join(' '))}
-        </text>
+      expHtml = `
+        <div style="background: rgba(234, 179, 8, 0.1); border: 1px solid rgba(234, 179, 8, 0.25); padding: 10px 12px; border-radius: 6px; margin-top: 8px; font-size: 11px; color: #fef08a;">
+          <strong style="color: #eab308; display: block; margin-bottom: 2px;">EXPLANATION:</strong>
+          ${processInlineMathAndTags(q.explanation)}
+        </div>
       `;
     }
 
     return `
-      <!-- Card Box -->
-      <rect x="${x}" y="${y}" width="${colWidth}" height="${cardHeight - 12}" rx="10" fill="#ffffff" stroke="#e2e8f0" stroke-width="1.5"/>
-      
-      <!-- Card Header with Q Number -->
-      <rect x="${x}" y="${y}" width="${colWidth}" height="32" rx="10" fill="#f1f5f9"/>
-      <rect x="${x + 12}" y="${y + 5}" width="48" height="22" rx="4" fill="#0f172a"/>
-      <text x="${x + 36}" y="${y + 20}" font-family="JetBrains Mono, monospace" font-size="12" font-weight="700" fill="#38bdf8" text-anchor="middle">
-        Q${qNum}
-      </text>
-      
-      <!-- Question Prompt Lines -->
-      ${qLines.map((l, i) => `
-        <text x="${x + 16}" y="${y + 54 + (i * 20)}" font-family="Plus Jakarta Sans, sans-serif" font-size="13" font-weight="600" fill="#0f172a">
-          ${escapeXml(l)}
-        </text>
-      `).join('\n')}
-
-      <!-- Options -->
-      ${optionElements.join('\n')}
-
-      <!-- Explanation -->
-      ${expElement}
+      <div style="background: #141d2e; border: 1px solid #243044; border-radius: 10px; padding: 14px; box-shadow: 0 4px 12px rgba(0,0,0,0.2);">
+        <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 8px;">
+          <span style="background: #0f172a; border: 1px solid #38bdf8; color: #38bdf8; font-family: monospace; font-size: 11px; font-weight: 700; padding: 2px 8px; border-radius: 4px;">Q${qNum}</span>
+        </div>
+        <div style="font-size: 13px; font-weight: 600; color: #f8fafc; margin-bottom: 10px; line-height: 1.4;">${processInlineMathAndTags(q.text)}</div>
+        ${optionsHtml}
+        ${expHtml}
+      </div>
     `;
-  }
+  }).join('');
 
-  const cardHeight = 245;
-  const leftCards: string[] = [];
-  const rightCards: string[] = [];
-
-  leftColItems.forEach((q, idx) => {
-    const y = startY + idx * cardHeight;
-    leftCards.push(renderCard(q, idx, startX, y, cardHeight));
-  });
-
-  rightColItems.forEach((q, idx) => {
-    const y = startY + idx * cardHeight;
-    rightCards.push(renderCard(q, idx + 10, startX + colWidth + colGap, y, cardHeight));
-  });
-
-  const maxRows = Math.max(leftColItems.length, rightColItems.length, 1);
-  const totalHeight = startY + maxRows * cardHeight + 80;
-
-  const totalBatches = Math.max(1, Math.ceil(totalQuestions / 20));
-  const currentBatchNum = batchIndex + 1;
-  const startQNum = batchIndex * 20 + 1;
-  const endQNum = Math.min(totalQuestions, batchIndex * 20 + questions.length);
+  const gridRows = Math.ceil(Math.min(20, questions.length) / 2);
+  const totalHeight = Math.max(700, 180 + gridRows * 260);
 
   const svg = `
-<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${totalHeight}" viewBox="0 0 ${width} ${totalHeight}">
-  <defs>
-    <linearGradient id="gridHeadGrad" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" stop-color="#0f172a"/>
-      <stop offset="100%" stop-color="#1e293b"/>
-    </linearGradient>
-  </defs>
+  <svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${totalHeight}" viewBox="0 0 ${width} ${totalHeight}">
+    <foreignObject x="0" y="0" width="${width}" height="${totalHeight}">
+      <div xmlns="http://www.w3.org/1999/xhtml" style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background-color: #0b0f19; color: #f1f5f9; padding: 24px; width: 100%; height: 100%; box-sizing: border-box;">
+        <style>
+          /*<![CDATA[*/
+          ${katexCss}
+          .katex-error { color: #f87171 !important; background: rgba(239, 68, 68, 0.15) !important; padding: 2px 6px !important; border-radius: 4px !important; border: 1px solid rgba(239, 68, 68, 0.4) !important; font-family: monospace !important; }
+          /*]]>*/
+        </style>
+        
+        <!-- Header Banner -->
+        <div style="background: #141d2e; border: 1px solid #243044; border-radius: 12px; padding: 18px 24px; margin-bottom: 20px; display: flex; align-items: center; justify-content: space-between;">
+          <div>
+            <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 6px;">
+              <span style="background: #2563eb; color: #ffffff; font-weight: 700; font-size: 12px; padding: 4px 10px; border-radius: 6px;">${escapeXml(courseCode.toUpperCase())}</span>
+              <span style="font-size: 13px; font-weight: 600; color: #94a3b8;">${escapeXml(sheetTitle)} · ${escapeXml(semester)} Semester ${escapeXml(year)}</span>
+            </div>
+            <h1 style="font-size: 20px; font-weight: 800; color: #ffffff; margin: 0;">Question Sheet Visual Inspection (Batch ${currentBatchNum} of ${totalBatches})</h1>
+          </div>
+          <div style="background: #0f172a; border: 1px solid #10b981; padding: 8px 16px; border-radius: 8px; text-align: right;">
+            <span style="font-family: monospace; font-size: 13px; font-weight: 700; color: #34d399;">Questions ${startQNum} - ${endQNum} / ${totalQuestions}</span>
+          </div>
+        </div>
 
-  <!-- Background -->
-  <rect width="${width}" height="${totalHeight}" fill="#f8fafc"/>
-
-  <!-- Header Banner -->
-  <rect x="0" y="0" width="${width}" height="120" fill="url(#gridHeadGrad)"/>
-  
-  <!-- Left Header Badges -->
-  <rect x="${startX}" y="24" width="140" height="28" rx="6" fill="#3b82f6"/>
-  <text x="${startX + 70}" y="43" font-family="JetBrains Mono, monospace" font-size="14" font-weight="700" fill="#ffffff" text-anchor="middle">
-    ${escapeXml(courseCode.toUpperCase())}
-  </text>
-  
-  <text x="${startX + 160}" y="43" font-family="Plus Jakarta Sans, sans-serif" font-size="14" font-weight="600" fill="#94a3b8">
-    ${escapeXml(sheetTitle)} · ${escapeXml(semester)} Semester ${escapeXml(year)}
-  </text>
-
-  <!-- Batch & Progress Indicators -->
-  <text x="${startX}" y="92" font-family="Plus Jakarta Sans, sans-serif" font-size="24" font-weight="800" fill="#ffffff">
-    Question Sheet Visual Inspection (Batch ${currentBatchNum} of ${totalBatches})
-  </text>
-
-  <rect x="${width - 320}" y="36" width="270" height="48" rx="8" fill="#1e293b" stroke="#334155" stroke-width="1"/>
-  <text x="${width - 185}" y="65" font-family="JetBrains Mono, monospace" font-size="16" font-weight="700" fill="#10b981" text-anchor="middle">
-    Showing Questions ${startQNum} - ${endQNum} / ${totalQuestions}
-  </text>
-
-  <!-- Left Column Questions -->
-  ${leftCards.join('\n')}
-
-  <!-- Right Column Questions -->
-  ${rightCards.join('\n')}
-
-  <!-- Bottom Footer -->
-  <rect x="0" y="${totalHeight - 50}" width="${width}" height="50" fill="#0f172a"/>
-  <text x="${startX}" y="${totalHeight - 20}" font-family="Plus Jakarta Sans, sans-serif" font-size="13" fill="#94a3b8">
-    CoLearn MCP Inspection Protocol · 20-Question Grid Batch Inspector
-  </text>
-  <text x="${width - startX}" y="${totalHeight - 20}" font-family="JetBrains Mono, monospace" font-size="13" fill="#64748b" text-anchor="end">
-    Batch ${currentBatchNum}/${totalBatches} · Total ${totalQuestions} questions
-  </text>
-</svg>
+        <!-- 2 Column Question Grid -->
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px;">
+          ${questionCardsHtml}
+        </div>
+      </div>
+    </foreignObject>
+  </svg>
   `;
 
   const pngBuffer = await sharp(Buffer.from(svg)).png().toBuffer();

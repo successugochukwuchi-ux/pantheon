@@ -104,6 +104,136 @@ export function assertUniversityAccess(agent: AgentContext, targetUni?: string):
 }
 
 /**
+ * Ensures note content is stored in official CoLearn PLX markup (<PLX> ... </PLX>).
+ * If the input is already PLX format, returns it directly.
+ * If input is raw Markdown or JSON array, converts and wraps it into clean PLX tags.
+ */
+export function ensurePlxFormat(content: string, noteTitle?: string): string {
+  if (!content) return '<PLX></PLX>';
+  let str = content.trim();
+
+  // If already wrapped in <PLX> ... </PLX>
+  if (str.startsWith('<PLX>') || str.includes('<PLX>')) {
+    if (!str.startsWith('<PLX>')) {
+      const match = /<PLX>([\s\S]*?)<\/PLX>/i.exec(str);
+      if (match) return `<PLX>\n${match[1].trim()}\n</PLX>`;
+    }
+    return str;
+  }
+
+  // If content contains PLX tags without root <PLX> wrapper
+  if (str.includes('<H1>') || str.includes('<H2>') || str.includes('<TEXT>') || str.includes('<MATH>') || str.includes('<TABLE>') || str.includes('<LIST>') || str.includes('<ORDERED>') || str.includes('<QUES>')) {
+    return `<PLX>\n${str}\n</PLX>`;
+  }
+
+  // If content is JSON array of NoteBlocks (from NoteBuilder)
+  if (str.startsWith('[') && str.endsWith(']')) {
+    try {
+      const parsed = JSON.parse(str);
+      if (Array.isArray(parsed) && parsed.length > 0 && parsed[0].type) {
+        let plxBody = '';
+        if (noteTitle) {
+          plxBody += `  <H1>${noteTitle}</H1>\n\n`;
+        }
+        for (const b of parsed) {
+          if (b.type === 'h1') plxBody += `  <H1>${b.content}</H1>\n\n`;
+          else if (b.type === 'h2') plxBody += `  <H2>${b.content}</H2>\n\n`;
+          else if (b.type === 'math') plxBody += `  <MATH>${b.content}</MATH>\n\n`;
+          else if (b.type === 'table') {
+            try {
+              const grid = typeof b.content === 'string' ? JSON.parse(b.content) : b.content;
+              if (Array.isArray(grid)) {
+                const csvLines = grid.map((r: any[]) => r.join(', ')).join('\n');
+                plxBody += `  <TABLE>\n${csvLines}\n  </TABLE>\n\n`;
+              } else {
+                plxBody += `  <TABLE>\n${b.content}\n  </TABLE>\n\n`;
+              }
+            } catch {
+              plxBody += `  <TABLE>\n${b.content}\n  </TABLE>\n\n`;
+            }
+          }
+          else if (b.type === 'bullet-list') plxBody += `  <LIST>\n${b.content}\n  </LIST>\n\n`;
+          else if (b.type === 'numbered-list') plxBody += `  <ORDERED>\n${b.content}\n  </ORDERED>\n\n`;
+          else if (b.type === 'question' && b.content) {
+            try {
+              const qData = typeof b.content === 'string' ? JSON.parse(b.content) : b.content;
+              plxBody += `  <QUES ="${b.settings?.questionId || '1'}">\n    ${qData.question || ''}\n    <COR>${qData.correct || ''}</COR>\n`;
+              (qData.incorrect || []).forEach((inc: string) => {
+                plxBody += `    <INC>${inc}</INC>\n`;
+              });
+              if (qData.explanation) plxBody += `    <EXP>${qData.explanation}</EXP>\n`;
+              plxBody += `  </QUES>\n\n`;
+            } catch {
+              plxBody += `  <TEXT>${b.content}</TEXT>\n\n`;
+            }
+          }
+          else plxBody += `  <TEXT>${b.content}</TEXT>\n\n`;
+        }
+        return `<PLX>\n${plxBody.trim()}\n</PLX>`;
+      }
+    } catch {
+      // ignore
+    }
+  }
+
+  // Convert raw Markdown lines into PLX
+  const lines = str.split('\n');
+  let plxBody = '';
+  if (noteTitle) {
+    plxBody += `  <H1>${noteTitle}</H1>\n\n`;
+  }
+
+  let inMath = false;
+  let mathBuffer: string[] = [];
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    const trimmed = line.trim();
+
+    if (trimmed.startsWith('$$')) {
+      if (inMath) {
+        mathBuffer.push(trimmed.replace(/\$\$/g, ''));
+        plxBody += `  <MATH>${mathBuffer.join(' ')}</MATH>\n\n`;
+        mathBuffer = [];
+        inMath = false;
+      } else {
+        inMath = true;
+        const rem = trimmed.replace(/^\$\$/, '');
+        if (rem.endsWith('$$') && rem.length > 2) {
+          plxBody += `  <MATH>${rem.replace(/\$\$$/, '')}</MATH>\n\n`;
+          inMath = false;
+        } else if (rem) {
+          mathBuffer.push(rem);
+        }
+      }
+      continue;
+    }
+    if (inMath) {
+      mathBuffer.push(trimmed);
+      continue;
+    }
+
+    if (!trimmed) continue;
+
+    if (trimmed.startsWith('# ')) {
+      plxBody += `  <H1>${trimmed.slice(2).trim()}</H1>\n\n`;
+    } else if (trimmed.startsWith('## ')) {
+      plxBody += `  <H2>${trimmed.slice(3).trim()}</H2>\n\n`;
+    } else if (trimmed.startsWith('### ') || trimmed.startsWith('#### ')) {
+      plxBody += `  <H2>${trimmed.replace(/^#+\s*/, '').trim()}</H2>\n\n`;
+    } else {
+      plxBody += `  <TEXT>${trimmed}</TEXT>\n\n`;
+    }
+  }
+
+  if (inMath && mathBuffer.length > 0) {
+    plxBody += `  <MATH>${mathBuffer.join(' ')}</MATH>\n\n`;
+  }
+
+  return `<PLX>\n${plxBody.trim()}\n</PLX>`;
+}
+
+/**
  * MCP Service Actions
  */
 export const mcpService = {
@@ -240,14 +370,15 @@ export const mcpService = {
     const courseData = courseSnap.data();
     assertUniversityAccess(agent, courseData.At || 'futo');
 
-    // Auto-correct note LaTeX formatting
+    // Auto-correct note LaTeX formatting and ensure official PLX format
     const noteCorr = autoCorrectNoteContent(params.content);
     const correctedContent = typeof noteCorr === 'object' && noteCorr.content ? noteCorr.content : String(params.content);
+    const plxContent = ensurePlxFormat(correctedContent, params.title.trim());
 
     const notePayload = {
       courseId: params.courseId,
       title: params.title.trim(),
-      content: correctedContent,
+      content: plxContent,
       type: params.type || 'lecture',
       authorId: agent.adminUid,
       At: agent.university,
@@ -261,7 +392,7 @@ export const mcpService = {
       title: notePayload.title,
       courseCode: courseData.code || 'COURSE',
       university: agent.university.toUpperCase(),
-      content: correctedContent
+      content: plxContent
     });
 
     return {
@@ -273,7 +404,7 @@ export const mcpService = {
       status: 'published',
       previewImageBase64,
       previewMimeType: 'image/png',
-      message: 'Note created and published successfully. The embedded previewImageBase64 illustrates exactly what students see.'
+      message: 'Note created and published successfully in official PLX format. Crosscheck the returned preview image for LaTeX accuracy.'
     };
   },
 
@@ -301,7 +432,8 @@ export const mcpService = {
     }
     if (params.content !== undefined) {
       const noteCorr = autoCorrectNoteContent(params.content);
-      updates.content = typeof noteCorr === 'object' && noteCorr.content ? noteCorr.content : String(params.content);
+      const rawCorrected = typeof noteCorr === 'object' && noteCorr.content ? noteCorr.content : String(params.content);
+      updates.content = ensurePlxFormat(rawCorrected, updates.title || existing.title);
     }
 
     await updateDoc(noteRef, updates);

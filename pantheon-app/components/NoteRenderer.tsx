@@ -108,6 +108,44 @@ export function NoteRenderer({
         }
         if (resultBlocks.length > 0) return resultBlocks;
       }
+
+      // Fallback: If content contains markdown headings (# or ##), split into structured blocks
+      if (/#+\s+[^\n]+/.test(content)) {
+        const lines = content.split('\n');
+        const mdBlocks: NoteBlock[] = [];
+        let curText: string[] = [];
+        let bIdx = 1;
+
+        const flushText = () => {
+          if (curText.length > 0) {
+            const joined = curText.join('\n').trim();
+            if (joined) {
+              mdBlocks.push({ id: String(bIdx++), type: 'text', content: joined });
+            }
+            curText = [];
+          }
+        };
+
+        for (let i = 0; i < lines.length; i++) {
+          const line = lines[i];
+          const trimmed = line.trim();
+          if (trimmed.startsWith('# ')) {
+            flushText();
+            mdBlocks.push({ id: String(bIdx++), type: 'h1', content: trimmed.replace(/^#\s+/, '') });
+          } else if (trimmed.startsWith('## ')) {
+            flushText();
+            mdBlocks.push({ id: String(bIdx++), type: 'h2', content: trimmed.replace(/^##\s+/, '') });
+          } else if (trimmed.startsWith('### ')) {
+            flushText();
+            mdBlocks.push({ id: String(bIdx++), type: 'h2', content: trimmed.replace(/^###\s+/, '') });
+          } else {
+            curText.push(line);
+          }
+        }
+        flushText();
+        if (mdBlocks.length > 0) return mdBlocks;
+      }
+
       return [{ id: '1', type: 'text', content: content }];
     }
   }, [content]);
