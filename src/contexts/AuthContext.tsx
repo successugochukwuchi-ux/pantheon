@@ -6,8 +6,6 @@ import { auth, db, handleFirestoreError, OperationType } from '../firebase';
 import { toast } from 'sonner';
 import { UserProfile, SystemConfig, PromoConfig, Semester } from '../types';
 import { getDeviceUUID, getUserDeviceUUID, generateNewDeviceUUID, getWebDeviceName } from '../lib/device';
-import { fetchAdminContactForUniversity, AdminContactInfo } from '../services/adminContactService';
-import { DeviceLimitModal } from '../components/DeviceLimitModal';
 
 interface AuthContextType {
   user: User | null;
@@ -52,17 +50,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [isSystemConfigReady, setIsSystemConfigReady] = useState(localStorage.getItem('colearn_system_config') !== null);
   const [isOnline, setIsOnline] = useState(navigator.onLine);
   const [retryCount, setRetryCount] = useState(0);
-
-  const [deviceLimitModal, setDeviceLimitModal] = useState<{
-    isOpen: boolean;
-    adminInfo: AdminContactInfo | null;
-    accountEmail?: string;
-    studentId?: string;
-    semester?: string;
-  }>({
-    isOpen: false,
-    adminInfo: null,
-  });
 
   useEffect(() => {
     const handleOnline = () => setIsOnline(true);
@@ -184,17 +171,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           const matched = currentDevices.find((d: any) => d.id === deviceId);
           if (!matched) {
             if (!isLevel5 && currentDevices.length >= 2) {
-              const adminInfo = await fetchAdminContactForUniversity(userData.At || 'futo');
-              setDeviceLimitModal({
-                isOpen: true,
-                adminInfo,
-                accountEmail: user.email || userData.email || '',
-                studentId: userData.studentId || '',
-                semester: currentSemester,
-              });
               setProfile(null);
               firebaseSignOut(auth).catch(() => {});
-              toast.error(`Device Limit Reached: Max 2 devices for semester (${currentSemester}). Please contact your campus administrator.`);
+              toast.error(`Device Limit Reached: Your account has reached the max of 2 devices for the current semester (${currentSemester}). Contact an admin for ${userData.At || 'futo'} to resolve this.`);
               return;
             } else {
               const newDevice = {
@@ -213,17 +192,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           }
         } else {
           if (!isLevel5 && currentDevices.length >= 2) {
-            const adminInfo = await fetchAdminContactForUniversity(userData.At || 'futo');
-            setDeviceLimitModal({
-              isOpen: true,
-              adminInfo,
-              accountEmail: user.email || userData.email || '',
-              studentId: userData.studentId || '',
-              semester: currentSemester,
-            });
             setProfile(null);
             firebaseSignOut(auth).catch(() => {});
-            toast.error(`Device Limit Reached: Max 2 devices for semester (${currentSemester}). Please contact your campus administrator.`);
+            toast.error(`Device Limit Reached: Your account has reached the max of 2 devices for the current semester (${currentSemester}). Contact an admin for ${userData.At || 'futo'} to resolve this.`);
             return;
           } else {
             deviceId = await generateNewDeviceUUID(user.uid);
@@ -335,14 +306,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   return (
     <AuthContext.Provider value={{ user, profile, systemConfig: effectiveSystemConfig, promoConfig, loading, isAuthReady, isSystemConfigReady, isOnline }}>
       {children}
-      <DeviceLimitModal
-        isOpen={deviceLimitModal.isOpen}
-        onClose={() => setDeviceLimitModal(prev => ({ ...prev, isOpen: false }))}
-        adminInfo={deviceLimitModal.adminInfo}
-        accountEmail={deviceLimitModal.accountEmail}
-        studentId={deviceLimitModal.studentId}
-        semester={deviceLimitModal.semester}
-      />
     </AuthContext.Provider>
   );
 };

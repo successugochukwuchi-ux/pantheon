@@ -12,7 +12,10 @@ import { db } from '../firebase';
 import { AIConfig } from '../types';
 import { useAuth } from '../contexts/AuthContext';
 import { toast } from 'sonner';
-import { MathMarkdown } from './MathMarkdown';
+import ReactMarkdown from 'react-markdown';
+import remarkMath from 'remark-math';
+import rehypeMathjax from 'rehype-mathjax';
+import remarkGfm from 'remark-gfm';
 import { cn } from '../lib/utils';
 
 interface AIAssistantProps {
@@ -370,7 +373,12 @@ export function AIAssistant({ noteContent, noteTitle }: AIAssistantProps) {
                                 ) : (
                                   <div className="relative">
                                     <div className="markdown-body prose dark:prose-invert prose-sm max-w-none break-words">
-                                      <MathMarkdown content={m.content} />
+                                      <ReactMarkdown 
+                                        remarkPlugins={[remarkMath, remarkGfm]} 
+                                        rehypePlugins={[rehypeMathjax]}
+                                      >
+                                        {m.content}
+                                      </ReactMarkdown>
                                     </div>
                                     {isLoading && i === messages.length - 1 && (
                                       <span 

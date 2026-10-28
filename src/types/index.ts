@@ -387,18 +387,3 @@ export interface FeedbackItem {
   createdAt: string;
   At: string; // University ID/code
 }
-
-export interface McpAgentToken {
-  id: string;
-  token?: string;
-  tokenPrefix: string;
-  name: string;
-  university: string;
-  adminUid: string;
-  adminEmail: string;
-  level: string;
-  status: 'active' | 'revoked';
-  createdAt: string;
-  lastUsedAt?: string | null;
-}
-

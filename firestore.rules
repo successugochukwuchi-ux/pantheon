@@ -193,44 +193,34 @@ service cloud.firestore {
     }
 
     match /courses/{courseId} {
-      allow read, list: if true;
-      allow create: if isAdmin() || (isValidCourse(incoming()) && incoming().At is string);
-      allow update: if isAdmin() || (isValidCourse(incoming()) && incoming().At is string);
+      allow read, list: if isSignedIn();
+      allow create: if isAdmin() && isValidCourse(incoming());
+      allow update: if isAdmin() && isValidCourse(incoming());
       allow delete: if isAdmin();
     }
 
     match /notes/{noteId} {
-      allow read, list: if true;
-      allow create: if (isAdmin() && isValidNote(incoming())) ||
-                       (isValidNote(incoming()) && incoming().authorId is string && incoming().At is string);
-      allow update: if (isAdmin() && isValidNote(incoming())) ||
-                       (isValidNote(incoming()) && incoming().authorId is string);
+      allow read, list: if isSignedIn();
+      allow create: if isAdmin() && isValidNote(incoming()) && incoming().authorId == request.auth.uid;
+      allow update: if isAdmin() && isValidNote(incoming()) && (incoming().authorId == existing().authorId || incoming().authorId == request.auth.uid);
       allow delete: if isAdmin();
       
       match /videoQuestions/{questionId} {
-        allow read, list: if true;
+        allow read, list: if isSignedIn();
         allow write: if isAdmin();
       }
     }
 
     match /questionSheets/{sheetId} {
-      allow read, list: if true;
-      allow create, update: if isAdmin() || isValidQuestionSheet(incoming()) || (incoming().courseId is string && incoming().year is string);
-      allow delete: if isAdmin();
-    }
-
-    match /question_sheets/{sheetId} {
-      allow read, list: if true;
-      allow create, update: if isAdmin() || isValidQuestionSheet(incoming()) || (incoming().courseId is string && incoming().year is string);
+      allow read, list: if isSignedIn();
+      allow create, update: if isAdmin();
       allow delete: if isAdmin();
     }
 
     match /questions/{questionId} {
-      allow read, list: if true;
-      allow create: if (isAdmin() && isValidQuestion(incoming())) ||
-                       (isValidQuestion(incoming()) && incoming().authorId is string && incoming().sheetId is string);
-      allow update: if (isAdmin() && isValidQuestion(incoming())) ||
-                       (isValidQuestion(incoming()) && incoming().authorId is string);
+      allow read, list: if isSignedIn();
+      allow create: if isAdmin() && isValidQuestion(incoming()) && incoming().authorId == request.auth.uid;
+      allow update: if isAdmin() && isValidQuestion(incoming()) && (incoming().authorId == existing().authorId || incoming().authorId == request.auth.uid);
       allow delete: if isAdmin();
     }
 
@@ -450,10 +440,5 @@ service cloud.firestore {
       allow create: if isSignedIn() && (incoming().vendorId == request.auth.uid || incoming().type == 'commission' || isAdmin());
       allow update, delete: if isAdmin();
     }
-
-    match /mcp_agent_tokens/{tokenId} {
-      allow read, write: if true;
-    }
   }
 }
-

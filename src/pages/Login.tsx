@@ -7,7 +7,8 @@ import {
   browserLocalPersistence,
   browserSessionPersistence
 } from 'firebase/auth';
-import { auth } from '../firebase';
+import { doc, getDoc, setDoc, increment, collection, query, where, getDocs } from 'firebase/firestore';
+import { auth, db } from '../firebase';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
 import { Label } from '../components/ui/label';
@@ -15,6 +16,7 @@ import { formatAuthError } from '../lib/auth-errors';
 import { 
   Card, 
   CardContent, 
+  CardDescription, 
   CardFooter, 
   CardHeader, 
   CardTitle 
@@ -29,21 +31,8 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import { toast } from 'sonner';
-import { 
-  Mail, 
-  Lock, 
-  Eye, 
-  EyeOff, 
-  CheckSquare, 
-  Square, 
-  ArrowRight, 
-  Sparkles, 
-  GraduationCap, 
-  ShieldCheck, 
-  KeyRound,
-  HelpCircle
-} from 'lucide-react';
-import { motion } from 'motion/react';
+import { AlertCircle, Eye, EyeOff, CheckSquare, Square } from 'lucide-react';
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 
 export default function Login() {
   const [email, setEmail] = useState('');
@@ -58,10 +47,6 @@ export default function Login() {
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!email.trim() || !password) {
-      toast.error('Please enter both email and password');
-      return;
-    }
     setLoading(true);
     try {
       // Set persistence based on user preference
@@ -70,7 +55,7 @@ export default function Login() {
         stayLoggedIn ? browserLocalPersistence : browserSessionPersistence
       );
       
-      await signInWithEmailAndPassword(auth, email.trim(), password);
+      await signInWithEmailAndPassword(auth, email, password);
       toast.success('Logged in successfully');
       navigate('/dashboard');
     } catch (error: any) {
@@ -80,15 +65,17 @@ export default function Login() {
     }
   };
 
+
+
   const handleResetPassword = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!resetEmail.trim()) {
+    if (!resetEmail) {
       toast.error('Please enter your email address');
       return;
     }
     setResetLoading(true);
     try {
-      await sendPasswordResetEmail(auth, resetEmail.trim());
+      await sendPasswordResetEmail(auth, resetEmail);
       toast.success('Password reset email sent! Check your inbox.');
       setIsResetOpen(false);
       setResetEmail('');
@@ -100,220 +87,129 @@ export default function Login() {
   };
 
   return (
-    <div className="min-h-screen flex flex-col items-center justify-center relative overflow-hidden bg-muted/30 px-4 py-8">
-      {/* Ambient Glow Background Decoration */}
-      <div className="absolute top-0 left-0 w-full h-full -z-10 opacity-30 pointer-events-none overflow-hidden">
-        <div className="absolute top-[-10%] left-[-10%] w-[45%] h-[45%] bg-primary/20 rounded-full blur-[120px]" />
-        <div className="absolute bottom-[-10%] right-[-10%] w-[45%] h-[45%] bg-blue-500/20 rounded-full blur-[120px]" />
-        <div className="absolute top-[40%] right-[15%] w-[30%] h-[30%] bg-purple-500/15 rounded-full blur-[100px]" />
+    <div className="min-h-screen flex flex-col items-center justify-center relative overflow-hidden bg-muted/30 px-4">
+      {/* Background Decoration */}
+      <div className="absolute top-0 left-0 w-full h-full -z-10 opacity-30 pointer-events-none">
+        <div className="absolute top-[-10%] left-[-10%] w-[40%] h-[40%] bg-primary/20 rounded-full blur-[100px]" />
+        <div className="absolute bottom-[-10%] right-[-10%] w-[40%] h-[40%] bg-blue-500/20 rounded-full blur-[100px]" />
       </div>
 
-      <motion.div 
-        initial={{ opacity: 0, y: 16 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.35, ease: 'easeOut' }}
-        className="w-full max-w-md space-y-6"
-      >
-        {/* Top Branding Section */}
-        <div className="text-center space-y-2">
-          <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-primary/10 text-primary border border-primary/20 shadow-xs mb-1">
-            <Sparkles className="h-3.5 w-3.5" />
-            Academic Scholar Portal
-          </div>
-          <div>
-            <Link to="/" className="inline-flex items-center gap-2.5 text-3xl font-extrabold tracking-tight text-foreground hover:opacity-90 transition-opacity">
-              <div className="h-9 w-9 rounded-xl bg-primary/10 border border-primary/20 flex items-center justify-center p-1.5 shadow-sm">
-                <img src="/icon.png" alt="CoLearn" className="h-full w-full rounded-lg object-contain" />
-              </div>
-              <span className="bg-gradient-to-r from-primary to-primary/80 bg-clip-text text-transparent">
-                COLEARN
-              </span>
-            </Link>
-          </div>
-          <p className="text-sm text-muted-foreground font-medium">
-            Welcome back to your high-performance study hub
-          </p>
+      <div className="w-full max-w-md space-y-8">
+        <div className="text-center">
+          <Link to="/" className="inline-flex items-center gap-2.5 text-3xl font-bold tracking-tighter text-primary">
+            <img src="/icon.png" alt="CoLearn" className="h-8 w-8 rounded-lg object-contain" />
+            COLEARN
+          </Link>
+          <p className="text-muted-foreground mt-2">Welcome back to your study hub</p>
         </div>
 
-        {/* Login Card */}
-        <Card className="border border-border/40 shadow-2xl bg-card/85 backdrop-blur-md rounded-3xl overflow-hidden">
-          {/* Header Accent Bar */}
-          <div className="bg-muted/30 border-b border-border/50 px-6 py-4 flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <div className="h-7 w-7 rounded-lg bg-primary/10 text-primary flex items-center justify-center">
-                <GraduationCap className="h-4 w-4" />
-              </div>
-              <span className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
-                Secure Sign In
-              </span>
-            </div>
-            <span className="text-[11px] font-semibold text-emerald-600 dark:text-emerald-400 flex items-center gap-1 bg-emerald-500/10 px-2 py-0.5 rounded-full border border-emerald-500/20">
-              <ShieldCheck className="h-3 w-3" />
-              Encrypted
-            </span>
-          </div>
-
+        <Card className="border-none shadow-2xl bg-background/80 backdrop-blur-sm">
+          <CardHeader className="space-y-1 pb-8">
+            <CardTitle className="text-2xl font-bold">Login</CardTitle>
+            <CardDescription>Enter your email and password to access your account</CardDescription>
+          </CardHeader>
           <form onSubmit={handleLogin}>
-            <CardContent className="p-6 sm:p-8 space-y-5">
-              <div className="space-y-1">
-                <CardTitle className="text-xl font-bold tracking-tight text-foreground">
-                  Access Your Account
-                </CardTitle>
-                <p className="text-xs text-muted-foreground">
-                  Enter your credentials to continue studying and preparing for exams.
-                </p>
+            <CardContent className="space-y-4">
+              <div className="space-y-2">
+                <Label htmlFor="email">Email</Label>
+                <Input 
+                  id="email" 
+                  type="email" 
+                  placeholder="name@university.edu.ng" 
+                  required 
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  className="h-12"
+                />
               </div>
-
-              <div className="space-y-4 pt-1">
-                {/* Email Field */}
-                <div className="space-y-2">
-                  <Label htmlFor="email" className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                    Email Address
-                  </Label>
-                  <div className="relative">
-                    <Mail className="absolute left-3.5 top-1/2 -translate-y-1/2 h-5 w-5 text-muted-foreground/80" />
-                    <Input 
-                      id="email" 
-                      type="email" 
-                      placeholder="name@university.edu.ng" 
-                      required 
-                      value={email}
-                      onChange={(e) => setEmail(e.target.value)}
-                      className="h-12 pl-11 rounded-xl bg-muted/25 border-border focus:bg-background focus:ring-2 focus:ring-primary/20 transition-all text-sm font-medium"
-                    />
-                  </div>
-                </div>
-
-                {/* Password Field */}
-                <div className="space-y-2">
-                  <div className="flex items-center justify-between">
-                    <Label htmlFor="password" className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                      Password
-                    </Label>
-
-                    <Dialog open={isResetOpen} onOpenChange={setIsResetOpen}>
-                      <DialogTrigger
-                        type="button"
-                        className="text-xs font-semibold text-primary hover:text-primary/80 hover:underline transition-colors cursor-pointer bg-transparent border-0 p-0"
-                      >
-                        Forgot password?
-                      </DialogTrigger>
-                      <DialogContent className="sm:max-w-[425px] border border-border/60 bg-card/95 backdrop-blur-xl shadow-2xl rounded-3xl p-6">
-                        <DialogHeader className="space-y-2 text-left">
-                          <div className="h-10 w-10 rounded-xl bg-primary/10 text-primary flex items-center justify-center mb-1">
-                            <KeyRound className="h-5 w-5" />
-                          </div>
-                          <DialogTitle className="text-lg font-bold">Reset Password</DialogTitle>
-                          <DialogDescription className="text-xs text-muted-foreground">
-                            Enter the email associated with your account and we'll send you an encrypted password recovery link.
-                          </DialogDescription>
-                        </DialogHeader>
-                        <form onSubmit={handleResetPassword} className="space-y-4 pt-2">
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <Label htmlFor="password">Password</Label>
+                  <Dialog open={isResetOpen} onOpenChange={setIsResetOpen}>
+                    <DialogTrigger className="text-xs text-primary hover:underline">
+                      Forgot password?
+                    </DialogTrigger>
+                    <DialogContent className="sm:max-w-[425px]">
+                      <DialogHeader>
+                        <DialogTitle>Reset Password</DialogTitle>
+                        <DialogDescription>
+                          Enter your email address and we'll send you a link to reset your password.
+                        </DialogDescription>
+                      </DialogHeader>
+                      <form onSubmit={handleResetPassword}>
+                        <div className="grid gap-4 py-4">
                           <div className="space-y-2">
-                            <Label htmlFor="reset-email" className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                              Email Address
-                            </Label>
-                            <div className="relative">
-                              <Mail className="absolute left-3.5 top-1/2 -translate-y-1/2 h-5 w-5 text-muted-foreground/80" />
-                              <Input
-                                id="reset-email"
-                                type="email"
-                                placeholder="name@university.edu.ng"
-                                value={resetEmail}
-                                onChange={(e) => setResetEmail(e.target.value)}
-                                className="h-11 pl-11 rounded-xl bg-muted/25 border-border focus:bg-background text-sm"
-                                required
-                              />
-                            </div>
+                            <Label htmlFor="reset-email">Email</Label>
+                            <Input
+                              id="reset-email"
+                              type="email"
+                              placeholder="name@university.edu.ng"
+                              value={resetEmail}
+                              onChange={(e) => setResetEmail(e.target.value)}
+                              required
+                            />
                           </div>
-                          <DialogFooter className="pt-2">
-                            <Button 
-                              type="submit" 
-                              disabled={resetLoading} 
-                              className="w-full h-11 rounded-xl font-semibold shadow-md"
-                            >
-                              {resetLoading ? 'Sending Recovery Link...' : 'Send Reset Link'}
-                            </Button>
-                          </DialogFooter>
-                        </form>
-                      </DialogContent>
-                    </Dialog>
-                  </div>
-
-                  <div className="relative">
-                    <Lock className="absolute left-3.5 top-1/2 -translate-y-1/2 h-5 w-5 text-muted-foreground/80" />
-                    <Input 
-                      id="password" 
-                      type={showPassword ? "text" : "password"} 
-                      placeholder="••••••••••••"
-                      required 
-                      value={password}
-                      onChange={(e) => setPassword(e.target.value)}
-                      className="h-12 pl-11 pr-11 rounded-xl bg-muted/25 border-border focus:bg-background focus:ring-2 focus:ring-primary/20 transition-all text-sm font-medium"
-                    />
-                    <button
-                      type="button"
-                      onClick={() => setShowPassword(!showPassword)}
-                      className="absolute right-3.5 top-1/2 -translate-y-1/2 text-muted-foreground/80 hover:text-foreground transition-colors p-1"
-                      aria-label={showPassword ? "Hide password" : "Show password"}
-                    >
-                      {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                    </button>
-                  </div>
+                        </div>
+                        <DialogFooter>
+                          <Button type="submit" disabled={resetLoading} className="w-full">
+                            {resetLoading ? 'Sending...' : 'Send Reset Link'}
+                          </Button>
+                        </DialogFooter>
+                      </form>
+                    </DialogContent>
+                  </Dialog>
                 </div>
-
-                {/* Stay Logged In Toggle */}
-                <div className="pt-1">
+                <div className="relative">
+                  <Input 
+                    id="password" 
+                    type={showPassword ? "text" : "password"} 
+                    required 
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    className="h-12 pr-10"
+                  />
                   <button
                     type="button"
-                    onClick={() => setStayLoggedIn(!stayLoggedIn)}
-                    className="flex items-center gap-2.5 text-xs text-muted-foreground hover:text-foreground transition-colors cursor-pointer select-none py-1"
+                    onClick={() => setShowPassword(!showPassword)}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
                   >
-                    {stayLoggedIn ? (
-                      <CheckSquare className="h-4 w-4 text-primary fill-primary/15" />
-                    ) : (
-                      <Square className="h-4 w-4" />
-                    )}
-                    <span className="font-medium">Stay signed in on this browser</span>
+                    {showPassword ? <EyeOff className="h-5 w-5" /> : <Eye className="h-5 w-5" />}
                   </button>
                 </div>
               </div>
+              <div className="flex items-center space-x-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setStayLoggedIn(!stayLoggedIn)}
+                  className="flex items-center space-x-2 text-sm text-muted-foreground hover:text-foreground transition-colors"
+                >
+                  {stayLoggedIn ? (
+                    <CheckSquare className="h-4 w-4 text-primary" />
+                  ) : (
+                    <Square className="h-4 w-4" />
+                  )}
+                  <span>Stay logged in</span>
+                </button>
+              </div>
             </CardContent>
-
-            <CardFooter className="flex flex-col gap-4 p-6 sm:p-8 pt-0">
-              <Button 
-                type="submit" 
-                disabled={loading}
-                className="w-full h-12 rounded-xl text-base font-semibold shadow-lg shadow-primary/20 hover:shadow-xl hover:shadow-primary/30 transition-all duration-200 group flex items-center justify-center gap-2 active:scale-[0.99]"
-              >
-                {loading ? (
-                  <span className="flex items-center gap-2">
-                    <span className="h-4 w-4 border-2 border-primary-foreground border-t-transparent rounded-full animate-spin" />
-                    Signing in...
-                  </span>
-                ) : (
-                  <>
-                    Sign In to Dashboard
-                    <ArrowRight className="h-4 w-4 group-hover:translate-x-1 transition-transform" />
-                  </>
-                )}
+            <CardFooter className="flex flex-col gap-4 pt-4">
+              <Button className="w-full h-12 text-lg rounded-full" type="submit" disabled={loading}>
+                {loading ? 'Logging in...' : 'Login'}
               </Button>
 
-              <div className="text-xs text-center text-muted-foreground">
-                Don't have an account yet?{' '}
-                <Link to="/register" className="text-primary font-bold hover:underline">
-                  Create an account
+              <div className="text-sm text-center text-muted-foreground mt-2">
+                Don't have an account?{' '}
+                <Link to="/register" className="text-primary font-semibold hover:underline">
+                  Register
                 </Link>
               </div>
             </CardFooter>
           </form>
         </Card>
-
-        {/* Footer Note */}
-        <footer className="text-center text-xs text-muted-foreground space-y-1">
-          <p>© 2026 Pillara Education • Built for Academic Excellence</p>
+        <footer className="mt-8 text-center text-xs text-muted-foreground">
+          © 2026 Pillara Education 2026
         </footer>
-      </motion.div>
+      </div>
     </div>
   );
 }

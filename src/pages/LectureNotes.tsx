@@ -29,107 +29,6 @@ import { searchNote } from '../lib/noteSearch';
 
 import { getFilteredCoursesForStudent } from '../lib/courseFilter';
 
-function parsePlxStringToBlocks(content: string): NoteBlock[] {
-  if (!content) return [];
-  const str = content.trim();
-  const plxMatch = /<PLX>([\s\S]*?)<\/PLX>/i.exec(str);
-  const text = plxMatch ? plxMatch[1].trim() : str;
-
-  const tagRegex = /<(H1|H2|TEXT|B|I|U|MATH|LIST|ORDERED|TABLE|VIDEO|DIAGRAM|QUES)(?:\s*=\s*"([^"]*)")?>([\s\S]*?)<\/\1>/gi;
-  const resultBlocks: NoteBlock[] = [];
-  let match;
-  let idx = 1;
-
-  const isTableDividerLine = (line: string) => {
-    const l = line.trim();
-    return /^[\s|:-]+$/.test(l) && l.includes('-');
-  };
-
-  const parseTableLinesToGrid = (tableText: string): string[][] => {
-    const rawLines = tableText.split('\n')
-      .map(r => r.trim())
-      .filter(r => r.length > 0)
-      .filter(r => !isTableDividerLine(r));
-
-    return rawLines.map(r => {
-      let cells: string[];
-      if (r.includes('|')) {
-        cells = r.split('|').map(c => c.trim());
-        if (cells.length > 1 && cells[0] === '') cells.shift();
-        if (cells.length > 0 && cells[cells.length - 1] === '') cells.pop();
-      } else {
-        cells = r.split(',').map(c => c.trim());
-      }
-      return cells;
-    });
-  };
-
-  while ((match = tagRegex.exec(text)) !== null) {
-    const tagName = match[1].toUpperCase();
-    const attr = match[2] || '';
-    let bContent = match[3].trim();
-
-    if (tagName === 'TABLE') {
-      const rows = parseTableLinesToGrid(bContent);
-      resultBlocks.push({ id: String(idx++), type: 'table', content: JSON.stringify(rows) });
-    } else if (tagName === 'QUES') {
-      const corMatch = /<COR(?:\s*=\s*"([^"]*)"|\s*=\s*([^>\s]+))?\s*>/i.exec(bContent) || /<COR>([\s\S]*?)<\/COR>/i.exec(bContent);
-      const incMatches = [...bContent.matchAll(/<INC(?:\s*=\s*"([^"]*)"|\s*=\s*([^>\s]+))?\s*>/gi)].concat([...bContent.matchAll(/<INC>([\s\S]*?)<\/INC>/gi)]);
-      const expMatch = /<EXP(?:\s*=\s*"([^"]*)"|\s*=\s*([^>\s]+))?\s*>/i.exec(bContent) || /<EXP>([\s\S]*?)<\/EXP>/i.exec(bContent);
-
-      const firstSubTag = bContent.search(/<(COR|INC|EXP)/i);
-      const questionBody = firstSubTag === -1 ? bContent.trim() : bContent.substring(0, firstSubTag).trim();
-
-      const corVal = corMatch ? (corMatch[1] || corMatch[2] || '').trim() : '';
-      const incVals = incMatches.map(m => (m[1] || m[2] || '').trim()).filter(Boolean);
-      const expVal = expMatch ? (expMatch[1] || expMatch[2] || '').trim() : '';
-
-      const qData = {
-        question: questionBody,
-        correct: corVal,
-        incorrect: incVals,
-        explanation: expVal
-      };
-      resultBlocks.push({ id: String(idx++), type: 'question', content: JSON.stringify(qData), settings: attr ? { questionId: attr } : undefined });
-    } else if (tagName === 'TEXT') {
-      // Check if TEXT contains an unwrapped markdown pipe table
-      const lines = bContent.split('\n').map(l => l.trim()).filter(Boolean);
-      const isPipeTable = lines.length >= 2 && lines.filter(l => l.includes('|')).length >= lines.length - 1;
-      
-      if (isPipeTable) {
-        const rows = parseTableLinesToGrid(bContent);
-        resultBlocks.push({ id: String(idx++), type: 'table', content: JSON.stringify(rows) });
-      } else {
-        resultBlocks.push({ id: String(idx++), type: 'text', content: bContent });
-      }
-    } else {
-      const typeMap: Record<string, NoteBlock['type']> = {
-        'H1': 'h1', 'H2': 'h2', 'TEXT': 'text', 'B': 'text', 'I': 'text', 'U': 'text',
-        'MATH': 'math', 'LIST': 'bullet-list', 'ORDERED': 'numbered-list', 'VIDEO': 'video', 'DIAGRAM': 'diagram'
-      };
-      let finalContent = bContent;
-      if (tagName === 'B') finalContent = `**${bContent}**`;
-      else if (tagName === 'I') finalContent = `*${bContent}*`;
-      else if (tagName === 'U') finalContent = `<u>${bContent}</u>`;
-
-      resultBlocks.push({ id: String(idx++), type: typeMap[tagName] || 'text', content: finalContent });
-    }
-  }
-
-  if (resultBlocks.length === 0 && text) {
-    const lines = text.split('\n').map(l => l.trim()).filter(Boolean);
-    const isPipeTable = lines.length >= 2 && lines.filter(l => l.includes('|')).length >= lines.length - 1;
-    if (isPipeTable) {
-      const rows = parseTableLinesToGrid(text);
-      resultBlocks.push({ id: String(idx++), type: 'table', content: JSON.stringify(rows) });
-    } else {
-      resultBlocks.push({ id: '1', type: 'text', content: text });
-    }
-  }
-
-  return resultBlocks;
-}
-
 export default function LectureNotes() {
   const { systemConfig, profile } = useAuth();
   const [courses, setCourses] = useState<Course[]>([]);
@@ -198,9 +97,10 @@ export default function LectureNotes() {
     let blocks: NoteBlock[] = [];
     try {
       const parsed = JSON.parse(selectedNote.content);
-      blocks = Array.isArray(parsed) ? autoCorrectNoteBlocks(parsed).blocks : parsePlxStringToBlocks(selectedNote.content);
+      blocks = Array.isArray(parsed) ? autoCorrectNoteBlocks(parsed).blocks : [{ id: '1', type: 'text', content: selectedNote.content }];
     } catch (e) {
-      blocks = parsePlxStringToBlocks(selectedNote.content || '');
+      // Fallback for old markdown notes
+      blocks = [{ id: '1', type: 'text', content: selectedNote.content }];
     }
 
     return (
@@ -262,40 +162,16 @@ export default function LectureNotes() {
                   </div>
                 )}
                 {block.type === 'table' && block.content && (
-                  <div className="overflow-x-auto my-6 border border-border rounded-xl shadow-sm bg-card">
-                    <table className="w-full border-collapse text-left text-sm">
-                      <thead>
-                        {(() => {
-                          try {
-                            const data = JSON.parse(block.content);
-                            if (!Array.isArray(data) || data.length === 0) return null;
-                            const headerRow = data[0];
-                            return (
-                              <tr className="bg-muted/70 border-b border-border">
-                                {headerRow.map((cell: string, colIndex: number) => (
-                                  <th key={colIndex} className="p-3.5 font-bold text-primary border-r border-border/60 last:border-r-0">
-                                    <ReactMarkdown remarkPlugins={[remarkMath, remarkGfm]} rehypePlugins={[rehypeRaw, [rehypeKatex, { throwOnError: false, strict: false, errorColor: 'inherit' }]]}>
-                                      {prepareMarkdownMath(cell)}
-                                    </ReactMarkdown>
-                                  </th>
-                                ))}
-                              </tr>
-                            );
-                          } catch {
-                            return null;
-                          }
-                        })()}
-                      </thead>
+                  <div className="overflow-x-auto my-4 border rounded-lg">
+                    <table className="w-full border-collapse">
                       <tbody>
                         {(() => {
                           try {
                             const data = JSON.parse(block.content);
-                            if (!Array.isArray(data)) return null;
-                            const bodyRows = data.length > 1 ? data.slice(1) : data;
-                            return bodyRows.map((row: string[], rowIndex: number) => (
-                              <tr key={rowIndex} className="border-b border-border/40 last:border-b-0 even:bg-muted/20 hover:bg-muted/30 transition-colors">
+                            return data.map((row: string[], rowIndex: number) => (
+                              <tr key={rowIndex}>
                                 {row.map((cell, colIndex) => (
-                                  <td key={colIndex} className="p-3.5 text-foreground/90 border-r border-border/40 last:border-r-0 min-w-[120px]">
+                                  <td key={colIndex} className="border p-4 text-sm min-w-[120px]">
                                     <ReactMarkdown remarkPlugins={[remarkMath, remarkGfm]} rehypePlugins={[rehypeRaw, [rehypeKatex, { throwOnError: false, strict: false, errorColor: 'inherit' }]]}>
                                       {prepareMarkdownMath(cell)}
                                     </ReactMarkdown>
