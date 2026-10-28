@@ -80,6 +80,7 @@ import 'katex/dist/katex.min.css';
 import { Rnd } from 'react-rnd';
 import { cn } from '../lib/utils';
 import { SafeMathRenderer, prepareMarkdownMath } from './SafeMathRenderer';
+import { MathMarkdown, customPlxComponents } from './MathMarkdown';
 import { magicNoteCreator } from '../services/aiService';
 import { VideoPlayer } from './VideoPlayer';
 import { CloudinaryUpload } from './CloudinaryUpload';
@@ -442,23 +443,17 @@ const SortableBlock = ({ block, onUpdate, onDelete, onFocus, isPreview }: Sortab
       <div className="mb-6">
         {block.type === 'h1' && (
           <h1 className="text-3xl font-bold mb-4">
-            <ReactMarkdown remarkPlugins={[remarkMath, remarkGfm]} rehypePlugins={[rehypeRaw, [rehypeKatex, { throwOnError: false, strict: false, errorColor: 'inherit' }]]}>
-              {prepareMarkdownMath(block.content)}
-            </ReactMarkdown>
+            <MathMarkdown content={block.content} />
           </h1>
         )}
         {block.type === 'h2' && (
           <h2 className="text-2xl font-bold mb-3">
-            <ReactMarkdown remarkPlugins={[remarkMath, remarkGfm]} rehypePlugins={[rehypeRaw, [rehypeKatex, { throwOnError: false, strict: false, errorColor: 'inherit' }]]}>
-              {prepareMarkdownMath(block.content)}
-            </ReactMarkdown>
+            <MathMarkdown content={block.content} />
           </h2>
         )}
         {block.type === 'text' && (
           <div className="prose dark:prose-invert max-w-none">
-            <ReactMarkdown remarkPlugins={[remarkMath, remarkGfm]} rehypePlugins={[rehypeRaw, [rehypeKatex, { throwOnError: false, strict: false, errorColor: 'inherit' }]]}>
-              {prepareMarkdownMath(block.content)}
-            </ReactMarkdown>
+            <MathMarkdown content={block.content} />
           </div>
         )}
         {block.type === 'math' && block.content && (
@@ -477,9 +472,7 @@ const SortableBlock = ({ block, onUpdate, onDelete, onFocus, isPreview }: Sortab
                       <tr key={rowIndex}>
                         {row.map((cell, colIndex) => (
                           <td key={colIndex} className="border p-2 text-sm">
-                            <ReactMarkdown remarkPlugins={[remarkMath, remarkGfm]} rehypePlugins={[rehypeRaw, [rehypeKatex, { throwOnError: false, strict: false, errorColor: 'inherit' }]]}>
-                              {prepareMarkdownMath(cell)}
-                            </ReactMarkdown>
+                            <MathMarkdown content={cell} />
                           </td>
                         ))}
                       </tr>
@@ -517,9 +510,7 @@ const SortableBlock = ({ block, onUpdate, onDelete, onFocus, isPreview }: Sortab
         )}
         {(block.type === 'bullet-list' || block.type === 'numbered-list') && (
           <div className="prose dark:prose-invert max-w-none my-6">
-            <ReactMarkdown remarkPlugins={[remarkMath, remarkGfm]} rehypePlugins={[rehypeRaw, [rehypeKatex, { throwOnError: false, strict: false, errorColor: 'inherit' }]]}>
-              {prepareMarkdownMath(block.content)}
-            </ReactMarkdown>
+            <MathMarkdown content={block.content} />
           </div>
         )}
         {block.type === 'question' && block.content && (
@@ -538,9 +529,7 @@ const SortableBlock = ({ block, onUpdate, onDelete, onFocus, isPreview }: Sortab
                   return (
                     <>
                       <div className="text-lg font-medium">
-                        <ReactMarkdown remarkPlugins={[remarkMath, remarkGfm]} rehypePlugins={[rehypeRaw, [rehypeKatex, { throwOnError: false, strict: false, errorColor: 'inherit' }]]}>
-                          {prepareMarkdownMath(data.question)}
-                        </ReactMarkdown>
+                        <MathMarkdown content={data.question} />
                       </div>
                       <div className="grid gap-2">
                         {data.correct && (
@@ -549,9 +538,7 @@ const SortableBlock = ({ block, onUpdate, onDelete, onFocus, isPreview }: Sortab
                               <CheckCircle2 className="h-4 w-4" />
                             </div>
                             <span className="text-sm">
-                               <ReactMarkdown remarkPlugins={[remarkMath, remarkGfm]} rehypePlugins={[rehypeRaw, [rehypeKatex, { throwOnError: false, strict: false, errorColor: 'inherit' }]]}>
-                                {prepareMarkdownMath(data.correct)}
-                              </ReactMarkdown>
+                              <MathMarkdown content={data.correct} />
                             </span>
                           </div>
                         )}
@@ -561,9 +548,7 @@ const SortableBlock = ({ block, onUpdate, onDelete, onFocus, isPreview }: Sortab
                               <XCircle className="h-4 w-4" />
                             </div>
                             <span className="text-sm">
-                              <ReactMarkdown remarkPlugins={[remarkMath, remarkGfm]} rehypePlugins={[rehypeRaw, [rehypeKatex, { throwOnError: false, strict: false, errorColor: 'inherit' }]]}>
-                                {prepareMarkdownMath(inc)}
-                              </ReactMarkdown>
+                              <MathMarkdown content={inc} />
                             </span>
                           </div>
                         ))}
@@ -574,9 +559,7 @@ const SortableBlock = ({ block, onUpdate, onDelete, onFocus, isPreview }: Sortab
                             <Wand2 className="h-3 w-3" /> Explanation
                           </div>
                           <div className="text-sm text-muted-foreground italic">
-                            <ReactMarkdown remarkPlugins={[remarkMath, remarkGfm]} rehypePlugins={[rehypeRaw, [rehypeKatex, { throwOnError: false, strict: false, errorColor: 'inherit' }]]}>
-                              {prepareMarkdownMath(data.explanation)}
-                            </ReactMarkdown>
+                            <MathMarkdown content={data.explanation} />
                           </div>
                         </div>
                       )}

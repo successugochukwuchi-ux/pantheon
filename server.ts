@@ -1609,20 +1609,22 @@ CRITICAL REQUIREMENTS:
     }
   });
 
-  // Vite middleware for development
-  if (process.env.NODE_ENV !== "production") {
+  // Vite middleware or production static serving
+  const distIndexPath = path.join(process.cwd(), 'dist', 'index.html');
+  const isProductionAndBuilt = process.env.NODE_ENV === "production" && fs.existsSync(distIndexPath);
+
+  if (isProductionAndBuilt) {
+    const distPath = path.join(process.cwd(), 'dist');
+    app.use(express.static(distPath));
+    app.get('*', (req, res) => {
+      res.sendFile(distIndexPath);
+    });
+  } else {
     const vite = await createViteServer({
       server: { middlewareMode: true },
       appType: "spa",
     });
     app.use(vite.middlewares);
-  } else {
-    // In production we serve static assets from the compiled dist directory
-    const distPath = path.join(process.cwd(), 'dist');
-    app.use(express.static(distPath));
-    app.get('*', (req, res) => {
-      res.sendFile(path.join(distPath, 'index.html'));
-    });
   }
 
   server.listen(PORT, "0.0.0.0", () => {

@@ -866,20 +866,28 @@ When asked to create, review, or fix notes and past questions for \`${university
    - **In Question Sheets**: **NEVER** use the underline tag (\`<U>\` or \`<u>\`) anywhere in question sheets (neither in question prompts, options, nor explanations)!
 
 4. **Table Authoring Discipline**:
-   - **ALWAYS** wrap tables in \`<TABLE> ... </TABLE>\` tags.
-   - **NEVER** write raw markdown pipe tables inside \`<TEXT>\` or outside \`<TABLE>\`.
-   - **NEVER** include markdown header divider lines (\`|---|---|---|\` or \`|:---|\`). Divider lines break table layout and cause raw pipe text to render!
+   - **STRICT RULE: PIPE TABLES ARE STRICTLY FORBIDDEN AND DEPRECATED.** Never write pipe-delimited tables (\`Col 1 | Col 2\`). Pipe tables fail to render as tables on web and mobile views.
+   - **ALWAYS** use clean CSV format (comma-separated values) inside \`<TABLE> ... </TABLE>\`.
+   - **NEVER** include markdown header divider lines (\`|---|---|---|\`). Divider lines break table parsing!
 
-5. **Upload via MCP**:
-   - Use \`create_note\`, \`update_note\`, \`upload_questions\`, or \`update_question\`.
+5. **Upload via MCP Directly**:
+   - Call native MCP tools directly using your MCP client context (\`create_note\`, \`update_note\`, \`upload_questions\`, \`update_question\`). Do **NOT** write or execute external Python, Bash, or Node scripts to interact with the MCP API.
 
 6. **Inspect Visual Preview & Red KaTeX Errors**:
-   - The MCP tool response embeds a Base64 PNG screenshot of the web student view.
-   - **RED Error Check**: Any LaTeX syntax error or invalid command is highlighted in bright **RED** (\`katex-error\` in \`#f87171\`), exactly as students see it.
+   - The MCP tool response embeds a Base64 PNG screenshot of the student view.
+   - **RED Error Check**: Any LaTeX syntax error or invalid command is highlighted in bright **RED** (\`#f87171\`), exactly as students see it.
    - If a red error box appears in the preview image, immediately correct the LaTeX syntax in your PLX content and call \`update_note\` or \`update_question\` until the rendered preview is 100% clean and pristine.
 
 7. **University Boundary Isolation**:
    - All mutations are quarantined strictly to \`${university}\`. Never attempt to alter other campuses' resources.
+
+---
+
+## MCP Setup & Tool Discovery for Agents
+
+Do **NOT** attempt to write Python or Bash scripts to connect to this MCP. You are connected directly to the CoLearn MCP server.
+- To discover all 15 available MCP tools and parameter schemas at runtime, call \`list_mcp_tools()\`.
+- All requests use your authenticated agent token and are scoped automatically to \`${university}\`.
 
 ---
 
@@ -923,23 +931,14 @@ Use \`<MATH>\` for standalone display equations:
 \`\`\`
 
 ### 5. Tables (\`<TABLE>\`)
-Tables MUST be wrapped in \`<TABLE> ... </TABLE>\`. Do NOT include \`|---|---|\` header divider lines!
+Tables **MUST** be wrapped in \`<TABLE> ... </TABLE>\` and **MUST ONLY** use CSV (comma-separated) format. Pipe-delimited tables (\`Col 1 | Col 2\`) and divider lines (\`|---|\`) are **STRICTLY FORBIDDEN**.
 
 CSV Format (comma separated):
 \`\`\`xml
 <TABLE>
-  Name, Age, Department
-  John Doe, 19, Physics
-  Jane Smith, 21, Engineering
-</TABLE>
-\`\`\`
-
-Pipe Format (pipe separated):
-\`\`\`xml
-<TABLE>
-  Process | Condition | Heat Transfer $Q$ | Work $W$
-  Isothermal | $\\Delta U = 0$ | $Q = W = nRT \\ln\\left(\\frac{V_2}{V_1}\\right)$ | $W = nRT \\ln\\left(\\frac{V_2}{V_1}\\right)$
-  Isochoric | $W = 0$ | $Q = \\Delta U = n C_v \\Delta T$ | $0$
+  Process, Condition, Heat Transfer $Q$, Work $W$
+  Isothermal, $\\Delta U = 0$, $Q = W = nRT \\ln\\left(\\frac{V_2}{V_1}\\right)$, $W = nRT \\ln\\left(\\frac{V_2}{V_1}\\right)$
+  Isochoric, $W = 0$, $Q = \\Delta U = n C_v \\Delta T$, $0$
 </TABLE>
 \`\`\`
 

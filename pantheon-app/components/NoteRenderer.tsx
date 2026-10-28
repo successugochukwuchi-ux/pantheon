@@ -71,7 +71,16 @@ export function NoteRenderer({
           const attr = match[2] || '';
           let bContent = match[3].trim();
           if (tagName === 'TABLE') {
-            const rows = bContent.split('\n').filter(r => r.trim().length > 0).map(r => r.split(',').map(c => c.trim()));
+            const rows = bContent.split('\n').filter(r => r.trim().length > 0).map(r => {
+              const trimmed = r.trim();
+              if (trimmed.includes('|')) {
+                let cleaned = trimmed;
+                if (cleaned.startsWith('|')) cleaned = cleaned.slice(1);
+                if (cleaned.endsWith('|')) cleaned = cleaned.slice(0, -1);
+                return cleaned.split('|').map(c => c.trim());
+              }
+              return trimmed.split(',').map(c => c.trim());
+            }).filter(row => row.length > 0 && !row.every(cell => /^[|-:\s]+$/.test(cell)));
             resultBlocks.push({ id: String(idx++), type: 'table', content: JSON.stringify(rows) });
           } else if (tagName === 'QUES') {
             const corMatch = /<COR(?:\s*=\s*"([^"]*)"|\s*=\s*([^>\s]+))?\s*>/i.exec(bContent);
