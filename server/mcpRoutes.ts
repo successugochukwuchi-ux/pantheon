@@ -75,6 +75,14 @@ const MCP_TOOLS = [
     }
   },
   {
+    name: "list_mcp_tools",
+    description: "List all 15 available Model Context Protocol (MCP) tools, descriptions, and parameter schemas available on CoLearn.",
+    inputSchema: {
+      type: "object",
+      properties: {}
+    }
+  },
+  {
     name: "list_notes",
     description: "List all existing lecture notes for a specific course to inspect, crosscheck, or edit.",
     inputSchema: {
@@ -262,6 +270,11 @@ async function executeTool(agent: AgentContext, name: string, args: any) {
       const data = await mcpService.searchNotes(agent, args);
       return {
         content: [{ type: "text", text: JSON.stringify(data, null, 2) }]
+      };
+    }
+    case "list_mcp_tools": {
+      return {
+        content: [{ type: "text", text: JSON.stringify({ success: true, count: MCP_TOOLS.length, tools: MCP_TOOLS }, null, 2) }]
       };
     }
     case "create_note": {
@@ -547,6 +560,15 @@ mcpRouter.post('/', async (req: Request, res: Response) => {
   return res.json(response);
 });
 
+// 3.5 GET /api/mcp/tools - Direct Tool Discovery Endpoint
+mcpRouter.get('/tools', (req: Request, res: Response) => {
+  res.json({
+    success: true,
+    count: MCP_TOOLS.length,
+    tools: MCP_TOOLS
+  });
+});
+
 // -------------------------------------------------------------
 // Admin Token Management Endpoints (Called from AdminPanel MCP Tab)
 // -------------------------------------------------------------
@@ -712,6 +734,114 @@ This skill grants autonomous AI agents full capabilities to search, author, insp
       "headers": {
         "Authorization": "Bearer ${token}"
       }
+    }
+  }
+}
+\`\`\`
+
+---
+
+## Installation & Connection Instructions for AI Agents
+
+Agents can connect directly to CoLearn MCP using official SSE/HTTP protocol clients without building ad-hoc custom socket wrappers:
+
+### Option A: Official Python MCP Client (\`mcp\` / \`httpx\`)
+Install the official Python MCP library:
+\`\`\`bash
+pip install mcp httpx
+\`\`\`
+
+Python client connection snippet:
+\`\`\`python
+import asyncio
+from mcp.client.sse import sse_client
+from mcp.client.session import ClientSession
+
+async def run_colearn_agent():
+    headers = {"Authorization": "Bearer ${token}"}
+    async with sse_client("${baseUrl}/api/mcp/sse", headers=headers) as (read_stream, write_stream):
+        async with ClientSession(read_stream, write_stream) as session:
+            await session.initialize()
+            
+            # 1. Discover all tools
+            tools = await session.list_tools()
+            print("Available Tools:", [t.name for t in tools.tools])
+            
+            # 2. Search notes for a topic
+            search_res = await session.call_tool("search_notes", {"query": "Sequence and series", "level": "100"})
+            print("Search Results:", search_res.content[0].text)
+
+asyncio.run(run_colearn_agent())
+\`\`\`
+
+### Option B: Node.js / TypeScript MCP Client (\`@modelcontextprotocol/sdk\`)
+Install the official Node.js SDK:
+\`\`\`bash
+npm install @modelcontextprotocol/sdk
+\`\`\`
+
+Node.js client connection snippet:
+\`\`\`typescript
+import { Client } from "@modelcontextprotocol/sdk/client/index.js";
+import { SSEClientTransport } from "@modelcontextprotocol/sdk/client/sse.js";
+
+async function runCoLearnAgent() {
+  const transport = new SSEClientTransport(
+    new URL("${baseUrl}/api/mcp/sse"),
+    {
+      requestInit: {
+        headers: {
+          Authorization: "Bearer ${token}"
+        }
+      }
+    }
+  );
+
+  const client = new Client({ name: "colearn-agent", version: "1.0.0" }, { capabilities: {} });
+  await client.connect(transport);
+
+  // Discover all 15 tools
+  const tools = await client.listTools();
+  console.log("Available tools:", tools.tools.map(t => t.name));
+
+  // Search notes
+  const result = await client.callTool({
+    name: "search_notes",
+    arguments: { query: "Thermodynamics", level: "200" }
+  });
+  console.log("Search Output:", result.content[0].text);
+}
+
+runCoLearnAgent().catch(console.error);
+\`\`\`
+
+### Option C: Direct Stateless HTTP JSON-RPC Requests
+Agents can also issue stateless HTTP POST calls directly to \`${baseUrl}/api/mcp\`:
+
+- Header: \`Authorization: Bearer ${token}\`
+- Header: \`Content-Type: application/json\`
+
+Request Payload to List All Tools (\`tools/list\`):
+\`\`\`json
+{
+  "jsonrpc": "2.0",
+  "id": 1,
+  "method": "tools/list",
+  "params": {}
+}
+\`\`\`
+
+Request Payload to Execute a Tool (\`tools/call\`):
+\`\`\`json
+{
+  "jsonrpc": "2.0",
+  "id": 2,
+  "method": "tools/call",
+  "params": {
+    "name": "search_notes",
+    "arguments": {
+      "query": "Fluid Mechanics",
+      "level": "100"
     }
   }
 }

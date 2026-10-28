@@ -29,6 +29,67 @@ import { searchNote } from '../lib/noteSearch';
 
 import { getFilteredCoursesForStudent } from '../lib/courseFilter';
 
+function parsePlxStringToBlocks(content: string): NoteBlock[] {
+  if (!content) return [];
+  const str = content.trim();
+  const plxMatch = /<PLX>([\s\S]*?)<\/PLX>/i.exec(str);
+  const text = plxMatch ? plxMatch[1].trim() : str;
+
+  const tagRegex = /<(H1|H2|TEXT|B|I|U|MATH|LIST|ORDERED|TABLE|VIDEO|DIAGRAM|QUES)(?:\s*=\s*"([^"]*)")?>([\s\S]*?)<\/\1>/gi;
+  const resultBlocks: NoteBlock[] = [];
+  let match;
+  let idx = 1;
+
+  while ((match = tagRegex.exec(text)) !== null) {
+    const tagName = match[1].toUpperCase();
+    const attr = match[2] || '';
+    let bContent = match[3].trim();
+
+    if (tagName === 'TABLE') {
+      const rows = bContent.split('\n')
+        .filter(r => r.trim().length > 0)
+        .map(r => r.includes('|') ? r.split('|').map(c => c.trim()) : r.split(',').map(c => c.trim()));
+      resultBlocks.push({ id: String(idx++), type: 'table', content: JSON.stringify(rows) });
+    } else if (tagName === 'QUES') {
+      const corMatch = /<COR(?:\s*=\s*"([^"]*)"|\s*=\s*([^>\s]+))?\s*>/i.exec(bContent) || /<COR>([\s\S]*?)<\/COR>/i.exec(bContent);
+      const incMatches = [...bContent.matchAll(/<INC(?:\s*=\s*"([^"]*)"|\s*=\s*([^>\s]+))?\s*>/gi)].concat([...bContent.matchAll(/<INC>([\s\S]*?)<\/INC>/gi)]);
+      const expMatch = /<EXP(?:\s*=\s*"([^"]*)"|\s*=\s*([^>\s]+))?\s*>/i.exec(bContent) || /<EXP>([\s\S]*?)<\/EXP>/i.exec(bContent);
+
+      const firstSubTag = bContent.search(/<(COR|INC|EXP)/i);
+      const questionBody = firstSubTag === -1 ? bContent.trim() : bContent.substring(0, firstSubTag).trim();
+
+      const corVal = corMatch ? (corMatch[1] || corMatch[2] || '').trim() : '';
+      const incVals = incMatches.map(m => (m[1] || m[2] || '').trim()).filter(Boolean);
+      const expVal = expMatch ? (expMatch[1] || expMatch[2] || '').trim() : '';
+
+      const qData = {
+        question: questionBody,
+        correct: corVal,
+        incorrect: incVals,
+        explanation: expVal
+      };
+      resultBlocks.push({ id: String(idx++), type: 'question', content: JSON.stringify(qData), settings: attr ? { questionId: attr } : undefined });
+    } else {
+      const typeMap: Record<string, NoteBlock['type']> = {
+        'H1': 'h1', 'H2': 'h2', 'TEXT': 'text', 'B': 'text', 'I': 'text', 'U': 'text',
+        'MATH': 'math', 'LIST': 'bullet-list', 'ORDERED': 'numbered-list', 'VIDEO': 'video', 'DIAGRAM': 'diagram'
+      };
+      let finalContent = bContent;
+      if (tagName === 'B') finalContent = `**${bContent}**`;
+      else if (tagName === 'I') finalContent = `*${bContent}*`;
+      else if (tagName === 'U') finalContent = `<u>${bContent}</u>`;
+
+      resultBlocks.push({ id: String(idx++), type: typeMap[tagName] || 'text', content: finalContent });
+    }
+  }
+
+  if (resultBlocks.length === 0 && text) {
+    resultBlocks.push({ id: '1', type: 'text', content: text });
+  }
+
+  return resultBlocks;
+}
+
 export default function LectureNotes() {
   const { systemConfig, profile } = useAuth();
   const [courses, setCourses] = useState<Course[]>([]);
@@ -97,10 +158,9 @@ export default function LectureNotes() {
     let blocks: NoteBlock[] = [];
     try {
       const parsed = JSON.parse(selectedNote.content);
-      blocks = Array.isArray(parsed) ? autoCorrectNoteBlocks(parsed).blocks : [{ id: '1', type: 'text', content: selectedNote.content }];
+      blocks = Array.isArray(parsed) ? autoCorrectNoteBlocks(parsed).blocks : parsePlxStringToBlocks(selectedNote.content);
     } catch (e) {
-      // Fallback for old markdown notes
-      blocks = [{ id: '1', type: 'text', content: selectedNote.content }];
+      blocks = parsePlxStringToBlocks(selectedNote.content || '');
     }
 
     return (
