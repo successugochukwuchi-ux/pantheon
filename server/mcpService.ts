@@ -103,6 +103,27 @@ export function assertUniversityAccess(agent: AgentContext, targetUni?: string):
   }
 }
 
+function cleanNoteContentForLecture(content: string): string {
+  if (!content) return content;
+  let cleaned = content.replace(/<QUES(?:\s*=\s*"[^"]*")?>([\s\S]*?)<\/QUES>/gi, (_, body) => {
+    const firstSubTag = body.search(/<(COR|INC|EXP)/i);
+    const qPrompt = firstSubTag !== -1 ? body.substring(0, firstSubTag).trim() : body.trim();
+    const expMatch = /<EXP>([\s\S]*?)<\/EXP>/i.exec(body);
+    let result = `<TEXT>${qPrompt}</TEXT>`;
+    if (expMatch) {
+      result += `\n<TEXT>Explanation: ${expMatch[1].trim()}</TEXT>`;
+    }
+    return result;
+  });
+  cleaned = cleaned.replace(/<\/?(COR|INC|EXP)(?:\s*=\s*"[^"]*")?>/gi, '');
+  return cleaned;
+}
+
+function stripUnderlineTags(str: string): string {
+  if (!str) return str;
+  return str.replace(/<\/?u>/gi, '').replace(/<U>([\s\S]*?)<\/U>/gi, '$1');
+}
+
 /**
  * Ensures note content is stored in official CoLearn PLX markup (<PLX> ... </PLX>).
  * If the input is already PLX format, returns it directly.
@@ -214,6 +235,23 @@ export function ensurePlxFormat(content: string, noteTitle?: string): string {
     }
 
     if (!trimmed) continue;
+
+    if (trimmed.includes('|')) {
+      const tableLines: string[] = [];
+      let j = i;
+      while (j < lines.length && lines[j].trim().includes('|')) {
+        const row = lines[j].trim();
+        if (!(/^[\s|:-]+$/.test(row) && row.includes('-'))) {
+          tableLines.push(row);
+        }
+        j++;
+      }
+      i = j - 1;
+      if (tableLines.length > 0) {
+        plxBody += `  <TABLE>\n${tableLines.map(r => `    ${r}`).join('\n')}\n  </TABLE>\n\n`;
+        continue;
+      }
+    }
 
     if (trimmed.startsWith('# ')) {
       plxBody += `  <H1>${trimmed.slice(2).trim()}</H1>\n\n`;
@@ -370,9 +408,10 @@ export const mcpService = {
     const courseData = courseSnap.data();
     assertUniversityAccess(agent, courseData.At || 'futo');
 
-    // Auto-correct note LaTeX formatting and ensure official PLX format
-    const noteCorr = autoCorrectNoteContent(params.content);
-    const correctedContent = typeof noteCorr === 'object' && noteCorr.content ? noteCorr.content : String(params.content);
+    // Auto-correct note LaTeX formatting, clean accidental question tags, and ensure official PLX format
+    const cleanedInput = cleanNoteContentForLecture(params.content);
+    const noteCorr = autoCorrectNoteContent(cleanedInput);
+    const correctedContent = typeof noteCorr === 'object' && noteCorr.content ? noteCorr.content : String(cleanedInput);
     const plxContent = ensurePlxFormat(correctedContent, params.title.trim());
 
     const notePayload = {
@@ -431,8 +470,9 @@ export const mcpService = {
       updates.title = params.title.trim();
     }
     if (params.content !== undefined) {
-      const noteCorr = autoCorrectNoteContent(params.content);
-      const rawCorrected = typeof noteCorr === 'object' && noteCorr.content ? noteCorr.content : String(params.content);
+      const cleanedInput = cleanNoteContentForLecture(params.content);
+      const noteCorr = autoCorrectNoteContent(cleanedInput);
+      const rawCorrected = typeof noteCorr === 'object' && noteCorr.content ? noteCorr.content : String(cleanedInput);
       updates.content = ensurePlxFormat(rawCorrected, updates.title || existing.title);
     }
 
@@ -837,10 +877,10 @@ export const mcpService = {
       currentOrder += 1;
       const qId = `q_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`;
       const qResult = autoCorrectQuestionData({
-        text: qData.text,
-        correctAnswer: qData.correctAnswer,
-        incorrectAnswers: qData.incorrectAnswers,
-        explanation: qData.explanation || ''
+        text: stripUnderlineTags(qData.text),
+        correctAnswer: stripUnderlineTags(qData.correctAnswer),
+        incorrectAnswers: qData.incorrectAnswers.map(stripUnderlineTags),
+        explanation: stripUnderlineTags(qData.explanation || '')
       });
       const corrected = qResult.data || qData;
 
@@ -848,10 +888,10 @@ export const mcpService = {
         id: qId,
         sheetId: params.sheetId,
         courseId: sheetData.courseId,
-        text: corrected.text,
-        correctAnswer: corrected.correctAnswer,
-        incorrectAnswers: corrected.incorrectAnswers,
-        explanation: corrected.explanation || '',
+        text: stripUnderlineTags(corrected.text),
+        correctAnswer: stripUnderlineTags(corrected.correctAnswer),
+        incorrectAnswers: (corrected.incorrectAnswers || []).map(stripUnderlineTags),
+        explanation: stripUnderlineTags(corrected.explanation || ''),
         order: qData.order !== undefined ? Number(qData.order) : currentOrder,
         authorId: agent.adminUid,
         createdAt: new Date().toISOString()
@@ -912,10 +952,10 @@ export const mcpService = {
             if (q.id === params.questionId || q.text === existing.text) {
               return {
                 ...q,
-                text: params.text !== undefined ? params.text : q.text,
-                correctAnswer: params.correctAnswer !== undefined ? params.correctAnswer : q.correctAnswer,
-                incorrectAnswers: params.incorrectAnswers !== undefined ? params.incorrectAnswers : q.incorrectAnswers,
-                explanation: params.explanation !== undefined ? params.explanation : q.explanation,
+                text: stripUnderlineTags(params.text !== undefined ? params.text : q.text),
+                correctAnswer: stripUnderlineTags(params.correctAnswer !== undefined ? params.correctAnswer : q.correctAnswer),
+                incorrectAnswers: (params.incorrectAnswers !== undefined ? params.incorrectAnswers : q.incorrectAnswers || []).map(stripUnderlineTags),
+                explanation: stripUnderlineTags(params.explanation !== undefined ? params.explanation : q.explanation),
                 order: params.order !== undefined ? Number(params.order) : q.order
               };
             }
@@ -930,18 +970,18 @@ export const mcpService = {
     }
 
     const qResult = autoCorrectQuestionData({
-      text: params.text !== undefined ? params.text : existing.text,
-      correctAnswer: params.correctAnswer !== undefined ? params.correctAnswer : existing.correctAnswer,
-      incorrectAnswers: params.incorrectAnswers !== undefined ? params.incorrectAnswers : existing.incorrectAnswers,
-      explanation: params.explanation !== undefined ? params.explanation : existing.explanation
+      text: stripUnderlineTags(params.text !== undefined ? params.text : existing.text),
+      correctAnswer: stripUnderlineTags(params.correctAnswer !== undefined ? params.correctAnswer : existing.correctAnswer),
+      incorrectAnswers: (params.incorrectAnswers !== undefined ? params.incorrectAnswers : existing.incorrectAnswers || []).map(stripUnderlineTags),
+      explanation: stripUnderlineTags(params.explanation !== undefined ? params.explanation : existing.explanation)
     });
     const corrected = qResult.data || existing;
 
     const updates: Record<string, any> = {
-      text: corrected.text,
-      correctAnswer: corrected.correctAnswer,
-      incorrectAnswers: corrected.incorrectAnswers,
-      explanation: corrected.explanation,
+      text: stripUnderlineTags(corrected.text),
+      correctAnswer: stripUnderlineTags(corrected.correctAnswer),
+      incorrectAnswers: (corrected.incorrectAnswers || []).map(stripUnderlineTags),
+      explanation: stripUnderlineTags(corrected.explanation || ''),
       updatedAt: new Date().toISOString()
     };
 

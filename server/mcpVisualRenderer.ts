@@ -116,18 +116,48 @@ export async function renderNotePreviewImage(options: NoteRenderOptions): Promis
       } else if (tagName === 'H2') {
         blocksHtml.push(`<h2 style="font-size: 17px; font-weight: 700; color: #818cf8; margin: 18px 0 8px 0;">${processInlineMathAndTags(body)}</h2>`);
       } else if (tagName === 'TEXT') {
-        blocksHtml.push(`<p style="font-size: 14px; line-height: 1.6; color: #cbd5e1; margin: 8px 0;">${processInlineMathAndTags(body)}</p>`);
+        const lines = body.split('\n').map(l => l.trim()).filter(Boolean);
+        const isPipeTable = lines.length >= 2 && lines.filter(l => l.includes('|')).length >= lines.length - 1;
+
+        if (isPipeTable) {
+          const rawRows = lines.filter(r => !(/^[\s|:-]+$/.test(r) && r.includes('-')));
+          let tableRowsHtml = '';
+          rawRows.forEach((r, rowIdx) => {
+            let cells = r.includes('|') ? r.split('|').map(c => c.trim()) : r.split(',').map(c => c.trim());
+            if (cells.length > 1 && cells[0] === '') cells.shift();
+            if (cells.length > 0 && cells[cells.length - 1] === '') cells.pop();
+            
+            const isHeader = rowIdx === 0;
+            const cellTag = isHeader ? 'th' : 'td';
+            const bg = isHeader ? '#1e293b' : (rowIdx % 2 === 1 ? '#0f172a' : '#141d2e');
+            const color = isHeader ? '#38bdf8' : '#e2e8f0';
+            const weight = isHeader ? '700' : '400';
+
+            const cellsHtml = cells.map(c => `<${cellTag} style="padding: 10px 14px; border: 1px solid #334155; background: ${bg}; color: ${color}; font-weight: ${weight}; font-size: 13px; text-align: left;">${processInlineMathAndTags(c)}</${cellTag}>`).join('');
+            tableRowsHtml += `<tr>${cellsHtml}</tr>`;
+          });
+          blocksHtml.push(`<table style="width: 100%; border-collapse: collapse; margin: 14px 0; border-radius: 8px; overflow: hidden; border: 1px solid #334155;">${tableRowsHtml}</table>`);
+        } else {
+          blocksHtml.push(`<p style="font-size: 14px; line-height: 1.6; color: #cbd5e1; margin: 8px 0;">${processInlineMathAndTags(body)}</p>`);
+        }
       } else if (tagName === 'MATH') {
         const renderedMath = renderMathToHtml(body, true);
         blocksHtml.push(`<div style="background: #090d16; border: 1px solid #1e293b; border-radius: 8px; padding: 14px; margin: 12px 0; text-align: center; overflow-x: auto;">${renderedMath}</div>`);
       } else if (tagName === 'TABLE') {
-        const rows = body.split('\n').map(r => r.trim()).filter(r => r.length > 0);
+        const rawRows = body.split('\n')
+          .map(r => r.trim())
+          .filter(r => r.length > 0)
+          .filter(r => !(/^[\s|:-]+$/.test(r) && r.includes('-')));
+
         let tableRowsHtml = '';
-        rows.forEach((r, idx) => {
-          const cells = r.includes('|') ? r.split('|').map(c => c.trim()) : r.split(',').map(c => c.trim());
-          const isHeader = idx === 0;
+        rawRows.forEach((r, rowIdx) => {
+          let cells = r.includes('|') ? r.split('|').map(c => c.trim()) : r.split(',').map(c => c.trim());
+          if (cells.length > 1 && cells[0] === '') cells.shift();
+          if (cells.length > 0 && cells[cells.length - 1] === '') cells.pop();
+
+          const isHeader = rowIdx === 0;
           const cellTag = isHeader ? 'th' : 'td';
-          const bg = isHeader ? '#1e293b' : (idx % 2 === 1 ? '#0f172a' : '#141d2e');
+          const bg = isHeader ? '#1e293b' : (rowIdx % 2 === 1 ? '#0f172a' : '#141d2e');
           const color = isHeader ? '#38bdf8' : '#e2e8f0';
           const weight = isHeader ? '700' : '400';
 

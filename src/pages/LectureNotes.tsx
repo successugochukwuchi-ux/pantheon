@@ -40,15 +40,37 @@ function parsePlxStringToBlocks(content: string): NoteBlock[] {
   let match;
   let idx = 1;
 
+  const isTableDividerLine = (line: string) => {
+    const l = line.trim();
+    return /^[\s|:-]+$/.test(l) && l.includes('-');
+  };
+
+  const parseTableLinesToGrid = (tableText: string): string[][] => {
+    const rawLines = tableText.split('\n')
+      .map(r => r.trim())
+      .filter(r => r.length > 0)
+      .filter(r => !isTableDividerLine(r));
+
+    return rawLines.map(r => {
+      let cells: string[];
+      if (r.includes('|')) {
+        cells = r.split('|').map(c => c.trim());
+        if (cells.length > 1 && cells[0] === '') cells.shift();
+        if (cells.length > 0 && cells[cells.length - 1] === '') cells.pop();
+      } else {
+        cells = r.split(',').map(c => c.trim());
+      }
+      return cells;
+    });
+  };
+
   while ((match = tagRegex.exec(text)) !== null) {
     const tagName = match[1].toUpperCase();
     const attr = match[2] || '';
     let bContent = match[3].trim();
 
     if (tagName === 'TABLE') {
-      const rows = bContent.split('\n')
-        .filter(r => r.trim().length > 0)
-        .map(r => r.includes('|') ? r.split('|').map(c => c.trim()) : r.split(',').map(c => c.trim()));
+      const rows = parseTableLinesToGrid(bContent);
       resultBlocks.push({ id: String(idx++), type: 'table', content: JSON.stringify(rows) });
     } else if (tagName === 'QUES') {
       const corMatch = /<COR(?:\s*=\s*"([^"]*)"|\s*=\s*([^>\s]+))?\s*>/i.exec(bContent) || /<COR>([\s\S]*?)<\/COR>/i.exec(bContent);
@@ -69,6 +91,17 @@ function parsePlxStringToBlocks(content: string): NoteBlock[] {
         explanation: expVal
       };
       resultBlocks.push({ id: String(idx++), type: 'question', content: JSON.stringify(qData), settings: attr ? { questionId: attr } : undefined });
+    } else if (tagName === 'TEXT') {
+      // Check if TEXT contains an unwrapped markdown pipe table
+      const lines = bContent.split('\n').map(l => l.trim()).filter(Boolean);
+      const isPipeTable = lines.length >= 2 && lines.filter(l => l.includes('|')).length >= lines.length - 1;
+      
+      if (isPipeTable) {
+        const rows = parseTableLinesToGrid(bContent);
+        resultBlocks.push({ id: String(idx++), type: 'table', content: JSON.stringify(rows) });
+      } else {
+        resultBlocks.push({ id: String(idx++), type: 'text', content: bContent });
+      }
     } else {
       const typeMap: Record<string, NoteBlock['type']> = {
         'H1': 'h1', 'H2': 'h2', 'TEXT': 'text', 'B': 'text', 'I': 'text', 'U': 'text',
@@ -84,7 +117,14 @@ function parsePlxStringToBlocks(content: string): NoteBlock[] {
   }
 
   if (resultBlocks.length === 0 && text) {
-    resultBlocks.push({ id: '1', type: 'text', content: text });
+    const lines = text.split('\n').map(l => l.trim()).filter(Boolean);
+    const isPipeTable = lines.length >= 2 && lines.filter(l => l.includes('|')).length >= lines.length - 1;
+    if (isPipeTable) {
+      const rows = parseTableLinesToGrid(text);
+      resultBlocks.push({ id: String(idx++), type: 'table', content: JSON.stringify(rows) });
+    } else {
+      resultBlocks.push({ id: '1', type: 'text', content: text });
+    }
   }
 
   return resultBlocks;

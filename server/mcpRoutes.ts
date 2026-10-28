@@ -857,26 +857,35 @@ When asked to create, review, or fix notes and past questions for \`${university
    - If asked to fix or locate a note (e.g. *"There's an issue in the 100 level note on Sequence and series, fix it"*), call \`search_notes({ query: "Sequence and series", level: "100" })\`.
    - Extract the \`noteId\` from the search results, then call \`get_note({ noteId })\` to read the content.
 
-2. **Author in Official PLX Format**:
-   - Both the **CoLearn Web Portal** and **CoLearn Mobile App** render PLX markup natively with zero quality drop-off.
+2. **Author in Official PLX v4.0 Format**:
+   - Both the **CoLearn Web Portal** and **CoLearn Mobile App** render PLX v4.0 markup natively with zero quality drop-off.
    - Always structure lecture notes and question sheets in clean PLX markup wrapped inside \`<PLX> ... </PLX>\`.
 
-3. **Upload via MCP**:
+3. **Strict Note vs Question Sheet Content Boundaries**:
+   - **In Lecture Notes**: **NEVER** use question tags (\`<QUES>\`, \`<COR>\`, \`<INC>\`, \`<EXP>\`). Question tags are strictly prohibited in lecture notes; they are reserved exclusively for Question Sheets!
+   - **In Question Sheets**: **NEVER** use the underline tag (\`<U>\` or \`<u>\`) anywhere in question sheets (neither in question prompts, options, nor explanations)!
+
+4. **Table Authoring Discipline**:
+   - **ALWAYS** wrap tables in \`<TABLE> ... </TABLE>\` tags.
+   - **NEVER** write raw markdown pipe tables inside \`<TEXT>\` or outside \`<TABLE>\`.
+   - **NEVER** include markdown header divider lines (\`|---|---|---|\` or \`|:---|\`). Divider lines break table layout and cause raw pipe text to render!
+
+5. **Upload via MCP**:
    - Use \`create_note\`, \`update_note\`, \`upload_questions\`, or \`update_question\`.
 
-4. **Inspect Visual Preview & Red KaTeX Errors**:
+6. **Inspect Visual Preview & Red KaTeX Errors**:
    - The MCP tool response embeds a Base64 PNG screenshot of the web student view.
    - **RED Error Check**: Any LaTeX syntax error or invalid command is highlighted in bright **RED** (\`katex-error\` in \`#f87171\`), exactly as students see it.
    - If a red error box appears in the preview image, immediately correct the LaTeX syntax in your PLX content and call \`update_note\` or \`update_question\` until the rendered preview is 100% clean and pristine.
 
-5. **University Boundary Isolation**:
+7. **University Boundary Isolation**:
    - All mutations are quarantined strictly to \`${university}\`. Never attempt to alter other campuses' resources.
 
 ---
 
-## PLX Format Specification & Examples
+## CoLearn Note Standard - PLX v4.0 Specification
 
-Always wrap content in \`<PLX> ... </PLX>\`. Supported PLX tags:
+PLX (Pillara Extensible) uses a structured HTML-style syntax. Always use 2 spaces per indentation level.
 
 ### 1. Root Container
 \`\`\`xml
@@ -887,57 +896,127 @@ Always wrap content in \`<PLX> ... </PLX>\`. Supported PLX tags:
 
 ### 2. Headings (\`<H1>\`, \`<H2>\`)
 \`\`\`xml
-<H1>Module 1: Thermodynamics and Energy Transfer</H1>
-<H2>1.1 The First Law of Thermodynamics</H2>
+<H1>
+  Main Title of the Note
+</H1>
+
+<H2>
+  Sub-header or Section Title
+</H2>
 \`\`\`
 
-### 3. Text Paragraphs (\`<TEXT>\`)
-Use \`<TEXT>\` for standard text. Inline math \`$ ... $\` and formatting tags (\`<B>\`, \`<I>\`, \`<U>\`) are fully supported:
+### 3. Text Paragraphs (\`<TEXT>\`, \`<B>\`, \`<I>\`, \`<U>\`)
+Use \`<TEXT>\` for standard text blocks. Inline math \`$ ... $\` and formatting tags (\`<B>\`, \`<I>\`, \`<U>\`) are supported:
 \`\`\`xml
-<TEXT>The change in internal energy $\\Delta U$ of a system is given by $\\Delta U = Q - W$, where $Q$ is heat added and $W$ is work done. <B>Important:</B> For an isothermal process, $\\Delta U = 0$.</TEXT>
+<TEXT>
+  This is a regular text block. You can use <B>bold</B>, <I>italics</I>, and <U>underline</U> for emphasis.
+</TEXT>
 \`\`\`
+*Note: \`<U>\` (underline) is supported in Lecture Notes, but is **STRICTLY FORBIDDEN** in Question Sheets!*
 
 ### 4. Display Math Equations (\`<MATH>\`)
-Use \`<MATH>\` for standalone display formulas:
+Use \`<MATH>\` for standalone display equations:
 \`\`\`xml
-<MATH>\\int_{0}^{\\infty} e^{-x^2} dx = \\frac{\\sqrt{\\pi}}{2}</MATH>
+<MATH>
+  \\frac{-b \\pm \\sqrt{b^2-4ac}}{2a}
+</MATH>
 \`\`\`
 
 ### 5. Tables (\`<TABLE>\`)
-Tables can be comma-separated or pipe-separated. The first row is treated as header:
+Tables MUST be wrapped in \`<TABLE> ... </TABLE>\`. Do NOT include \`|---|---|\` header divider lines!
+
+CSV Format (comma separated):
 \`\`\`xml
 <TABLE>
-  Process, State Variable, Heat Transfer $Q$
-  Isothermal, $\\Delta U = 0$, $Q = W = nRT \\ln\\left(\\frac{V_2}{V_1}\\right)$
-  Isochoric, $W = 0$, $Q = \\Delta U = n C_v \\Delta T$
+  Name, Age, Department
+  John Doe, 19, Physics
+  Jane Smith, 21, Engineering
+</TABLE>
+\`\`\`
+
+Pipe Format (pipe separated):
+\`\`\`xml
+<TABLE>
+  Process | Condition | Heat Transfer $Q$ | Work $W$
+  Isothermal | $\\Delta U = 0$ | $Q = W = nRT \\ln\\left(\\frac{V_2}{V_1}\\right)$ | $W = nRT \\ln\\left(\\frac{V_2}{V_1}\\right)$
+  Isochoric | $W = 0$ | $Q = \\Delta U = n C_v \\Delta T$ | $0$
 </TABLE>
 \`\`\`
 
 ### 6. Lists (\`<LIST>\`, \`<ORDERED>\`)
 \`\`\`xml
 <LIST>
-  First bullet item with $inline\\_math$
-  Second bullet item
+  - Use bullet points
+  - For unordered information
 </LIST>
 
 <ORDERED>
-  Step 1: Calculate heat capacity $C_p$
-  Step 2: Apply first law of thermodynamics
+  1. Use numbers
+  2. For step-by-step processes
 </ORDERED>
 \`\`\`
 
-### 7. Question Cards (\`<QUES>\`)
-Used for CBT questions embedded inside notes or sheets:
+### 7. Question Cards (\`<QUES>\`) — FOR QUESTION SHEETS ONLY!
+**STRICT RULE**: \`<QUES>\`, \`<COR>\`, \`<INC>\`, and \`<EXP>\` are ONLY used when compiling Question Sheets. They are **FORBIDDEN** in Lecture Notes!
 \`\`\`xml
 <QUES ="1">
-  What is the work done $W$ in an isobaric process at $P = 200\\text{ kPa}$ when volume changes from $1\\text{ m}^3$ to $3\\text{ m}^3$?
-  <COR>$400\\text{ kJ}$</COR>
-  <INC>$200\\text{ kJ}$</INC>
-  <INC>$600\\text{ kJ}$</INC>
-  <INC>$800\\text{ kJ}$</INC>
-  <EXP>For an isobaric process, $W = P \\Delta V = 200 \\times (3 - 1) = 400\\text{ kJ}$.</EXP>
+  Who founded CoLearn?
+  <COR ="Pillara Education 2026">
+  <INC ="Microsoft">
+  <INC ="Google">
+  <INC ="Apple">
+  <EXP ="CoLearn was founded by Pillara Education 2026 to revolutionize learning.">
 </QUES>
 \`\`\`
+
+### 8. Videos & Diagrams
+\`\`\`xml
+<VIDEO>
+  https://www.youtube.com/watch?v=example
+</VIDEO>
+
+<DIAGRAM>
+  graph TD; A-->B;
+</DIAGRAM>
+\`\`\`
+
+---
+
+## Language Accents & Intu-Shorthand Compliance
+
+When writing language content with diacritics, tonals, or subdots (Igbo, Yoruba, French, Spanish, etc.), maintain 100% precision:
+
+1. **Subdots / Underdots (Igbo/Yoruba)**:
+   - \`o.\` / \`O.\` -> \`ọ\` / \`Ọ\`
+   - \`u.\` / \`U.\` -> \`ụ\` / \`Ụ\`
+   - \`i.\` / \`I.\` -> \`ị\` / \`Ị\`
+   - \`e.\` / \`E.\` -> \`ẹ\` / \`Ẹ\`
+   - \`s.\` / \`S.\` -> \`ṣ\` / \`Ṣ\`
+   - \`n.\` / \`N.\` -> \`ṅ\` / \`Ṅ\`
+
+2. **Vowel Accents & Tonals (Igbo/Yoruba High & Low tones)**:
+   - High tone over subdot: \`o.'\` / \`ọ'\` -> \`ọ́\`, \`u.'\` -> \`ụ́\`, \`e.'\` -> \`ẹ́\`
+   - Low tone over subdot: \`o.\\\`\` / \`ọ\\\`\` -> \`ọ̀\`, \`u.\\\`\` -> \`ụ̀\`, \`e.\\\`\` -> \`ẹ̀\`
+   - Standard Tonal Shortcuts: High tone (\`a'\` -> \`á\`), Low tone (\`a\\\`\` -> \`à\`), Mid/macron (\`a-\` -> \`ā\`)
+
+3. **European Diacritics**:
+   - French Cedilla: \`c,\` -> \`ç\`
+   - Circumflex: \`a^\` -> \`â\`, \`e^\` -> \`ê\`, \`o^\` -> \`ô\`
+   - Umlaut: \`e:\` -> \`ë\`, \`u:\` -> \`ü\`
+   - Tilde: \`n~\` -> \`ñ\`
+
+---
+
+## AI Prompt Strategy
+
+1. Analyze the provided technical/lecture content.
+2. Convert it into a valid CoLearn PLX v4.0 document wrapped in \`<PLX>\` tags using \`<TAG> ... </TAG>\` syntax internally.
+3. Always start with \`<PLX>\` and end with \`</PLX>\`.
+4. Wrap all tables in \`<TABLE> ... </TABLE>\` and NEVER include \`|---|---|\` divider lines.
+5. In Lecture Notes: NEVER include \`<QUES>\`, \`<COR>\`, \`<INC>\`, or \`<EXP>\`.
+6. In Question Sheets: NEVER include \`<U>\` or \`<u>\` (underline) tags.
+7. Maintain strict 2-space indentation inside all container tags.
+8. Ensure every opening tag has a matching closing tag.
 
 ---
 
@@ -965,7 +1044,7 @@ Retrieve full content and metadata for a note ID.
 - **Parameters**: \`noteId\`
 
 ### 6. \`create_note\`
-Create a new lecture note. Content is automatically converted to PLX format. Returns embedded Base64 PNG preview.
+Create a new lecture note. Content must be formatted in official CoLearn PLX v4.0 format. Tables MUST be wrapped in \`<TABLE>\` without \`|---|\` divider lines. Question tags are forbidden in notes. Returns embedded Base64 PNG preview.
 - **Parameters**: \`courseId\`, \`title\`, \`content\` (PLX markup string)
 
 ### 7. \`update_note\`
@@ -989,15 +1068,19 @@ Retrieve questions and metadata for a question sheet.
 - **Parameters**: \`sheetId\`
 
 ### 12. \`upload_questions\`
-Upload multiple CBT questions to a sheet with options and explanations.
+Upload multiple CBT questions to a sheet with options and explanations. Underline (\`<U>\`) tags are forbidden in question sheets.
 - **Parameters**: \`sheetId\`, \`questions: [{ text, correctAnswer, incorrectAnswers, explanation }]\`
 
 ### 13. \`update_question\`
-Update an individual question in a sheet.
+Update an individual question in a sheet. Underline (\`<U>\`) tags are forbidden in question sheets.
 - **Parameters**: \`questionId\`, \`text\`, \`correctAnswer\`, \`incorrectAnswers\`, \`explanation\`, \`order\`
 
 ### 14. \`preview_question_sheet\`
 Inspect questions in 20-question grid snapshots matching the website student CBT viewer.
 - **Parameters**: \`sheetId\`, \`batchIndex\` (0 for Q1-Q20, 1 for Q21-Q40, etc.)
+
+### 15. \`list_mcp_tools\`
+List all 15 available MCP tools, descriptions, and parameter schemas.
+- **Parameters**: None
 `;
 }
