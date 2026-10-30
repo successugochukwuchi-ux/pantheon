@@ -19,6 +19,7 @@ import 'katex/dist/katex.min.css';
 import { useTitle } from '../hooks/useTitle';
 import { AIAssistant } from '../components/AIAssistant';
 import { SafeMathRenderer, prepareMarkdownMath } from '../components/SafeMathRenderer';
+import { customPlxComponents } from '../components/MathMarkdown';
 
 import { getFilteredCoursesForStudent } from '../lib/courseFilter';
 
@@ -305,7 +306,11 @@ export default function PastQuestions() {
             <CardHeader>
               <div className="prose dark:prose-invert max-w-none text-xl leading-relaxed">
                 <div className="py-4">
-                  <ReactMarkdown remarkPlugins={[remarkMath, remarkGfm]} rehypePlugins={[rehypeRaw, [rehypeKatex, { throwOnError: false, strict: false, errorColor: 'inherit' }]]}>
+                  <ReactMarkdown
+                    remarkPlugins={[remarkMath, remarkGfm]}
+                    rehypePlugins={[rehypeRaw, [rehypeKatex, { throwOnError: false, strict: false, errorColor: 'inherit' }]]}
+                    components={customPlxComponents}
+                  >
                     {prepareMarkdownMath(currentQuestion.text || (currentQuestion as any).question || '')}
                   </ReactMarkdown>
                 </div>
@@ -337,7 +342,11 @@ export default function PastQuestions() {
                           {String.fromCharCode(65 + idx)}
                         </span>
                         <span className="font-medium">
-                          <ReactMarkdown remarkPlugins={[remarkMath, remarkGfm]} rehypePlugins={[rehypeRaw, [rehypeKatex, { throwOnError: false, strict: false, errorColor: 'inherit' }]]}>
+                          <ReactMarkdown
+                            remarkPlugins={[remarkMath, remarkGfm]}
+                            rehypePlugins={[rehypeRaw, [rehypeKatex, { throwOnError: false, strict: false, errorColor: 'inherit' }]]}
+                            components={customPlxComponents}
+                          >
                             {prepareMarkdownMath(option)}
                           </ReactMarkdown>
                         </span>
@@ -357,7 +366,11 @@ export default function PastQuestions() {
                 >
                   <p className="font-bold text-sm uppercase tracking-wider text-primary">Explanation</p>
                   <div className="text-muted-foreground prose dark:prose-invert max-w-none text-sm font-medium">
-                    <ReactMarkdown remarkPlugins={[remarkMath, remarkGfm]} rehypePlugins={[rehypeRaw, [rehypeKatex, { throwOnError: false, strict: false, errorColor: 'inherit' }]]}>
+                    <ReactMarkdown
+                      remarkPlugins={[remarkMath, remarkGfm]}
+                      rehypePlugins={[rehypeRaw, [rehypeKatex, { throwOnError: false, strict: false, errorColor: 'inherit' }]]}
+                      components={customPlxComponents}
+                    >
                       {prepareMarkdownMath(currentQuestion.explanation || "No explanation provided for this question.")}
                     </ReactMarkdown>
                   </div>

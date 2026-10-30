@@ -188,9 +188,25 @@ export function ActivationModal() {
         console.warn("Failed to update system stats via mobile activation:", statsErr);
       }
 
-      await updateDoc(doc(db, 'users', user?.uid!), {
+      const isVendorAccount = profile?.level === '3';
+      const isPlusPin = codeData.type === 'plus';
+
+      const userUpdatePayload: any = {
         isActivated: true,
-      });
+      };
+
+      if (isVendorAccount) {
+        userUpdatePayload.level = '3';
+        const semestersToAdd = isPlusPin ? 2 : 1;
+        userUpdatePayload.remainingsemesters = semestersToAdd;
+        userUpdatePayload.remainingSemesters = semestersToAdd;
+      } else if (isPlusPin) {
+        userUpdatePayload.level = '2';
+      } else {
+        userUpdatePayload.level = '1';
+      }
+
+      await updateDoc(doc(db, 'users', user?.uid!), userUpdatePayload);
 
       // Get pin creator profile for telegram alert metadata
       let isCreatorLevel4 = false;

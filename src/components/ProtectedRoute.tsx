@@ -17,7 +17,19 @@ export const ProtectedRoute: React.FC<{
   const location = useLocation();
 
   if (!isAuthReady || loading) {
-    return <div className="flex items-center justify-center min-h-screen">Loading...</div>;
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-background text-foreground p-4">
+        <div className="flex flex-col items-center gap-4 text-center max-w-sm">
+          <div className="relative flex items-center justify-center h-16 w-16 rounded-2xl bg-primary/10 border border-primary/20 shadow-lg">
+            <div className="h-8 w-8 animate-spin rounded-full border-3 border-primary border-t-transparent" />
+          </div>
+          <div className="space-y-1">
+            <h3 className="font-bold text-lg tracking-tight">CoLearn</h3>
+            <p className="text-xs text-muted-foreground animate-pulse">Authenticating user...</p>
+          </div>
+        </div>
+      </div>
+    );
   }
 
   if (!user) {

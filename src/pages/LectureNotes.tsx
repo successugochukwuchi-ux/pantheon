@@ -28,6 +28,8 @@ import { TextToSpeechReader } from '../components/TextToSpeechReader';
 import { searchNote } from '../lib/noteSearch';
 
 import { getFilteredCoursesForStudent } from '../lib/courseFilter';
+import { parsePlxStringToBlocks } from '../lib/plxParser';
+import { customPlxComponents } from '../components/MathMarkdown';
 
 export default function LectureNotes() {
   const { systemConfig, profile } = useAuth();
@@ -97,10 +99,9 @@ export default function LectureNotes() {
     let blocks: NoteBlock[] = [];
     try {
       const parsed = JSON.parse(selectedNote.content);
-      blocks = Array.isArray(parsed) ? autoCorrectNoteBlocks(parsed).blocks : [{ id: '1', type: 'text', content: selectedNote.content }];
+      blocks = Array.isArray(parsed) ? autoCorrectNoteBlocks(parsed).blocks : parsePlxStringToBlocks(selectedNote.content);
     } catch (e) {
-      // Fallback for old markdown notes
-      blocks = [{ id: '1', type: 'text', content: selectedNote.content }];
+      blocks = parsePlxStringToBlocks(selectedNote.content || '');
     }
 
     return (
@@ -137,21 +138,33 @@ export default function LectureNotes() {
               <div key={block.id}>
                 {block.type === 'h1' && (
                   <h1 className="text-3xl font-bold mb-4">
-                    <ReactMarkdown remarkPlugins={[remarkMath, remarkGfm]} rehypePlugins={[rehypeRaw, [rehypeKatex, { throwOnError: false, strict: false, errorColor: 'inherit' }]]}>
+                    <ReactMarkdown
+                      remarkPlugins={[remarkMath, remarkGfm]}
+                      rehypePlugins={[rehypeRaw, [rehypeKatex, { throwOnError: false, strict: false, errorColor: 'inherit' }]]}
+                      components={customPlxComponents}
+                    >
                       {prepareMarkdownMath(block.content)}
                     </ReactMarkdown>
                   </h1>
                 )}
                 {block.type === 'h2' && (
                   <h2 className="text-2xl font-bold mb-3">
-                    <ReactMarkdown remarkPlugins={[remarkMath, remarkGfm]} rehypePlugins={[rehypeRaw, [rehypeKatex, { throwOnError: false, strict: false, errorColor: 'inherit' }]]}>
+                    <ReactMarkdown
+                      remarkPlugins={[remarkMath, remarkGfm]}
+                      rehypePlugins={[rehypeRaw, [rehypeKatex, { throwOnError: false, strict: false, errorColor: 'inherit' }]]}
+                      components={customPlxComponents}
+                    >
                       {prepareMarkdownMath(block.content)}
                     </ReactMarkdown>
                   </h2>
                 )}
                 {block.type === 'text' && (
                   <div className="prose dark:prose-invert max-w-none">
-                    <ReactMarkdown remarkPlugins={[remarkMath, remarkGfm]} rehypePlugins={[rehypeRaw, [rehypeKatex, { throwOnError: false, strict: false, errorColor: 'inherit' }]]}>
+                    <ReactMarkdown
+                      remarkPlugins={[remarkMath, remarkGfm]}
+                      rehypePlugins={[rehypeRaw, [rehypeKatex, { throwOnError: false, strict: false, errorColor: 'inherit' }]]}
+                      components={customPlxComponents}
+                    >
                       {prepareMarkdownMath(block.content)}
                     </ReactMarkdown>
                   </div>
@@ -162,17 +175,49 @@ export default function LectureNotes() {
                   </div>
                 )}
                 {block.type === 'table' && block.content && (
-                  <div className="overflow-x-auto my-4 border rounded-lg">
-                    <table className="w-full border-collapse">
+                  <div className="overflow-x-auto my-6 border border-border rounded-xl shadow-sm bg-card">
+                    <table className="w-full border-collapse text-left text-sm">
+                      <thead>
+                        {(() => {
+                          try {
+                            const data = JSON.parse(block.content);
+                            if (!Array.isArray(data) || data.length === 0) return null;
+                            const headerRow = data[0];
+                            return (
+                              <tr className="bg-muted/70 border-b border-border">
+                                {headerRow.map((cell: string, colIndex: number) => (
+                                  <th key={colIndex} className="p-3.5 font-bold text-primary border-r border-border/60 last:border-r-0">
+                                    <ReactMarkdown
+                                      remarkPlugins={[remarkMath, remarkGfm]}
+                                      rehypePlugins={[rehypeRaw, [rehypeKatex, { throwOnError: false, strict: false, errorColor: 'inherit' }]]}
+                                      components={customPlxComponents}
+                                    >
+                                      {prepareMarkdownMath(cell)}
+                                    </ReactMarkdown>
+                                  </th>
+                                ))}
+                              </tr>
+                            );
+                          } catch {
+                            return null;
+                          }
+                        })()}
+                      </thead>
                       <tbody>
                         {(() => {
                           try {
                             const data = JSON.parse(block.content);
-                            return data.map((row: string[], rowIndex: number) => (
-                              <tr key={rowIndex}>
+                            if (!Array.isArray(data)) return null;
+                            const bodyRows = data.length > 1 ? data.slice(1) : data;
+                            return bodyRows.map((row: string[], rowIndex: number) => (
+                              <tr key={rowIndex} className="border-b border-border/40 last:border-b-0 even:bg-muted/20 hover:bg-muted/30 transition-colors">
                                 {row.map((cell, colIndex) => (
-                                  <td key={colIndex} className="border p-4 text-sm min-w-[120px]">
-                                    <ReactMarkdown remarkPlugins={[remarkMath, remarkGfm]} rehypePlugins={[rehypeRaw, [rehypeKatex, { throwOnError: false, strict: false, errorColor: 'inherit' }]]}>
+                                  <td key={colIndex} className="p-3.5 text-foreground/90 border-r border-border/40 last:border-r-0 min-w-[120px]">
+                                    <ReactMarkdown
+                                      remarkPlugins={[remarkMath, remarkGfm]}
+                                      rehypePlugins={[rehypeRaw, [rehypeKatex, { throwOnError: false, strict: false, errorColor: 'inherit' }]]}
+                                      components={customPlxComponents}
+                                    >
                                       {prepareMarkdownMath(cell)}
                                     </ReactMarkdown>
                                   </td>
@@ -217,7 +262,11 @@ export default function LectureNotes() {
                 )}
                 {(block.type === 'bullet-list' || block.type === 'numbered-list') && (
                   <div className="prose dark:prose-invert max-w-none my-6">
-                    <ReactMarkdown remarkPlugins={[remarkMath, remarkGfm]} rehypePlugins={[rehypeRaw, [rehypeKatex, { throwOnError: false, strict: false, errorColor: 'inherit' }]]}>
+                    <ReactMarkdown
+                      remarkPlugins={[remarkMath, remarkGfm]}
+                      rehypePlugins={[rehypeRaw, [rehypeKatex, { throwOnError: false, strict: false, errorColor: 'inherit' }]]}
+                      components={customPlxComponents}
+                    >
                       {prepareMarkdownMath(block.content)}
                     </ReactMarkdown>
                   </div>
@@ -232,7 +281,11 @@ export default function LectureNotes() {
                             <HelpCircle className="h-4 w-4" /> Concept Check
                           </div>
                           <CardTitle className="text-lg mt-2">
-                            <ReactMarkdown remarkPlugins={[remarkMath, remarkGfm]} rehypePlugins={[rehypeRaw, [rehypeKatex, { throwOnError: false, strict: false, errorColor: 'inherit' }]]}>
+                            <ReactMarkdown
+                              remarkPlugins={[remarkMath, remarkGfm]}
+                              rehypePlugins={[rehypeRaw, [rehypeKatex, { throwOnError: false, strict: false, errorColor: 'inherit' }]]}
+                              components={customPlxComponents}
+                            >
                               {prepareMarkdownMath(data.question)}
                             </ReactMarkdown>
                           </CardTitle>
@@ -246,7 +299,11 @@ export default function LectureNotes() {
                               <div key={i} className="group relative">
                                 <div className="w-full flex items-center justify-between p-4 rounded-xl border border-border bg-background hover:bg-muted transition-all cursor-help">
                                   <span className="flex-1 text-sm">
-                                    <ReactMarkdown remarkPlugins={[remarkMath, remarkGfm]} rehypePlugins={[rehypeRaw, [rehypeKatex, { throwOnError: false, strict: false, errorColor: 'inherit' }]]}>
+                                    <ReactMarkdown
+                                      remarkPlugins={[remarkMath, remarkGfm]}
+                                      rehypePlugins={[rehypeRaw, [rehypeKatex, { throwOnError: false, strict: false, errorColor: 'inherit' }]]}
+                                      components={customPlxComponents}
+                                    >
                                       {prepareMarkdownMath(opt.text)}
                                     </ReactMarkdown>
                                   </span>
@@ -267,7 +324,11 @@ export default function LectureNotes() {
                                 <Wand2 className="h-3 w-3" /> Explanation
                               </div>
                               <div className="text-sm text-muted-foreground italic">
-                                <ReactMarkdown remarkPlugins={[remarkMath, remarkGfm]} rehypePlugins={[rehypeRaw, [rehypeKatex, { throwOnError: false, strict: false, errorColor: 'inherit' }]]}>
+                                <ReactMarkdown
+                                  remarkPlugins={[remarkMath, remarkGfm]}
+                                  rehypePlugins={[rehypeRaw, [rehypeKatex, { throwOnError: false, strict: false, errorColor: 'inherit' }]]}
+                                  components={customPlxComponents}
+                                >
                                   {prepareMarkdownMath(data.explanation)}
                                 </ReactMarkdown>
                               </div>

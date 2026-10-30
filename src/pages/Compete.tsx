@@ -220,7 +220,7 @@ export default function Compete() {
       // Check if current user was kicked from private room
       if (user?.uid && updatedMatch.kickedList?.includes(user.uid)) {
         setCurrentMatch(null);
-        setGameState('select_mode');
+        setGameState('lobby');
         toast.error("You have been removed from this private room by the host.");
         return;
       }

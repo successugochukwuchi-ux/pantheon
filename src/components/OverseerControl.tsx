@@ -217,6 +217,8 @@ export default function OverseerControl() {
   const [takanoLlmApiKey, setTakanoLlmApiKey] = useState('sk-xt-8efce7fdc46238b3456fafcf36713ce45ff83a0a52df9581');
   const [takanoLlmModel, setTakanoLlmModel] = useState('qwen/qwen3.8-omni-flash:free');
   const [takanoScannerEnabled, setTakanoScannerEnabled] = useState(true);
+  const [takanoScannerStatus, setTakanoScannerStatus] = useState<'STANDBY' | 'ACTIVE_SCANNING' | 'DISABLED'>('STANDBY');
+  const [takanoActiveOrdersCount, setTakanoActiveOrdersCount] = useState<number>(0);
   const [takanoRenderBackendUrl, setTakanoRenderBackendUrl] = useState('https://colearn-backend-tzo9.onrender.com');
   const [takanoSaving, setTakanoSaving] = useState(false);
   const [takanoScanningNow, setTakanoScanningNow] = useState(false);
@@ -261,6 +263,11 @@ export default function OverseerControl() {
   const fetchTakanoLogs = async () => {
     setTakanoLoadingLogs(true);
     try {
+      const cfg = await TakanoPayService.getConfig().catch(() => null);
+      if (cfg) {
+        if (cfg.scannerStatus) setTakanoScannerStatus(cfg.scannerStatus);
+        if (typeof cfg.activePendingCount === 'number') setTakanoActiveOrdersCount(cfg.activePendingCount);
+      }
       const res = await TakanoPayService.getAuditLogs();
       if (res.success && Array.isArray(res.logs)) {
         setTakanoAuditLogs(res.logs);
@@ -836,6 +843,9 @@ export default function OverseerControl() {
       notesScanned: 0,
       totalNotes: 0,
       notesCorrected: 0,
+      sheetsScanned: 0,
+      totalSheets: 0,
+      sheetsCorrected: 0,
       questionsScanned: 0,
       totalQuestions: 0,
       questionsCorrected: 0,
@@ -2992,6 +3002,40 @@ export default function OverseerControl() {
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-6">
+          {/* Live Scanner Operational Status Banner */}
+          <div className={`p-4 rounded-xl border flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 ${
+            takanoScannerStatus === 'ACTIVE_SCANNING'
+              ? 'bg-emerald-50/80 dark:bg-emerald-950/30 border-emerald-300 dark:border-emerald-800'
+              : 'bg-slate-50 dark:bg-slate-900/40 border-slate-200 dark:border-slate-800'
+          }`}>
+            <div className="space-y-1">
+              <div className="flex items-center gap-2">
+                <span className={`inline-block h-2.5 w-2.5 rounded-full ${
+                  takanoScannerStatus === 'ACTIVE_SCANNING'
+                    ? 'bg-emerald-500 animate-ping'
+                    : 'bg-amber-500'
+                }`} />
+                <span className="font-bold text-sm text-foreground">
+                  Scanner Status:{' '}
+                  {takanoScannerStatus === 'ACTIVE_SCANNING'
+                    ? `ACTIVE SCANNING (${takanoActiveOrdersCount} Vendor Purchase In Progress)`
+                    : 'STANDBY (Awaiting Active Vendor Purchase)'}
+                </span>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                {takanoScannerStatus === 'ACTIVE_SCANNING'
+                  ? 'A vendor has been given a slot and told to pay. The IMAP scanner is actively polling the alert inbox every 5 seconds to verify their transfer.'
+                  : 'IMAP scanner only begins scanning when a vendor is actively making a purchase (given a slot and told to pay). While in STANDBY, no emails are polled or passed to the AI model.'}
+              </p>
+            </div>
+            <Badge 
+              variant={takanoScannerStatus === 'ACTIVE_SCANNING' ? 'default' : 'outline'} 
+              className={`text-xs shrink-0 ${takanoScannerStatus === 'ACTIVE_SCANNING' ? 'bg-emerald-600 hover:bg-emerald-700 text-white' : 'text-muted-foreground border-slate-300 dark:border-slate-700'}`}
+            >
+              {takanoScannerStatus === 'ACTIVE_SCANNING' ? 'POLLING (5s)' : 'STANDBY (IDLE)'}
+            </Badge>
+          </div>
+
           <form onSubmit={handleSaveTakanoConfig} className="space-y-6">
             {/* 1. Merchant Bank Details */}
             <div className="p-4 rounded-xl border border-teal-200 dark:border-teal-900 bg-teal-50/40 dark:bg-teal-950/20 space-y-4">

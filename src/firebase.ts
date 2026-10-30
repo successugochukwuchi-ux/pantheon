@@ -1,6 +1,6 @@
 import { initializeApp, getApps, getApp } from 'firebase/app';
 import { getAuth, setPersistence, browserLocalPersistence } from 'firebase/auth';
-import { initializeFirestore, persistentLocalCache, persistentMultipleTabManager } from 'firebase/firestore';
+import { initializeFirestore, persistentLocalCache, persistentMultipleTabManager, getFirestore, Firestore } from 'firebase/firestore';
 import firebaseConfigJson from '../firebase-applet-config.json';
 import { toast } from 'sonner';
 
@@ -20,11 +20,19 @@ export const auth = getAuth(app);
 setPersistence(auth, browserLocalPersistence).catch(err => console.error("Persistence failed:", err));
 
 // Enable persistent multi-tab local cache for robust resource/read cost reduction
-export const db = initializeFirestore(app, {
-  localCache: persistentLocalCache({
-    tabManager: persistentMultipleTabManager()
-  })
-});
+let firestoreDb: Firestore;
+try {
+  firestoreDb = initializeFirestore(app, {
+    localCache: persistentLocalCache({
+      tabManager: persistentMultipleTabManager()
+    })
+  });
+} catch (e) {
+  console.warn("[COLEARN] Failed to initialize persistent Firestore, falling back to standard getFirestore():", e);
+  firestoreDb = getFirestore(app);
+}
+
+export const db = firestoreDb;
 
 export enum OperationType {
   CREATE = 'create',

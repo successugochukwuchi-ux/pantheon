@@ -7,6 +7,9 @@ export interface TakanoConfigResponse {
   accountName: string;
   renderBackendUrl: string;
   scannerEnabled: boolean;
+  scannerStatus?: 'STANDBY' | 'ACTIVE_SCANNING' | 'DISABLED';
+  isActivelyScanning?: boolean;
+  activePendingCount?: number;
   retailPrices: {
     standard: number;
     plus: number;

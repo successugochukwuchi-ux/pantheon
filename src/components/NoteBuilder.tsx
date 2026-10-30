@@ -80,6 +80,7 @@ import 'katex/dist/katex.min.css';
 import { Rnd } from 'react-rnd';
 import { cn } from '../lib/utils';
 import { SafeMathRenderer, prepareMarkdownMath } from './SafeMathRenderer';
+import { MathMarkdown, customPlxComponents } from './MathMarkdown';
 import { magicNoteCreator } from '../services/aiService';
 import { VideoPlayer } from './VideoPlayer';
 import { CloudinaryUpload } from './CloudinaryUpload';
@@ -442,23 +443,17 @@ const SortableBlock = ({ block, onUpdate, onDelete, onFocus, isPreview }: Sortab
       <div className="mb-6">
         {block.type === 'h1' && (
           <h1 className="text-3xl font-bold mb-4">
-            <ReactMarkdown remarkPlugins={[remarkMath, remarkGfm]} rehypePlugins={[rehypeRaw, [rehypeKatex, { throwOnError: false, strict: false, errorColor: 'inherit' }]]}>
-              {prepareMarkdownMath(block.content)}
-            </ReactMarkdown>
+            <MathMarkdown content={block.content} />
           </h1>
         )}
         {block.type === 'h2' && (
           <h2 className="text-2xl font-bold mb-3">
-            <ReactMarkdown remarkPlugins={[remarkMath, remarkGfm]} rehypePlugins={[rehypeRaw, [rehypeKatex, { throwOnError: false, strict: false, errorColor: 'inherit' }]]}>
-              {prepareMarkdownMath(block.content)}
-            </ReactMarkdown>
+            <MathMarkdown content={block.content} />
           </h2>
         )}
         {block.type === 'text' && (
           <div className="prose dark:prose-invert max-w-none">
-            <ReactMarkdown remarkPlugins={[remarkMath, remarkGfm]} rehypePlugins={[rehypeRaw, [rehypeKatex, { throwOnError: false, strict: false, errorColor: 'inherit' }]]}>
-              {prepareMarkdownMath(block.content)}
-            </ReactMarkdown>
+            <MathMarkdown content={block.content} />
           </div>
         )}
         {block.type === 'math' && block.content && (
@@ -477,9 +472,7 @@ const SortableBlock = ({ block, onUpdate, onDelete, onFocus, isPreview }: Sortab
                       <tr key={rowIndex}>
                         {row.map((cell, colIndex) => (
                           <td key={colIndex} className="border p-2 text-sm">
-                            <ReactMarkdown remarkPlugins={[remarkMath, remarkGfm]} rehypePlugins={[rehypeRaw, [rehypeKatex, { throwOnError: false, strict: false, errorColor: 'inherit' }]]}>
-                              {prepareMarkdownMath(cell)}
-                            </ReactMarkdown>
+                            <MathMarkdown content={cell} />
                           </td>
                         ))}
                       </tr>
@@ -517,9 +510,7 @@ const SortableBlock = ({ block, onUpdate, onDelete, onFocus, isPreview }: Sortab
         )}
         {(block.type === 'bullet-list' || block.type === 'numbered-list') && (
           <div className="prose dark:prose-invert max-w-none my-6">
-            <ReactMarkdown remarkPlugins={[remarkMath, remarkGfm]} rehypePlugins={[rehypeRaw, [rehypeKatex, { throwOnError: false, strict: false, errorColor: 'inherit' }]]}>
-              {prepareMarkdownMath(block.content)}
-            </ReactMarkdown>
+            <MathMarkdown content={block.content} />
           </div>
         )}
         {block.type === 'question' && block.content && (
@@ -538,9 +529,7 @@ const SortableBlock = ({ block, onUpdate, onDelete, onFocus, isPreview }: Sortab
                   return (
                     <>
                       <div className="text-lg font-medium">
-                        <ReactMarkdown remarkPlugins={[remarkMath, remarkGfm]} rehypePlugins={[rehypeRaw, [rehypeKatex, { throwOnError: false, strict: false, errorColor: 'inherit' }]]}>
-                          {prepareMarkdownMath(data.question)}
-                        </ReactMarkdown>
+                        <MathMarkdown content={data.question} />
                       </div>
                       <div className="grid gap-2">
                         {data.correct && (
@@ -549,9 +538,7 @@ const SortableBlock = ({ block, onUpdate, onDelete, onFocus, isPreview }: Sortab
                               <CheckCircle2 className="h-4 w-4" />
                             </div>
                             <span className="text-sm">
-                               <ReactMarkdown remarkPlugins={[remarkMath, remarkGfm]} rehypePlugins={[rehypeRaw, [rehypeKatex, { throwOnError: false, strict: false, errorColor: 'inherit' }]]}>
-                                {prepareMarkdownMath(data.correct)}
-                              </ReactMarkdown>
+                              <MathMarkdown content={data.correct} />
                             </span>
                           </div>
                         )}
@@ -561,9 +548,7 @@ const SortableBlock = ({ block, onUpdate, onDelete, onFocus, isPreview }: Sortab
                               <XCircle className="h-4 w-4" />
                             </div>
                             <span className="text-sm">
-                              <ReactMarkdown remarkPlugins={[remarkMath, remarkGfm]} rehypePlugins={[rehypeRaw, [rehypeKatex, { throwOnError: false, strict: false, errorColor: 'inherit' }]]}>
-                                {prepareMarkdownMath(inc)}
-                              </ReactMarkdown>
+                              <MathMarkdown content={inc} />
                             </span>
                           </div>
                         ))}
@@ -574,9 +559,7 @@ const SortableBlock = ({ block, onUpdate, onDelete, onFocus, isPreview }: Sortab
                             <Wand2 className="h-3 w-3" /> Explanation
                           </div>
                           <div className="text-sm text-muted-foreground italic">
-                            <ReactMarkdown remarkPlugins={[remarkMath, remarkGfm]} rehypePlugins={[rehypeRaw, [rehypeKatex, { throwOnError: false, strict: false, errorColor: 'inherit' }]]}>
-                              {prepareMarkdownMath(data.explanation)}
-                            </ReactMarkdown>
+                            <MathMarkdown content={data.explanation} />
                           </div>
                         </div>
                       )}
@@ -1249,21 +1232,125 @@ interface NoteBuilderProps {
   mode?: 'create' | 'edit';
 }
 
+export const parseContentToBlocks = (content: string): NoteBlock[] => {
+  if (!content || typeof content !== 'string') return [{ id: '1', type: 'text', content: '' }];
+  const trimmed = content.trim();
+
+  // 1. Try parsing JSON array of NoteBlocks
+  try {
+    const parsed = JSON.parse(trimmed);
+    if (Array.isArray(parsed) && parsed.length > 0 && parsed[0].type) {
+      return parsed.map((b, i) => ({
+        id: b.id || String(i + 1),
+        type: b.type,
+        content: b.content || '',
+        settings: b.settings
+      }));
+    }
+  } catch (e) {}
+
+  // 2. Parse PLX tags (<PLX> ... </PLX>)
+  if (trimmed.includes('<PLX>') || trimmed.includes('</PLX>') || /<(H1|H2|TEXT|MATH|TABLE|LIST|ORDERED|QUES)>/i.test(trimmed)) {
+    const plxMatch = /<PLX>([\s\S]*?)<\/PLX>/i.exec(trimmed);
+    const text = plxMatch ? plxMatch[1].trim() : trimmed;
+    const tagRegex = /<(H1|H2|TEXT|B|I|U|MATH|LIST|ORDERED|TABLE|VIDEO|DIAGRAM|QUES)(?:\s*=\s*"([^"]*)")?>([\s\S]*?)<\/\1>/gi;
+    const resultBlocks: NoteBlock[] = [];
+    let match;
+    let idx = 1;
+
+    while ((match = tagRegex.exec(text)) !== null) {
+      const tagName = match[1].toUpperCase();
+      const attr = match[2] || '';
+      let bContent = match[3].trim();
+
+      bContent = bContent.replace(/<B>([\s\S]*?)<\/B>/gi, '**$1**');
+      bContent = bContent.replace(/<I>([\s\S]*?)<\/I>/gi, '*$1*');
+      bContent = bContent.replace(/<U>([\s\S]*?)<\/U>/gi, '<u>$1</u>');
+
+      if (tagName === 'TABLE') {
+        const rows = bContent.split('\n')
+          .filter(r => r.trim().length > 0)
+          .map(r => parseCSVRow(r).map(cell => applyAccentShortcuts(cell)))
+          .filter(r => r.length > 0);
+        resultBlocks.push({ id: String(idx++), type: 'table', content: JSON.stringify(rows.length > 0 ? rows : [['']]) });
+      } else if (tagName === 'QUES') {
+        const corMatch = /<COR(?:\s*=\s*"([^"]*)"|\s*=\s*([^>\s]+))?\s*>/i.exec(bContent);
+        const incMatches = [...bContent.matchAll(/<INC(?:\s*=\s*"([^"]*)"|\s*=\s*([^>\s]+))?\s*>/gi)];
+        const expMatch = /<EXP(?:\s*=\s*"([^"]*)"|\s*=\s*([^>\s]+))?\s*>/i.exec(bContent);
+        const firstSubTag = bContent.search(/<(COR|INC|EXP)/i);
+        const questionBody = firstSubTag === -1 ? bContent.trim() : bContent.substring(0, firstSubTag).trim();
+        const qData = {
+          question: applyAccentShortcuts(questionBody),
+          correct: corMatch ? applyAccentShortcuts(corMatch[1] || corMatch[2] || '') : '',
+          incorrect: incMatches.map(m => applyAccentShortcuts(m[1] || m[2] || '')).filter(Boolean),
+          explanation: expMatch ? applyAccentShortcuts(expMatch[1] || expMatch[2] || '') : ''
+        };
+        resultBlocks.push({ id: String(idx++), type: 'question', content: JSON.stringify(qData), settings: attr ? { questionId: attr } : undefined });
+      } else {
+        const typeMap: Record<string, BlockType> = {
+          'H1': 'h1', 'H2': 'h2', 'TEXT': 'text', 'B': 'text', 'I': 'text', 'U': 'text',
+          'MATH': 'math', 'LIST': 'bullet-list', 'ORDERED': 'numbered-list', 'VIDEO': 'video', 'DIAGRAM': 'diagram'
+        };
+        let finalContent = bContent;
+        if (tagName === 'B') finalContent = `**${bContent}**`;
+        if (tagName === 'I') finalContent = `*${bContent}*`;
+        if (tagName === 'U') finalContent = `<u>${bContent}</u>`;
+        const textBasedTags = ['H1', 'H2', 'TEXT', 'B', 'I', 'U', 'LIST', 'ORDERED'];
+        if (textBasedTags.includes(tagName)) {
+          finalContent = applyAccentShortcuts(finalContent);
+        }
+        resultBlocks.push({ id: String(idx++), type: typeMap[tagName] || 'text', content: finalContent, settings: attr ? { questionId: attr } : undefined });
+      }
+    }
+    if (resultBlocks.length > 0) return resultBlocks;
+  }
+
+  // 3. Fallback: Parse markdown headings if present
+  if (/#+\s+[^\n]+/.test(trimmed)) {
+    const lines = trimmed.split('\n');
+    const mdBlocks: NoteBlock[] = [];
+    let curText: string[] = [];
+    let bIdx = 1;
+
+    const flushText = () => {
+      if (curText.length > 0) {
+        const joined = curText.join('\n').trim();
+        if (joined) {
+          mdBlocks.push({ id: String(bIdx++), type: 'text', content: joined });
+        }
+        curText = [];
+      }
+    };
+
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i];
+      const lineTrim = line.trim();
+      if (lineTrim.startsWith('# ')) {
+        flushText();
+        mdBlocks.push({ id: String(bIdx++), type: 'h1', content: lineTrim.replace(/^#\s+/, '') });
+      } else if (lineTrim.startsWith('## ')) {
+        flushText();
+        mdBlocks.push({ id: String(bIdx++), type: 'h2', content: lineTrim.replace(/^##\s+/, '') });
+      } else if (lineTrim.startsWith('### ')) {
+        flushText();
+        mdBlocks.push({ id: String(bIdx++), type: 'h2', content: lineTrim.replace(/^###\s+/, '') });
+      } else {
+        curText.push(line);
+      }
+    }
+    flushText();
+    if (mdBlocks.length > 0) return mdBlocks;
+  }
+
+  return [{ id: '1', type: 'text', content: trimmed }];
+};
+
 export const NoteRenderer: React.FC<{ content: string }> = ({ content }) => {
   const [blocks, setBlocks] = useState<NoteBlock[]>([]);
 
   useEffect(() => {
     if (content) {
-      try {
-        const parsed = JSON.parse(content);
-        if (Array.isArray(parsed)) {
-          setBlocks(parsed);
-        } else {
-          setBlocks([{ id: '1', type: 'text', content }]);
-        }
-      } catch (e) {
-        setBlocks([{ id: '1', type: 'text', content }]);
-      }
+      setBlocks(parseContentToBlocks(content));
     }
   }, [content]);
 
@@ -1285,18 +1372,7 @@ export const NoteRenderer: React.FC<{ content: string }> = ({ content }) => {
 
 export const NoteBuilder: React.FC<NoteBuilderProps> = ({ initialContent, onChange, onTitleChange, mode = 'create' }) => {
   const [blocks, setBlocks] = useState<NoteBlock[]>(() => {
-    if (initialContent) {
-      try {
-        const parsed = JSON.parse(initialContent);
-        if (Array.isArray(parsed)) {
-          return parsed;
-        }
-        return [{ id: '1', type: 'text', content: initialContent }];
-      } catch (e) {
-        return [{ id: '1', type: 'text', content: initialContent }];
-      }
-    }
-    return [{ id: '1', type: 'text', content: '' }];
+    return parseContentToBlocks(initialContent || '');
   });
 
   const [activeBlockId, setActiveBlockId] = useState<string | null>(null);

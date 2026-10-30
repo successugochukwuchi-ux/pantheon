@@ -76,15 +76,52 @@ const DEFAULT_CONFIG: TakanoConfig = {
   scannerEnabled: true,
 };
 
+export type TakanoOrderEvent = 'ORDER_CREATED' | 'ORDER_FULFILLED' | 'ORDER_CANCELLED' | 'ORDERS_EXPIRED';
+export type TakanoOrderListener = (event: TakanoOrderEvent, order?: PaymentOrder) => void;
+
 class TakanoStore {
   private config: TakanoConfig = { ...DEFAULT_CONFIG };
   private orders: Map<string, PaymentOrder> = new Map();
   private auditLogs: AuditLogItem[] = [];
   private recentUnmatchedCredits: UnmatchedCredit[] = [];
   private isConfigLoaded = false;
+  private orderListeners: TakanoOrderListener[] = [];
 
   constructor() {
     this.init();
+  }
+
+  public onOrderEvent(listener: TakanoOrderListener): () => void {
+    this.orderListeners.push(listener);
+    return () => {
+      this.orderListeners = this.orderListeners.filter((l) => l !== listener);
+    };
+  }
+
+  private notifyOrderListeners(event: TakanoOrderEvent, order?: PaymentOrder) {
+    for (const listener of this.orderListeners) {
+      try {
+        listener(event, order);
+      } catch (e) {
+        console.warn('[TakanoStore] Error in order listener:', e);
+      }
+    }
+  }
+
+  public getActivePendingOrders(): PaymentOrder[] {
+    this.purgeExpiredSlots();
+    const active: PaymentOrder[] = [];
+    const now = Date.now();
+    for (const order of this.orders.values()) {
+      if (order.status === 'PENDING' && new Date(order.expiresAt).getTime() > now) {
+        active.push(order);
+      }
+    }
+    return active;
+  }
+
+  public hasActiveVendorPurchase(): boolean {
+    return this.getActivePendingOrders().length > 0;
   }
 
   private async init() {
@@ -136,37 +173,49 @@ class TakanoStore {
     return this.config;
   }
 
-  private async loadActiveOrdersFromFirestore() {
+  public async loadActiveOrdersFromFirestore() {
     try {
       const now = Date.now();
       const q = query(collection(serverDb, 'payment_orders'), where('status', '==', 'PENDING'));
       const snap = await getDocs(q);
+      let loadedCount = 0;
       snap.forEach((d) => {
         const order = d.data() as PaymentOrder;
         if (new Date(order.expiresAt).getTime() > now) {
           this.orders.set(order.id, order);
+          loadedCount++;
         } else {
           // Expired
           updateDoc(doc(serverDb, 'payment_orders', order.id), { status: 'EXPIRED' }).catch(() => {});
         }
       });
+      if (loadedCount > 0) {
+        this.notifyOrderListeners('ORDER_CREATED');
+      }
     } catch (e) {
       console.warn('[TakanoStore] Could not load pending orders from Firestore:', e);
     }
   }
 
-  public purgeExpiredSlots() {
+  public purgeExpiredSlots(): number {
     const now = Date.now();
+    let expiredCount = 0;
     for (const [id, order] of this.orders.entries()) {
       if (order.status === 'PENDING' && new Date(order.expiresAt).getTime() <= now) {
         order.status = 'EXPIRED';
         this.orders.delete(id);
         updateDoc(doc(serverDb, 'payment_orders', id), { status: 'EXPIRED' }).catch(() => {});
+        expiredCount++;
       }
     }
     // Clean unmatched credits older than 20 minutes
     const twentyMinsAgo = now - 20 * 60 * 1000;
     this.recentUnmatchedCredits = this.recentUnmatchedCredits.filter(c => c.timestamp > twentyMinsAgo);
+
+    if (expiredCount > 0) {
+      this.notifyOrderListeners('ORDERS_EXPIRED');
+    }
+    return expiredCount;
   }
 
   private getActiveSlots(): Set<number> {
@@ -290,6 +339,9 @@ class TakanoStore {
     if (matchIndex !== -1) {
       const match = this.recentUnmatchedCredits.splice(matchIndex, 1)[0];
       await this.fulfillOrder(order, match.sender, 'PRE_RECEIVED_BUFFER');
+    } else {
+      // Vendor has been given a slot and told to pay: notify listeners to begin active scanning!
+      this.notifyOrderListeners('ORDER_CREATED', order);
     }
 
     return order;
@@ -317,6 +369,7 @@ class TakanoStore {
       order.status = 'CANCELLED';
       this.orders.delete(orderId);
       await updateDoc(doc(serverDb, 'payment_orders', orderId), { status: 'CANCELLED' });
+      this.notifyOrderListeners('ORDER_CANCELLED', order);
       return true;
     }
     return false;
@@ -459,6 +512,8 @@ class TakanoStore {
 
     // Remove from active slot map (freeing the kobo slot)
     this.orders.delete(order.id);
+
+    this.notifyOrderListeners('ORDER_FULFILLED', order);
 
     this.addAuditLog({
       source: 'PAYMENT_ENGINE',

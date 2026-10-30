@@ -12,6 +12,8 @@ export interface UserProfile {
   academicLevel?: string;
   isActivated: boolean;
   activatedViaPromo?: boolean;
+  remainingsemesters?: number;
+  remainingSemesters?: number;
   referralCount: number;
   referredBy?: string;
   isBanned?: boolean;
@@ -105,6 +107,22 @@ export interface SystemConfig {
   plusWholesalePrice?: number;
   activeSeasonId?: string | null;
   activeSeasonName?: string | null;
+}
+
+export type BlockType = 'text' | 'math' | 'h1' | 'h2' | 'diagram' | 'table' | 'video' | 'bullet-list' | 'numbered-list' | 'question';
+
+export interface NoteBlock {
+  id: string;
+  type: BlockType;
+  content: string;
+  settings?: {
+    width?: number;
+    height?: number;
+    flipX?: boolean;
+    flipY?: boolean;
+    aspectRatio?: boolean;
+    questionId?: string;
+  };
 }
 
 export interface VerificationRequest {
@@ -387,3 +405,19 @@ export interface FeedbackItem {
   createdAt: string;
   At: string; // University ID/code
 }
+
+export interface McpAgentToken {
+  id: string;
+  token?: string;
+  tokenHash?: string;
+  tokenPrefix: string;
+  name: string;
+  university: string;
+  adminUid: string;
+  adminEmail: string;
+  level: string;
+  status: 'active' | 'revoked';
+  createdAt: string;
+  lastUsedAt?: string | null;
+}
+

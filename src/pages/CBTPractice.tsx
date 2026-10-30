@@ -23,6 +23,7 @@ import { useTitle } from '../hooks/useTitle';
 import { ScientificCalculator } from '../components/ScientificCalculator';
 import { AIAssistant } from '../components/AIAssistant';
 import { SafeMathRenderer, prepareMarkdownMath } from '../components/SafeMathRenderer';
+import { customPlxComponents } from '../components/MathMarkdown';
 
 import { getFilteredCoursesForStudent } from '../lib/courseFilter';
 
@@ -350,7 +351,11 @@ export default function CBTPractice() {
                       <div className={`p-3 rounded-lg flex items-center gap-3 ${userAnswers[q.id] === q.correctAnswer ? "bg-green-50 text-green-700 dark:bg-green-900/20 dark:text-green-400" : "bg-red-50 text-red-700 dark:bg-red-900/20 dark:text-red-400"}`}>
                         <div className="font-bold shrink-0">Your Choice:</div>
                         <div className="prose dark:prose-invert max-w-none text-current">
-                          <ReactMarkdown remarkPlugins={[remarkMath, remarkGfm]} rehypePlugins={[rehypeRaw, [rehypeKatex, { throwOnError: false, strict: false, errorColor: 'inherit' }]]}>
+                          <ReactMarkdown
+                            remarkPlugins={[remarkMath, remarkGfm]}
+                            rehypePlugins={[rehypeRaw, [rehypeKatex, { throwOnError: false, strict: false, errorColor: 'inherit' }]]}
+                            components={customPlxComponents}
+                          >
                             {prepareMarkdownMath(userAnswers[q.id] || 'Not answered')}
                           </ReactMarkdown>
                         </div>
@@ -359,7 +364,11 @@ export default function CBTPractice() {
                         <div className="p-3 rounded-lg bg-green-50 text-green-700 dark:bg-green-900/20 dark:text-green-400 flex items-center gap-3">
                           <div className="font-bold shrink-0">Correct:</div>
                           <div className="prose dark:prose-invert max-w-none text-current">
-                            <ReactMarkdown remarkPlugins={[remarkMath, remarkGfm]} rehypePlugins={[rehypeRaw, [rehypeKatex, { throwOnError: false, strict: false, errorColor: 'inherit' }]]}>
+                            <ReactMarkdown
+                              remarkPlugins={[remarkMath, remarkGfm]}
+                              rehypePlugins={[rehypeRaw, [rehypeKatex, { throwOnError: false, strict: false, errorColor: 'inherit' }]]}
+                              components={customPlxComponents}
+                            >
                               {prepareMarkdownMath(q.correctAnswer)}
                             </ReactMarkdown>
                           </div>
@@ -370,7 +379,11 @@ export default function CBTPractice() {
                       <div className="mt-2 p-4 bg-muted/30 rounded-lg text-sm italic border-l-2 border-primary/30">
                         <div className="prose dark:prose-invert max-w-none text-muted-foreground">
                           <strong className="not-italic text-foreground block mb-1">Explanation:</strong>
-                          <ReactMarkdown remarkPlugins={[remarkMath, remarkGfm]} rehypePlugins={[rehypeRaw, [rehypeKatex, { throwOnError: false, strict: false, errorColor: 'inherit' }]]}>
+                          <ReactMarkdown
+                            remarkPlugins={[remarkMath, remarkGfm]}
+                            rehypePlugins={[rehypeRaw, [rehypeKatex, { throwOnError: false, strict: false, errorColor: 'inherit' }]]}
+                            components={customPlxComponents}
+                          >
                             {prepareMarkdownMath(q.explanation)}
                           </ReactMarkdown>
                         </div>
@@ -461,7 +474,11 @@ export default function CBTPractice() {
             <CardHeader className="pb-8">
               <div className="prose dark:prose-invert max-w-none text-2xl leading-relaxed">
                 <div className="py-4">
-                  <ReactMarkdown remarkPlugins={[remarkMath, remarkGfm]} rehypePlugins={[rehypeRaw, [rehypeKatex, { throwOnError: false, strict: false, errorColor: 'inherit' }]]}>
+                  <ReactMarkdown
+                    remarkPlugins={[remarkMath, remarkGfm]}
+                    rehypePlugins={[rehypeRaw, [rehypeKatex, { throwOnError: false, strict: false, errorColor: 'inherit' }]]}
+                    components={customPlxComponents}
+                  >
                     {prepareMarkdownMath(currentQuestion.text || (currentQuestion as any).question || '')}
                   </ReactMarkdown>
                 </div>
@@ -486,7 +503,11 @@ export default function CBTPractice() {
                     {optionLabels[idx]}
                   </span>
                   <span className="font-semibold text-lg flex-1">
-                    <ReactMarkdown remarkPlugins={[remarkMath, remarkGfm]} rehypePlugins={[rehypeRaw, [rehypeKatex, { throwOnError: false, strict: false, errorColor: 'inherit' }]]}>
+                    <ReactMarkdown
+                      remarkPlugins={[remarkMath, remarkGfm]}
+                      rehypePlugins={[rehypeRaw, [rehypeKatex, { throwOnError: false, strict: false, errorColor: 'inherit' }]]}
+                      components={customPlxComponents}
+                    >
                       {prepareMarkdownMath(option)}
                     </ReactMarkdown>
                   </span>

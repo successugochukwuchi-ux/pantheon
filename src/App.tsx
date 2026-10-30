@@ -1,11 +1,10 @@
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
-import { useEffect } from 'react';
+import { useEffect, lazy, Suspense } from 'react';
 import { AuthProvider } from './contexts/AuthContext';
 import { ThemeProvider } from './contexts/ThemeContext';
 import { Layout } from './components/Layout';
 import { ProtectedRoute } from './components/ProtectedRoute';
 import { Toaster } from './components/ui/sonner';
-import { MathJaxContext } from 'better-react-mathjax';
 import { TooltipProvider } from './components/ui/tooltip';
 import { FluxProvider } from './contexts/FluxContext';
 
@@ -25,13 +24,10 @@ import PublicProfile from './pages/PublicProfile';
 import SearchResults from './pages/SearchResults';
 import Settings from './pages/Settings';
 import Feedback from './pages/Feedback';
-import AdminPanel from './pages/AdminPanel';
 import Banned from './pages/Banned';
 import News from './pages/News';
 import Friends from './pages/Friends';
-import Compete from './pages/Compete';
 import PastQuestions from './pages/PastQuestions';
-import VideoLibrary from './pages/VideoLibrary';
 import Chat from './pages/Chat';
 import PrivacyPolicy from './pages/PrivacyPolicy';
 import TermsOfService from './pages/TermsOfService';
@@ -40,13 +36,32 @@ import StudyTimetable from './pages/StudyTimetable';
 import Onboarding from './pages/Onboarding';
 
 import { MaintenanceGuard } from './components/MaintenanceGuard';
-import Diagnostic from './pages/Diagnostic';
 import FluxDashboard from './pages/flux/FluxDashboard';
-import FluxAdmin from './pages/flux/FluxAdmin';
 import FluxBrowse from './pages/flux/FluxBrowse';
 import FluxTracks from './pages/flux/FluxTracks';
 import FluxPortfolio from './pages/flux/FluxPortfolio';
 import { FluxGuard } from './components/FluxGuard';
+
+// Lazy-load heavy administrative and non-critical modules to accelerate initial app load
+const AdminPanel = lazy(() => import('./pages/AdminPanel'));
+const FluxAdmin = lazy(() => import('./pages/flux/FluxAdmin'));
+const Diagnostic = lazy(() => import('./pages/Diagnostic'));
+const VideoLibrary = lazy(() => import('./pages/VideoLibrary'));
+const Compete = lazy(() => import('./pages/Compete'));
+
+const PageLoadingFallback = () => (
+  <div className="flex min-h-screen items-center justify-center bg-background text-foreground p-4">
+    <div className="flex flex-col items-center gap-4 text-center max-w-sm">
+      <div className="relative flex items-center justify-center h-16 w-16 rounded-2xl bg-primary/10 border border-primary/20 shadow-lg">
+        <div className="h-8 w-8 animate-spin rounded-full border-3 border-primary border-t-transparent" />
+      </div>
+      <div className="space-y-1">
+        <h3 className="font-bold text-lg tracking-tight">CoLearn</h3>
+        <p className="text-xs text-muted-foreground animate-pulse">Loading study environment...</p>
+      </div>
+    </div>
+  </div>
+);
 
 export default function App() {
   console.log("[COLEARN] App Rendering. URL:", window.location.pathname);
@@ -86,27 +101,15 @@ export default function App() {
     };
   }, []);
 
-  const mathJaxConfig = {
-    loader: { load: ["[tex]/mhchem", "[tex]/physics"] },
-    tex: {
-      packages: { "[+]": ["mhchem", "physics"] },
-      inlineMath: [["$", "$"], ["\\(", "\\)"]],
-      displayMath: [["$$", "$$"], ["\\[", "\\]"]],
-      macros: {
-        degree: "^{\\circ}"
-      }
-    }
-  };
-
   return (
     <ThemeProvider>
       <AuthProvider>
         <Router>
           <FluxProvider>
-            <MathJaxContext config={mathJaxConfig}>
-              <TooltipProvider>
-                <MaintenanceGuard>
-                  <Toaster position="top-center" />
+            <TooltipProvider>
+              <MaintenanceGuard>
+                <Toaster position="top-center" />
+                <Suspense fallback={<PageLoadingFallback />}>
                   <Routes>
                     {/* Public Routes */}
                     <Route path="/" element={<Landing />} />
@@ -357,12 +360,13 @@ export default function App() {
 
                     <Route path="*" element={<Navigate to="/" replace />} />
                   </Routes>
-                </MaintenanceGuard>
-              </TooltipProvider>
-            </MathJaxContext>
+                </Suspense>
+              </MaintenanceGuard>
+            </TooltipProvider>
           </FluxProvider>
         </Router>
       </AuthProvider>
     </ThemeProvider>
   );
 }
+

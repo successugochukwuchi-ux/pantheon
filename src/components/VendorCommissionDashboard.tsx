@@ -133,7 +133,7 @@ export default function VendorCommissionDashboard({
     };
   }, [showCheckoutModal, activeOrder]);
 
-  // Polling order status every 4 seconds while checkout modal is open
+  // Polling order status every 2 seconds while checkout modal is open
   useEffect(() => {
     let pollInterval: any = null;
     if (showCheckoutModal && activeOrder && activeOrder.status === 'PENDING') {
@@ -150,7 +150,7 @@ export default function VendorCommissionDashboard({
         } catch (err) {
           // ignore transient poll errors
         }
-      }, 4000);
+      }, 2000);
     }
     return () => {
       if (pollInterval) clearInterval(pollInterval);
@@ -218,12 +218,14 @@ export default function VendorCommissionDashboard({
     if (!activeOrder) return;
     setOrderPolling(true);
     try {
+      // Trigger an instant backend IMAP scan right now!
+      await TakanoPayService.triggerScanNow().catch(() => {});
       const res = await TakanoPayService.getOrderStatus(activeOrder.id);
       if (res.success && res.order) {
         if (res.order.status === 'PAID') {
           handleOrderPaid(res.order);
         } else {
-          toast.info("Still waiting for transfer alert. Banks usually take 10-30 seconds to deliver alerts.");
+          toast.info("Scanned inbox! Waiting for your bank network to dispatch the credit alert email.");
         }
       }
     } catch (err: any) {

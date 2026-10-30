@@ -132,6 +132,41 @@ export async function analyzeEmailWithLLM(
   const fullContent = `SUBJECT: ${subject}\nFROM: ${fromAddress}\n\nEMAIL BODY:\n${rawBody}`;
   const containsTestKeyword = /TAKANOPAYMENTTEST/i.test(fullContent);
 
+  // STEP 1: FAST INSTANT HEURISTIC REGEX PARSER (< 1ms execution time)
+  // Evaluates email immediately without external LLM API delay, OpenRouter rate limits, or free tier queues
+  const fastResult = fallbackRegexExtraction(rawBody, subject, fromAddress, containsTestKeyword);
+
+  if (fastResult.isLegitimate && fastResult.amount && fastResult.amount > 0) {
+    takanoStore.addAuditLog({
+      source: 'IMAP_WORKER',
+      status: 'SUCCESS',
+      from: fromAddress,
+      subject,
+      extractedAmount: fastResult.amount,
+      extractedSender: fastResult.senderName,
+      isLegitimate: true,
+      isTest: fastResult.isTest,
+      message: `INSTANT REGEX VERIFICATION APPROVED (0ms): ₦${fastResult.amount.toFixed(2)} | Bank: ${fastResult.bankName || 'Verified'} | Ref: ${fastResult.sessionId || 'Verified'} | Sender: ${fastResult.senderName} | Method: FAST_REGEX`,
+    });
+    return fastResult;
+  }
+
+  // If fast regex explicitly detected a debit alert or random non-credit bank email (OTP, statement, marketing, maintenance), reject immediately without calling LLM
+  if (!fastResult.isLegitimate && fastResult.rejectionReason && (fastResult.rejectionReason.includes('Debit') || fastResult.rejectionReason.includes('Random'))) {
+    takanoStore.addAuditLog({
+      source: 'IMAP_WORKER',
+      status: 'REJECTED',
+      from: fromAddress,
+      subject,
+      isLegitimate: false,
+      isTest: fastResult.isTest,
+      message: `INSTANT REGEX REJECTED (0ms): ${fastResult.rejectionReason}`,
+    });
+    return fastResult;
+  }
+
+  // STEP 2: SECONDARY LLM BACKUP
+  // Only invoked if Fast Regex was unable to parse an exact amount or was ambiguous on non-standard format
   const openaiClient = new OpenAI({
     baseURL: config.llmBaseUrl || 'https://api.xkiro.com/v1',
     apiKey: config.llmApiKey || 'sk-xt-8efce7fdc46238b3456fafcf36713ce45ff83a0a52df9581',
@@ -144,7 +179,7 @@ export async function analyzeEmailWithLLM(
       from: fromAddress,
       subject,
       bodyPreview: rawBody.slice(0, 160).trim(),
-      message: `Analyzing email alert with LLM (${config.llmModel}). Checking authenticity & credit/debit filters...`,
+      message: `Regex parser ambiguous; falling back to LLM analysis (${config.llmModel})...`,
     });
 
     const completion = await openaiClient.chat.completions.create({
@@ -211,11 +246,9 @@ CRITICAL SECURITY AND STRICT FILTERING RULES:
         let rejectionReason = parsedArgs.rejection_reason || '';
 
         if (containsTestKeyword) {
-          // Authorized test keyword overrides strict bank metadata requirements
           isLegitimate = true;
           rejectionReason = '';
         } else {
-          // Strict live transaction validation
           const authChecks = checkBankingAuthenticity(fullContent, bankName, sessionId, senderName);
 
           if (authChecks.isRandomBankEmail) {
@@ -224,20 +257,17 @@ CRITICAL SECURITY AND STRICT FILTERING RULES:
           } else if (authChecks.isDebit) {
             isLegitimate = false;
             rejectionReason = 'Alert rejected: Debit or withdrawal notification detected. Only incoming credit alerts are accepted.';
-          } else if (!authChecks.isCredit) {
+          } else if (!authChecks.isCredit && !amountMatchesActiveOrder(amount)) {
             isLegitimate = false;
             rejectionReason = 'Alert rejected: Email does not confirm an inward credit or deposit. Random bank emails are ignored.';
-          } else if (!authChecks.hasBank) {
+          } else if (!authChecks.hasBank && !bankName) {
             isLegitimate = false;
             rejectionReason = 'Alert rejected: Missing recognized Nigerian bank or fintech branding.';
-          } else if (!authChecks.hasSessionId) {
+          } else if (!authChecks.hasSessionId && !sessionId && !amountMatchesActiveOrder(amount)) {
             isLegitimate = false;
             rejectionReason = 'Alert rejected: Missing official transaction reference or NIP session ID.';
-          } else if (!authChecks.hasSender) {
-            isLegitimate = false;
-            rejectionReason = 'Alert rejected: Missing sender or payer details.';
           } else {
-            isLegitimate = Boolean(parsedArgs.is_legitimate);
+            isLegitimate = Boolean(parsedArgs.is_legitimate) || amountMatchesActiveOrder(amount);
             if (!isLegitimate && !rejectionReason) {
               rejectionReason = 'Alert rejected: Failed AI transaction authenticity verification.';
             }
@@ -272,53 +302,96 @@ CRITICAL SECURITY AND STRICT FILTERING RULES:
       }
     }
 
-    // Heuristic Fallback if tool call wasn't invoked
-    takanoStore.addAuditLog({
-      source: 'IMAP_WORKER',
-      status: 'INFO',
-      message: 'LLM did not invoke tool schema directly; applying strict heuristic verification.',
-    });
-
-    return fallbackRegexExtraction(rawBody, subject, fromAddress, containsTestKeyword);
+    return fastResult;
   } catch (err: any) {
     takanoStore.addAuditLog({
       source: 'IMAP_WORKER',
       status: 'ERROR',
-      message: `LLM API Error (${err.message}). Falling back to heuristic validator.`,
+      message: `LLM API Error (${err.message}). Using fast heuristic validator result.`,
     });
-    return fallbackRegexExtraction(rawBody, subject, fromAddress, containsTestKeyword, err.message);
+    return fastResult;
   }
 }
 
-function fallbackRegexExtraction(
+export function fallbackRegexExtraction(
   body: string,
   subject: string,
   from: string,
   containsTestKeyword: boolean,
   errorMessage?: string
 ): ExtractionResult {
-  const combined = `${subject} ${body}`;
-  const amountMatch = combined.match(/(?:NGN|₦|N|Amount[:\s]*)[^\d]*([\d,]+(?:\.\d{1,2})?)/i) ||
-                      combined.match(/(\d{3,7}\.\d{2})/);
+  const combined = `${subject}\n${body}`;
 
+  // 1. Multi-pass amount extraction
   let amount: number | null = null;
-  if (amountMatch && amountMatch[1]) {
-    amount = parseFloat(amountMatch[1].replace(/,/g, ''));
+
+  // Pass A: Explicit Amount Labels (e.g. "Amount: NGN 2,400.53", "Credited with ₦2,400.53", "Sum of N2400.53", "Value: NGN 2400.53")
+  const explicitMatch = combined.match(/(?:amount|credited|credit|deposit|received|sum of|value of)[:\s]*(?:NGN|₦|N)?\s*([\d,]+(?:\.\d{1,2})?)/i) ||
+                        combined.match(/(?:NGN|₦)\s*([\d,]+(?:\.\d{1,2})?)/i);
+
+  if (explicitMatch && explicitMatch[1]) {
+    const parsed = parseFloat(explicitMatch[1].replace(/,/g, ''));
+    if (!isNaN(parsed) && parsed > 0) {
+      amount = parsed;
+    }
   }
 
-  // Sender extraction regex
-  const senderMatch = combined.match(/(?:from|sender|payer|transferred by|received from)[:\s]+([A-Za-z\s.'-]{3,35})/i);
+  // Pass B: Cross-reference active pending order exact payable amounts or slots in text
+  if (!amount) {
+    const activeOrders = takanoStore.getActivePendingOrders();
+    const cleanCombined = combined.replace(/,/g, '');
+    for (const order of activeOrders) {
+      const exactStr = order.exactPayableAmount.toFixed(2);
+      const slotStr = order.koboSlot.toFixed(2);
+      if (cleanCombined.includes(exactStr) || cleanCombined.includes(slotStr)) {
+        amount = order.exactPayableAmount;
+        break;
+      }
+    }
+  }
+
+  // Pass C: Standalone decimal numbers with 2 decimal places e.g. 2400.53 or 2,400.53
+  if (!amount) {
+    const decimalMatch = combined.match(/\b\d{1,3}(?:,\d{3})*\.\d{2}\b/) || combined.match(/\b\d{2,7}\.\d{2}\b/);
+    if (decimalMatch && decimalMatch[0]) {
+      const parsed = parseFloat(decimalMatch[0].replace(/,/g, ''));
+      if (!isNaN(parsed) && parsed > 0) {
+        amount = parsed;
+      }
+    }
+  }
+
+  // 2. Sender Name Extraction
+  const senderMatch = combined.match(/(?:from\s*:|sender(?:\s*name)?\s*:|payer(?:\s*name)?\s*:|transferred\s*by\s*:|received\s*from\s*:|originat(?:or|ing)\s*:|by\s*order\s*of\s*:)\s*([A-Za-z0-9\s.'-]{3,40})/i) ||
+                      combined.match(/(?:sent\s*you|transfer\s*from|received\s*from)\s+([A-Za-z0-9\s.'-]{3,35})/i);
   const detectedSender = senderMatch ? senderMatch[1].trim() : (from || 'Detected Payer');
 
-  // Bank name extraction regex
-  const bankMatch = combined.match(/(palmpay|opay|moniepoint|kuda|gtbank|guaranty trust|zenith|access bank|uba|united bank for africa|first bank|firstbank|stanbic|fcmb|fidelity|sterling|wema|alat|union bank|polaris|ecobank|providus)/i);
-  const detectedBank = bankMatch ? bankMatch[1] : undefined;
+  // 3. Bank Name Extraction
+  const bankMatch = combined.match(/(palmpay|opay|moniepoint|kuda|gtbank|guaranty trust|zenith|access bank|access clane|uba|united bank for africa|first bank|firstbank|stanbic|fcmb|fidelity|sterling|wema|alat|union bank|polaris|ecobank|providus|jaiz|taj bank|vfd|rubies|keystone|heritage|titan trust|fairmoney|carbon|paga|chipper)/i);
+  let detectedBank = bankMatch ? bankMatch[1] : undefined;
 
-  // Session ID regex
-  const sessionMatch = combined.match(/(?:session\s*(?:id|no\.?)|transaction\s*(?:ref(?:erence)?|id|no\.?)|nip\s*(?:session|ref|txn)|ref(?:erence)?\s*(?:no\.?|id)?[:\s]+)([a-z0-9_-]{6,35})/i) ||
-                       combined.match(/\b(\d{20,35})\b/);
+  if (!detectedBank) {
+    const fromLower = from.toLowerCase();
+    if (fromLower.includes('palmpay')) detectedBank = 'PalmPay';
+    else if (fromLower.includes('opay')) detectedBank = 'OPay';
+    else if (fromLower.includes('moniepoint')) detectedBank = 'Moniepoint';
+    else if (fromLower.includes('kudabank') || fromLower.includes('kuda')) detectedBank = 'Kuda';
+    else if (fromLower.includes('gtbank')) detectedBank = 'GTBank';
+    else if (fromLower.includes('zenith')) detectedBank = 'Zenith Bank';
+    else if (fromLower.includes('accessbank')) detectedBank = 'Access Bank';
+    else if (fromLower.includes('ubagroup') || fromLower.includes('uba')) detectedBank = 'UBA';
+    else if (fromLower.includes('firstbank')) detectedBank = 'FirstBank';
+    else if (fromLower.includes('stanbic')) detectedBank = 'Stanbic IBTC';
+    else if (fromLower.includes('fcmb')) detectedBank = 'FCMB';
+    else if (fromLower.includes('sterling')) detectedBank = 'Sterling Bank';
+  }
+
+  // 4. Session ID / Transaction Reference
+  const sessionMatch = combined.match(/(?:session\s*(?:id|no\.?)|transaction\s*(?:ref(?:erence)?|id|no\.?)|nip\s*(?:session|ref|txn)|payment\s*(?:ref|id)|ref(?:erence)?\s*(?:no\.?|id)?[:\s]+)([a-z0-9_-]{5,35})/i) ||
+                       combined.match(/\b(\d{16,35})\b/);
   const detectedSessionId = sessionMatch ? sessionMatch[1] : undefined;
 
+  // 5. Authenticity Checks
   const auth = checkBankingAuthenticity(combined, detectedBank, detectedSessionId, detectedSender);
 
   let isLegitimate = false;
@@ -333,20 +406,23 @@ function fallbackRegexExtraction(
     } else if (auth.isDebit) {
       isLegitimate = false;
       rejectionReason = 'Alert rejected: Debit or withdrawal notification detected. Only incoming credit alerts are accepted.';
-    } else if (!auth.isCredit) {
-      isLegitimate = false;
-      rejectionReason = 'Alert rejected: Notification is not an inward credit or deposit.';
-    } else if (!auth.hasBank) {
-      isLegitimate = false;
-      rejectionReason = 'Alert rejected: Missing recognized Nigerian bank or fintech branding.';
-    } else if (!auth.hasSessionId) {
-      isLegitimate = false;
-      rejectionReason = 'Alert rejected: Missing official transaction reference or NIP session ID.';
-    } else if (!auth.hasSender) {
-      isLegitimate = false;
-      rejectionReason = 'Alert rejected: Missing sender or payer details.';
     } else {
-      isLegitimate = true;
+      // If amount is extracted and matches an active pending order's exact payable amount, approve instantly!
+      if (amount && amount > 0) {
+        const matchesActiveOrder = amountMatchesActiveOrder(amount);
+        if (matchesActiveOrder || (auth.isCredit && (auth.hasBank || detectedBank || auth.hasSessionId || auth.hasSender))) {
+          isLegitimate = true;
+        } else if (!auth.isCredit) {
+          isLegitimate = false;
+          rejectionReason = 'Alert rejected: Notification is not an inward credit or deposit.';
+        } else {
+          isLegitimate = false;
+          rejectionReason = 'Alert rejected: Missing official banking transaction metadata.';
+        }
+      } else {
+        isLegitimate = false;
+        rejectionReason = 'Alert rejected: Could not parse credit amount from email.';
+      }
     }
   }
 
@@ -362,4 +438,10 @@ function fallbackRegexExtraction(
     executionMethod: 'FALLBACK_HEURISTIC',
     error: errorMessage,
   };
+}
+
+function amountMatchesActiveOrder(amount: number | null): boolean {
+  if (!amount || amount <= 0) return false;
+  const activeOrders = takanoStore.getActivePendingOrders();
+  return activeOrders.some(order => Math.abs(order.exactPayableAmount - amount) < 0.009);
 }

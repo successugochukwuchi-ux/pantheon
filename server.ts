@@ -65,6 +65,7 @@ async function startServer() {
     try {
       const config = await takanoStore.loadConfig();
       const retailPrices = await takanoStore.getRetailPrices();
+      const workerStatus = emailWorker.getStatus();
       res.json({
         success: true,
         bankName: config.bankName,
@@ -72,6 +73,9 @@ async function startServer() {
         accountName: config.accountName,
         renderBackendUrl: config.renderBackendUrl,
         scannerEnabled: config.scannerEnabled,
+        scannerStatus: workerStatus.mode,
+        isActivelyScanning: workerStatus.isActivelyScanning,
+        activePendingCount: workerStatus.activePendingCount,
         retailPrices,
         wholesaleTiers: {
           tier1To4Percent: 60,
@@ -163,7 +167,7 @@ async function startServer() {
   // 7. POST /api/takano/scan-now - Trigger an immediate IMAP scan
   app.post("/api/takano/scan-now", async (req, res) => {
     try {
-      const result = await emailWorker.scanOnce();
+      const result = await emailWorker.scanOnce({ force: true });
       res.json({ success: true, result });
     } catch (err: any) {
       res.status(500).json({ success: false, error: err.message });

@@ -603,7 +603,11 @@ export default function Settings() {
             <div className="flex flex-col gap-1">
               <span className="text-xs text-muted-foreground uppercase font-semibold">Activation Status</span>
               <span className={`font-bold text-lg ${profile?.isActivated ? 'text-green-500' : 'text-red-500'}`}>
-                {profile?.isActivated ? 'Activated' : 'Not Activated'}
+                {profile?.isActivated 
+                  ? (profile?.level === '3' 
+                      ? `Activated (${profile?.remainingsemesters ?? profile?.remainingSemesters ?? 1} Semester${(profile?.remainingsemesters ?? profile?.remainingSemesters ?? 1) > 1 ? 's' : ''})` 
+                      : 'Activated') 
+                  : 'Not Activated'}
               </span>
             </div>
             <div className="flex flex-col gap-1">

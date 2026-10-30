@@ -1,5 +1,6 @@
 import { initializeApp, getApps, getApp } from 'firebase/app';
 import { getFirestore } from 'firebase/firestore';
+import { getAuth, signInAnonymously } from 'firebase/auth';
 import fs from 'fs';
 import path from 'path';
 // Locate firebase-applet-config.json safely in both CJS bundle and TSX/ESM dev
@@ -26,3 +27,10 @@ try {
 
 const serverApp = getApps().find(a => a.name === 'server-app') || initializeApp(firebaseConfig, 'server-app');
 export const serverDb = getFirestore(serverApp);
+export const serverAuth = getAuth(serverApp);
+
+// Initialize server session so serverDb operations have an authenticated context
+signInAnonymously(serverAuth).catch(err => {
+  console.warn('[FirebaseServer] Anonymous auth notice:', err?.message || err);
+});
+

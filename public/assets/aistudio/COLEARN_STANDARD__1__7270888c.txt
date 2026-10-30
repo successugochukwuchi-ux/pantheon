@@ -1,0 +1,133 @@
+[COLEARN NOTE STANDARD - PLX v4.0]
+
+PLX (Pillara Extensible) uses a structured HTML-style syntax. 
+AI models understand this tags-based format much better than brackets.
+
+CRITICAL: USE PROPER INDENTATION
+Indentation is essential for clarity. Sub-elements and content inside tags should be clearly indented.
+Use 2 spaces per indentation level.
+
+[SUPPORTED TAGS]:
+
+<PLX>
+  All content must be wrapped in a root <PLX> tag.
+</PLX>
+
+<H1>
+  Main Title of the Note
+</H1>
+
+<H2>
+  Sub-header or Section Title
+</H2>
+
+<TEXT>
+  This is a regular text block. You can use <B>bold</B>, <I>italics</I>, and <U>underline</U> for emphasis.
+</TEXT>
+
+<B>
+  This entire block will be bolded for extreme emphasis.
+</B>
+
+<I>
+  This entire block will be in italics.
+</I>
+
+<U>
+  This entire block will be underlined.
+</U>
+
+<QUES ="1">
+  Who founded CoLearn?
+  <COR ="Pillara Education 2026">
+  <INC ="Microsoft">
+  <INC ="Google">
+  <INC ="Apple">
+  <EXP ="CoLearn was founded by Pillara Education 2026 to revolutionize learning.">
+</QUES>
+*Note: COR = Correct Answer, INC = Incorrect Answer, EXP = Explanation.
+
+<MATH>
+  Block level LaTeX. Example: \frac{-b \pm \sqrt{b^2-4ac}}{2a}
+</MATH>
+
+<LIST>
+  - Use bullet points
+  - For unordered information
+</LIST>
+
+<ORDERED>
+  1. Use numbers
+  2. For step-by-step processes
+</ORDERED>
+
+<TABLE>
+  Name, Age, Department
+  John Doe, 19, Physics
+  Jane Smith, 21, Engineering
+</TABLE>
+*Note: Tables are CSV-style (comma separated). For fields containing commas, wrap them in double quotes (e.g. "John, Doe", 19) or use pipes "|" to separate fields instead of commas.
+
+<VIDEO>
+  https://www.youtube.com/watch?v=example
+</VIDEO>
+
+<DIAGRAM>
+  Use mermaid or text-based diagrams here.
+</DIAGRAM>
+
+[INLINE LATEX]:
+You can use inline LaTeX inside any text-based tag (H1, H2, LIST, QUES etc.) by wrapping it in dollar signs.
+Example: The area of a circle is $A = \pi r^2$ where $r$ is radius.
+
+[LANGUAGE ACCENTS & INTU-SHORTHAND COMPLIANCE]:
+When writing language content with diacritics, tonals, or subdots (Igbo, Yoruba, French, Spanish, etc.), maintain 100% precision. The platform's interpreter translates raw Unicode and automatically compiles keyboard-friendly shorthand codes embedded in the notes into standard high-fidelity diacritics:
+
+1. Subdots / Underdots (Igbo/Yoruba):
+   - o. / O. -> ọ / Ọ
+   - u. / U. -> ụ / Ụ
+   - i. / I. -> ị / Ị
+   - e. / E. -> ẹ / Ẹ
+   - s. / S. -> ṣ / Ṣ
+   - n. / N. -> ṅ / Ṅ
+
+2. Vowel Accent & Tonals (Igbo/Yoruba High & Low tones):
+   - High tone over subdot:
+     * o.' / ọ' -> ọ́
+     * u.' / ụ' -> ụ́
+     * i.' / ị' -> ị́
+     * e.' / ẹ' -> ẹ́
+     * O.' / Ọ' -> Ọ́
+   - Low tone over subdot:
+     * o.` / ọ` -> ọ̀
+     * u.` / ụ` -> ụ̀
+     * i.` / ị` -> ị̀
+     * e.` / ẹ` -> ẹ̀
+     * O.` / Ọ` -> Ọ̀
+   - Mid tone / macron over subdot:
+     * o.- / ọ- -> ọ̄
+     * e.- / ẹ- -> ẹ̄
+   - Standard Tonal/Accent Shortcuts:
+     * High tone (Acute): a' -> á, e' -> é, i' -> í, o' -> ó, u' -> ú, m' -> ḿ, n' -> ń
+     * Low tone (Grave): a` -> à, e` -> è, i` -> ì, o` -> ò, u` -> ù
+     * Mid/macron: a- -> ā, e- -> ē, i- -> ī, o- -> ō, u- -> ū, m- -> m̄, n- -> n̄
+
+3. European Diacritics:
+   - French Cedilla: c, / C, -> ç / Ç
+   - French/Spanish Circumflex: a^ -> â, e^ -> ê, i^ -> î, o^ -> ô, u^ -> û
+   - Umlaut (Diaeresis): e: -> ë, i: -> ï, u: -> ü
+   - Tilde: n~ -> ñ
+
+[AI PROMPT STRATEGY]:
+1. "Analyze the provided technical/lecture content."
+2. "Convert it into a valid CoLearn PLX document wrapped in <PLX> tags using <TAG>... </TAG> syntax internally."
+3. "Always start with <PLX> and end with </PLX>."
+4. "Keep 100% structural fidelity of language marks, using the correct native Unicode values OR compiling them via the intuitive [LANGUAGE ACCENTS & INTU-SHORTHAND COMPLIANCE] rules (e.g., writing 'pẹ̀lẹ́' or 'pẹ.`lẹ.'' so the platform compiles them perfectly)."
+5. "Use <QUES ="#"> for any testable questions found in the material."
+6. "Use CSV format for Tables (Heading1, Heading2 followed by data rows)."
+7. "Use $...$ for equations that appear inside sentences."
+8. "Maintain strict 2-space indentation inside all container tags."
+9. "Ensure every opening tag has a matching closing tag."
+
+[SAVE INSTRUCTIONS]:
+Save the final text as a file named "note.plx" (or .txt) then upload it.

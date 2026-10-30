@@ -71,7 +71,16 @@ export function NoteRenderer({
           const attr = match[2] || '';
           let bContent = match[3].trim();
           if (tagName === 'TABLE') {
-            const rows = bContent.split('\n').filter(r => r.trim().length > 0).map(r => r.split(',').map(c => c.trim()));
+            const rows = bContent.split('\n').filter(r => r.trim().length > 0).map(r => {
+              const trimmed = r.trim();
+              if (trimmed.includes('|')) {
+                let cleaned = trimmed;
+                if (cleaned.startsWith('|')) cleaned = cleaned.slice(1);
+                if (cleaned.endsWith('|')) cleaned = cleaned.slice(0, -1);
+                return cleaned.split('|').map(c => c.trim());
+              }
+              return trimmed.split(',').map(c => c.trim());
+            }).filter(row => row.length > 0 && !row.every(cell => /^[|-:\s]+$/.test(cell)));
             resultBlocks.push({ id: String(idx++), type: 'table', content: JSON.stringify(rows) });
           } else if (tagName === 'QUES') {
             const corMatch = /<COR(?:\s*=\s*"([^"]*)"|\s*=\s*([^>\s]+))?\s*>/i.exec(bContent);
@@ -108,6 +117,44 @@ export function NoteRenderer({
         }
         if (resultBlocks.length > 0) return resultBlocks;
       }
+
+      // Fallback: If content contains markdown headings (# or ##), split into structured blocks
+      if (/#+\s+[^\n]+/.test(content)) {
+        const lines = content.split('\n');
+        const mdBlocks: NoteBlock[] = [];
+        let curText: string[] = [];
+        let bIdx = 1;
+
+        const flushText = () => {
+          if (curText.length > 0) {
+            const joined = curText.join('\n').trim();
+            if (joined) {
+              mdBlocks.push({ id: String(bIdx++), type: 'text', content: joined });
+            }
+            curText = [];
+          }
+        };
+
+        for (let i = 0; i < lines.length; i++) {
+          const line = lines[i];
+          const trimmed = line.trim();
+          if (trimmed.startsWith('# ')) {
+            flushText();
+            mdBlocks.push({ id: String(bIdx++), type: 'h1', content: trimmed.replace(/^#\s+/, '') });
+          } else if (trimmed.startsWith('## ')) {
+            flushText();
+            mdBlocks.push({ id: String(bIdx++), type: 'h2', content: trimmed.replace(/^##\s+/, '') });
+          } else if (trimmed.startsWith('### ')) {
+            flushText();
+            mdBlocks.push({ id: String(bIdx++), type: 'h2', content: trimmed.replace(/^###\s+/, '') });
+          } else {
+            curText.push(line);
+          }
+        }
+        flushText();
+        if (mdBlocks.length > 0) return mdBlocks;
+      }
+
       return [{ id: '1', type: 'text', content: content }];
     }
   }, [content]);

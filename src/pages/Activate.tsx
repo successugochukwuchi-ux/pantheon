@@ -61,10 +61,18 @@ export default function Activate() {
         isActive: !isPromoEnded
       });
 
-      batch.update(doc(db, 'users', user.uid), {
+      const isVendorAccount = profile?.level === '3';
+      const promoUserPayload: any = {
         isActivated: true,
         activatedViaPromo: true
-      });
+      };
+      if (isVendorAccount) {
+        promoUserPayload.level = '3';
+        promoUserPayload.remainingsemesters = 1;
+        promoUserPayload.remainingSemesters = 1;
+      }
+
+      batch.update(doc(db, 'users', user.uid), promoUserPayload);
 
       await batch.commit();
 
@@ -184,10 +192,20 @@ export default function Activate() {
       // Activate user
       const userPath = `users/${user!.uid}`;
       try {
+        const isVendorAccount = profile?.level === '3';
+        const isPlusPin = pinData.type === 'plus';
+
         const updateData: any = {
           isActivated: true,
-          level: pinData.type === 'plus' ? '2' : '1'
+          level: isVendorAccount ? '3' : (isPlusPin ? '2' : '1')
         };
+
+        if (isVendorAccount) {
+          const semestersToAdd = isPlusPin ? 2 : 1;
+          updateData.remainingsemesters = semestersToAdd;
+          updateData.remainingSemesters = semestersToAdd;
+        }
+
         await updateDoc(doc(db, 'users', user!.uid), updateData);
       } catch (error) {
         handleFirestoreError(error, OperationType.UPDATE, userPath);

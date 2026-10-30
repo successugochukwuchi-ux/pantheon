@@ -62,7 +62,8 @@ import {
   ArrowDownLeft,
   Undo2,
   ShieldAlert,
-  Package
+  Package,
+  Bot
 } from 'lucide-react';
 import { Course, UserLevel, Semester, Note, Question, ActivationCode, VerificationRequest, QuestionSheet, VideoQuestion, NotificationTarget, Announcement, TelegramConfig, AIConfig, NewsItem, LendingSettlement } from '../types';
 import { sendTelegramAlert, testTelegramConnection } from '../services/telegramService';
@@ -79,6 +80,7 @@ import AdminMobileControl from '../components/AdminMobileControl';
 import { AdminBackup } from '../components/AdminBackup';
 import { VideoWorkshop } from '../components/VideoWorkshop';
 import { AdminFeedback } from '../components/admin/AdminFeedback';
+import { AdminMcp } from '../components/admin/AdminMcp';
 import VendorCommissionDashboard from '../components/VendorCommissionDashboard';
 import { CloudinaryUpload } from '../components/CloudinaryUpload';
 import ReactMarkdown from 'react-markdown';
@@ -88,20 +90,6 @@ import remarkGfm from 'remark-gfm';
 import 'katex/dist/katex.min.css';
 import { prepareMarkdownMath } from '../components/SafeMathRenderer';
 import { DEPARTMENTS } from '../constants/departments';
-import { 
-  BarChart, 
-  Bar, 
-  XAxis, 
-  YAxis, 
-  CartesianGrid, 
-  Tooltip, 
-  ResponsiveContainer, 
-  LineChart, 
-  Line,
-  PieChart,
-  Pie,
-  Cell
-} from 'recharts';
 
 import { 
   Dialog, 
@@ -795,6 +783,10 @@ export default function AdminPanel() {
 
   const handleElevate = async (level: UserLevel) => {
     if (!targetUid) return;
+    if (level === '4' && !isLevel5) {
+      toast.error('Level 4 admins cannot move users to Level 4. Only Level 5 Superadmin can assign Level 4.');
+      return;
+    }
     setLoading(true);
     try {
       const q = query(collection(db, 'users'), where('studentId', '==', targetUid.toString().trim()));
@@ -2190,9 +2182,30 @@ export default function AdminPanel() {
           const level1And3Snap = await getDocs(level1And3Query);
           level1And3Snap.docs.forEach((userDoc) => {
             const data = userDoc.data() as any;
-            if (data.isActivated !== false || data.activatedViaPromo !== false) {
-              batch.update(userDoc.ref, { isActivated: false, activatedViaPromo: false });
-              countDeactivated++;
+            if (data.level === '3') {
+              const currentSemesters = Number(data.remainingsemesters ?? data.remainingSemesters ?? (data.isActivated ? 1 : 0));
+              if (currentSemesters > 1) {
+                batch.update(userDoc.ref, {
+                  remainingsemesters: currentSemesters - 1,
+                  remainingSemesters: currentSemesters - 1,
+                  isActivated: true,
+                  level: '3'
+                });
+              } else {
+                batch.update(userDoc.ref, {
+                  isActivated: false,
+                  activatedViaPromo: false,
+                  remainingsemesters: 0,
+                  remainingSemesters: 0,
+                  level: '3'
+                });
+                countDeactivated++;
+              }
+            } else {
+              if (data.isActivated !== false || data.activatedViaPromo !== false) {
+                batch.update(userDoc.ref, { isActivated: false, activatedViaPromo: false, level: '1' });
+                countDeactivated++;
+              }
             }
           });
 
@@ -2593,6 +2606,7 @@ export default function AdminPanel() {
           { path: '/administrator/users', label: 'Users', icon: Users },
           { path: '/administrator/courses', label: 'Courses', icon: BookPlus },
           { path: '/administrator/notes', label: 'Notes', icon: FileText },
+          { path: '/administrator/mcp', label: 'MCP Agents', icon: Bot, badge: 'MCP' },
           { path: '/administrator/news', label: 'News', icon: Newspaper },
           { path: '/administrator/pins', label: isLevel4 ? 'Activation PINs' : 'Vendor Dashboard', icon: Key },
         ]
@@ -2770,6 +2784,7 @@ export default function AdminPanel() {
             : <AdminOverview courses={courses} notes={notes} questions={questions} unusedPins={unusedPins} usedPins={usedPins} stats={stats} questionSheets={questionSheets} />
         } />
         <Route path="/manual" element={<AdminManual />} />
+        <Route path="/mcp" element={isLevel4 ? <AdminMcp userProfile={profile} userEmail={user?.email || profile?.email} isLevel5={isLevel5} university={profile?.At || 'futo'} /> : <Navigate to="/administrator" replace />} />
         <Route path="/discipline" element={<AdminDiscipline />} />
         <Route path="/credentials" element={<AdminCredentials />} />
         <Route path="/feedback" element={isLevel4 ? <AdminFeedback /> : <Navigate to="/administrator" replace />} />
@@ -3185,10 +3200,10 @@ export default function AdminPanel() {
                   <Button onClick={() => handleElevate('1')} variant="outline" disabled={loading || !targetUid}>Level 1</Button>
                   <Button onClick={() => handleElevate('2')} disabled={loading || !targetUid}>Level 2</Button>
                   {isLevel4 && (
-                    <>
-                      <Button onClick={() => handleElevate('3')} variant="outline" disabled={loading || !targetUid}>Level 3</Button>
-                      <Button onClick={() => handleElevate('4')} variant="destructive" disabled={loading || !targetUid}>Level 4</Button>
-                    </>
+                    <Button onClick={() => handleElevate('3')} variant="outline" disabled={loading || !targetUid}>Level 3 (Vendor)</Button>
+                  )}
+                  {isLevel5 && (
+                    <Button onClick={() => handleElevate('4')} variant="destructive" disabled={loading || !targetUid}>Level 4 (Admin)</Button>
                   )}
                 </CardFooter>
               </Card>
@@ -6179,16 +6194,65 @@ function AdminOverview({ courses, notes, questions, unusedPins, usedPins, stats,
             <CardTitle className="text-lg">User Registration Trend</CardTitle>
             <CardDescription>New users joined over the last 7 days.</CardDescription>
           </CardHeader>
-          <CardContent className="h-[300px]">
-            <ResponsiveContainer width="100%" height="100%">
-              <LineChart data={userStats}>
-                <CartesianGrid strokeDasharray="3 3" vertical={false} />
-                <XAxis dataKey="date" fontSize={10} />
-                <YAxis fontSize={10} />
-                <Tooltip />
-                <Line type="monotone" dataKey="count" stroke="#8884d8" strokeWidth={2} />
-              </LineChart>
-            </ResponsiveContainer>
+          <CardContent className="h-[300px] flex items-center justify-center p-2">
+            {userStats.length === 0 ? (
+              <div className="text-center text-sm text-muted-foreground py-12">
+                No user registrations recorded in the last 7 days.
+              </div>
+            ) : (
+              <div className="w-full h-full flex flex-col justify-between">
+                <svg viewBox="0 0 500 220" className="w-full h-[240px] overflow-visible">
+                  <defs>
+                    <linearGradient id="userTrendGrad" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="0%" stopColor="#8884d8" stopOpacity="0.4" />
+                      <stop offset="100%" stopColor="#8884d8" stopOpacity="0.0" />
+                    </linearGradient>
+                  </defs>
+                  {/* Grid Lines */}
+                  {[0, 0.25, 0.5, 0.75, 1].map((pct, idx) => {
+                    const y = 30 + (1 - pct) * 150;
+                    const maxVal = Math.max(...userStats.map(s => s.count), 5);
+                    const labelVal = Math.round(pct * maxVal);
+                    return (
+                      <g key={idx}>
+                        <line x1="45" y1={y} x2="480" y2={y} stroke="currentColor" strokeOpacity="0.1" strokeDasharray="4 4" />
+                        <text x="38" y={y + 4} textAnchor="end" className="text-[10px] fill-muted-foreground" fontSize="10">
+                          {labelVal}
+                        </text>
+                      </g>
+                    );
+                  })}
+                  {(() => {
+                    const maxVal = Math.max(...userStats.map(s => s.count), 5);
+                    const points = userStats.map((item, idx) => {
+                      const x = 55 + (idx / Math.max(userStats.length - 1, 1)) * 415;
+                      const y = 180 - (item.count / maxVal) * 150;
+                      return { x, y, ...item };
+                    });
+                    const pathD = points.reduce((acc, p, idx) => `${acc} ${idx === 0 ? 'M' : 'L'} ${p.x} ${p.y}`, '');
+                    const areaD = `${pathD} L ${points[points.length - 1].x} 180 L ${points[0].x} 180 Z`;
+
+                    return (
+                      <g>
+                        <path d={areaD} fill="url(#userTrendGrad)" />
+                        <path d={pathD} fill="none" stroke="#8884d8" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" />
+                        {points.map((p, idx) => (
+                          <g key={idx} className="group cursor-pointer">
+                            <circle cx={p.x} cy={p.y} r="5" fill="#8884d8" stroke="var(--background, #fff)" strokeWidth="2" className="transition-transform group-hover:scale-125" />
+                            <text x={p.x} y={p.y - 10} textAnchor="middle" className="text-[11px] font-bold fill-foreground" fontSize="11">
+                              {p.count}
+                            </text>
+                            <text x={p.x} y="205" textAnchor="middle" className="text-[9px] fill-muted-foreground" fontSize="9">
+                              {p.date.length > 5 ? p.date.slice(0, 5) : p.date}
+                            </text>
+                          </g>
+                        ))}
+                      </g>
+                    );
+                  })()}
+                </svg>
+              </div>
+            )}
           </CardContent>
         </Card>
 
@@ -6197,25 +6261,49 @@ function AdminOverview({ courses, notes, questions, unusedPins, usedPins, stats,
             <CardTitle className="text-lg">Most Active Courses</CardTitle>
             <CardDescription>Based on CBT practice sessions.</CardDescription>
           </CardHeader>
-          <CardContent className="h-[300px]">
-            <ResponsiveContainer width="100%" height="100%">
-              <PieChart>
-                <Pie
-                  data={cbtStats}
-                  cx="50%"
-                  cy="50%"
-                  innerRadius={60}
-                  outerRadius={80}
-                  paddingAngle={5}
-                  dataKey="value"
-                >
-                  {cbtStats.map((entry, index) => (
-                    <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
-                  ))}
-                </Pie>
-                <Tooltip />
-              </PieChart>
-            </ResponsiveContainer>
+          <CardContent className="h-[300px] flex items-center justify-center p-4">
+            {cbtStats.length === 0 ? (
+              <div className="text-center text-sm text-muted-foreground py-12">
+                No CBT practice session data recorded yet.
+              </div>
+            ) : (
+              <div className="w-full h-full flex flex-col justify-around">
+                {(() => {
+                  const totalSessions = cbtStats.reduce((sum, item) => sum + item.value, 0) || 1;
+                  return (
+                    <div className="space-y-3">
+                      <div className="flex items-center justify-between text-xs text-muted-foreground mb-1">
+                        <span>Top Courses by Practice Runs</span>
+                        <span>{totalSessions} Total Sessions</span>
+                      </div>
+                      {cbtStats.map((item, idx) => {
+                        const color = COLORS[idx % COLORS.length];
+                        const pct = Math.round((item.value / totalSessions) * 100);
+                        return (
+                          <div key={idx} className="space-y-1">
+                            <div className="flex justify-between items-center text-xs">
+                              <span className="font-semibold text-foreground flex items-center gap-1.5">
+                                <span className="inline-block w-2.5 h-2.5 rounded-full" style={{ backgroundColor: color }} />
+                                {item.name}
+                              </span>
+                              <span className="text-muted-foreground font-mono">
+                                {item.value} ({pct}%)
+                              </span>
+                            </div>
+                            <div className="w-full bg-slate-100 dark:bg-slate-800 h-2 rounded-full overflow-hidden">
+                              <div
+                                className="h-full rounded-full transition-all duration-500"
+                                style={{ width: `${pct}%`, backgroundColor: color }}
+                              />
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  );
+                })()}
+              </div>
+            )}
           </CardContent>
         </Card>
       </div>

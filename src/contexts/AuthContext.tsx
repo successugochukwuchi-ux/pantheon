@@ -6,6 +6,8 @@ import { auth, db, handleFirestoreError, OperationType } from '../firebase';
 import { toast } from 'sonner';
 import { UserProfile, SystemConfig, PromoConfig, Semester } from '../types';
 import { getDeviceUUID, getUserDeviceUUID, generateNewDeviceUUID, getWebDeviceName } from '../lib/device';
+import { fetchAdminContactForUniversity, AdminContactInfo } from '../services/adminContactService';
+import { DeviceLimitModal } from '../components/DeviceLimitModal';
 
 interface AuthContextType {
   user: User | null;
@@ -50,6 +52,17 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [isSystemConfigReady, setIsSystemConfigReady] = useState(localStorage.getItem('colearn_system_config') !== null);
   const [isOnline, setIsOnline] = useState(navigator.onLine);
   const [retryCount, setRetryCount] = useState(0);
+
+  const [deviceLimitModal, setDeviceLimitModal] = useState<{
+    isOpen: boolean;
+    adminInfo: AdminContactInfo | null;
+    accountEmail?: string;
+    studentId?: string;
+    semester?: string;
+  }>({
+    isOpen: false,
+    adminInfo: null,
+  });
 
   useEffect(() => {
     const handleOnline = () => setIsOnline(true);
@@ -142,23 +155,59 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   }, []);
 
   useEffect(() => {
-    let unsubscribeProfile: () => void = () => {};
+    const loadingTimer = setTimeout(() => {
+      setLoading(false);
+    }, 3000);
 
-    if (user && systemConfig) {
-      const initSessionAndDevice = async () => {
-        let currentSemester = '1st';
-        if (systemConfig?.currentSemester) {
-          currentSemester = systemConfig.currentSemester;
+    if (!user) {
+      setProfile(null);
+      setLoading(false);
+      return () => clearTimeout(loadingTimer);
+    }
+
+    const path = `users/${user.uid}`;
+    const currentSemester = systemConfig?.currentSemester || '1st';
+
+    // Establish live profile listener immediately to resolve loading state fast
+    const unsubscribeProfile = onSnapshot(doc(db, 'users', user.uid), async (snapshot) => {
+      if (snapshot.exists()) {
+        const data = snapshot.data() as UserProfile;
+        setProfile(data);
+
+        if (user.email === 'successugochukwuchi@gmail.com' && data.level === '1') {
+          updateDoc(doc(db, 'users', user.uid), {
+            level: '4',
+            isActivated: true
+          }).catch(err => console.error("Failed to promote admin:", err));
         }
-
-        // Fetch user document once to verify device slot before starting listener
-        let userSnap;
-        try {
-          userSnap = await getDoc(doc(db, 'users', user.uid));
-        } catch (e) {
-          console.error("Failed to fetch user doc for device verification:", e);
+      } else {
+        setProfile(null);
+        if (user.email === 'successugochukwuchi@gmail.com') {
+          const studentId = Math.floor(10000000000 + Math.random() * 90000000000).toString();
+          const adminData = {
+            uid: user.uid,
+            studentId: studentId,
+            email: user.email,
+            username: 'Admin',
+            level: '4',
+            isActivated: true,
+            referralCount: 0,
+            theme: 'light',
+            createdAt: new Date().toISOString()
+          };
+          setDoc(doc(db, 'users', user.uid), adminData).catch(err => console.error("Failed to create admin profile:", err));
         }
+      }
+      setLoading(false);
+    }, (error) => {
+      setLoading(false);
+      handleFirestoreError(error, OperationType.GET, path);
+    });
 
+    // Asynchronously verify device registration in background
+    const verifyDeviceAsync = async () => {
+      try {
+        const userSnap = await getDoc(doc(db, 'users', user.uid));
         const userData = userSnap?.exists() ? userSnap.data() : {};
         const isLevel5 = userData.level === '5' || user.email === 'successugochukwuchi@gmail.com';
         let devices = userData.devices || [];
@@ -171,9 +220,17 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           const matched = currentDevices.find((d: any) => d.id === deviceId);
           if (!matched) {
             if (!isLevel5 && currentDevices.length >= 2) {
+              const adminInfo = await fetchAdminContactForUniversity(userData.At || 'futo');
+              setDeviceLimitModal({
+                isOpen: true,
+                adminInfo,
+                accountEmail: user.email || userData.email || '',
+                studentId: userData.studentId || '',
+                semester: currentSemester,
+              });
               setProfile(null);
               firebaseSignOut(auth).catch(() => {});
-              toast.error(`Device Limit Reached: Your account has reached the max of 2 devices for the current semester (${currentSemester}). Contact an admin for ${userData.At || 'futo'} to resolve this.`);
+              toast.error(`Device Limit Reached: Max 2 devices for semester (${currentSemester}). Please contact your campus administrator.`);
               return;
             } else {
               const newDevice = {
@@ -192,9 +249,17 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           }
         } else {
           if (!isLevel5 && currentDevices.length >= 2) {
+            const adminInfo = await fetchAdminContactForUniversity(userData.At || 'futo');
+            setDeviceLimitModal({
+              isOpen: true,
+              adminInfo,
+              accountEmail: user.email || userData.email || '',
+              studentId: userData.studentId || '',
+              semester: currentSemester,
+            });
             setProfile(null);
             firebaseSignOut(auth).catch(() => {});
-            toast.error(`Device Limit Reached: Your account has reached the max of 2 devices for the current semester (${currentSemester}). Contact an admin for ${userData.At || 'futo'} to resolve this.`);
+            toast.error(`Device Limit Reached: Max 2 devices for semester (${currentSemester}). Please contact your campus administrator.`);
             return;
           } else {
             deviceId = await generateNewDeviceUUID(user.uid);
@@ -209,65 +274,18 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             await updateDoc(doc(db, 'users', user.uid), { devices: currentDevices }).catch(() => {});
           }
         }
+      } catch (err) {
+        console.error("Device verification error:", err);
+      }
+    };
 
-        const path = `users/${user.uid}`;
-        const activeDeviceId = deviceId;
+    verifyDeviceAsync();
 
-        unsubscribeProfile = onSnapshot(doc(db, 'users', user.uid), async (snapshot) => {
-          if (snapshot.exists()) {
-            const data = snapshot.data() as UserProfile;
-            const isUserLevel5 = data.level === '5' || user.email === 'successugochukwuchi@gmail.com';
-            const liveDevices = (data.devices || []).filter((d: any) => d.semester === currentSemester);
-            
-            const stillRegistered = isUserLevel5 || liveDevices.some((d: any) => d.id === activeDeviceId);
-
-            if (!stillRegistered) {
-              setProfile(null);
-              firebaseSignOut(auth).catch(err => console.error("Signout error:", err));
-              toast.error("Your device has been forcefully disconnected by an administrator.");
-              return;
-            }
-
-            setProfile(data);
-
-            if (user.email === 'successugochukwuchi@gmail.com' && data.level === '1') {
-              updateDoc(doc(db, 'users', user.uid), {
-                level: '4',
-                isActivated: true
-              }).catch(err => console.error("Failed to promote admin:", err));
-            }
-          } else {
-            setProfile(null);
-            if (user.email === 'successugochukwuchi@gmail.com') {
-              const studentId = Math.floor(10000000000 + Math.random() * 90000000000).toString();
-              const adminData = {
-                uid: user.uid,
-                studentId: studentId,
-                email: user.email,
-                username: 'Admin',
-                level: '4',
-                isActivated: true,
-                referralCount: 0,
-                theme: 'light',
-                createdAt: new Date().toISOString()
-              };
-              setDoc(doc(db, 'users', user.uid), adminData).catch(err => console.error("Failed to create admin profile:", err));
-            }
-          }
-          setLoading(false);
-        }, (error) => {
-          setLoading(false);
-          handleFirestoreError(error, OperationType.GET, path);
-        });
-        return unsubscribeProfile;
-      };
-
-      const unsubPromise = initSessionAndDevice();
-      return () => {
-        unsubPromise.then(unsub => unsub?.());
-      };
-    }
-  }, [user, systemConfig, retryCount]);
+    return () => {
+      clearTimeout(loadingTimer);
+      unsubscribeProfile();
+    };
+  }, [user, systemConfig?.currentSemester, retryCount]);
 
 
 
@@ -306,6 +324,14 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   return (
     <AuthContext.Provider value={{ user, profile, systemConfig: effectiveSystemConfig, promoConfig, loading, isAuthReady, isSystemConfigReady, isOnline }}>
       {children}
+      <DeviceLimitModal
+        isOpen={deviceLimitModal.isOpen}
+        onClose={() => setDeviceLimitModal(prev => ({ ...prev, isOpen: false }))}
+        adminInfo={deviceLimitModal.adminInfo}
+        accountEmail={deviceLimitModal.accountEmail}
+        studentId={deviceLimitModal.studentId}
+        semester={deviceLimitModal.semester}
+      />
     </AuthContext.Provider>
   );
 };
