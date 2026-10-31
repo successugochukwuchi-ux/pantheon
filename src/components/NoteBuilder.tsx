@@ -70,7 +70,6 @@ import {
 } from './ui/dialog';
 import { Label } from './ui/label';
 import { motion } from 'motion/react';
-import { MathJax } from 'better-react-mathjax';
 import ReactMarkdown from 'react-markdown';
 import remarkMath from 'remark-math';
 import rehypeKatex from 'rehype-katex';
@@ -2218,12 +2217,14 @@ Save the final text as a file named "note.plx" (or .txt) then upload it.
                     >
                       {activeToolbarTab === 'math' ? (
                         typeof s === 'string' ? (
-                          <MathJax className="text-base pointer-events-none font-serif">{`$${s}$`}</MathJax>
+                          <span className="text-base pointer-events-none font-serif flex items-center justify-center">
+                            <SafeMathRenderer math={s} />
+                          </span>
                         ) : (
                           <div className="flex flex-col items-center justify-center">
-                            <MathJax className="text-[10px] pointer-events-none scale-90 mb-0.5 font-serif">
-                              {`$${s.value}$`}
-                            </MathJax>
+                            <div className="text-[10px] pointer-events-none scale-90 mb-0.5 font-serif flex items-center justify-center">
+                              <SafeMathRenderer math={s.value} />
+                            </div>
                             <span className="text-[8px] opacity-60 group-hover:opacity-100 truncate w-14 text-center font-sans">
                               {s.label.slice(0, 8)}
                             </span>

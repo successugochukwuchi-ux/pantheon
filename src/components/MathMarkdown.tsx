@@ -64,7 +64,18 @@ export const customPlxComponents: Record<string, React.ComponentType<any>> = {
       <div>{children}</div>
     </div>
   ),
-  math: ({ children }) => <div className="my-3 py-2 text-center overflow-x-auto bg-slate-50 dark:bg-slate-800/40 rounded-lg">{children}</div>,
+  math: ({ children }) => <span className="katex-math inline-block">{children}</span>,
+  semantics: ({ children }) => <span className="katex-semantics inline">{children}</span>,
+  mrow: ({ children }) => <span className="katex-mrow inline">{children}</span>,
+  mfrac: ({ children }) => <span className="katex-mfrac inline-block text-center">{children}</span>,
+  msup: ({ children }) => <span className="katex-msup inline">{children}</span>,
+  msub: ({ children }) => <span className="katex-msub inline">{children}</span>,
+  mi: ({ children }) => <span className="katex-mi inline font-serif italic">{children}</span>,
+  mo: ({ children }) => <span className="katex-mo inline px-0.5">{children}</span>,
+  mn: ({ children }) => <span className="katex-mn inline font-sans">{children}</span>,
+  annotation: () => null,
+  annotation_xml: () => null,
+  'annotation-xml': () => null,
   video: ({ children }) => <div className="my-4 p-3 bg-slate-100 dark:bg-slate-800 rounded-lg text-xs font-mono text-indigo-600 dark:text-indigo-400">{children}</div>,
   h1: ({ children }) => <h1 className="text-2xl font-bold mt-6 mb-3 text-slate-900 dark:text-slate-100 border-b pb-2 border-slate-200 dark:border-slate-800">{children}</h1>,
   h2: ({ children }) => <h2 className="text-xl font-bold mt-5 mb-2 text-slate-900 dark:text-slate-100">{children}</h2>,
@@ -82,7 +93,7 @@ export const MathMarkdown: React.FC<MathMarkdownProps> = ({ content, className =
     <div className={`prose dark:prose-invert max-w-none text-current inline-block ${className}`}>
       <ReactMarkdown
         remarkPlugins={[remarkMath, remarkGfm]}
-        rehypePlugins={[rehypeRaw, [rehypeKatex, { throwOnError: false, strict: false, errorColor: 'inherit' }]]}
+        rehypePlugins={[rehypeRaw, [rehypeKatex, { output: 'html', throwOnError: false, strict: false, errorColor: 'inherit' }]]}
         components={customPlxComponents}
       >
         {prepared}

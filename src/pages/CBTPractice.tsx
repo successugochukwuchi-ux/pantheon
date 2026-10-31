@@ -12,7 +12,6 @@ import { toast } from 'sonner';
 import { Timer, HelpCircle, CheckCircle2, XCircle, ArrowRight, ArrowLeft, RotateCcw, Play, X, Lock } from 'lucide-react';
 import { Course, Question, CBTSession, QuestionSheet } from '../types';
 import { motion, AnimatePresence } from 'motion/react';
-import { MathJax } from 'better-react-mathjax';
 import ReactMarkdown from 'react-markdown';
 import remarkMath from 'remark-math';
 import rehypeKatex from 'rehype-katex';

@@ -7,6 +7,19 @@ import { ProtectedRoute } from './components/ProtectedRoute';
 import { Toaster } from './components/ui/sonner';
 import { TooltipProvider } from './components/ui/tooltip';
 import { FluxProvider } from './contexts/FluxContext';
+import { MathJaxContext } from 'better-react-mathjax';
+
+const mathJaxConfig = {
+  loader: { load: ["[tex]/mhchem", "[tex]/physics"] },
+  tex: {
+    packages: { "[+]": ["mhchem", "physics"] },
+    inlineMath: [["$", "$"], ["\\(", "\\)"]],
+    displayMath: [["$$", "$$"], ["\\[", "\\]"]],
+    macros: {
+      degree: "^{\\circ}"
+    }
+  }
+};
 
 // Pages
 import Landing from './pages/Landing';
@@ -106,10 +119,11 @@ export default function App() {
       <AuthProvider>
         <Router>
           <FluxProvider>
-            <TooltipProvider>
-              <MaintenanceGuard>
-                <Toaster position="top-center" />
-                <Suspense fallback={<PageLoadingFallback />}>
+            <MathJaxContext config={mathJaxConfig} asyncLoad={true}>
+              <TooltipProvider>
+                <MaintenanceGuard>
+                  <Toaster position="top-center" />
+                  <Suspense fallback={<PageLoadingFallback />}>
                   <Routes>
                     {/* Public Routes */}
                     <Route path="/" element={<Landing />} />
@@ -363,10 +377,11 @@ export default function App() {
                 </Suspense>
               </MaintenanceGuard>
             </TooltipProvider>
-          </FluxProvider>
-        </Router>
-      </AuthProvider>
-    </ThemeProvider>
+          </MathJaxContext>
+        </FluxProvider>
+      </Router>
+    </AuthProvider>
+  </ThemeProvider>
   );
 }
 

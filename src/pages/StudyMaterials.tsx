@@ -16,7 +16,6 @@ import remarkGfm from 'remark-gfm';
 import 'katex/dist/katex.min.css';
 import { Alert, AlertDescription, AlertTitle } from '../components/ui/alert';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '../components/ui/dialog';
-import { MathJax } from 'better-react-mathjax';
 import { NoteBlock } from '../components/NoteBuilder';
 import { SafeMathRenderer, prepareMarkdownMath } from '../components/SafeMathRenderer';
 import { parsePlxStringToBlocks } from '../lib/plxParser';

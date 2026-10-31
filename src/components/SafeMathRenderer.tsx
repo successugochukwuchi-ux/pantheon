@@ -28,6 +28,7 @@ export const SafeMathRenderer: React.FC<SafeMathRendererProps> = ({ math, block 
           strict: false,
           errorColor: 'inherit',
           trust: true,
+          output: 'html',
         });
       } catch (err) {
         console.error('KaTeX error:', err);
@@ -503,7 +504,8 @@ export function renderMathToKatexHtml(text: string): string {
         displayMode: true,
         throwOnError: false,
         strict: false,
-        errorColor: '#ef4444'
+        errorColor: '#ef4444',
+        output: 'html',
       });
       return `<div class="my-3 py-2 text-center overflow-x-auto bg-slate-50 dark:bg-slate-800/40 rounded-lg">${html}</div>`;
     } catch {
@@ -524,7 +526,8 @@ export function renderMathToKatexHtml(text: string): string {
         displayMode: true,
         throwOnError: false,
         strict: false,
-        errorColor: '#ef4444'
+        errorColor: '#ef4444',
+        output: 'html',
       });
     } catch {
       return `<span class="katex-error text-red-500 font-mono text-xs">$$${rawMath}$$</span>`;
@@ -546,7 +549,8 @@ export function renderMathToKatexHtml(text: string): string {
         displayMode: false,
         throwOnError: false,
         strict: false,
-        errorColor: '#ef4444'
+        errorColor: '#ef4444',
+        output: 'html',
       });
     } catch {
       return `<span class="katex-error text-red-500 font-mono text-xs">$${rawMath}$</span>`;

@@ -290,6 +290,59 @@ export function autoCorrectRoots(str: string): string {
 }
 
 /**
+ * Protects \text{...}, \mathrm{...}, \mathbf{...}, \mathit{...}, \operatorname{...}, \mbox{...}
+ * blocks using balanced brace extraction so nested braces and inner math/text are preserved.
+ */
+export function protectLatexTextBlocks(
+  str: string,
+  prefix: string = 'MATHTEXT'
+): { protectedStr: string; tokens: string[] } {
+  if (!str) return { protectedStr: '', tokens: [] };
+  const tokens: string[] = [];
+  const textCmdRegex = /\\(text|mathrm|mathbf|mathit|operatorname|mbox)\s*\{/g;
+  let result = '';
+  let lastIndex = 0;
+  let match: RegExpExecArray | null;
+
+  while ((match = textCmdRegex.exec(str)) !== null) {
+    const cmdWithOpenBraceIndex = match.index;
+    const openBraceIndex = match.index + match[0].length - 1; // index of '{'
+    const balanced = extractBalancedBraces(str, openBraceIndex);
+    if (balanced) {
+      result += str.slice(lastIndex, cmdWithOpenBraceIndex);
+      const fullCmd = str.slice(cmdWithOpenBraceIndex, balanced.endIndex + 1);
+      const token = `@@@${prefix}TOKEN${tokens.length}@@@`;
+      tokens.push(fullCmd);
+      result += token;
+      lastIndex = balanced.endIndex + 1;
+      textCmdRegex.lastIndex = balanced.endIndex + 1;
+    } else {
+      result += str.slice(lastIndex, textCmdRegex.lastIndex);
+      lastIndex = textCmdRegex.lastIndex;
+    }
+  }
+  result += str.slice(lastIndex);
+  return { protectedStr: result, tokens };
+}
+
+/**
+ * Restores protected text blocks safely. If a token index is missing or out of bounds,
+ * it leaves the match intact rather than returning 'undefined'.
+ */
+export function restoreLatexTextBlocks(
+  str: string,
+  tokens: string[],
+  prefix: string = 'MATHTEXT'
+): string {
+  if (!str || !tokens || tokens.length === 0) return str;
+  const regex = new RegExp(`@@@${prefix}TOKEN(\\d+)@@@`, 'g');
+  return str.replace(regex, (match, idxStr) => {
+    const idx = parseInt(idxStr, 10);
+    return tokens[idx] !== undefined ? tokens[idx] : match;
+  });
+}
+
+/**
  * Normalizes missing backslashes on Greek letters and mathematical operators.
  * Safely ignores plain words (like "sum") and preserves \text{...} blocks.
  */
@@ -298,12 +351,8 @@ export function autoCorrectMissingBackslashes(str: string): string {
   let s = str;
 
   // Protect text blocks so English words inside \text{} or \mathrm{} are never modified
-  const textTokens: string[] = [];
-  s = s.replace(/\\(text|mathrm|mathbf|mathit|operatorname)\{([^{}]*)\}/g, (match) => {
-    const idx = textTokens.length;
-    textTokens.push(match);
-    return `___MATH_TEXT_BLOCK_${idx}___`;
-  });
+  const { protectedStr, tokens: bslashTokens } = protectLatexTextBlocks(s, 'BSLASHTXT');
+  s = protectedStr;
 
   // Greek letters (lowercase & uppercase)
   const greekLetters = 'alpha|beta|gamma|delta|epsilon|zeta|eta|theta|iota|kappa|lambda|mu|nu|xi|pi|rho|sigma|tau|upsilon|phi|chi|psi|omega|Delta|Theta|Lambda|Xi|Pi|Sigma|Phi|Psi|Omega';
@@ -332,7 +381,7 @@ export function autoCorrectMissingBackslashes(str: string): string {
   s = s.replace(funcRegex, '\\$1');
 
   // Restore protected text blocks
-  s = s.replace(/___MATH_TEXT_BLOCK_(\d+)___/g, (_, i) => textTokens[parseInt(i, 10)]);
+  s = restoreLatexTextBlocks(s, bslashTokens, 'BSLASHTXT');
 
   return s;
 }
@@ -342,7 +391,7 @@ export function autoCorrectMissingBackslashes(str: string): string {
  */
 export function autoCorrectMathExpression(math: string): string {
   if (!math) return '';
-  let m = math.trim();
+  let m = decodeHtmlEntities(math.trim());
 
   // Strip outer delimiters if present
   m = m.replace(/^\$\$?/, '').replace(/\$\$?$/, '').trim();
@@ -354,12 +403,8 @@ export function autoCorrectMathExpression(math: string): string {
   m = m.replace(/\$/g, '');
 
   // 2. Protect \text{...} blocks from math transformations
-  const textTokens: string[] = [];
-  m = m.replace(/\\(text|mathrm|mathbf|mathit|operatorname)\{([^{}]*)\}/g, (match) => {
-    const idx = textTokens.length;
-    textTokens.push(match);
-    return `___MATH_TEXT_BLOCK_${idx}___`;
-  });
+  const { protectedStr, tokens: textTokens } = protectLatexTextBlocks(m, 'MATHEXPRTXT');
+  m = protectedStr;
 
   // 3. Normalize Unicode symbols
   m = normalizeUnicodeMathSymbols(m);
@@ -390,7 +435,7 @@ export function autoCorrectMathExpression(math: string): string {
   m = m.replace(/\\\\(frac|sqrt|alpha|beta|theta|pi|times|div|pm|leq|geq|neq|approx|infty|sum|int|text)/g, '\\$1');
 
   // 10. Restore protected \text{...} blocks
-  m = m.replace(/___MATH_TEXT_BLOCK_(\d+)___/g, (_, i) => textTokens[parseInt(i, 10)]);
+  m = restoreLatexTextBlocks(m, textTokens, 'MATHEXPRTXT');
 
   return m.trim();
 }

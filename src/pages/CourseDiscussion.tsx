@@ -11,7 +11,6 @@ import { ArrowLeft, Send, Users, MessageSquare, Shield, FileText, Check, Plus, B
 import { cn } from '../lib/utils';
 import { DiscussionMessage, Course, Note } from '../types';
 import { toast } from 'sonner';
-import { MathJax } from 'better-react-mathjax';
 import ReactMarkdown from 'react-markdown';
 import remarkMath from 'remark-math';
 import rehypeKatex from 'rehype-katex';

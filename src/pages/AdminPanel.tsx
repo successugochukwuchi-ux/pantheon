@@ -73,7 +73,6 @@ import AdminReports from './AdminReports';
 import AdminDiscipline from '../components/AdminDiscipline';
 import AdminDevices from '../components/AdminDevices';
 import { useTitle } from '../hooks/useTitle';
-import { MathJax } from 'better-react-mathjax';
 import AdminCredentials from '../components/AdminCredentials';
 import OverseerControl from '../components/OverseerControl';
 import AdminMobileControl from '../components/AdminMobileControl';
