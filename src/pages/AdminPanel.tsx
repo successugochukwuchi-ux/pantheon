@@ -79,7 +79,6 @@ import AdminMobileControl from '../components/AdminMobileControl';
 import { AdminBackup } from '../components/AdminBackup';
 import { VideoWorkshop } from '../components/VideoWorkshop';
 import { AdminFeedback } from '../components/admin/AdminFeedback';
-import { AdminMcp } from '../components/admin/AdminMcp';
 import VendorCommissionDashboard from '../components/VendorCommissionDashboard';
 import { CloudinaryUpload } from '../components/CloudinaryUpload';
 import ReactMarkdown from 'react-markdown';
@@ -2126,6 +2125,7 @@ export default function AdminPanel() {
     console.log(`Updating semester to: ${semester}`);
     try {
       const isLevel4Only = profile?.level === '4' && !isLevel5;
+      const normalizedAt = (profile?.At || 'futo').toLowerCase().trim();
       
       if (isLevel4Only) {
         if (!profile?.At) {
@@ -2134,15 +2134,21 @@ export default function AdminPanel() {
           return;
         }
         
-        const uniRef = doc(db, 'universities', profile.At);
-        await updateDoc(uniRef, {
+        // Use setDoc with merge so it never throws "No document to update"
+        const updatePayload = {
           currentSemester: semester,
           updatedSemesterBy: user.uid,
           updatedSemesterAt: new Date().toISOString()
-        });
-        console.log(`University ${profile.At} semester updated successfully to ${semester}`);
+        };
+
+        await setDoc(doc(db, 'universities', normalizedAt), updatePayload, { merge: true });
+        if (profile.At !== normalizedAt) {
+          await setDoc(doc(db, 'universities', profile.At), updatePayload, { merge: true });
+        }
+        
+        console.log(`University ${normalizedAt} semester updated successfully to ${semester}`);
       } else {
-        // Level 5 updates global config
+        // Level 5 updates global config AND synchronizes all active university documents
         const configRef = doc(db, 'system', 'config');
         const updateData: any = {
           currentSemester: semester,
@@ -2152,91 +2158,181 @@ export default function AdminPanel() {
         
         // Preserve maintenance mode if it exists in current local state
         if (systemConfig) {
-          updateData.maintenanceMode = systemConfig.maintenanceMode;
+          updateData.maintenanceMode = systemConfig.maintenanceMode ?? false;
         }
         
         await setDoc(configRef, updateData, { merge: true });
-        console.log("Global system config updated successfully");
+
+        // Update local storage cache immediately for optimistic UI response
+        try {
+          const cached = localStorage.getItem('colearn_system_config');
+          const parsed = cached ? JSON.parse(cached) : {};
+          localStorage.setItem('colearn_system_config', JSON.stringify({ ...parsed, ...updateData }));
+        } catch (e) {
+          // ignore localStorage error
+        }
+
+        // Sync all campus documents in universities collection so no campus is trapped in past state
+        try {
+          const uniSnap = await getDocs(collection(db, 'universities'));
+          if (!uniSnap.empty) {
+            const CHUNK_SIZE = 400;
+            const docs = uniSnap.docs;
+            for (let i = 0; i < docs.length; i += CHUNK_SIZE) {
+              const chunk = docs.slice(i, i + CHUNK_SIZE);
+              const batch = writeBatch(db);
+              chunk.forEach(uDoc => {
+                batch.set(uDoc.ref, {
+                  currentSemester: semester,
+                  updatedSemesterBy: user.uid,
+                  updatedSemesterAt: new Date().toISOString()
+                }, { merge: true });
+              });
+              await batch.commit();
+            }
+          }
+          // Also explicitly update the admin's university doc
+          await setDoc(doc(db, 'universities', normalizedAt), {
+            currentSemester: semester,
+            updatedSemesterBy: user.uid,
+            updatedSemesterAt: new Date().toISOString()
+          }, { merge: true });
+        } catch (uniErr) {
+          console.warn("Could not sync all university docs:", uniErr);
+        }
+
+        console.log("Global system config & universities synced successfully to", semester);
       }
 
       // If ending a semester, demote 2 to 1 and deactivate 1
       if (semester === 'none') {
-        const batch = writeBatch(db);
         let countDeactivated = 0;
         let countDemoted = 0;
 
         try {
           // 1. Deactivate Level 1 and Level 3 users
-          let level1And3Query;
-          if (isLevel4Only && profile?.At) {
-            level1And3Query = query(
-              collection(db, 'users'), 
-              where('level', 'in', ['1', '3']),
-              where('At', '==', profile.At)
-            );
-          } else {
-            level1And3Query = query(collection(db, 'users'), where('level', 'in', ['1', '3']));
+          let level1And3Snap: any;
+          try {
+            let level1And3Query;
+            if (isLevel4Only && profile?.At) {
+              level1And3Query = query(
+                collection(db, 'users'), 
+                where('level', 'in', ['1', '3']),
+                where('At', '==', normalizedAt)
+              );
+            } else {
+              level1And3Query = query(collection(db, 'users'), where('level', 'in', ['1', '3']));
+            }
+            level1And3Snap = await getDocs(level1And3Query);
+          } catch (qErr) {
+            console.warn("Compound index query failed, using fallback filter:", qErr);
+            if (isLevel4Only && profile?.At) {
+              const allUniUsersQ = query(collection(db, 'users'), where('At', '==', normalizedAt));
+              const allUniUsersSnap = await getDocs(allUniUsersQ);
+              level1And3Snap = {
+                docs: allUniUsersSnap.docs.filter(d => ['1', '3'].includes(String(d.data().level)))
+              };
+            } else {
+              throw qErr;
+            }
           }
-          
-          const level1And3Snap = await getDocs(level1And3Query);
-          level1And3Snap.docs.forEach((userDoc) => {
+
+          const userUpdates: Array<{ ref: any; data: any }> = [];
+
+          level1And3Snap.docs.forEach((userDoc: any) => {
             const data = userDoc.data() as any;
             if (data.level === '3') {
               const currentSemesters = Number(data.remainingsemesters ?? data.remainingSemesters ?? (data.isActivated ? 1 : 0));
               if (currentSemesters > 1) {
-                batch.update(userDoc.ref, {
-                  remainingsemesters: currentSemesters - 1,
-                  remainingSemesters: currentSemesters - 1,
-                  isActivated: true,
-                  level: '3'
+                userUpdates.push({
+                  ref: userDoc.ref,
+                  data: {
+                    remainingsemesters: currentSemesters - 1,
+                    remainingSemesters: currentSemesters - 1,
+                    isActivated: true,
+                    level: '3'
+                  }
                 });
               } else {
-                batch.update(userDoc.ref, {
-                  isActivated: false,
-                  activatedViaPromo: false,
-                  remainingsemesters: 0,
-                  remainingSemesters: 0,
-                  level: '3'
+                userUpdates.push({
+                  ref: userDoc.ref,
+                  data: {
+                    isActivated: false,
+                    activatedViaPromo: false,
+                    remainingsemesters: 0,
+                    remainingSemesters: 0,
+                    level: '3'
+                  }
                 });
                 countDeactivated++;
               }
             } else {
               if (data.isActivated !== false || data.activatedViaPromo !== false) {
-                batch.update(userDoc.ref, { isActivated: false, activatedViaPromo: false, level: '1' });
+                userUpdates.push({
+                  ref: userDoc.ref,
+                  data: { isActivated: false, activatedViaPromo: false, level: '1' }
+                });
                 countDeactivated++;
               }
             }
           });
 
           // 2. Demote Level 2 users to Level 1 while keeping them activated
-          let level2Query;
-          if (isLevel4Only && profile?.At) {
-            level2Query = query(
-              collection(db, 'users'), 
-              where('level', '==', '2'),
-              where('At', '==', profile.At)
-            );
-          } else {
-            level2Query = query(collection(db, 'users'), where('level', '==', '2'));
+          let level2Snap: any;
+          try {
+            let level2Query;
+            if (isLevel4Only && profile?.At) {
+              level2Query = query(
+                collection(db, 'users'), 
+                where('level', '==', '2'),
+                where('At', '==', normalizedAt)
+              );
+            } else {
+              level2Query = query(collection(db, 'users'), where('level', '==', '2'));
+            }
+            level2Snap = await getDocs(level2Query);
+          } catch (qErr) {
+            console.warn("Compound index query failed for level 2, using fallback filter:", qErr);
+            if (isLevel4Only && profile?.At) {
+              const allUniUsersQ = query(collection(db, 'users'), where('At', '==', normalizedAt));
+              const allUniUsersSnap = await getDocs(allUniUsersQ);
+              level2Snap = {
+                docs: allUniUsersSnap.docs.filter(d => String(d.data().level) === '2')
+              };
+            } else {
+              throw qErr;
+            }
           }
           
-          const level2Snap = await getDocs(level2Query);
-          level2Snap.docs.forEach((userDoc) => {
+          level2Snap.docs.forEach((userDoc: any) => {
             const data = userDoc.data() as any;
             if (data.level !== '1' || data.isActivated !== true) {
-              batch.update(userDoc.ref, { level: '1', isActivated: true });
+              userUpdates.push({
+                ref: userDoc.ref,
+                data: { level: '1', isActivated: true }
+              });
               countDemoted++;
             }
           });
 
-          await batch.commit();
+          // Commit batch in chunks of 400
+          const CHUNK_SIZE = 400;
+          for (let i = 0; i < userUpdates.length; i += CHUNK_SIZE) {
+            const chunk = userUpdates.slice(i, i + CHUNK_SIZE);
+            const userBatch = writeBatch(db);
+            chunk.forEach(item => {
+              userBatch.update(item.ref, item.data);
+            });
+            await userBatch.commit();
+          }
+
           toast.success(`Semester ended. ${countDeactivated} level 1/3 users deactivated, ${countDemoted} level 2 users demoted.`);
         } catch (innerError: any) {
           console.error("Batch update failed during semester end:", innerError);
-          toast.error(`Semester config updated, but user reset failed: ${innerError.message}. Please check indexes.`);
+          toast.error(`Semester config updated, but user reset had issues: ${innerError.message}.`);
         }
       } else {
-        toast.success(`${semester} Semester started.`);
+        toast.success(`${semester} Semester is now active.`);
       }
     } catch (error: any) {
       console.error("Semester update error:", error);
@@ -2245,6 +2341,7 @@ export default function AdminPanel() {
       setLoading(false);
     }
   };
+
 
   const handleTogglePromo = async (active: boolean) => {
     if (!isLevel5) {
@@ -2605,7 +2702,6 @@ export default function AdminPanel() {
           { path: '/administrator/users', label: 'Users', icon: Users },
           { path: '/administrator/courses', label: 'Courses', icon: BookPlus },
           { path: '/administrator/notes', label: 'Notes', icon: FileText },
-          { path: '/administrator/mcp', label: 'MCP Agents', icon: Bot, badge: 'MCP' },
           { path: '/administrator/news', label: 'News', icon: Newspaper },
           { path: '/administrator/pins', label: isLevel4 ? 'Activation PINs' : 'Vendor Dashboard', icon: Key },
         ]
@@ -2783,7 +2879,6 @@ export default function AdminPanel() {
             : <AdminOverview courses={courses} notes={notes} questions={questions} unusedPins={unusedPins} usedPins={usedPins} stats={stats} questionSheets={questionSheets} />
         } />
         <Route path="/manual" element={<AdminManual />} />
-        <Route path="/mcp" element={isLevel4 ? <AdminMcp userProfile={profile} userEmail={user?.email || profile?.email} isLevel5={isLevel5} university={profile?.At || 'futo'} /> : <Navigate to="/administrator" replace />} />
         <Route path="/discipline" element={<AdminDiscipline />} />
         <Route path="/credentials" element={<AdminCredentials />} />
         <Route path="/feedback" element={isLevel4 ? <AdminFeedback /> : <Navigate to="/administrator" replace />} />
@@ -5041,11 +5136,22 @@ export default function AdminPanel() {
                   <CardContent className="space-y-4">
                     <div className="flex items-center justify-between p-3.5 bg-muted/65 rounded-xl border border-muted-foreground/10">
                       <div>
-                        <p className="text-[10px] text-muted-foreground uppercase font-mono">Current Status</p>
-                        <p className="text-xl font-black text-primary tracking-tight">
+                        <div className="flex items-center gap-2">
+                          <p className="text-[10px] text-muted-foreground uppercase font-mono font-bold">Current Academic Status</p>
+                          <Badge variant="outline" className="text-[9px] px-1.5 py-0 h-4 border-primary/20 text-primary">
+                            {profile?.level === '4' && !isLevel5 ? (profile?.At?.toUpperCase() || 'Campus') : 'Platform-Wide'}
+                          </Badge>
+                        </div>
+                        <p className="text-xl font-black text-primary tracking-tight mt-0.5">
                           {systemConfig?.currentSemester === 'none' ? 'Holiday / Session Ended' : `${systemConfig?.currentSemester} Semester`}
                         </p>
                       </div>
+                      <Badge 
+                        variant={systemConfig?.currentSemester === 'none' ? 'secondary' : 'default'}
+                        className={`text-xs px-2.5 py-1 font-semibold ${systemConfig?.currentSemester !== 'none' ? 'bg-emerald-600 hover:bg-emerald-700 text-white' : ''}`}
+                      >
+                        {systemConfig?.currentSemester === 'none' ? 'Session Inactive' : `${systemConfig?.currentSemester} Sem Active`}
+                      </Badge>
                     </div>
 
                     <div className="grid grid-cols-1 gap-2.5">
@@ -5053,28 +5159,43 @@ export default function AdminPanel() {
                         size="sm" 
                         variant={systemConfig?.currentSemester === '1st' ? 'default' : 'outline'}
                         onClick={() => handleUpdateSemester('1st')}
-                        disabled={loading || systemConfig?.currentSemester === '1st'}
-                        className="w-full justify-center text-xs h-9 font-medium"
+                        disabled={loading}
+                        className={`w-full justify-center text-xs h-9 font-medium transition-all ${systemConfig?.currentSemester === '1st' ? 'ring-2 ring-primary/40 bg-primary font-bold' : ''}`}
                       >
-                        Start 1st Semester
+                        {loading ? (
+                          <RefreshCw className="h-3.5 w-3.5 animate-spin mr-2" />
+                        ) : systemConfig?.currentSemester === '1st' ? (
+                          <CheckCircle className="h-3.5 w-3.5 mr-2 text-primary-foreground" />
+                        ) : null}
+                        {systemConfig?.currentSemester === '1st' ? 'Active: 1st Semester' : 'Start 1st Semester'}
                       </Button>
                       <Button 
                         size="sm" 
                         variant={systemConfig?.currentSemester === '2nd' ? 'default' : 'outline'}
                         onClick={() => handleUpdateSemester('2nd')}
-                        disabled={loading || systemConfig?.currentSemester === '2nd'}
-                        className="w-full justify-center text-xs h-9 font-medium"
+                        disabled={loading}
+                        className={`w-full justify-center text-xs h-9 font-medium transition-all ${systemConfig?.currentSemester === '2nd' ? 'ring-2 ring-primary/40 bg-primary font-bold' : ''}`}
                       >
-                        Start 2nd Semester
+                        {loading ? (
+                          <RefreshCw className="h-3.5 w-3.5 animate-spin mr-2" />
+                        ) : systemConfig?.currentSemester === '2nd' ? (
+                          <CheckCircle className="h-3.5 w-3.5 mr-2 text-primary-foreground" />
+                        ) : null}
+                        {systemConfig?.currentSemester === '2nd' ? 'Active: 2nd Semester' : 'Start 2nd Semester'}
                       </Button>
                       <Button 
                         size="sm" 
                         variant="destructive"
                         onClick={() => handleUpdateSemester('none')}
-                        disabled={loading || systemConfig?.currentSemester === 'none'}
-                        className="w-full justify-center text-xs h-9 font-semibold"
+                        disabled={loading}
+                        className={`w-full justify-center text-xs h-9 font-semibold transition-all ${systemConfig?.currentSemester === 'none' ? 'ring-2 ring-destructive/40 opacity-90' : ''}`}
                       >
-                        End Current Semester
+                        {loading ? (
+                          <RefreshCw className="h-3.5 w-3.5 animate-spin mr-2" />
+                        ) : systemConfig?.currentSemester === 'none' ? (
+                          <CheckCircle className="h-3.5 w-3.5 mr-2 text-destructive-foreground" />
+                        ) : null}
+                        {systemConfig?.currentSemester === 'none' ? 'Current State: Holiday / Ended' : 'End Current Semester'}
                       </Button>
                     </div>
                   </CardContent>

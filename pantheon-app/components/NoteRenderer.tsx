@@ -80,7 +80,7 @@ export function NoteRenderer({
                 return cleaned.split('|').map(c => c.trim());
               }
               return trimmed.split(',').map(c => c.trim());
-            }).filter(row => row.length > 0 && !row.every(cell => /^[|-:\s]+$/.test(cell)));
+            }).filter(row => row.length > 0 && !row.every(cell => /^[|\-:\s]+$/.test(cell)));
             resultBlocks.push({ id: String(idx++), type: 'table', content: JSON.stringify(rows) });
           } else if (tagName === 'QUES') {
             const corMatch = /<COR(?:\s*=\s*"([^"]*)"|\s*=\s*([^>\s]+))?\s*>/i.exec(bContent);

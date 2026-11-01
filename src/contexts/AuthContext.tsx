@@ -293,12 +293,24 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   useEffect(() => {
     if (profile?.At) {
-      const unsubUni = onSnapshot(doc(db, 'universities', profile.At), (snapshot) => {
+      const normalizedAt = profile.At.toLowerCase().trim();
+      const unsubUni = onSnapshot(doc(db, 'universities', normalizedAt), (snapshot) => {
         if (snapshot.exists()) {
           const data = snapshot.data();
           setUniSemester(data.currentSemester || null);
         } else {
-          setUniSemester(null);
+          // If lowercase doesn't exist, check original case if different
+          if (profile.At !== normalizedAt) {
+            getDoc(doc(db, 'universities', profile.At)).then((s) => {
+              if (s.exists()) {
+                setUniSemester(s.data()?.currentSemester || null);
+              } else {
+                setUniSemester(null);
+              }
+            }).catch(() => setUniSemester(null));
+          } else {
+            setUniSemester(null);
+          }
         }
       }, (error) => {
         console.error("Error listening to university:", error);
@@ -312,6 +324,17 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const effectiveSystemConfig = useMemo(() => {
     if (!systemConfig) return null;
+    const isL5 = profile?.level === '5' || String(profile?.level) === '5' || profile?.email?.toLowerCase() === 'successugochukwuchi@gmail.com' || user?.email?.toLowerCase() === 'successugochukwuchi@gmail.com';
+    
+    // For Level 5 Superadmins, the global systemConfig is authoritative
+    if (isL5) {
+      return {
+        ...systemConfig,
+        currentSemester: systemConfig.currentSemester || uniSemester || 'none'
+      };
+    }
+    
+    // For students and Level 4 admins, university-scoped semester takes priority if defined
     if (profile?.At && uniSemester) {
       return {
         ...systemConfig,
@@ -319,7 +342,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       };
     }
     return systemConfig;
-  }, [systemConfig, profile?.At, uniSemester]);
+  }, [systemConfig, profile?.At, profile?.level, profile?.email, user?.email, uniSemester]);
 
   return (
     <AuthContext.Provider value={{ user, profile, systemConfig: effectiveSystemConfig, promoConfig, loading, isAuthReady, isSystemConfigReady, isOnline }}>

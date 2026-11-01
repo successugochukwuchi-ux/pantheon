@@ -68,6 +68,8 @@ export async function contactAdmin(
           }
         }
       }
+    ]
+  );
 }
 
 export interface MobileAdminContact {

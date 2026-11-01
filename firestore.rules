@@ -452,10 +452,6 @@ service cloud.firestore {
       allow create: if isSignedIn() && (incoming().vendorId == request.auth.uid || incoming().type == 'commission' || isAdmin());
       allow update, delete: if isAdmin();
     }
-
-    match /mcp_agent_tokens/{tokenId} {
-      allow read, write: if true;
-    }
   }
 }
 
