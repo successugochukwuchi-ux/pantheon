@@ -54,6 +54,11 @@ export const Sidebar: React.FC<SidebarProps> = ({ onClose, isCollapsed = false, 
   const { isFluxMode, setFluxMode } = useFlux();
   const location = useLocation();
 
+  const isLevel3Vendor = profile?.level === '3' || 
+                         String(profile?.level) === '3' || 
+                         profile?.academicLevel?.toLowerCase() === 'vendor' || 
+                         profile?.department?.toLowerCase() === 'vendor';
+
   const isAtLeastLevel2 = profile?.level === '2' || profile?.level === '3' || profile?.level === '4' || profile?.level === '5';
   const isAdmin = profile?.level === '3' || profile?.level === '4' || profile?.level === '5';
   const isAdminPath = location.pathname.startsWith('/administrator');
@@ -64,6 +69,14 @@ export const Sidebar: React.FC<SidebarProps> = ({ onClose, isCollapsed = false, 
     icon: any;
     badge?: number;
   }
+
+  const vendorNavItems: SidebarNavItem[] = [
+    { name: 'Vendor Dashboard', path: '/administrator/pins', icon: Key },
+    { name: 'Campus News', path: '/news', icon: Newspaper },
+    { name: 'Notifications', path: '/notifications', icon: Bell, badge: unreadCount > 0 ? unreadCount : undefined },
+    { name: 'Feedback & Support', path: '/feedback', icon: HelpCircle },
+    { name: 'Settings', path: '/settings', icon: Settings },
+  ];
 
   const studentNavItems: SidebarNavItem[] = [
     { name: 'Dashboard', path: '/dashboard', icon: LayoutDashboard },
@@ -101,7 +114,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ onClose, isCollapsed = false, 
   ];
 
   const level3AdminNavItems: SidebarNavItem[] = [
-    { name: 'Activation Pins', path: '/administrator/pins', icon: Key },
+    { name: 'Vendor Dashboard', path: '/administrator/pins', icon: Key },
   ];
 
   const level4NavItems: SidebarNavItem[] = [
@@ -130,6 +143,10 @@ export const Sidebar: React.FC<SidebarProps> = ({ onClose, isCollapsed = false, 
   ];
 
   const getNavItems = () => {
+    if (isLevel3Vendor) {
+      return vendorNavItems;
+    }
+
     if (isFluxMode) {
       if (isAdminPath) return fluxAdminNavItems;
       return fluxNavItems;
@@ -157,7 +174,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ onClose, isCollapsed = false, 
         isCollapsed ? "flex-col gap-4 px-2 py-6" : ""
       )}>
         <Link 
-          to={isFluxMode ? "/flux" : "/"} 
+          to={isLevel3Vendor ? "/administrator/pins" : (isFluxMode ? "/flux" : "/")} 
           className={cn(
             "flex items-center gap-2.5 font-bold transition-all",
             isCollapsed ? "text-xl justify-center text-center self-center" : "text-2xl tracking-tighter",
@@ -172,7 +189,10 @@ export const Sidebar: React.FC<SidebarProps> = ({ onClose, isCollapsed = false, 
           {isCollapsed ? (
             <span className="sr-only">COLEARN</span>
           ) : (
-            <>COLEARN {isFluxMode && <span className="text-white">FLUX</span>}</>
+            <>
+              COLEARN {isFluxMode && <span className="text-white">FLUX</span>}
+              {isLevel3Vendor && <span className="text-xs bg-amber-500/20 text-amber-600 dark:text-amber-400 font-extrabold uppercase px-1.5 py-0.5 rounded ml-1 tracking-wider border border-amber-500/30">VENDOR</span>}
+            </>
           )}
         </Link>
         {!onClose && onToggleCollapse && (
@@ -187,7 +207,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ onClose, isCollapsed = false, 
         )}
       </div>
 
-      {!isCollapsed && (
+      {!isCollapsed && !isLevel3Vendor && (
         <div className="px-6 mb-4 md:hidden">
           <UserSearch />
         </div>
@@ -259,18 +279,18 @@ export const Sidebar: React.FC<SidebarProps> = ({ onClose, isCollapsed = false, 
           })}
         </div>
 
-        {isAtLeastLevel2 && !isAdminPath && !isFluxMode && !isCollapsed && (
+        {isAtLeastLevel2 && !isLevel3Vendor && !isAdminPath && !isFluxMode && !isCollapsed && (
           <div className="py-4 border-t border-sidebar-border mt-4">
             <p className="px-3 text-xs font-bold text-primary uppercase tracking-widest mb-3">
               Privileged Access
             </p>
             <Link
-              to={profile?.level === '3' ? "/administrator/pins" : "/administrator"}
+              to="/administrator"
               onClick={onClose}
               className="flex items-center gap-3 px-3 py-3 rounded-xl text-sm font-bold bg-primary/10 text-primary hover:bg-primary/20 transition-all shadow-sm border border-primary/20"
             >
               <Shield className="h-4 w-4" />
-              {profile?.level === '3' ? 'Vendor Dashboard' : 'Admin Control Panel'}
+              Admin Control Panel
             </Link>
           </div>
         )}

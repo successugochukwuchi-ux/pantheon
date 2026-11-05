@@ -218,6 +218,22 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         try {
           const cachedLocal = getUserProfileLocal(user.uid);
           if (cachedLocal) {
+            const isCachedVendor = cachedLocal.level === '3' || 
+                                   String(cachedLocal.level) === '3' || 
+                                   cachedLocal.academicLevel?.toLowerCase() === 'vendor' || 
+                                   cachedLocal.department?.toLowerCase() === 'vendor';
+            if (isCachedVendor) {
+              try { clearUserProfileLocal(); } catch (e) {}
+              await AsyncStorage.removeItem('colearn_profile').catch(() => {});
+              await signOut(auth).catch(() => {});
+              setProfile(null);
+              setLoading(false);
+              Alert.alert(
+                'Access Denied',
+                'Vendor accounts cannot access the CoLearn mobile app. Vendors have no access to mobile features; please use the web portal to access your vendor dashboard.'
+              );
+              return;
+            }
             setProfile(cachedLocal);
             setLoading(false);
           }
@@ -241,7 +257,25 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         }
 
         const userData = userSnap?.exists() ? userSnap.data() : {};
+        const isLevel3Vendor = userData.level === '3' || 
+                               String(userData.level) === '3' || 
+                               userData.academicLevel?.toLowerCase() === 'vendor' || 
+                               userData.department?.toLowerCase() === 'vendor';
+        if (isLevel3Vendor) {
+          setProfile(null);
+          await AsyncStorage.removeItem('colearn_profile').catch(() => {});
+          try { clearUserProfileLocal(); } catch (e) {}
+          await signOut(auth).catch(() => {});
+          setLoading(false);
+          Alert.alert(
+            'Access Denied',
+            'Vendor accounts cannot access the CoLearn mobile app. Vendors have no access to mobile features; please use the web portal to access your vendor dashboard.'
+          );
+          return;
+        }
+
         const isLevel5 = userData.level === '5' || user.email === 'successugochukwuchi@gmail.com';
+        const isExemptFromDeviceLimit = isLevel5;
         let devices = userData.devices || [];
         const currentDevices = devices.filter((d: any) => d.semester === currentSemester);
 
@@ -252,7 +286,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           // Device has stored UUID for this user account
           const matched = currentDevices.find((d: any) => d.id === deviceId);
           if (!matched) {
-            if (!isLevel5 && currentDevices.length >= 2) {
+            if (!isExemptFromDeviceLimit && currentDevices.length >= 2) {
               const adminContact = await fetchMobileAdminContactForUniversity(userData.At);
               setDeviceLimitModalInfo({
                 visible: true,
@@ -302,7 +336,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           }
         } else {
           // First time on this device for this user account
-          if (!isLevel5 && currentDevices.length >= 2) {
+          if (!isExemptFromDeviceLimit && currentDevices.length >= 2) {
             const adminContact = await fetchMobileAdminContactForUniversity(userData.At);
             setDeviceLimitModalInfo({
               visible: true,
@@ -353,6 +387,22 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         unsubscribeProfile = onSnapshot(doc(db, 'users', user.uid), async (snapshot) => {
           if (snapshot.exists()) {
             const data = snapshot.data();
+            const isUserVendor = data.level === '3' || 
+                                 String(data.level) === '3' || 
+                                 data.academicLevel?.toLowerCase() === 'vendor' || 
+                                 data.department?.toLowerCase() === 'vendor';
+            if (isUserVendor) {
+              setProfile(null);
+              await AsyncStorage.removeItem('colearn_profile').catch(() => {});
+              try { clearUserProfileLocal(); } catch (e) {}
+              await signOut(auth).catch(err => console.log('Sign out error:', err));
+              Alert.alert(
+                'Access Denied',
+                'Vendor accounts cannot access the CoLearn mobile app. Vendors have no access to mobile features; please use the web portal to access your vendor dashboard.'
+              );
+              return;
+            }
+
             const isUserLevel5 = data.level === '5' || user.email === 'successugochukwuchi@gmail.com';
             const liveDevices = (data.devices || []).filter((d: any) => d.semester === currentSemester);
             

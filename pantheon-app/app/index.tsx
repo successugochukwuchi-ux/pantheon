@@ -256,6 +256,13 @@ export default function LandingScreen() {
 
   useEffect(() => {
     if (!loading && user) {
+      const isVendor = profile?.level === '3' || 
+                       String(profile?.level) === '3' || 
+                       profile?.academicLevel?.toLowerCase() === 'vendor' || 
+                       profile?.department?.toLowerCase() === 'vendor';
+      if (isVendor) {
+        return;
+      }
       if (profile?.isBanned) {
         router.replace('/banned' as any);
       } else {

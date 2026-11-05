@@ -229,7 +229,7 @@ export default function App() {
                     } />
 
                     <Route path="/timetable" element={
-                      <ProtectedRoute requireActivation={false}>
+                      <ProtectedRoute blockVendors requireActivation={false}>
                         <Layout>
                           <StudyTimetable />
                         </Layout>
@@ -237,7 +237,7 @@ export default function App() {
                     } />
 
                     <Route path="/notes" element={
-                      <ProtectedRoute requireActivation={false}>
+                      <ProtectedRoute blockVendors requireActivation={false}>
                         <Layout>
                           <StudyMaterials />
                         </Layout>
@@ -245,7 +245,7 @@ export default function App() {
                     } />
 
                     <Route path="/past-questions" element={
-                      <ProtectedRoute requireActivation={false}>
+                      <ProtectedRoute blockVendors requireActivation={false}>
                         <Layout>
                           <PastQuestions />
                         </Layout>
@@ -253,7 +253,7 @@ export default function App() {
                     } />
 
                     <Route path="/cbt" element={
-                      <ProtectedRoute requireActivation={false}>
+                      <ProtectedRoute blockVendors requireActivation={false}>
                         <Layout>
                           <CBTPractice />
                         </Layout>
@@ -261,7 +261,7 @@ export default function App() {
                     } />
 
                     <Route path="/cbt/results" element={
-                      <ProtectedRoute requireActivation={false}>
+                      <ProtectedRoute blockVendors requireActivation={false}>
                         <Layout>
                           <CBTResults />
                         </Layout>
@@ -269,7 +269,7 @@ export default function App() {
                     } />
 
                     <Route path="/referrals" element={
-                      <ProtectedRoute>
+                      <ProtectedRoute blockVendors>
                         <Layout>
                           <Referrals />
                         </Layout>
@@ -285,7 +285,7 @@ export default function App() {
                     } />
 
                     <Route path="/friends" element={
-                      <ProtectedRoute requireActivation={false}>
+                      <ProtectedRoute blockVendors requireActivation={false}>
                         <Layout>
                           <Friends />
                         </Layout>
@@ -293,7 +293,7 @@ export default function App() {
                     } />
 
                     <Route path="/compete" element={
-                      <ProtectedRoute requireActivation={false}>
+                      <ProtectedRoute blockVendors requireActivation={false}>
                         <Layout>
                           <Compete />
                         </Layout>
@@ -301,7 +301,7 @@ export default function App() {
                     } />
 
                     <Route path="/video-library" element={
-                      <ProtectedRoute requireActivation={false}>
+                      <ProtectedRoute blockVendors requireActivation={false}>
                         <Layout>
                           <VideoLibrary />
                         </Layout>
@@ -309,7 +309,7 @@ export default function App() {
                     } />
 
                     <Route path="/chat" element={
-                      <ProtectedRoute requireActivation={false}>
+                      <ProtectedRoute blockVendors requireActivation={false}>
                         <Layout>
                           <Chat />
                         </Layout>
@@ -325,7 +325,7 @@ export default function App() {
                     } />
 
                     <Route path="/discussions/:courseId" element={
-                      <ProtectedRoute requireActivation={false}>
+                      <ProtectedRoute blockVendors requireActivation={false}>
                         <Layout>
                           <CourseDiscussion />
                         </Layout>

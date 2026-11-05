@@ -1,20 +1,28 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import { Navigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
+import { toast } from 'sonner';
 
 export const ProtectedRoute: React.FC<{ 
   children: React.ReactNode; 
   requireActivation?: boolean; 
   minLevel?: string;
   requireOnboarding?: boolean;
+  blockVendors?: boolean;
 }> = ({ 
   children, 
   requireActivation = true,
   minLevel = '1',
-  requireOnboarding = true
+  requireOnboarding = true,
+  blockVendors = false
 }) => {
   const { user, profile, loading, isAuthReady } = useAuth();
   const location = useLocation();
+
+  const isLevel3Vendor = profile?.level === '3' || 
+                         String(profile?.level) === '3' || 
+                         profile?.academicLevel?.toLowerCase() === 'vendor' || 
+                         profile?.department?.toLowerCase() === 'vendor';
 
   if (!isAuthReady || loading) {
     return (
@@ -40,31 +48,58 @@ export const ProtectedRoute: React.FC<{
     return <Navigate to="/banned" replace />;
   }
 
-  if (requireOnboarding && profile && profile.isOnboarded === false) {
+  // Vendors do not need onboarding
+  if (requireOnboarding && profile && profile.isOnboarded === false && !isLevel3Vendor) {
     return <Navigate to="/onboarding" replace />;
   }
 
+  // Restrict Level 3 / Vendor accounts from all academic content and social features
+  if (isLevel3Vendor) {
+    const academicAndSocialPaths = [
+      '/dashboard',
+      '/activate',
+      '/notes',
+      '/past-questions',
+      '/cbt',
+      '/timetable',
+      '/video-library',
+      '/chat',
+      '/friends',
+      '/compete',
+      '/discussions',
+      '/flux',
+      '/referrals'
+    ];
+
+    const currentPath = location.pathname.toLowerCase();
+    const isRestrictedPath = blockVendors || academicAndSocialPaths.some(p => currentPath === p || currentPath.startsWith(`${p}/`));
+
+    if (isRestrictedPath) {
+      return <Navigate to="/administrator/pins" replace />;
+    }
+  }
+
   if (requireActivation && !profile?.isActivated) {
-    // Admins of level 2 and above do not need an activation pin
-    // Bootstrap admin also bypasses this
+    // Level 2 and above, vendors, and bootstrap admin bypass activation pin requirement
     const userLevelNum = parseInt(profile?.level || '1', 10);
     const isBootstrapAdmin = user?.email === 'successugochukwuchi@gmail.com';
     
-    if (userLevelNum < 2 && !isBootstrapAdmin) {
+    if (userLevelNum < 2 && !isLevel3Vendor && !isBootstrapAdmin) {
       return <Navigate to="/activate" replace />;
     }
   }
 
-  // Simple level check (can be improved)
+  // Simple level check
   if (minLevel !== '1') {
     const userLevelNum = parseInt(profile?.level || '1', 10);
     const minLevelNum = parseInt(minLevel, 10);
     const isBootstrapAdmin = user?.email === 'successugochukwuchi@gmail.com';
     
     if (userLevelNum < minLevelNum && !isBootstrapAdmin) {
-      return <Navigate to="/dashboard" replace />;
+      return <Navigate to={isLevel3Vendor ? "/administrator/pins" : "/dashboard"} replace />;
     }
   }
 
   return <>{children}</>;
 };
+

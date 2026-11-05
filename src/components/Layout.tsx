@@ -28,6 +28,10 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
   const { isFluxMode } = useFlux();
   const location = useLocation();
   const navigate = useNavigate();
+  const isLevel3Vendor = profile?.level === '3' || 
+                         String(profile?.level) === '3' || 
+                         profile?.academicLevel?.toLowerCase() === 'vendor' || 
+                         profile?.department?.toLowerCase() === 'vendor';
   const [isMobileMenuOpen, setIsMobileMenuOpen] = React.useState(false);
   const [isSidebarCollapsed, setIsSidebarCollapsed] = React.useState<boolean>(() => {
     try {
@@ -162,22 +166,24 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
                   <Sidebar onClose={() => setIsMobileMenuOpen(false)} unreadCount={unreadCount} />
                 </SheetContent>
               </Sheet>
-              
               <div className="flex items-center gap-3">
-                <Link to="/dashboard" className="flex items-center gap-2 md:hidden">
+                <Link to={isLevel3Vendor ? "/administrator/pins" : "/dashboard"} className="flex items-center gap-2 md:hidden">
                   <img src="/icon.png" alt="CoLearn" className="h-6 w-6 rounded-md object-contain" />
                 </Link>
                 <h2 className="text-sm font-black uppercase tracking-tighter text-muted-foreground">
-                  {location.pathname === '/dashboard' ? 'Overview' : 
+                  {isLevel3Vendor ? 'Vendor Portal' :
+                   location.pathname === '/dashboard' ? 'Overview' : 
                    location.pathname.startsWith('/administrator') ? 'Administration' : 
                    'Academic Portal'}
                 </h2>
               </div>
             </div>
 
-            <div className="flex-1 max-w-md mx-4 hidden md:block">
-              <UserSearch className={isFluxMode ? "bg-white/5 border-white/5 text-white placeholder:text-stone-500" : ""} />
-            </div>
+            {!isLevel3Vendor && (
+              <div className="flex-1 max-w-md mx-4 hidden md:block">
+                <UserSearch className={isFluxMode ? "bg-white/5 border-white/5 text-white placeholder:text-stone-500" : ""} />
+              </div>
+            )}
 
             <div className="flex items-center gap-2 md:gap-4">
               {user && !isFluxMode && (

@@ -7,7 +7,8 @@ import {
   browserLocalPersistence,
   browserSessionPersistence
 } from 'firebase/auth';
-import { auth } from '../firebase';
+import { doc, getDoc } from 'firebase/firestore';
+import { auth, db } from '../firebase';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
 import { Label } from '../components/ui/label';
@@ -70,7 +71,23 @@ export default function Login() {
         stayLoggedIn ? browserLocalPersistence : browserSessionPersistence
       );
       
-      await signInWithEmailAndPassword(auth, email.trim(), password);
+      const userCredential = await signInWithEmailAndPassword(auth, email.trim(), password);
+      
+      // Check if user is a vendor to route directly to Vendor Dashboard
+      try {
+        const userSnap = await getDoc(doc(db, 'users', userCredential.user.uid));
+        if (userSnap.exists()) {
+          const uData = userSnap.data();
+          if (uData.level === '3' || String(uData.level) === '3' || uData.academicLevel?.toLowerCase() === 'vendor' || uData.department?.toLowerCase() === 'vendor') {
+            toast.success('Welcome back, Vendor!');
+            navigate('/administrator/pins');
+            return;
+          }
+        }
+      } catch (err) {
+        console.warn("Could not check vendor status on login:", err);
+      }
+
       toast.success('Logged in successfully');
       navigate('/dashboard');
     } catch (error: any) {

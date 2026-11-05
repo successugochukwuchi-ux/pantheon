@@ -22,6 +22,12 @@ export default function Dashboard() {
   const { profile, systemConfig, loading, isSystemConfigReady, user } = useAuth();
 
   useEffect(() => {
+    if (profile?.level === '3' || String(profile?.level) === '3' || profile?.academicLevel?.toLowerCase() === 'vendor' || profile?.department?.toLowerCase() === 'vendor') {
+      navigate('/administrator/pins', { replace: true });
+    }
+  }, [profile, navigate]);
+
+  useEffect(() => {
     if (!profile || !systemConfig || systemConfig.currentSemester === 'none') return;
 
     // Fetch courses for the current semester to show progress

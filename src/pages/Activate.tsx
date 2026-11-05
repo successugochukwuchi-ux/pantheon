@@ -30,10 +30,14 @@ export default function Activate() {
   const [whatsappNumber, setWhatsappNumber] = useState('2348118429150');
 
   useEffect(() => {
+    if (profile?.level === '3' || String(profile?.level) === '3' || profile?.academicLevel?.toLowerCase() === 'vendor' || profile?.department?.toLowerCase() === 'vendor') {
+      navigate('/administrator/pins', { replace: true });
+      return;
+    }
     getContactWhatsAppNumber(profile?.At).then(num => {
       setWhatsappNumber(num);
     });
-  }, [profile?.At]);
+  }, [profile?.At, profile?.level, profile?.academicLevel, profile?.department, navigate]);
 
   const handlePromoActivate = async () => {
     if (!user || !promoConfig?.isActive) return;

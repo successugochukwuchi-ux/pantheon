@@ -12,8 +12,9 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
-import { auth } from '../lib/firebase';
-import { signInWithEmailAndPassword } from 'firebase/auth';
+import { auth, db } from '../lib/firebase';
+import { signInWithEmailAndPassword, signOut } from 'firebase/auth';
+import { doc, getDoc } from 'firebase/firestore';
 import { Alert, ActivityIndicator } from 'react-native';
 
 const C = {
@@ -149,7 +150,31 @@ export default function LoginScreen() {
     if (validate()) {
       setLoading(true);
       try {
-        await signInWithEmailAndPassword(auth, email, password);
+        const userCredential = await signInWithEmailAndPassword(auth, email, password);
+        
+        // Deny level 3 / vendor accounts on the mobile app
+        try {
+          const userDocSnap = await getDoc(doc(db, 'users', userCredential.user.uid));
+          if (userDocSnap.exists()) {
+            const userData = userDocSnap.data();
+            const isLevel3Vendor = userData.level === '3' || 
+                                   String(userData.level) === '3' || 
+                                   userData.academicLevel?.toLowerCase() === 'vendor' || 
+                                   userData.department?.toLowerCase() === 'vendor';
+            if (isLevel3Vendor) {
+              await signOut(auth);
+              Alert.alert(
+                'Access Denied',
+                'Vendor accounts cannot access the CoLearn mobile app. Vendors have no access to mobile features; please use the web portal to access your vendor dashboard.'
+              );
+              setLoading(false);
+              return;
+            }
+          }
+        } catch (checkErr) {
+          console.warn('Failed checking user role on mobile login:', checkErr);
+        }
+
         router.push('/dashboard');
       } catch (error: any) {
         console.error('Login error:', error);

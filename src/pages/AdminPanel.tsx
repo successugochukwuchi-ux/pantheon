@@ -2210,27 +2210,27 @@ export default function AdminPanel() {
         let countDemoted = 0;
 
         try {
-          // 1. Deactivate Level 1 and Level 3 users
-          let level1And3Snap: any;
+          // 1. Deactivate Level 1 student users only (Vendors are NEVER deactivated at semester end)
+          let level1Snap: any;
           try {
-            let level1And3Query;
+            let level1Query;
             if (isLevel4Only && profile?.At) {
-              level1And3Query = query(
+              level1Query = query(
                 collection(db, 'users'), 
-                where('level', 'in', ['1', '3']),
+                where('level', '==', '1'),
                 where('At', '==', normalizedAt)
               );
             } else {
-              level1And3Query = query(collection(db, 'users'), where('level', 'in', ['1', '3']));
+              level1Query = query(collection(db, 'users'), where('level', '==', '1'));
             }
-            level1And3Snap = await getDocs(level1And3Query);
+            level1Snap = await getDocs(level1Query);
           } catch (qErr) {
             console.warn("Compound index query failed, using fallback filter:", qErr);
             if (isLevel4Only && profile?.At) {
               const allUniUsersQ = query(collection(db, 'users'), where('At', '==', normalizedAt));
               const allUniUsersSnap = await getDocs(allUniUsersQ);
-              level1And3Snap = {
-                docs: allUniUsersSnap.docs.filter(d => ['1', '3'].includes(String(d.data().level)))
+              level1Snap = {
+                docs: allUniUsersSnap.docs.filter(d => String(d.data().level) === '1')
               };
             } else {
               throw qErr;
@@ -2239,41 +2239,24 @@ export default function AdminPanel() {
 
           const userUpdates: Array<{ ref: any; data: any }> = [];
 
-          level1And3Snap.docs.forEach((userDoc: any) => {
+          level1Snap.docs.forEach((userDoc: any) => {
             const data = userDoc.data() as any;
-            if (data.level === '3') {
-              const currentSemesters = Number(data.remainingsemesters ?? data.remainingSemesters ?? (data.isActivated ? 1 : 0));
-              if (currentSemesters > 1) {
-                userUpdates.push({
-                  ref: userDoc.ref,
-                  data: {
-                    remainingsemesters: currentSemesters - 1,
-                    remainingSemesters: currentSemesters - 1,
-                    isActivated: true,
-                    level: '3'
-                  }
-                });
-              } else {
-                userUpdates.push({
-                  ref: userDoc.ref,
-                  data: {
-                    isActivated: false,
-                    activatedViaPromo: false,
-                    remainingsemesters: 0,
-                    remainingSemesters: 0,
-                    level: '3'
-                  }
-                });
-                countDeactivated++;
-              }
-            } else {
-              if (data.isActivated !== false || data.activatedViaPromo !== false) {
-                userUpdates.push({
-                  ref: userDoc.ref,
-                  data: { isActivated: false, activatedViaPromo: false, level: '1' }
-                });
-                countDeactivated++;
-              }
+            const isVendor = data.level === '3' || 
+                             String(data.level) === '3' || 
+                             data.academicLevel?.toLowerCase() === 'vendor' || 
+                             data.department?.toLowerCase() === 'vendor';
+
+            // Vendors should NEVER be deactivated at the end of the semester
+            if (isVendor) {
+              return;
+            }
+
+            if (data.isActivated !== false || data.activatedViaPromo !== false) {
+              userUpdates.push({
+                ref: userDoc.ref,
+                data: { isActivated: false, activatedViaPromo: false, level: '1' }
+              });
+              countDeactivated++;
             }
           });
 
@@ -2326,7 +2309,7 @@ export default function AdminPanel() {
             await userBatch.commit();
           }
 
-          toast.success(`Semester ended. ${countDeactivated} level 1/3 users deactivated, ${countDemoted} level 2 users demoted.`);
+          toast.success(`Semester ended. ${countDeactivated} level 1 users deactivated, ${countDemoted} level 2 users demoted. Vendor accounts remain permanently active.`);
         } catch (innerError: any) {
           console.error("Batch update failed during semester end:", innerError);
           toast.error(`Semester config updated, but user reset had issues: ${innerError.message}.`);

@@ -17,15 +17,12 @@ import { useRouter } from 'expo-router';
 import { BottomNav } from '../components/BottomNav';
 import { Sidebar } from '../components/Sidebar';
 import { HamburgerIcon, SearchIcon, BellIcon } from '../components/Icons';
-import { F, width } from '../components/Theme';
+import { F } from '../components/Theme';
 import { useAuth } from '../context/AuthContext';
 import { useTheme } from '../context/ThemeContext';
 import { ActivationModal } from '../components/ActivationModal';
 import { collection, query, limit, orderBy, onSnapshot } from 'firebase/firestore';
 import { db } from '../lib/firebase';
-
-const CARD_GAP = 12;
-const CARD_W = (width - 32 - CARD_GAP) / 2;
 
 const HUB_ITEMS = [
   { id: 'cbt',            icon: '⊡',  label: 'CBT Practice',   dark: true  },
@@ -163,24 +160,45 @@ function AcademicHub({ s, C }: { s: any; C: any }) {
 
   const contrastColor = useMemo(() => getContrastColor(C.selectedBg), [C.selectedBg]);
 
+  // Group items into 2-column rows to guarantee a rigid 2x2 grid on any screen width, DPI, or font scaling
+  const hubRows = useMemo(() => {
+    const rows = [];
+    for (let i = 0; i < HUB_ITEMS.length; i += 2) {
+      rows.push(HUB_ITEMS.slice(i, i + 2));
+    }
+    return rows;
+  }, []);
+
   return (
     <View style={s.section}>
       <Text style={[s.sectionTitle, { color: C.ink }]}>Academic Hub</Text>
-      <View style={s.hubGrid}>
-        {HUB_ITEMS.map((item) => (
-          <TouchableOpacity
-            key={item.id}
-            style={[
-              s.hubCard, 
-              { backgroundColor: C.surface, borderColor: C.border },
-              item.dark && [s.hubCardDark, { backgroundColor: C.selectedBg, borderColor: C.selectedBg }]
-            ]}
-            onPress={() => handlePress(item.id)}
-            activeOpacity={0.85}
-          >
-            <Text style={[s.hubIcon, { color: C.ink }, item.dark && { color: contrastColor }]}>{item.icon}</Text>
-            <Text style={[s.hubLabel, { color: C.ink }, item.dark && { color: contrastColor }]}>{item.label}</Text>
-          </TouchableOpacity>
+      <View style={s.hubGridContainer}>
+        {hubRows.map((row, rowIndex) => (
+          <View key={rowIndex} style={s.hubRow}>
+            {row.map((item) => (
+              <TouchableOpacity
+                key={item.id}
+                style={[
+                  s.hubCard, 
+                  { backgroundColor: C.surface, borderColor: C.border },
+                  item.dark && [s.hubCardDark, { backgroundColor: C.selectedBg, borderColor: C.selectedBg }]
+                ]}
+                onPress={() => handlePress(item.id)}
+                activeOpacity={0.85}
+              >
+                <Text style={[s.hubIcon, { color: C.ink }, item.dark && { color: contrastColor }]}>{item.icon}</Text>
+                <Text 
+                  style={[s.hubLabel, { color: C.ink }, item.dark && { color: contrastColor }]}
+                  numberOfLines={1}
+                  adjustsFontSizeToFit
+                >
+                  {item.label}
+                </Text>
+              </TouchableOpacity>
+            ))}
+            {/* If a row has an odd number of items, insert an invisible spacer card so the single item stays at 50% width */}
+            {row.length === 1 && <View style={[s.hubCard, { opacity: 0, borderWidth: 0 }]} />}
+          </View>
         ))}
       </View>
     </View>
@@ -295,6 +313,8 @@ export default function DashboardScreen() {
   useEffect(() => {
     if (!loading) {
       if (!user) {
+        router.replace('/' as any);
+      } else if (profile?.level === '3' || String(profile?.level) === '3' || profile?.academicLevel?.toLowerCase() === 'vendor' || profile?.department?.toLowerCase() === 'vendor') {
         router.replace('/' as any);
       } else if (profile?.isBanned) {
         router.replace('/banned' as any);
@@ -415,24 +435,29 @@ const createStyles = (C: any) => StyleSheet.create({
   sectionTitle: { fontFamily: F.display, fontSize: 22, marginBottom: 14, lineHeight: 28 },
 
   // Academic Hub grid
-  hubGrid: {
+  hubGridContainer: {
+    width: '100%',
+  },
+  hubRow: {
     flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: CARD_GAP,
+    gap: 12,
+    marginBottom: 12,
+    width: '100%',
   },
   hubCard: {
-    width: CARD_W,
-    height: CARD_W,
+    flex: 1,
+    aspectRatio: 1,
     borderRadius: 18,
     borderWidth: 1,
     justifyContent: 'center',
     alignItems: 'center',
+    padding: 12,
     gap: 10,
   },
   hubCardDark: { },
   hubIcon: { fontSize: 32 },
   hubIconDark: { },
-  hubLabel: { fontFamily: F.medium, fontSize: 14 },
+  hubLabel: { fontFamily: F.medium, fontSize: 14, textAlign: 'center' },
   hubLabelDark: { },
 
   // Updates

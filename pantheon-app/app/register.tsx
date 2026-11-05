@@ -268,6 +268,7 @@ type FormErrors = {
 export default function RegisterScreen() {
   const router = useRouter();
 
+  const [accountType, setAccountType] = useState<'student' | 'vendor'>('student');
   const [form, setForm] = useState({
     username: '',
     email: '',
@@ -344,8 +345,10 @@ export default function RegisterScreen() {
     if (!form.email.trim()) e.email = 'Email is required';
     else if (!/\S+@\S+\.\S+/.test(form.email)) e.email = 'Enter a valid email address';
     if (!form.university) e.university = 'Please select your university';
-    if (!form.department) e.department = 'Please select your department';
-    if (!form.level) e.level = 'Please select your level';
+    if (accountType === 'student') {
+      if (!form.department) e.department = 'Please select your department';
+      if (!form.level) e.level = 'Please select your level';
+    }
     if (!form.phone.trim()) e.phone = 'Phone number is required';
     else if (form.phone.replace(/\D/g, '').length < 10) e.phone = 'Enter a valid phone number';
     if (!form.password) e.password = 'Password is required';
@@ -357,6 +360,13 @@ export default function RegisterScreen() {
   };
 
   const handleRegister = async () => {
+    if (accountType === 'vendor') {
+      Alert.alert(
+        'Web Only Registration',
+        'Vendor accounts cannot be registered or used on the mobile app. Please use the web portal to register as a vendor.'
+      );
+      return;
+    }
     if (validate()) {
       setLoading(true);
       try {
@@ -364,26 +374,28 @@ export default function RegisterScreen() {
         
         const studentId = Math.floor(10000000000 + Math.random() * 90000000000).toString();
         const photoURL = `https://api.dicebear.com/7.x/avataaars/svg?seed=${user.uid}`;
-        const academicLevel = form.level.replace('LVL', '');
-
+        const isVendor = accountType === 'vendor';
+        const academicLevel = isVendor ? 'vendor' : form.level.replace('LVL', '');
         const universityId = selectedUni?.id || 'futo';
+        const isBootstrapAdmin = form.email === 'successugochukwuchi@gmail.com';
 
         await setDoc(doc(db, 'users', user.uid), {
           uid: user.uid,
           studentId: studentId,
           email: form.email,
           username: form.username,
-          department: form.department,
+          department: isVendor ? 'vendor' : form.department,
           mobileNumber: form.phone,
           academicLevel: academicLevel,
-          level: form.email === 'successugochukwuchi@gmail.com' ? '4' : '1',
-          isActivated: form.email === 'successugochukwuchi@gmail.com', // Default to not activated unless admin
+          level: isBootstrapAdmin ? '4' : (isVendor ? '3' : '1'),
+          isActivated: isVendor || isBootstrapAdmin, // Vendors do not need activation
           referralCount: 0,
           referredBy: null,
           theme: 'light',
           photoURL: photoURL,
           createdAt: new Date().toISOString(),
           At: universityId,
+          ...(isVendor ? { walletBalance: 0, totalEarned: 0 } : {})
         });
 
         // Increment stats total users
@@ -395,7 +407,7 @@ export default function RegisterScreen() {
           console.warn("Failed to increment totalUsers on mobile:", statsErr);
         }
 
-        router.push('/dashboard');
+        router.push(isVendor ? '/dashboard' : '/dashboard');
       } catch (error: any) {
         console.error('Registration error:', error);
         let msg = 'An unexpected error occurred.';
@@ -428,6 +440,43 @@ export default function RegisterScreen() {
               <Text style={s.cardSubtitle}>Create COLEARN Account</Text>
             </View>
 
+            {/* Role selector */}
+            <View style={s.fieldWrap}>
+              <Text style={s.label}>ACCOUNT TYPE</Text>
+              <View style={{ flexDirection: 'row', gap: 10, marginTop: 4 }}>
+                <TouchableOpacity
+                  style={[
+                    s.inputContainer,
+                    { flex: 1, justifyContent: 'center', alignItems: 'center', height: 48, borderColor: C.accent, backgroundColor: '#EFEFEF' },
+                  ]}
+                  onPress={() => setAccountType('student')}
+                  activeOpacity={0.8}
+                >
+                  <Text style={{ fontFamily: F.bold, fontSize: 13, color: C.ink }}>
+                    🎓 Student
+                  </Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={[
+                    s.inputContainer,
+                    { flex: 1, justifyContent: 'center', alignItems: 'center', height: 48, opacity: 0.65 },
+                  ]}
+                  onPress={() => {
+                    Alert.alert(
+                      'Web Only Registration',
+                      'Vendor registration and portal features are exclusively available on the web portal. Mobile app access is for students only.'
+                    );
+                  }}
+                  activeOpacity={0.8}
+                >
+                  <Text style={{ fontFamily: F.bold, fontSize: 13, color: C.inkMid }}>
+                    🏪 Vendor (Web Only)
+                  </Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+
             <InputField
               label="USERNAME"
               placeholder="e.g. futotech_24"
@@ -454,21 +503,25 @@ export default function RegisterScreen() {
               error={errors.university}
             />
 
-            <PickerField
-              label="DEPARTMENT"
-              value={form.department}
-              options={departmentOptions}
-              onSelect={set('department')}
-              error={errors.department}
-            />
+            {accountType === 'student' && (
+              <>
+                <PickerField
+                  label="DEPARTMENT"
+                  value={form.department}
+                  options={departmentOptions}
+                  onSelect={set('department')}
+                  error={errors.department}
+                />
 
-            <PickerField
-              label="LEVEL"
-              value={form.level}
-              options={LEVELS}
-              onSelect={set('level')}
-              error={errors.level}
-            />
+                <PickerField
+                  label="LEVEL"
+                  value={form.level}
+                  options={LEVELS}
+                  onSelect={set('level')}
+                  error={errors.level}
+                />
+              </>
+            )}
 
             <InputField
               label="PHONE NUMBER"

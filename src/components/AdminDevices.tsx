@@ -72,7 +72,7 @@ export default function AdminDevices() {
           </CardTitle>
           <CardDescription>
             Forcefully disconnect devices from a user's account in case of loss or theft. 
-            Standard users are limited to 2 devices per semester (Level 5 Super Admins have unlimited devices).
+            Standard student users are limited to 2 devices per semester (Vendors and Level 5 Super Admins have unlimited devices).
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-6">

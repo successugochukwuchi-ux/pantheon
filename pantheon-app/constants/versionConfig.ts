@@ -1,4 +1,4 @@
 // Hardcoded release hash and version number for CoLearn Mobile Client
-export const APP_HARDCODED_AVUUID = "5f49bd3d2594d4b3e9c50cf51d279c83290adcdd8821a41f40decd0a41f5c93c";
-export const APP_BUILD_VERSION = "1.0.3alpha";
+export const APP_HARDCODED_AVUUID = "3b75799450afaf9d79ebb9c32eb610c1ce4aa2c6ead621b00c078e7709b538bf";
+export const APP_BUILD_VERSION = "1.5.1";
 

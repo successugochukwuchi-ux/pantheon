@@ -210,6 +210,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         const userSnap = await getDoc(doc(db, 'users', user.uid));
         const userData = userSnap?.exists() ? userSnap.data() : {};
         const isLevel5 = userData.level === '5' || user.email === 'successugochukwuchi@gmail.com';
+        const isVendor = userData.level === '3' || 
+                         String(userData.level) === '3' || 
+                         userData.academicLevel?.toLowerCase() === 'vendor' || 
+                         userData.department?.toLowerCase() === 'vendor';
+        const isExemptFromDeviceLimit = isLevel5 || isVendor;
         let devices = userData.devices || [];
         const currentDevices = devices.filter((d: any) => d.semester === currentSemester);
 
@@ -219,7 +224,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         if (deviceId) {
           const matched = currentDevices.find((d: any) => d.id === deviceId);
           if (!matched) {
-            if (!isLevel5 && currentDevices.length >= 2) {
+            if (!isExemptFromDeviceLimit && currentDevices.length >= 2) {
               const adminInfo = await fetchAdminContactForUniversity(userData.At || 'futo');
               setDeviceLimitModal({
                 isOpen: true,
@@ -248,7 +253,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             await updateDoc(doc(db, 'users', user.uid), { devices: currentDevices }).catch(() => {});
           }
         } else {
-          if (!isLevel5 && currentDevices.length >= 2) {
+          if (!isExemptFromDeviceLimit && currentDevices.length >= 2) {
             const adminInfo = await fetchAdminContactForUniversity(userData.At || 'futo');
             setDeviceLimitModal({
               isOpen: true,

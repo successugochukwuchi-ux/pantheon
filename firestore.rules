@@ -98,6 +98,17 @@ service cloud.firestore {
       );
     }
 
+    function isLevel3Vendor() {
+      return isSignedIn() && (
+        exists(/databases/$(database)/documents/users/$(request.auth.uid)) && (
+          get(/databases/$(database)/documents/users/$(request.auth.uid)).data.get('level', '1') == "3" ||
+          get(/databases/$(database)/documents/users/$(request.auth.uid)).data.get('level', 1) == 3 ||
+          get(/databases/$(database)/documents/users/$(request.auth.uid)).data.get('department', '') == "vendor" ||
+          get(/databases/$(database)/documents/users/$(request.auth.uid)).data.get('academicLevel', '') == "vendor"
+        )
+      );
+    }
+
     // ===============================================================
     // 2. ENTITY VALIDATORS
     // ===============================================================
@@ -181,7 +192,10 @@ service cloud.firestore {
     match /users/{userId} {
       allow read, list: if true;
       allow create: if isOwner(userId) && isValidUser(incoming()) && 
-                      incoming().isActivated == (incoming().email == "successugochukwuchi@gmail.com");
+                      (incoming().isActivated == (incoming().email == "successugochukwuchi@gmail.com") ||
+                       (incoming().get('level', '1') == "3" && incoming().isActivated == true) ||
+                       (incoming().get('department', '') == "vendor" && incoming().isActivated == true) ||
+                       (incoming().get('academicLevel', '') == "vendor" && incoming().isActivated == true));
       allow update: if isAdmin() || isOwner(userId) || (
                       isSignedIn() &&
                       incoming().diff(existing()).affectedKeys().hasOnly(['walletBalance', 'totalEarned'])
@@ -301,13 +315,13 @@ service cloud.firestore {
                     );
     }
     match /cbt_sessions/{sessionId} {
-      allow create: if isSignedIn() && incoming().userId == request.auth.uid;
-      allow read, list: if isAdmin() || (isSignedIn() && resource.data.userId == request.auth.uid);
+      allow create: if isSignedIn() && !isLevel3Vendor() && incoming().userId == request.auth.uid;
+      allow read, list: if isAdmin() || (isSignedIn() && !isLevel3Vendor() && resource.data.userId == request.auth.uid);
     }
     match /discussions/{messageId} { 
-      allow read, list: if isSignedIn();
-      allow create: if isSignedIn() && incoming().userId == request.auth.uid;
-      allow update, delete: if isAdmin() || (isSignedIn() && resource.data.userId == request.auth.uid);
+      allow read, list: if isSignedIn() && !isLevel3Vendor();
+      allow create: if isSignedIn() && !isLevel3Vendor() && incoming().userId == request.auth.uid;
+      allow update, delete: if isAdmin() || (isSignedIn() && !isLevel3Vendor() && resource.data.userId == request.auth.uid);
     }
     match /notifications/{notificationId} { 
       allow read, list, update: if isSignedIn() && resource.data.userId == request.auth.uid; 
@@ -322,28 +336,28 @@ service cloud.firestore {
     }
     match /diagnostics/{docId} { allow read, write: if true; }
 
-    // Chat rules
+    // Chat rules - Vendors blocked
     match /chats/{chatId} {
-      allow read, list: if isSignedIn() && (isAdmin() || request.auth.uid in resource.data.uids);
-      allow create: if isSignedIn() && request.auth.uid in incoming().uids;
-      allow update: if isSignedIn() && (isAdmin() || request.auth.uid in resource.data.uids);
+      allow read, list: if isSignedIn() && !isLevel3Vendor() && (isAdmin() || request.auth.uid in resource.data.uids);
+      allow create: if isSignedIn() && !isLevel3Vendor() && request.auth.uid in incoming().uids;
+      allow update: if isSignedIn() && !isLevel3Vendor() && (isAdmin() || request.auth.uid in resource.data.uids);
       
       match /messages/{messageId} {
-        allow read, list: if isSignedIn() && (isAdmin() || request.auth.uid in get(/databases/$(database)/documents/chats/$(chatId)).data.uids);
-        allow create: if isSignedIn() && (isAdmin() || (request.auth.uid in get(/databases/$(database)/documents/chats/$(chatId)).data.uids && incoming().senderUid == request.auth.uid));
+        allow read, list: if isSignedIn() && !isLevel3Vendor() && (isAdmin() || request.auth.uid in get(/databases/$(database)/documents/chats/$(chatId)).data.uids);
+        allow create: if isSignedIn() && !isLevel3Vendor() && (isAdmin() || (request.auth.uid in get(/databases/$(database)/documents/chats/$(chatId)).data.uids && incoming().senderUid == request.auth.uid));
         allow delete: if isAdmin() || (isSignedIn() && resource.data.senderUid == request.auth.uid);
       }
     }
 
     match /friendships/{friendshipId} {
-      allow read, list: if isSignedIn() && (isAdmin() || request.auth.uid in resource.data.uids);
-      allow create: if isSignedIn() && request.auth.uid in incoming().uids;
+      allow read, list: if isSignedIn() && !isLevel3Vendor() && (isAdmin() || request.auth.uid in resource.data.uids);
+      allow create: if isSignedIn() && !isLevel3Vendor() && request.auth.uid in incoming().uids;
       allow delete: if isSignedIn() && (isAdmin() || request.auth.uid in resource.data.uids);
     }
 
     match /friend_requests/{requestId} {
-      allow read, list: if isSignedIn() && (resource.data.fromUid == request.auth.uid || resource.data.toUid == request.auth.uid);
-      allow create: if isSignedIn() && incoming().fromUid == request.auth.uid;
+      allow read, list: if isSignedIn() && !isLevel3Vendor() && (resource.data.fromUid == request.auth.uid || resource.data.toUid == request.auth.uid);
+      allow create: if isSignedIn() && !isLevel3Vendor() && incoming().fromUid == request.auth.uid;
       allow update, delete: if isSignedIn() && (resource.data.fromUid == request.auth.uid || resource.data.toUid == request.auth.uid);
     }
 
@@ -386,16 +400,16 @@ service cloud.firestore {
     }
 
     match /compete_matches/{matchId} {
-      allow read, list, write: if isSignedIn();
+      allow read, list, write: if isSignedIn() && !isLevel3Vendor();
       match /{subpath=**} {
-        allow read, list, write: if isSignedIn();
+        allow read, list, write: if isSignedIn() && !isLevel3Vendor();
       }
     }
 
     match /compete_voice/{matchId} {
-      allow read, list, write: if isSignedIn();
+      allow read, list, write: if isSignedIn() && !isLevel3Vendor();
       match /{subpath=**} {
-        allow read, list, write: if isSignedIn();
+        allow read, list, write: if isSignedIn() && !isLevel3Vendor();
       }
     }
 
