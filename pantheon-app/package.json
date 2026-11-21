@@ -10,6 +10,7 @@
     "build:production": "eas build --profile production --platform android"
   },
   "dependencies": {
+    "@config-plugins/react-native-webrtc": "~10.0.0",
     "@expo-google-fonts/dm-sans": "^0.2.3",
     "@expo-google-fonts/dm-serif-display": "^0.2.3",
     "@fingerprintjs/fingerprintjs": "^4.2.1",
@@ -39,9 +40,11 @@
     "firebase": "^12.12.0",
     "react": "18.3.1",
     "react-native": "0.76.5",
+    "react-native-incall-manager": "^4.3.0",
     "react-native-reanimated": "~3.16.1",
     "react-native-safe-area-context": "4.12.0",
     "react-native-screens": "~4.1.0",
+    "react-native-webrtc": "^124.0.8",
     "react-native-webview": "13.13.2",
     "uuid": "^9.0.1"
   },

@@ -62,6 +62,8 @@ import {
 } from '../components/ui/dialog';
 import { motion, AnimatePresence } from 'framer-motion';
 import { MathMarkdown } from '../components/MathMarkdown';
+import { useCompeteVoice } from '../hooks/useCompeteVoice';
+import { CompeteVoiceControls } from '../components/CompeteVoiceControls';
 
 export default function Compete() {
   const { user, profile, systemConfig } = useAuth();
@@ -133,6 +135,19 @@ export default function Compete() {
 
   const activeSeasonId = systemConfig?.activeSeasonId || null;
   const activeSeasonName = systemConfig?.activeSeasonName || null;
+
+  const isVoiceActivePhase =
+    (gameState === 'playing' || gameState === 'results') &&
+    Boolean(currentMatch?.id) &&
+    currentMatch?.status !== 'waiting';
+
+  const voice = useCompeteVoice({
+    matchId: currentMatch?.id,
+    userId: user?.uid,
+    creatorId: currentMatch?.creatorId,
+    opponentId: currentMatch?.opponentId,
+    isActivePhase: isVoiceActivePhase,
+  });
 
   // 1. Load Leaderboard and Courses
   useEffect(() => {
@@ -1112,9 +1127,11 @@ export default function Compete() {
   }, [user?.uid]);
 
   const handleExitMatch = async () => {
-    if (gameState === 'waiting' && currentMatch?.id) {
+    const exitingMatchId = currentMatch?.id;
+    if (gameState === 'waiting' && exitingMatchId) {
       await cancelWaitingMatch();
     }
+    await voice.leaveVoice(exitingMatchId);
     setGameState('lobby');
     setCurrentMatch(null);
     setMatchQuestions([]);
@@ -1290,6 +1307,11 @@ export default function Compete() {
             </div>
           </div>
         </div>
+      )}
+
+      {/* Persistent remote voice audio element across playing -> results transition */}
+      {voice.isHumanMatch && (
+        <audio ref={voice.attachRemoteAudioElement} autoPlay playsInline className="hidden" />
       )}
 
       {/* RENDER CURRENT SCREEN BASED ON STATE PATH */}
@@ -1900,11 +1922,22 @@ export default function Compete() {
               <div className="lg:col-span-3 space-y-6">
                 <Card className="rounded-2xl border shadow-sm">
                   <CardHeader className="bg-muted/30 pb-4 border-b">
-                    <div className="flex items-center justify-between gap-3">
+                    <div className="flex flex-wrap items-center justify-between gap-3">
                       <span className="px-3 py-1 rounded-full text-[11px] font-mono font-bold bg-primary/10 text-primary border border-primary/20">
                         Question {activeQuestionIndex + 1} of {matchQuestions.length}
                       </span>
-                      <div className="flex items-center gap-2.5">
+                      <div className="flex items-center gap-2.5 flex-wrap">
+                        <CompeteVoiceControls
+                          isHumanMatch={voice.isHumanMatch}
+                          isMicOn={voice.isMicOn}
+                          isMicBusy={voice.isMicBusy}
+                          isOpponentMuted={voice.isOpponentMuted}
+                          voiceStatus={voice.voiceStatus}
+                          onToggleMic={voice.toggleMic}
+                          onToggleOpponentMute={voice.toggleOpponentMute}
+                          onRetry={voice.retryVoice}
+                          compact
+                        />
                         <span className="text-xs text-muted-foreground font-semibold hidden sm:inline">
                           Course: {currentMatch.courseCode}
                         </span>
@@ -2069,6 +2102,21 @@ export default function Compete() {
               <p className="text-sm mt-1 text-muted-foreground font-mono">
                 Lobby Code: {currentMatch.type === 'quick_match' ? 'Quick Pool' : currentMatch.roomCode} | Course: {currentMatch.courseCode}
               </p>
+
+              {voice.isHumanMatch && (
+                <div className="mt-3 flex justify-center">
+                  <CompeteVoiceControls
+                    isHumanMatch={voice.isHumanMatch}
+                    isMicOn={voice.isMicOn}
+                    isMicBusy={voice.isMicBusy}
+                    isOpponentMuted={voice.isOpponentMuted}
+                    voiceStatus={voice.voiceStatus}
+                    onToggleMic={voice.toggleMic}
+                    onToggleOpponentMute={voice.toggleOpponentMute}
+                    onRetry={voice.retryVoice}
+                  />
+                </div>
+              )}
             </div>
 
                 {/* LIVE SCORE STATS SCOREBOARD PANEL */}

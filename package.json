@@ -10,7 +10,9 @@
     "build:flux": "npm run build --prefix FLUX",
     "preview": "vite preview",
     "clean": "rm -rf dist",
-    "lint": "tsc --noEmit"
+    "lint": "tsc --noEmit",
+    "verify:plx": "tsx scripts/verify-plx.ts",
+    "build:plx-verifier": "esbuild scripts/verify-plx.ts --bundle --platform=node --format=cjs --minify --outfile=skills/plx-authoring/scripts/verify-plx.cjs"
   },
   "dependencies": {
     "@base-ui/react": "^1.4.0",

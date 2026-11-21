@@ -356,4 +356,113 @@ export function SendIcon({ color = '#ffffff' }: { color?: string }) {
   );
 }
 
+export function MicOffIcon({ color = C.ink }: { color?: string }) {
+  return (
+    <View style={{ width: 20, height: 22, justifyContent: 'center', alignItems: 'center' }}>
+      <MicIcon color={color} />
+      <View
+        style={{
+          position: 'absolute',
+          width: 22,
+          height: 2,
+          backgroundColor: color,
+          borderRadius: 1,
+          transform: [{ rotate: '-45deg' }],
+        }}
+      />
+    </View>
+  );
+}
+
+export function SpeakerIcon({ color = C.ink }: { color?: string }) {
+  return (
+    <View style={{ width: 20, height: 20, justifyContent: 'center', alignItems: 'center' }}>
+      <View style={{ position: 'absolute', left: 2, width: 5, height: 8, backgroundColor: color, borderTopLeftRadius: 2, borderBottomLeftRadius: 2 }} />
+      <View
+        style={{
+          position: 'absolute',
+          left: 5,
+          width: 0,
+          height: 0,
+          borderTopWidth: 7,
+          borderBottomWidth: 7,
+          borderRightWidth: 6,
+          borderTopColor: 'transparent',
+          borderBottomColor: 'transparent',
+          borderRightColor: color,
+        }}
+      />
+      <View
+        style={{
+          position: 'absolute',
+          right: 4,
+          width: 5,
+          height: 8,
+          borderRightWidth: 2,
+          borderTopRightRadius: 5,
+          borderBottomRightRadius: 5,
+          borderColor: color,
+        }}
+      />
+      <View
+        style={{
+          position: 'absolute',
+          right: 1,
+          width: 6,
+          height: 14,
+          borderRightWidth: 2,
+          borderTopRightRadius: 8,
+          borderBottomRightRadius: 8,
+          borderColor: color,
+        }}
+      />
+    </View>
+  );
+}
+
+export function SpeakerMutedIcon({ color = C.ink }: { color?: string }) {
+  return (
+    <View style={{ width: 20, height: 20, justifyContent: 'center', alignItems: 'center' }}>
+      <View style={{ position: 'absolute', left: 2, width: 5, height: 8, backgroundColor: color, borderTopLeftRadius: 2, borderBottomLeftRadius: 2 }} />
+      <View
+        style={{
+          position: 'absolute',
+          left: 5,
+          width: 0,
+          height: 0,
+          borderTopWidth: 7,
+          borderBottomWidth: 7,
+          borderRightWidth: 6,
+          borderTopColor: 'transparent',
+          borderBottomColor: 'transparent',
+          borderRightColor: color,
+        }}
+      />
+      <View
+        style={{
+          position: 'absolute',
+          right: 2,
+          width: 7,
+          height: 2,
+          backgroundColor: color,
+          borderRadius: 1,
+          transform: [{ rotate: '45deg' }],
+        }}
+      />
+      <View
+        style={{
+          position: 'absolute',
+          right: 2,
+          width: 7,
+          height: 2,
+          backgroundColor: color,
+          borderRadius: 1,
+          transform: [{ rotate: '-45deg' }],
+        }}
+      />
+    </View>
+  );
+}
+
+
 

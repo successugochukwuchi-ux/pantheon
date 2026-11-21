@@ -61,6 +61,7 @@ const FluxAdmin = lazy(() => import('./pages/flux/FluxAdmin'));
 const Diagnostic = lazy(() => import('./pages/Diagnostic'));
 const VideoLibrary = lazy(() => import('./pages/VideoLibrary'));
 const Compete = lazy(() => import('./pages/Compete'));
+const PlxVerifier = lazy(() => import('./pages/PlxVerifier'));
 
 const PageLoadingFallback = () => (
   <div className="flex min-h-screen items-center justify-center bg-background text-foreground p-4">
@@ -134,6 +135,7 @@ export default function App() {
                     <Route path="/terms" element={<TermsOfService />} />
                     <Route path="/banned" element={<Banned />} />
                     <Route path="/diag" element={<Diagnostic />} />
+                    <Route path="/plx-verifier" element={<PlxVerifier />} />
                     <Route path="/onboarding" element={
                       <ProtectedRoute requireActivation={false} requireOnboarding={false}>
                         <Onboarding />

@@ -13,7 +13,7 @@ import { Badge } from './ui/badge';
 import { toast } from 'sonner';
 import { 
   ShieldCheck, School, BookOpen, DollarSign, Calendar, TrendingUp, Key, Plus, 
-  List, Eye, FileDown, Loader2, Wand2, Sparkles, CheckCircle2, AlertTriangle, 
+  List, Eye, EyeOff, FileDown, Loader2, Wand2, Sparkles, CheckCircle2, AlertTriangle, 
   Terminal, RefreshCw, XCircle, FileText, HelpCircle, Bot, Cpu, StopCircle,
   Camera, Smartphone, Lock, Unlock, CreditCard, Percent, Building2, Server, Mail, Radio, Play, Copy
 } from 'lucide-react';
@@ -233,6 +233,51 @@ export default function OverseerControl() {
   const [testEmailTesting, setTestEmailTesting] = useState(false);
   const [testEmailResult, setTestEmailResult] = useState<any>(null);
 
+  // WebRTC TURN Relay (ExpressTURN) Credentials — stored in Firestore system/webrtc
+  const [turnEnabled, setTurnEnabled] = useState(true);
+  const [turnUrl, setTurnUrl] = useState('free.expressturn.com:3478');
+  const [turnUsername, setTurnUsername] = useState('000000002110604429');
+  const [turnPassword, setTurnPassword] = useState('sxIG9WI/Ghq1G61Q/qPydjqh9fY=');
+  const [turnShowPassword, setTurnShowPassword] = useState(false);
+  const [turnSaving, setTurnSaving] = useState(false);
+
+  const handleSaveTurnConfig = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (turnEnabled && (!turnUrl.trim() || !turnUsername.trim() || !turnPassword.trim())) {
+      toast.error('Please enter TURN server address, username, and password (or disable TURN relay).');
+      return;
+    }
+    setTurnSaving(true);
+    try {
+      await setDoc(
+        doc(db, 'system', 'webrtc'),
+        {
+          enabled: turnEnabled,
+          turnUrl: turnUrl.trim(),
+          username: turnUsername.trim(),
+          password: turnPassword.trim(),
+          updatedAt: Date.now(),
+          updatedBy: user?.email || user?.uid || 'overseer',
+        },
+        { merge: true }
+      );
+      toast.success('TURN relay credentials saved to Firestore (system/webrtc).');
+    } catch (err: any) {
+      console.error('Error saving TURN config:', err);
+      toast.error(err.message || 'Failed to save TURN credentials');
+    } finally {
+      setTurnSaving(false);
+    }
+  };
+
+  const handleResetTurnDefaults = () => {
+    setTurnEnabled(true);
+    setTurnUrl('free.expressturn.com:3478');
+    setTurnUsername('000000002110604429');
+    setTurnPassword('sxIG9WI/Ghq1G61Q/qPydjqh9fY=');
+    toast.info('ExpressTURN default credentials loaded. Click "Save TURN Credentials" to persist.');
+  };
+
   const handleTestEmailParser = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!testEmailBody.trim()) {
@@ -395,6 +440,20 @@ export default function OverseerControl() {
         }
       } catch (tErr) {
         console.warn("Could not fetch system/takano_pay:", tErr);
+      }
+
+      // Fetch WebRTC TURN Relay Config (system/webrtc)
+      try {
+        const webrtcDoc = await getDoc(doc(db, 'system', 'webrtc'));
+        if (webrtcDoc.exists()) {
+          const wData = webrtcDoc.data();
+          if (typeof wData.enabled === 'boolean') setTurnEnabled(wData.enabled);
+          if (wData.turnUrl) setTurnUrl(wData.turnUrl);
+          if (wData.username) setTurnUsername(wData.username);
+          if (wData.password) setTurnPassword(wData.password);
+        }
+      } catch (wErr) {
+        console.warn("Could not fetch system/webrtc:", wErr);
       }
 
       // Fetch Price History
@@ -2901,6 +2960,124 @@ export default function OverseerControl() {
               </div>
             )}
           </div>
+        </CardContent>
+      </Card>
+
+      {/* 3. Compete Voice TURN Relay Configuration (ExpressTURN - Saved to Firestore system/webrtc) */}
+      <Card className="border-indigo-200 dark:border-indigo-900 shadow-xs">
+        <CardHeader>
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+            <div>
+              <CardTitle className="flex items-center gap-2 text-indigo-700 dark:text-indigo-400">
+                <Radio className="h-5 w-5" />
+                CoLearn Compete Voice — TURN Relay Credentials (ExpressTURN)
+              </CardTitle>
+              <CardDescription className="mt-1">
+                Manage TURN relay credentials stored in Firestore (<code className="font-mono text-xs">system/webrtc</code>) for Web &amp; Mobile 1v1 Compete voice chat. STUN runs first at zero relay cost; TURN only relays traffic when Symmetric CGNAT or strict routers block direct UDP.
+              </CardDescription>
+            </div>
+            <Badge className={turnEnabled ? 'bg-emerald-600 text-white self-start sm:self-center' : 'bg-stone-500 text-white self-start sm:self-center'}>
+              {turnEnabled ? 'TURN Relay Active' : 'Pure STUN Only'}
+            </Badge>
+          </div>
+        </CardHeader>
+        <CardContent>
+          <form onSubmit={handleSaveTurnConfig} className="space-y-4">
+            <div className="flex items-center justify-between p-3 rounded-xl border bg-muted/40">
+              <div>
+                <div className="text-sm font-semibold text-foreground">Enable TURN Relay Fallback</div>
+                <div className="text-xs text-muted-foreground">
+                  Allow Web and Mobile clients to use this TURN server when peer-to-peer STUN is NAT-blocked.
+                </div>
+              </div>
+              <Button
+                type="button"
+                size="sm"
+                variant={turnEnabled ? 'default' : 'outline'}
+                onClick={() => setTurnEnabled((v) => !v)}
+                className={turnEnabled ? 'bg-emerald-600 hover:bg-emerald-700 text-white' : ''}
+              >
+                {turnEnabled ? 'Enabled' : 'Disabled'}
+              </Button>
+            </div>
+
+            <div className="grid gap-4 md:grid-cols-3">
+              <div className="space-y-2">
+                <Label htmlFor="turnUrl" className="font-semibold">TURN Server Address</Label>
+                <Input
+                  id="turnUrl"
+                  placeholder="free.expressturn.com:3478"
+                  value={turnUrl}
+                  onChange={(e) => setTurnUrl(e.target.value)}
+                  className="font-mono text-xs"
+                />
+                <p className="text-[11px] text-muted-foreground">
+                  Host &amp; port (both UDP and TCP transports are registered automatically).
+                </p>
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="turnUsername" className="font-semibold">TURN Username</Label>
+                <Input
+                  id="turnUsername"
+                  placeholder="000000002110604429"
+                  value={turnUsername}
+                  onChange={(e) => setTurnUsername(e.target.value)}
+                  className="font-mono text-xs"
+                />
+                <p className="text-[11px] text-muted-foreground">
+                  ExpressTURN / TURN account username.
+                </p>
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="turnPassword" className="font-semibold">TURN Password</Label>
+                <div className="relative">
+                  <Input
+                    id="turnPassword"
+                    type={turnShowPassword ? 'text' : 'password'}
+                    placeholder="Enter TURN credential"
+                    value={turnPassword}
+                    onChange={(e) => setTurnPassword(e.target.value)}
+                    className="font-mono text-xs pr-9"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setTurnShowPassword((v) => !v)}
+                    className="absolute right-2.5 top-2.5 text-muted-foreground hover:text-foreground cursor-pointer"
+                    aria-label={turnShowPassword ? 'Hide TURN password' : 'Show TURN password'}
+                  >
+                    {turnShowPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                  </button>
+                </div>
+                <p className="text-[11px] text-muted-foreground">
+                  Stored securely in Firestore, never in <code className="font-mono">.env</code>.
+                </p>
+              </div>
+            </div>
+
+            <div className="flex flex-wrap items-center justify-between gap-3 pt-2 border-t">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={handleResetTurnDefaults}
+                disabled={turnSaving}
+              >
+                <RefreshCw className="h-3.5 w-3.5 mr-1.5" />
+                Reset to ExpressTURN Defaults
+              </Button>
+
+              <Button
+                type="submit"
+                disabled={turnSaving}
+                className="bg-indigo-600 hover:bg-indigo-700 text-white"
+              >
+                {turnSaving ? <Loader2 className="h-4 w-4 animate-spin mr-1.5" /> : <Radio className="h-4 w-4 mr-1.5" />}
+                {turnSaving ? 'Saving Credentials...' : 'Save TURN Credentials'}
+              </Button>
+            </div>
+          </form>
         </CardContent>
       </Card>
     </TabsContent>

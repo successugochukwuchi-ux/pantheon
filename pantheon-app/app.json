@@ -2,7 +2,7 @@
   "expo": {
     "name": "CoLearn",
     "slug": "colearn-app",
-    "version": "1.5.1",
+    "version": "1.5.2",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
@@ -45,6 +45,12 @@
     "plugins": [
       "expo-router",
       "expo-font",
+      [
+        "@config-plugins/react-native-webrtc",
+        {
+          "microphonePermission": "CoLearn needs microphone access for voice conversations in CoLearn Compete and Hermes."
+        }
+      ],
       [
         "expo-build-properties",
         {

@@ -431,6 +431,32 @@
         "createdAt"
       ]
     },
+    "CompeteVoiceSignal": {
+      "title": "CompeteVoiceSignal",
+      "description": "Single-document batched-ICE WebRTC signaling state for 1v1 CoLearn Compete matches",
+      "type": "object",
+      "properties": {
+        "offer": {
+          "type": "object",
+          "properties": {
+            "type": { "type": "string" },
+            "sdp": { "type": "string" },
+            "epoch": { "type": "number" }
+          }
+        },
+        "answer": {
+          "type": "object",
+          "properties": {
+            "type": { "type": "string" },
+            "sdp": { "type": "string" },
+            "epoch": { "type": "number" }
+          }
+        },
+        "creatorUid": { "type": "string" },
+        "opponentUid": { "type": "string" },
+        "updatedAt": { "type": "number" }
+      }
+    },
     "PromoConfig": {
       "title": "PromoConfig",
       "description": "Configuration for promo mode activations",
@@ -1169,6 +1195,20 @@
         "mode": { "type": "string" },
         "updatedAt": { "type": "string" }
       }
+    },
+    "WebRtcTurnConfig": {
+      "title": "WebRtcTurnConfig",
+      "description": "Centralized WebRTC TURN relay credentials for CoLearn Compete voice chat",
+      "type": "object",
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "turnUrl": { "type": "string" },
+        "username": { "type": "string" },
+        "password": { "type": "string" },
+        "updatedAt": { "type": "number" },
+        "updatedBy": { "type": "string" }
+      },
+      "required": ["enabled", "turnUrl", "username", "password"]
     }
   },
   "firestore": {
@@ -1276,6 +1316,10 @@
       "schema": "CompeteMatch",
       "description": "CoLearn match lobby and game tracking"
     },
+    "/compete_voice/{matchId}": {
+      "schema": "CompeteVoiceSignal",
+      "description": "Ephemeral 1v1 WebRTC signaling document for CoLearn Compete voice chat"
+    },
     "/seasons/{seasonId}": {
       "schema": "object",
       "description": "Season container document"
@@ -1303,6 +1347,10 @@
     "/settings/{settingId}": {
       "schema": "SystemSetting",
       "description": "Centralized system and integration settings documents"
+    },
+    "/system/webrtc": {
+      "schema": "WebRtcTurnConfig",
+      "description": "Overseer-managed ExpressTURN relay credentials for CoLearn Compete voice"
     }
   }
 }

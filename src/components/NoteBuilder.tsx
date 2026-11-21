@@ -2553,11 +2553,17 @@ Save the final text as a file named "note.plx" (or .txt) then upload it.
               )}
             </div>
 
-            <DialogFooter className="sm:justify-start">
-              <div className="flex items-center gap-2 text-[10px] text-muted-foreground bg-muted/50 p-2 rounded-lg w-full">
-                <FileText className="h-3 w-3" />
+            <DialogFooter className="sm:justify-between flex-wrap gap-2">
+              <div className="flex items-center gap-2 text-[10px] text-muted-foreground bg-muted/50 p-2 rounded-lg flex-1">
+                <FileText className="h-3 w-3 shrink-0" />
                 <span>PLX files are parsed instantly. AI handles PDFs and Image extractions.</span>
               </div>
+              <a
+                href="/plx-verifier"
+                className="text-[11px] text-primary font-semibold hover:underline px-2 py-1"
+              >
+                Open PLX Verifier
+              </a>
             </DialogFooter>
           </DialogContent>
         </Dialog>

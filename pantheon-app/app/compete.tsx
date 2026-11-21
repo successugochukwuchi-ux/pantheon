@@ -14,6 +14,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
+import { Audio } from 'expo-av';
 import { BottomNav } from '../components/BottomNav';
 import { MathText } from '../components/MathText';
 import { F, width } from '../components/Theme';
@@ -39,6 +40,8 @@ import {
 import { db } from '../lib/firebase';
 import { getFilteredCoursesForStudent } from '../lib/courseFilter';
 import { getDownloadedCoursesLocal, getLocalQuestions, saveQuestionsBatchLocal } from '../lib/db';
+import { useCompeteVoice } from '../lib/useCompeteVoice';
+import { CompeteVoiceBar } from '../components/CompeteVoiceBar';
 
 interface Course {
   id: string;
@@ -100,6 +103,25 @@ export default function CompeteScreen() {
   const currentMatchRef = useRef(currentMatch);
   currentMatchRef.current = currentMatch;
 
+  // Prompt for microphone permission upon entering CoLearn Compete if not yet granted
+  useEffect(() => {
+    let active = true;
+    (async () => {
+      try {
+        const existing = await Audio.getPermissionsAsync();
+        if (!active) return;
+        if (existing.status !== 'granted' && existing.canAskAgain !== false) {
+          await Audio.requestPermissionsAsync();
+        }
+      } catch {
+        // Non-fatal on unsupported platforms
+      }
+    })();
+    return () => {
+      active = false;
+    };
+  }, []);
+
   // Cleanly cancel waiting match if user navigates away or screen unmounts to prevent ghost matching
   useEffect(() => {
     return () => {
@@ -130,6 +152,19 @@ export default function CompeteScreen() {
 
   const activeSeasonId = systemConfig?.activeSeasonId || null;
   const activeSeasonName = systemConfig?.activeSeasonName || null;
+
+  const isVoiceActivePhase =
+    (gameState === 'playing' || gameState === 'results') &&
+    Boolean(currentMatch?.id) &&
+    currentMatch?.status !== 'waiting';
+
+  const voice = useCompeteVoice({
+    matchId: currentMatch?.id,
+    userId: user?.uid,
+    creatorId: currentMatch?.creatorId,
+    opponentId: currentMatch?.opponentId,
+    isActivePhase: isVoiceActivePhase,
+  });
 
   // Animation values
   const fadeAnim = useRef(new Animated.Value(0)).current;
@@ -1167,9 +1202,11 @@ export default function CompeteScreen() {
   };
 
   const handleExitMatch = async () => {
-    if (gameState === 'waiting' && currentMatch?.id) {
+    const exitingMatchId = currentMatch?.id;
+    if (gameState === 'waiting' && exitingMatchId) {
       await cancelWaitingMatch();
     }
+    await voice.leaveVoice(exitingMatchId);
     setGameState('lobby');
     setCurrentMatch(null);
     setMatchQuestions([]);
@@ -1825,6 +1862,18 @@ export default function CompeteScreen() {
                 </View>
               </View>
 
+              {/* Voice Chat Bar (Mic disabled by default, Speaker mute/unmute) */}
+              <CompeteVoiceBar
+                isHumanMatch={voice.isHumanMatch}
+                isMicOn={voice.isMicOn}
+                isMicBusy={voice.isMicBusy}
+                isOpponentMuted={voice.isOpponentMuted}
+                voiceStatus={voice.voiceStatus}
+                onToggleMic={voice.toggleMic}
+                onToggleOpponentMute={voice.toggleOpponentMute}
+                onRetry={voice.retryVoice}
+              />
+
               {/* Progress Bar */}
               <View style={[s.matchProgressBarBg, { backgroundColor: C.border }]}>
                 <View
@@ -1947,6 +1996,18 @@ export default function CompeteScreen() {
                       ? '🏆 You Triumphed!'
                       : '💔 Opponent Triumphed!'}
                   </Text>
+
+                  {/* Voice Chat remains open on Results screen until player exits */}
+                  <CompeteVoiceBar
+                    isHumanMatch={voice.isHumanMatch}
+                    isMicOn={voice.isMicOn}
+                    isMicBusy={voice.isMicBusy}
+                    isOpponentMuted={voice.isOpponentMuted}
+                    voiceStatus={voice.voiceStatus}
+                    onToggleMic={voice.toggleMic}
+                    onToggleOpponentMute={voice.toggleOpponentMute}
+                    onRetry={voice.retryVoice}
+                  />
 
                   {/* Score summary cells */}
                   <View style={s.resultsBlockBox}>
