@@ -3,8 +3,8 @@ import { StatusBar } from 'expo-status-bar';
 import { useFonts, DMSerifDisplay_400Regular } from '@expo-google-fonts/dm-serif-display';
 import { DMSans_400Regular, DMSans_500Medium, DMSans_700Bold } from '@expo-google-fonts/dm-sans';
 import * as SplashScreen from 'expo-splash-screen';
-import { useEffect, useRef } from 'react';
-import { View } from 'react-native';
+import { useEffect, useRef, useState } from 'react';
+import { View, ActivityIndicator } from 'react-native';
 
 import { AuthProvider } from '../context/AuthContext';
 import { ThemeProvider } from '../context/ThemeContext';
@@ -19,6 +19,12 @@ SplashScreen.preventAutoHideAsync().catch(() => {});
 export default function RootLayout() {
   const pathname = usePathname();
   const prevPathRef = useRef(pathname);
+  const [fontTimeout, setFontTimeout] = useState(false);
+
+  useEffect(() => {
+    const timer = setTimeout(() => setFontTimeout(true), 2500);
+    return () => clearTimeout(timer);
+  }, []);
 
   useEffect(() => {
     if (prevPathRef.current && prevPathRef.current !== pathname) {
@@ -37,13 +43,17 @@ export default function RootLayout() {
   useEffect(() => {
     initDatabase();
 
-    if (fontsLoaded || fontError) {
+    if (fontsLoaded || fontError || fontTimeout) {
       SplashScreen.hideAsync().catch(() => {});
     }
-  }, [fontsLoaded, fontError]);
+  }, [fontsLoaded, fontError, fontTimeout]);
 
-  if (!fontsLoaded && !fontError) {
-    return <View style={{ flex: 1, backgroundColor: '#F0EFF5' }} />;
+  if (!fontsLoaded && !fontError && !fontTimeout) {
+    return (
+      <View style={{ flex: 1, backgroundColor: '#F5F4F0', alignItems: 'center', justifyContent: 'center' }}>
+        <ActivityIndicator size="small" color="#0A0A0A" />
+      </View>
+    );
   }
 
   return (

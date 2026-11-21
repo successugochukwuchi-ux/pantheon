@@ -203,8 +203,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       };
     }
 
+    const loadingGuard = setTimeout(() => {
+      setLoading(false);
+    }, 2500);
+
     const unsubPromise = initAuth();
     return () => {
+      clearTimeout(loadingGuard);
       unsubPromise.then((unsub) => unsub?.()).catch((err) => console.log(err));
     };
   }, []);

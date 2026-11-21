@@ -1,4 +1,4 @@
-import FingerprintJS from '@fingerprintjs/fingerprintjs';
+const LOCAL_DEVICE_MAP_KEY = 'colearn_device_map_cache';
 
 export async function getUserDeviceUUID(userId: string): Promise<string | null> {
   const map = await getDeviceMap();
@@ -20,16 +20,22 @@ export async function getDeviceUUID(userId?: string): Promise<string> {
 export async function setUserDeviceUUID(userId: string, uuid: string): Promise<void> {
   const map = await getDeviceMap();
   map[userId] = uuid;
-  await saveDeviceMap(map);
+  try {
+    localStorage.setItem(LOCAL_DEVICE_MAP_KEY, JSON.stringify(map));
+  } catch {}
+  await saveDeviceMap(map).catch(() => {});
 }
 
 export async function generateNewDeviceUUID(userId: string): Promise<string> {
   let visitorId = '';
   try {
-    const fp = await FingerprintJS.load();
-    const result = await fp.get();
-    visitorId = result.visitorId;
-  } catch (e) {
+    const { default: FingerprintJS } = await import('@fingerprintjs/fingerprintjs');
+    const fp = await Promise.race([
+      FingerprintJS.load().then((agent) => agent.get()),
+      new Promise<never>((_, reject) => setTimeout(() => reject(new Error('FP timeout')), 1500))
+    ]);
+    visitorId = fp.visitorId;
+  } catch {
     visitorId = Math.random().toString(36).substring(2, 10);
   }
 
@@ -69,50 +75,132 @@ export function getWebDeviceName(): string {
   return `${browser} on ${os}`;
 }
 
+function getLocalCachedDeviceMap(): Record<string, string> {
+  try {
+    const raw = localStorage.getItem(LOCAL_DEVICE_MAP_KEY);
+    return raw ? JSON.parse(raw) : {};
+  } catch {
+    return {};
+  }
+}
+
 async function getDeviceMap(): Promise<Record<string, string>> {
-  if (typeof window === 'undefined' || !window.indexedDB) return {};
+  const localFallback = getLocalCachedDeviceMap();
+  if (typeof window === 'undefined' || !window.indexedDB) return localFallback;
+
   return new Promise((resolve) => {
-    const request = indexedDB.open('ColearnDeviceDB', 2);
-    request.onupgradeneeded = (e: any) => {
-      const db = e.target.result;
-      if (!db.objectStoreNames.contains('deviceStore')) {
-        db.createObjectStore('deviceStore');
+    let settled = false;
+    const finish = (result: Record<string, string>) => {
+      if (!settled) {
+        settled = true;
+        resolve(result);
       }
     };
-    request.onsuccess = (e: any) => {
-      const db = e.target.result;
-      if (!db.objectStoreNames.contains('deviceStore')) {
-        resolve({});
-        return;
-      }
-      const transaction = db.transaction('deviceStore', 'readonly');
-      const store = transaction.objectStore('deviceStore');
-      const getRequest = store.get('user_device_map');
-      getRequest.onsuccess = () => resolve(getRequest.result || {});
-      getRequest.onerror = () => resolve({});
-    };
-    request.onerror = () => resolve({});
+
+    const timer = setTimeout(() => finish(localFallback), 1200);
+
+    try {
+      const request = indexedDB.open('ColearnDeviceDB', 2);
+      request.onupgradeneeded = (e: any) => {
+        const db = e.target.result;
+        if (!db.objectStoreNames.contains('deviceStore')) {
+          db.createObjectStore('deviceStore');
+        }
+      };
+      request.onsuccess = (e: any) => {
+        try {
+          const db = e.target.result;
+          if (!db.objectStoreNames.contains('deviceStore')) {
+            clearTimeout(timer);
+            finish(localFallback);
+            return;
+          }
+          const transaction = db.transaction('deviceStore', 'readonly');
+          const store = transaction.objectStore('deviceStore');
+          const getRequest = store.get('user_device_map');
+          getRequest.onsuccess = () => {
+            clearTimeout(timer);
+            const idbMap = getRequest.result || {};
+            const merged = { ...localFallback, ...idbMap };
+            try {
+              localStorage.setItem(LOCAL_DEVICE_MAP_KEY, JSON.stringify(merged));
+            } catch {}
+            finish(merged);
+          };
+          getRequest.onerror = () => {
+            clearTimeout(timer);
+            finish(localFallback);
+          };
+        } catch {
+          clearTimeout(timer);
+          finish(localFallback);
+        }
+      };
+      request.onerror = () => {
+        clearTimeout(timer);
+        finish(localFallback);
+      };
+      request.onblocked = () => {
+        clearTimeout(timer);
+        finish(localFallback);
+      };
+    } catch {
+      clearTimeout(timer);
+      finish(localFallback);
+    }
   });
 }
 
 async function saveDeviceMap(map: Record<string, string>): Promise<void> {
   if (typeof window === 'undefined' || !window.indexedDB) return;
-  return new Promise((resolve, reject) => {
-    const request = indexedDB.open('ColearnDeviceDB', 2);
-    request.onupgradeneeded = (e: any) => {
-      const db = e.target.result;
-      if (!db.objectStoreNames.contains('deviceStore')) {
-        db.createObjectStore('deviceStore');
+  return new Promise((resolve) => {
+    let settled = false;
+    const finish = () => {
+      if (!settled) {
+        settled = true;
+        resolve();
       }
     };
-    request.onsuccess = (e: any) => {
-      const db = e.target.result;
-      const transaction = db.transaction('deviceStore', 'readwrite');
-      const store = transaction.objectStore('deviceStore');
-      const putRequest = store.put(map, 'user_device_map');
-      putRequest.onsuccess = () => resolve();
-      putRequest.onerror = () => reject(putRequest.error);
-    };
-    request.onerror = () => reject(request.error);
+    const timer = setTimeout(finish, 1200);
+
+    try {
+      const request = indexedDB.open('ColearnDeviceDB', 2);
+      request.onupgradeneeded = (e: any) => {
+        const db = e.target.result;
+        if (!db.objectStoreNames.contains('deviceStore')) {
+          db.createObjectStore('deviceStore');
+        }
+      };
+      request.onsuccess = (e: any) => {
+        try {
+          const db = e.target.result;
+          const transaction = db.transaction('deviceStore', 'readwrite');
+          const store = transaction.objectStore('deviceStore');
+          const putRequest = store.put(map, 'user_device_map');
+          putRequest.onsuccess = () => {
+            clearTimeout(timer);
+            finish();
+          };
+          putRequest.onerror = () => {
+            clearTimeout(timer);
+            finish();
+          };
+        } catch {
+          clearTimeout(timer);
+          finish();
+        }
+      };
+      request.onerror = () => {
+        clearTimeout(timer);
+        finish();
+      };
+      request.onblocked = () => {
+        clearTimeout(timer);
+        finish();
+      };
+    } catch {
+      clearTimeout(timer);
+      finish();
+    }
   });
 }

@@ -1936,6 +1936,9 @@ export default function Compete() {
                           onToggleMic={voice.toggleMic}
                           onToggleOpponentMute={voice.toggleOpponentMute}
                           onRetry={voice.retryVoice}
+                          audioDevices={voice.audioDevices}
+                          selectedMicId={voice.selectedMicId}
+                          onSelectMic={voice.selectMic}
                           compact
                         />
                         <span className="text-xs text-muted-foreground font-semibold hidden sm:inline">
@@ -2114,6 +2117,9 @@ export default function Compete() {
                     onToggleMic={voice.toggleMic}
                     onToggleOpponentMute={voice.toggleOpponentMute}
                     onRetry={voice.retryVoice}
+                    audioDevices={voice.audioDevices}
+                    selectedMicId={voice.selectedMicId}
+                    onSelectMic={voice.selectMic}
                   />
                 </div>
               )}

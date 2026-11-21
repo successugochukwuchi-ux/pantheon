@@ -44,11 +44,14 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
   const [unreadCount, setUnreadCount] = React.useState(0);
   const [recentNotifications, setRecentNotifications] = React.useState<Notification[]>([]);
   const prevUnreadRef = React.useRef(0);
-  const notificationSound = React.useRef(new Audio('https://assets.mixkit.co/active_storage/sfx/2358/2358-preview.mp3'));
+  const notificationSoundRef = React.useRef<HTMLAudioElement | null>(null);
 
   React.useEffect(() => {
     if (unreadCount > prevUnreadRef.current && unreadCount > 0) {
-      notificationSound.current.play().catch(() => {});
+      if (!notificationSoundRef.current && typeof Audio !== 'undefined') {
+        notificationSoundRef.current = new Audio('https://assets.mixkit.co/active_storage/sfx/2358/2358-preview.mp3');
+      }
+      notificationSoundRef.current?.play().catch(() => {});
     }
     prevUnreadRef.current = unreadCount;
   }, [unreadCount]);

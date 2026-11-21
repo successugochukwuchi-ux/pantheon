@@ -1,7 +1,16 @@
 import React from 'react';
-import { Mic, MicOff, Volume2, VolumeX, Loader2 } from 'lucide-react';
+import { Mic, MicOff, Volume2, VolumeX, Loader2, ChevronDown, Check } from 'lucide-react';
 import { Button } from './ui/button';
-import { VoiceStatus } from '../hooks/useCompeteVoice';
+import {
+  DropdownMenu,
+  DropdownMenuTrigger,
+  DropdownMenuContent,
+  DropdownMenuGroup,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuItem,
+} from './ui/dropdown-menu';
+import { VoiceStatus, AudioInputOption } from '../hooks/useCompeteVoice';
 
 interface CompeteVoiceControlsProps {
   isHumanMatch: boolean;
@@ -12,6 +21,9 @@ interface CompeteVoiceControlsProps {
   onToggleMic: () => void;
   onToggleOpponentMute: () => void;
   onRetry?: () => void;
+  audioDevices?: AudioInputOption[];
+  selectedMicId?: string;
+  onSelectMic?: (deviceId: string) => void;
   compact?: boolean;
 }
 
@@ -24,6 +36,9 @@ export function CompeteVoiceControls({
   onToggleMic,
   onToggleOpponentMute,
   onRetry,
+  audioDevices,
+  selectedMicId,
+  onSelectMic,
   compact = false,
 }: CompeteVoiceControlsProps) {
   if (!isHumanMatch) return null;
@@ -39,6 +54,8 @@ export function CompeteVoiceControls({
   };
 
   const status = statusMeta[voiceStatus];
+  const hasMultipleMics = Boolean(audioDevices && audioDevices.length > 1 && onSelectMic);
+  const micDisabled = isMicBusy || voiceStatus === 'opponent_left' || voiceStatus === 'failed';
 
   return (
     <div className={`inline-flex items-center gap-1.5 rounded-xl border bg-background/80 backdrop-blur-xs ${compact ? 'px-2 py-1' : 'px-3 py-1.5 shadow-xs'}`}>
@@ -64,30 +81,66 @@ export function CompeteVoiceControls({
         </div>
       )}
 
-      {/* Mic Toggle (Disabled by default) */}
-      <Button
-        type="button"
-        variant={isMicOn ? 'default' : 'ghost'}
-        size="sm"
-        onClick={onToggleMic}
-        disabled={isMicBusy || voiceStatus === 'opponent_left' || voiceStatus === 'failed'}
-        title={isMicOn ? 'Mute your microphone' : 'Unmute microphone to speak'}
-        aria-label={isMicOn ? 'Mute your microphone' : 'Unmute microphone to speak'}
-        className={`h-7 px-2 gap-1 text-xs font-bold cursor-pointer transition-all ${
-          isMicOn
-            ? 'bg-emerald-600 hover:bg-emerald-700 text-white shadow-xs'
-            : 'text-muted-foreground hover:text-foreground hover:bg-muted'
-        }`}
-      >
-        {isMicBusy ? (
-          <Loader2 size={14} className="animate-spin" />
-        ) : isMicOn ? (
-          <Mic size={14} />
-        ) : (
-          <MicOff size={14} />
+      {/* Mic Toggle (Disabled by default) + Optional Input Selector */}
+      <div className="inline-flex items-center gap-0.5">
+        <Button
+          type="button"
+          variant={isMicOn ? 'default' : 'ghost'}
+          size="sm"
+          onClick={onToggleMic}
+          disabled={micDisabled}
+          title={isMicOn ? 'Mute your microphone' : 'Unmute microphone to speak'}
+          aria-label={isMicOn ? 'Mute your microphone' : 'Unmute microphone to speak'}
+          className={`h-7 px-2 gap-1 text-xs font-bold cursor-pointer transition-all ${
+            isMicOn
+              ? 'bg-emerald-600 hover:bg-emerald-700 text-white shadow-xs'
+              : 'text-muted-foreground hover:text-foreground hover:bg-muted'
+          }`}
+        >
+          {isMicBusy ? (
+            <Loader2 size={14} className="animate-spin" />
+          ) : isMicOn ? (
+            <Mic size={14} />
+          ) : (
+            <MicOff size={14} />
+          )}
+          <span className="hidden md:inline">{isMicOn ? 'Mic On' : 'Mic Off'}</span>
+        </Button>
+
+        {hasMultipleMics && (
+          <DropdownMenu>
+            <DropdownMenuTrigger
+              disabled={micDisabled}
+              title="Select microphone input"
+              aria-label="Select microphone input"
+              className="inline-flex h-7 w-6 items-center justify-center rounded-md text-muted-foreground hover:text-foreground hover:bg-muted transition-colors cursor-pointer disabled:pointer-events-none disabled:opacity-50"
+            >
+              <ChevronDown size={13} />
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-64">
+              <DropdownMenuGroup>
+                <DropdownMenuLabel className="text-[11px] uppercase tracking-wider">
+                  Microphone Input
+                </DropdownMenuLabel>
+                <DropdownMenuSeparator />
+                {audioDevices!.map((device) => {
+                  const isSelected = selectedMicId === device.deviceId;
+                  return (
+                    <DropdownMenuItem
+                      key={device.deviceId}
+                      onClick={() => onSelectMic?.(device.deviceId)}
+                      className="flex items-center justify-between gap-2 cursor-pointer"
+                    >
+                      <span className="truncate text-xs">{device.label}</span>
+                      {isSelected && <Check size={14} className="shrink-0 text-emerald-600" />}
+                    </DropdownMenuItem>
+                  );
+                })}
+              </DropdownMenuGroup>
+            </DropdownMenuContent>
+          </DropdownMenu>
         )}
-        <span className="hidden md:inline">{isMicOn ? 'Mic On' : 'Mic Off'}</span>
-      </Button>
+      </div>
 
       {/* Speaker Toggle (Mute / Unmute Opponent) */}
       <Button

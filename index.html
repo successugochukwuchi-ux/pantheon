@@ -7,25 +7,93 @@
     <title>CoLearn</title>
     <link rel="icon" type="image/png" href="/icon.png" />
     <script>
-      window.addEventListener('error', function(event) {
-        console.error('[COLEARN INIT ERROR]', event.error || event.message);
-        var root = document.getElementById('root');
-        if (root && (!root.children || root.children.length === 0 || root.innerText.indexOf('Loading') !== -1)) {
-          root.innerHTML = '<div style="min-h-screen; height:100vh; background:#09090b; color:#f4f4f5; display:flex; flex-direction:column; align-items:center; justify-center; justify-content:center; padding:2rem; text-align:center; font-family:sans-serif;"><div style="max-width:500px; background:#18181b; border:1px solid #27272a; padding:2rem; border-radius:1rem; box-shadow:0 25px 50px -12px rgba(0,0,0,0.5);"><h1 style="color:#ef4444; font-size:1.25rem; font-weight:700; margin-bottom:0.75rem;">Application Startup Error</h1><p style="color:#a1a1aa; font-size:0.875rem; margin-bottom:1rem;">CoLearn encountered an error during initialization:</p><pre style="background:#09090b; color:#f87171; padding:0.75rem; border-radius:0.5rem; font-size:0.75rem; text-align:left; overflow-x:auto; margin-bottom:1rem;">' + (event.error && event.error.stack ? event.error.stack : event.message || 'Unknown initialization error') + '</pre><button onclick="window.location.reload()" style="background:#059669; color:white; border:none; padding:0.6rem 1.25rem; border-radius:0.5rem; font-weight:600; cursor:pointer;">Reload Page</button></div></div>';
+      (function () {
+        try {
+          var savedTheme = localStorage.getItem('colearn-theme') || 'light';
+          var rootEl = document.documentElement;
+          rootEl.classList.add(savedTheme);
+          var isDark = savedTheme === 'dark' || savedTheme === 'midnight' || savedTheme === 'obsidian' || savedTheme === 'velvet';
+          if (isDark) rootEl.classList.add('dark');
+          rootEl.style.backgroundColor = isDark ? '#0a0a0a' : '#ffffff';
+          rootEl.style.color = isDark ? '#fafafa' : '#0a0a0a';
+        } catch (e) {}
+
+        function showBootRecovery(title, detail) {
+          var shell = document.getElementById('colearn-boot-shell');
+          var root = document.getElementById('root');
+          if (!shell && root && root.children && root.children.length > 0) return;
+          if (!root) return;
+          root.innerHTML =
+            '<div style="min-height:100vh;background:#09090b;color:#f4f4f5;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:2rem;text-align:center;font-family:system-ui,-apple-system,sans-serif;">' +
+              '<div style="max-width:460px;width:100%;background:#18181b;border:1px solid #27272a;padding:1.75rem;border-radius:1rem;box-shadow:0 25px 50px -12px rgba(0,0,0,0.5);">' +
+                '<h1 style="color:#f87171;font-size:1.125rem;font-weight:700;margin:0 0 0.5rem;">' + title + '</h1>' +
+                '<p style="color:#a1a1aa;font-size:0.875rem;margin:0 0 1rem;line-height:1.45;">' + detail + '</p>' +
+                '<div style="display:flex;gap:0.75rem;justify-content:center;flex-wrap:wrap;">' +
+                  '<button onclick="window.location.reload()" style="background:#059669;color:white;border:none;padding:0.6rem 1.25rem;border-radius:0.5rem;font-weight:600;cursor:pointer;font-size:0.875rem;">Reload App</button>' +
+                  '<button onclick="try{localStorage.removeItem(\'colearn_system_config\');localStorage.removeItem(\'colearn_promo_config\');}catch(e){}window.location.reload()" style="background:#27272a;color:#e4e4e7;border:1px solid #3f3f46;padding:0.6rem 1.25rem;border-radius:0.5rem;font-weight:600;cursor:pointer;font-size:0.875rem;">Reset Cache & Reload</button>' +
+                '</div>' +
+              '</div>' +
+            '</div>';
         }
-      });
-      window.addEventListener('unhandledrejection', function(event) {
-        var reasonStr = (event.reason && (event.reason.message || event.reason.toString())) || '';
-        if (reasonStr.indexOf('WebSocket') !== -1 || reasonStr.indexOf('vite') !== -1) {
-          event.preventDefault();
-          return;
-        }
-        console.error('[COLEARN UNHANDLED REJECTION]', event.reason);
-      });
+
+        window.addEventListener('error', function (event) {
+          var target = event && event.target;
+          if (target && (target.tagName === 'SCRIPT' || target.tagName === 'LINK')) {
+            var src = target.src || target.href || '';
+            if (src.indexOf('/src/') !== -1 || src.indexOf('/assets/') !== -1) {
+              console.error('[COLEARN ASSET LOAD ERROR]', src);
+              showBootRecovery('Failed to Load App Resources', 'A required application script failed to load. Please check your connection and reload.');
+            }
+            return;
+          }
+          console.error('[COLEARN INIT ERROR]', event.error || event.message);
+          var shell = document.getElementById('colearn-boot-shell');
+          if (shell) {
+            var msg = (event.error && event.error.message) ? event.error.message : (event.message || 'Unknown initialization error');
+            showBootRecovery('Application Startup Error', msg);
+          }
+        }, true);
+
+        window.addEventListener('unhandledrejection', function (event) {
+          var reasonStr = (event.reason && (event.reason.message || event.reason.toString())) || '';
+          if (reasonStr.indexOf('WebSocket') !== -1 || reasonStr.indexOf('vite') !== -1) {
+            event.preventDefault();
+            return;
+          }
+          console.error('[COLEARN UNHANDLED REJECTION]', event.reason);
+          var shell = document.getElementById('colearn-boot-shell');
+          if (shell && (reasonStr.indexOf('Failed to fetch dynamically imported module') !== -1 || reasonStr.indexOf('Importing a module script failed') !== -1)) {
+            showBootRecovery('Module Load Interrupted', 'The app could not load one of its startup modules. Tap Reload to try again.');
+          }
+        });
+
+        setTimeout(function () {
+          var slowNotice = document.getElementById('colearn-boot-slow');
+          if (slowNotice) {
+            slowNotice.style.display = 'flex';
+          }
+        }, 6500);
+      })();
     </script>
+    <style>
+      @keyframes colearnSpin { to { transform: rotate(360deg); } }
+      @keyframes colearnPulse { 0%, 100% { opacity: 0.55; } 50% { opacity: 1; } }
+    </style>
   </head>
   <body class="bg-background text-foreground antialiased">
-    <div id="root"></div>
+    <div id="root">
+      <div id="colearn-boot-shell" style="min-height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:1.5rem;font-family:system-ui,-apple-system,sans-serif;text-align:center;">
+        <div style="width:56px;height:56px;border-radius:16px;display:flex;align-items:center;justify-content:center;border:1px solid rgba(128,128,128,0.2);box-shadow:0 8px 24px rgba(0,0,0,0.08);margin-bottom:14px;">
+          <div style="width:26px;height:26px;border-radius:9999px;border:3px solid currentColor;border-top-color:transparent;animation:colearnSpin 0.75s linear infinite;opacity:0.85;"></div>
+        </div>
+        <div style="font-weight:800;font-size:1.125rem;letter-spacing:-0.02em;">COLEARN</div>
+        <div style="font-size:0.75rem;opacity:0.6;margin-top:4px;animation:colearnPulse 1.6s ease-in-out infinite;">Starting study environment...</div>
+        <div id="colearn-boot-slow" style="display:none;flex-direction:column;align-items:center;gap:8px;margin-top:20px;">
+          <span style="font-size:0.75rem;opacity:0.7;">Taking longer than expected.</span>
+          <button onclick="window.location.reload()" style="padding:0.45rem 1rem;border-radius:9999px;border:1px solid rgba(128,128,128,0.3);background:transparent;color:inherit;font-size:0.75rem;font-weight:600;cursor:pointer;">Reload Page</button>
+        </div>
+      </div>
+    </div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

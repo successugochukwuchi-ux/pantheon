@@ -1,86 +1,101 @@
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
-import { useEffect, lazy, Suspense } from 'react';
+import { useEffect, lazy, Suspense, ComponentType } from 'react';
 import { AuthProvider } from './contexts/AuthContext';
 import { ThemeProvider } from './contexts/ThemeContext';
-import { Layout } from './components/Layout';
 import { ProtectedRoute } from './components/ProtectedRoute';
 import { Toaster } from './components/ui/sonner';
 import { TooltipProvider } from './components/ui/tooltip';
 import { FluxProvider } from './contexts/FluxContext';
-import { MathJaxContext } from 'better-react-mathjax';
-
-const mathJaxConfig = {
-  loader: { load: ["[tex]/mhchem", "[tex]/physics"] },
-  tex: {
-    packages: { "[+]": ["mhchem", "physics"] },
-    inlineMath: [["$", "$"], ["\\(", "\\)"]],
-    displayMath: [["$$", "$$"], ["\\[", "\\]"]],
-    macros: {
-      degree: "^{\\circ}"
-    }
-  }
-};
-
-// Pages
-import Landing from './pages/Landing';
-import Login from './pages/Login';
-import Register from './pages/Register';
-import Activate from './pages/Activate';
-import Dashboard from './pages/Dashboard';
-import StudyMaterials from './pages/StudyMaterials';
-import CBTPractice from './pages/CBTPractice';
-import CBTResults from './pages/CBTResults';
-import Referrals from './pages/Referrals';
-import Notifications from './pages/Notifications';
-import CourseDiscussion from './pages/CourseDiscussion';
-import PublicProfile from './pages/PublicProfile';
-import SearchResults from './pages/SearchResults';
-import Settings from './pages/Settings';
-import Feedback from './pages/Feedback';
-import Banned from './pages/Banned';
-import News from './pages/News';
-import Friends from './pages/Friends';
-import PastQuestions from './pages/PastQuestions';
-import Chat from './pages/Chat';
-import PrivacyPolicy from './pages/PrivacyPolicy';
-import TermsOfService from './pages/TermsOfService';
-import DownloadPage from './pages/Download';
-import StudyTimetable from './pages/StudyTimetable';
-import Onboarding from './pages/Onboarding';
-
 import { MaintenanceGuard } from './components/MaintenanceGuard';
-import FluxDashboard from './pages/flux/FluxDashboard';
-import FluxBrowse from './pages/flux/FluxBrowse';
-import FluxTracks from './pages/flux/FluxTracks';
-import FluxPortfolio from './pages/flux/FluxPortfolio';
-import { FluxGuard } from './components/FluxGuard';
 
-// Lazy-load heavy administrative and non-critical modules to accelerate initial app load
-const AdminPanel = lazy(() => import('./pages/AdminPanel'));
-const FluxAdmin = lazy(() => import('./pages/flux/FluxAdmin'));
-const Diagnostic = lazy(() => import('./pages/Diagnostic'));
-const VideoLibrary = lazy(() => import('./pages/VideoLibrary'));
-const Compete = lazy(() => import('./pages/Compete'));
-const PlxVerifier = lazy(() => import('./pages/PlxVerifier'));
+// Keep the initial landing route eager so "/" renders immediately without a second fetch waterfall
+import Landing from './pages/Landing';
+
+function lazyWithRetry<T extends ComponentType<any>>(
+  factory: () => Promise<{ default: T }>
+) {
+  return lazy(async () => {
+    try {
+      return await factory();
+    } catch (firstErr) {
+      await new Promise((resolve) => setTimeout(resolve, 250));
+      try {
+        return await factory();
+      } catch {
+        throw firstErr;
+      }
+    }
+  });
+}
+
+// Lazy-load Layout and guards only when entering authenticated routes
+const Layout = lazyWithRetry(() =>
+  import('./components/Layout').then((m) => ({ default: m.Layout }))
+);
+const FluxGuard = lazyWithRetry(() =>
+  import('./components/FluxGuard').then((m) => ({ default: m.FluxGuard }))
+);
+
+// Route-level code splitting for fast initial launch
+const Login = lazyWithRetry(() => import('./pages/Login'));
+const Register = lazyWithRetry(() => import('./pages/Register'));
+const Activate = lazyWithRetry(() => import('./pages/Activate'));
+const Dashboard = lazyWithRetry(() => import('./pages/Dashboard'));
+const StudyMaterials = lazyWithRetry(() => import('./pages/StudyMaterials'));
+const CBTPractice = lazyWithRetry(() => import('./pages/CBTPractice'));
+const CBTResults = lazyWithRetry(() => import('./pages/CBTResults'));
+const Referrals = lazyWithRetry(() => import('./pages/Referrals'));
+const Notifications = lazyWithRetry(() => import('./pages/Notifications'));
+const CourseDiscussion = lazyWithRetry(() => import('./pages/CourseDiscussion'));
+const PublicProfile = lazyWithRetry(() => import('./pages/PublicProfile'));
+const SearchResults = lazyWithRetry(() => import('./pages/SearchResults'));
+const Settings = lazyWithRetry(() => import('./pages/Settings'));
+const Feedback = lazyWithRetry(() => import('./pages/Feedback'));
+const Banned = lazyWithRetry(() => import('./pages/Banned'));
+const News = lazyWithRetry(() => import('./pages/News'));
+const Friends = lazyWithRetry(() => import('./pages/Friends'));
+const PastQuestions = lazyWithRetry(() => import('./pages/PastQuestions'));
+const Chat = lazyWithRetry(() => import('./pages/Chat'));
+const PrivacyPolicy = lazyWithRetry(() => import('./pages/PrivacyPolicy'));
+const TermsOfService = lazyWithRetry(() => import('./pages/TermsOfService'));
+const DownloadPage = lazyWithRetry(() => import('./pages/Download'));
+const StudyTimetable = lazyWithRetry(() => import('./pages/StudyTimetable'));
+const Onboarding = lazyWithRetry(() => import('./pages/Onboarding'));
+
+const FluxDashboard = lazyWithRetry(() => import('./pages/flux/FluxDashboard'));
+const FluxBrowse = lazyWithRetry(() => import('./pages/flux/FluxBrowse'));
+const FluxTracks = lazyWithRetry(() => import('./pages/flux/FluxTracks'));
+const FluxPortfolio = lazyWithRetry(() => import('./pages/flux/FluxPortfolio'));
+
+const AdminPanel = lazyWithRetry(() => import('./pages/AdminPanel'));
+const FluxAdmin = lazyWithRetry(() => import('./pages/flux/FluxAdmin'));
+const Diagnostic = lazyWithRetry(() => import('./pages/Diagnostic'));
+const VideoLibrary = lazyWithRetry(() => import('./pages/VideoLibrary'));
+const Compete = lazyWithRetry(() => import('./pages/Compete'));
+const PlxVerifier = lazyWithRetry(() => import('./pages/PlxVerifier'));
 
 const PageLoadingFallback = () => (
   <div className="flex min-h-screen items-center justify-center bg-background text-foreground p-4">
     <div className="flex flex-col items-center gap-4 text-center max-w-sm">
-      <div className="relative flex items-center justify-center h-16 w-16 rounded-2xl bg-primary/10 border border-primary/20 shadow-lg">
-        <div className="h-8 w-8 animate-spin rounded-full border-3 border-primary border-t-transparent" />
+      <div className="relative flex items-center justify-center h-14 w-14 rounded-2xl bg-primary/10 border border-primary/20 shadow-sm">
+        <div className="h-7 w-7 animate-spin rounded-full border-3 border-primary border-t-transparent" />
       </div>
       <div className="space-y-1">
-        <h3 className="font-bold text-lg tracking-tight">CoLearn</h3>
-        <p className="text-xs text-muted-foreground animate-pulse">Loading study environment...</p>
+        <h3 className="font-bold text-base tracking-tight">CoLearn</h3>
+        <p className="text-xs text-muted-foreground">Loading page...</p>
       </div>
     </div>
   </div>
 );
 
 export default function App() {
-  console.log("[COLEARN] App Rendering. URL:", window.location.pathname);
-  
   useEffect(() => {
+    // Warm likely next routes during idle time after initial paint
+    const warmTimer = setTimeout(() => {
+      import('./pages/Login').catch(() => {});
+      import('./pages/Dashboard').catch(() => {});
+    }, 1200);
+
     const handleContextMenu = (e: MouseEvent) => {
       const target = e.target as HTMLElement;
       if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA') return;
@@ -90,8 +105,8 @@ export default function App() {
     const handleCopy = (e: ClipboardEvent) => {
       const target = e.target as HTMLElement;
       if (
-        target.tagName === 'INPUT' || 
-        target.tagName === 'TEXTAREA' || 
+        target.tagName === 'INPUT' ||
+        target.tagName === 'TEXTAREA' ||
         target.closest('.allow-copy') ||
         (window.getSelection()?.toString() && target.closest('.allow-copy-container'))
       ) return;
@@ -109,6 +124,7 @@ export default function App() {
     document.addEventListener('cut', handleCut);
 
     return () => {
+      clearTimeout(warmTimer);
       document.removeEventListener('contextmenu', handleContextMenu);
       document.removeEventListener('copy', handleCopy);
       document.removeEventListener('cut', handleCut);
@@ -120,11 +136,10 @@ export default function App() {
       <AuthProvider>
         <Router>
           <FluxProvider>
-            <MathJaxContext config={mathJaxConfig} asyncLoad={true}>
-              <TooltipProvider>
-                <MaintenanceGuard>
-                  <Toaster position="top-center" />
-                  <Suspense fallback={<PageLoadingFallback />}>
+            <TooltipProvider>
+              <MaintenanceGuard>
+                <Toaster position="top-center" />
+                <Suspense fallback={<PageLoadingFallback />}>
                   <Routes>
                     {/* Public Routes */}
                     <Route path="/" element={<Landing />} />
@@ -162,7 +177,7 @@ export default function App() {
                         </Layout>
                       </ProtectedRoute>
                     } />
-                    
+
                     <Route path="/flux/clubs" element={
                       <ProtectedRoute requireActivation={false}>
                         <Layout>
@@ -379,11 +394,9 @@ export default function App() {
                 </Suspense>
               </MaintenanceGuard>
             </TooltipProvider>
-          </MathJaxContext>
-        </FluxProvider>
-      </Router>
-    </AuthProvider>
-  </ThemeProvider>
+          </FluxProvider>
+        </Router>
+      </AuthProvider>
+    </ThemeProvider>
   );
 }
-

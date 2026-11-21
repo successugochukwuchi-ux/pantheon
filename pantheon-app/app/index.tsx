@@ -8,6 +8,7 @@ import {
   Dimensions,
   Animated,
   Platform,
+  ActivityIndicator,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -289,7 +290,16 @@ export default function LandingScreen() {
     }
   }, []);
 
-  if (loading) return null;
+  if (loading) {
+    return (
+      <SafeAreaView style={[s.root, { justifyContent: 'center', alignItems: 'center' }]} edges={['top']}>
+        <ActivityIndicator size="large" color={C.ink} />
+        <Text style={{ marginTop: 12, fontFamily: F.medium, fontSize: 13, color: C.inkMid }}>
+          Loading CoLearn...
+        </Text>
+      </SafeAreaView>
+    );
+  }
 
   return (
     <SafeAreaView style={s.root} edges={['top']}>

@@ -22,14 +22,18 @@ setPersistence(auth, browserLocalPersistence).catch(err => console.error("Persis
 // Enable persistent multi-tab local cache for robust resource/read cost reduction
 let firestoreDb: Firestore;
 try {
-  firestoreDb = initializeFirestore(app, {
-    localCache: persistentLocalCache({
-      tabManager: persistentMultipleTabManager()
-    })
-  });
+  firestoreDb = initializeFirestore(
+    app,
+    {
+      localCache: persistentLocalCache({
+        tabManager: persistentMultipleTabManager()
+      })
+    },
+    firebaseConfigJson.firestoreDatabaseId
+  );
 } catch (e) {
   console.warn("[COLEARN] Failed to initialize persistent Firestore, falling back to standard getFirestore():", e);
-  firestoreDb = getFirestore(app);
+  firestoreDb = getFirestore(app, firebaseConfigJson.firestoreDatabaseId);
 }
 
 export const db = firestoreDb;
