@@ -18,6 +18,42 @@
           rootEl.style.color = isDark ? '#fafafa' : '#0a0a0a';
         } catch (e) {}
 
+        function resetCachesAndReload() {
+          try {
+            localStorage.removeItem('colearn_system_config');
+            localStorage.removeItem('colearn_promo_config');
+            sessionStorage.removeItem('colearn_boot_retried');
+          } catch (e) {}
+          var reloadNow = function () {
+            try {
+              var u = new URL(window.location.href);
+              u.searchParams.set('_cb', String(Date.now()));
+              window.location.replace(u.toString());
+            } catch (e) {
+              window.location.reload();
+            }
+          };
+          if (window.caches && caches.keys) {
+            caches.keys().then(function (keys) {
+              return Promise.all(keys.map(function (k) { return caches.delete(k); }));
+            }).then(reloadNow, reloadNow);
+          } else {
+            reloadNow();
+          }
+        }
+        window.__colearnResetBoot = resetCachesAndReload;
+
+        function trySilentBootRetry() {
+          try {
+            if (!sessionStorage.getItem('colearn_boot_retried')) {
+              sessionStorage.setItem('colearn_boot_retried', '1');
+              window.location.reload();
+              return true;
+            }
+          } catch (e) {}
+          return false;
+        }
+
         function showBootRecovery(title, detail) {
           var shell = document.getElementById('colearn-boot-shell');
           var root = document.getElementById('root');
@@ -30,7 +66,7 @@
                 '<p style="color:#a1a1aa;font-size:0.875rem;margin:0 0 1rem;line-height:1.45;">' + detail + '</p>' +
                 '<div style="display:flex;gap:0.75rem;justify-content:center;flex-wrap:wrap;">' +
                   '<button onclick="window.location.reload()" style="background:#059669;color:white;border:none;padding:0.6rem 1.25rem;border-radius:0.5rem;font-weight:600;cursor:pointer;font-size:0.875rem;">Reload App</button>' +
-                  '<button onclick="try{localStorage.removeItem(\'colearn_system_config\');localStorage.removeItem(\'colearn_promo_config\');}catch(e){}window.location.reload()" style="background:#27272a;color:#e4e4e7;border:1px solid #3f3f46;padding:0.6rem 1.25rem;border-radius:0.5rem;font-weight:600;cursor:pointer;font-size:0.875rem;">Reset Cache & Reload</button>' +
+                  '<button onclick="window.__colearnResetBoot && window.__colearnResetBoot()" style="background:#27272a;color:#e4e4e7;border:1px solid #3f3f46;padding:0.6rem 1.25rem;border-radius:0.5rem;font-weight:600;cursor:pointer;font-size:0.875rem;">Reset Cache & Reload</button>' +
                 '</div>' +
               '</div>' +
             '</div>';
@@ -39,16 +75,21 @@
         window.addEventListener('error', function (event) {
           var target = event && event.target;
           if (target && (target.tagName === 'SCRIPT' || target.tagName === 'LINK')) {
+            if (target.tagName === 'LINK' && target.rel !== 'stylesheet') {
+              return;
+            }
             var src = target.src || target.href || '';
-            if (src.indexOf('/src/') !== -1 || src.indexOf('/assets/') !== -1) {
+            var shell = document.getElementById('colearn-boot-shell');
+            if (shell && (src.indexOf('/src/') !== -1 || src.indexOf('/assets/') !== -1)) {
               console.error('[COLEARN ASSET LOAD ERROR]', src);
+              if (trySilentBootRetry()) return;
               showBootRecovery('Failed to Load App Resources', 'A required application script failed to load. Please check your connection and reload.');
             }
             return;
           }
           console.error('[COLEARN INIT ERROR]', event.error || event.message);
-          var shell = document.getElementById('colearn-boot-shell');
-          if (shell) {
+          var bootShell = document.getElementById('colearn-boot-shell');
+          if (bootShell) {
             var msg = (event.error && event.error.message) ? event.error.message : (event.message || 'Unknown initialization error');
             showBootRecovery('Application Startup Error', msg);
           }
@@ -63,6 +104,7 @@
           console.error('[COLEARN UNHANDLED REJECTION]', event.reason);
           var shell = document.getElementById('colearn-boot-shell');
           if (shell && (reasonStr.indexOf('Failed to fetch dynamically imported module') !== -1 || reasonStr.indexOf('Importing a module script failed') !== -1)) {
+            if (trySilentBootRetry()) return;
             showBootRecovery('Module Load Interrupted', 'The app could not load one of its startup modules. Tap Reload to try again.');
           }
         });
@@ -72,7 +114,7 @@
           if (slowNotice) {
             slowNotice.style.display = 'flex';
           }
-        }, 6500);
+        }, 7000);
       })();
     </script>
     <style>

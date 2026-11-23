@@ -2,6 +2,7 @@ import dotenv from "dotenv";
 dotenv.config();
 
 import express from "express";
+import compression from "compression";
 import http from "http";
 import path from "path";
 import fs from "fs";
@@ -1608,19 +1609,59 @@ CRITICAL REQUIREMENTS:
     }
   });
 
+  // Enable gzip compression for frontend JS/CSS/HTML assets (never touches /api/* SSE or /downloads/*)
+  const frontendCompression = compression({
+    threshold: 1024,
+    filter: (req, res) => {
+      if (req.path.startsWith("/api/") || req.path.startsWith("/downloads/")) {
+        return false;
+      }
+      return compression.filter(req, res);
+    },
+  });
+
   // Vite middleware for development
   if (process.env.NODE_ENV !== "production") {
+    app.use((req, res, next) => {
+      if (req.path.startsWith("/node_modules/.vite/deps/") && req.query.v) {
+        res.setHeader("Cache-Control", "public, max-age=86400");
+      }
+      next();
+    });
+    app.use(frontendCompression);
     const vite = await createViteServer({
       server: { middlewareMode: true },
       appType: "spa",
     });
     app.use(vite.middlewares);
   } else {
-    // In production we serve static assets from the compiled dist directory
-    const distPath = path.join(process.cwd(), 'dist');
-    app.use(express.static(distPath));
-    app.get('*', (req, res) => {
-      res.sendFile(path.join(distPath, 'index.html'));
+    // In production we serve compressed static assets from the compiled dist directory
+    app.use(frontendCompression);
+    const distPath = path.join(process.cwd(), "dist");
+    const assetsPath = path.join(distPath, "assets");
+    app.use(
+      "/assets",
+      express.static(assetsPath, {
+        maxAge: "1y",
+        immutable: true,
+      })
+    );
+    // Never return index.html (text/html) for missing hashed JS/CSS chunks
+    app.use("/assets", (_req, res) => {
+      res.status(404).type("text/plain").send("Asset not found");
+    });
+    app.use(
+      express.static(distPath, {
+        index: false,
+        maxAge: "1h",
+      })
+    );
+    app.get("*", (req, res, next) => {
+      if (req.path.startsWith("/api/") || req.path.startsWith("/downloads/")) {
+        return next();
+      }
+      res.setHeader("Cache-Control", "no-cache, no-store, must-revalidate");
+      res.sendFile(path.join(distPath, "index.html"));
     });
   }
 

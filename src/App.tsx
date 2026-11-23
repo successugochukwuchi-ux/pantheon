@@ -90,11 +90,23 @@ const PageLoadingFallback = () => (
 
 export default function App() {
   useEffect(() => {
-    // Warm likely next routes during idle time after initial paint
-    const warmTimer = setTimeout(() => {
+    try {
+      sessionStorage.removeItem('colearn_boot_retried');
+    } catch {}
+
+    // Warm likely next route only during idle time after initial paint
+    const scheduleIdle =
+      typeof window !== 'undefined' && 'requestIdleCallback' in window
+        ? (cb: () => void) => (window as any).requestIdleCallback(cb, { timeout: 3500 })
+        : (cb: () => void) => window.setTimeout(cb, 2500);
+    const cancelIdle =
+      typeof window !== 'undefined' && 'cancelIdleCallback' in window
+        ? (id: number) => (window as any).cancelIdleCallback(id)
+        : (id: number) => window.clearTimeout(id);
+
+    const idleId = scheduleIdle(() => {
       import('./pages/Login').catch(() => {});
-      import('./pages/Dashboard').catch(() => {});
-    }, 1200);
+    });
 
     const handleContextMenu = (e: MouseEvent) => {
       const target = e.target as HTMLElement;
@@ -124,7 +136,7 @@ export default function App() {
     document.addEventListener('cut', handleCut);
 
     return () => {
-      clearTimeout(warmTimer);
+      cancelIdle(idleId);
       document.removeEventListener('contextmenu', handleContextMenu);
       document.removeEventListener('copy', handleCopy);
       document.removeEventListener('cut', handleCut);
