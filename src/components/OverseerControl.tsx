@@ -933,12 +933,12 @@ export default function OverseerControl() {
           if (hermesSnap.exists()) {
             hermesConfig = hermesSnap.data();
             const prov = (hermesConfig.provider || 'gemini').toUpperCase();
-            const mod = hermesConfig.model || 'gemini-3.8-flash';
+            const mod = hermesConfig.model || 'gemini-4-hydrogen';
             setActiveModelName(`Hermes AI (${prov}: ${mod})`);
             addLog(`[Hermes Engine] Loaded active configuration from Firebase: Provider=${prov}, Model=${mod}`);
           } else {
-            setActiveModelName('Hermes AI (Server Gemini 3.8 Flash)');
-            addLog("[Hermes Engine] No custom document at 'system/hermes'. Using server-side default Gemini 3.8 Flash engine.");
+            setActiveModelName('Hermes AI (Server Gemini 4 Hydrogen)');
+            addLog("[Hermes Engine] No custom document at 'system/hermes'. Using server-side default Gemini 4 Hydrogen engine.");
           }
         } catch (confErr: any) {
           addLog(`[Hermes Engine] Notice: Could not read 'system/hermes' (${confErr.message}), will use server fallback AI.`);

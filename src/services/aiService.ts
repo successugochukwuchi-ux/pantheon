@@ -1,10 +1,7 @@
-import { GoogleGenAI, Type } from "@google/genai";
 import { AIConfig } from '../types';
 import { getBackendCandidates, isStaticHost, probeEndpoint, RENDER_BACKEND_URL } from '../lib/backendConfig';
 import { doc, getDoc } from 'firebase/firestore';
 import { db } from '../firebase';
-
-const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY || '' });
 
 export interface HermesAttemptLog {
   target: string;
@@ -98,7 +95,7 @@ export async function magicNoteCreator(fileData: { data: string, mimeType: strin
       );
     }
 
-    const modelId = config?.model || 'gemini-3.8-flash';
+    const modelId = config?.model || 'gemini-4-hydrogen';
 
     // Gemini REST API — supports both image/* and application/pdf natively
     const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${modelId}:generateContent?key=${apiKey}`;
@@ -282,6 +279,39 @@ ${fileData.data}`
   }
 }
 
+async function loadHermesConfigWithTimeout(config?: AIConfig, timeoutMs = 3500): Promise<AIConfig | undefined> {
+  if (config && (config.apiKey || config.provider || config.baseUrl)) {
+    return config;
+  }
+  try {
+    const snap = await Promise.race([
+      getDoc(doc(db, 'system', 'hermes')),
+      new Promise<null>((resolve) => setTimeout(() => resolve(null), timeoutMs)),
+    ]);
+    if (snap && snap.exists()) {
+      return snap.data() as AIConfig;
+    }
+  } catch {}
+  return config;
+}
+
+function readChunkWithTimeout(
+  reader: ReadableStreamDefaultReader<Uint8Array>,
+  timeoutMs: number,
+  onTimeout: () => void
+): Promise<ReadableStreamReadResult<Uint8Array>> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeoutPromise = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => {
+      onTimeout();
+      reject(new Error(`Hermes stream timed out after ${Math.round(timeoutMs / 1000)}s without a response.`));
+    }, timeoutMs);
+  });
+  return Promise.race([reader.read(), timeoutPromise]).finally(() => {
+    if (timer) clearTimeout(timer);
+  });
+}
+
 export async function chatWithHermesStream(
   messages: ChatMessage[],
   noteContent: string,
@@ -291,16 +321,7 @@ export async function chatWithHermesStream(
   signal?: AbortSignal
 ): Promise<string> {
   const candidateUrls = getBackendCandidates('/api/hermes/chat');
-
-  let activeConfig = config;
-  if (!activeConfig || !activeConfig.apiKey) {
-    try {
-      const snap = await getDoc(doc(db, 'system', 'hermes'));
-      if (snap.exists()) {
-        activeConfig = snap.data() as AIConfig;
-      }
-    } catch (e) {}
-  }
+  const activeConfig = await loadHermesConfigWithTimeout(config, 3500);
 
   const cleanMessagesPayload = (messages || [])
     .filter(m => !m.isError && m.role !== 'system')
@@ -310,7 +331,27 @@ export async function chatWithHermesStream(
     }))
     .filter(m => m.content.length > 0 && !m.content.includes('Hermes Connection Diagnostic') && !m.content.includes('Hermes AI is currently busy'));
 
+  let sawBackendExplicitError = false;
+  let lastBackendErrorMsg = '';
+  let onlyStaticSpaOr404 = true;
+
   for (const endpoint of candidateUrls) {
+    if (signal?.aborted) {
+      throw new DOMException('Aborted', 'AbortError');
+    }
+
+    const isRemoteRender = endpoint.includes('onrender.com');
+    const connectTimeoutMs = isRemoteRender ? 40000 : 35000;
+    const firstChunkTimeoutMs = isRemoteRender ? 35000 : 35000;
+    const nextChunkTimeoutMs = 25000;
+
+    const reqController = new AbortController();
+    const onUserAbort = () => reqController.abort();
+    signal?.addEventListener('abort', onUserAbort, { once: true });
+    let connectTimer: ReturnType<typeof setTimeout> | undefined = setTimeout(() => {
+      reqController.abort();
+    }, connectTimeoutMs);
+
     try {
       const response = await fetch(endpoint, {
         method: 'POST',
@@ -323,14 +364,28 @@ export async function chatWithHermesStream(
           config: activeConfig,
           isVoiceCall: Boolean(isVoiceCall),
         }),
-        signal,
+        signal: reqController.signal,
       });
 
+      if (connectTimer) {
+        clearTimeout(connectTimer);
+        connectTimer = undefined;
+      }
+
       if (!response.ok) {
+        if (response.status !== 404 && response.status !== 405) {
+          onlyStaticSpaOr404 = false;
+        }
         continue;
       }
 
       const contentType = response.headers.get('content-type') || '';
+      if (contentType.includes('text/html')) {
+        continue;
+      }
+
+      onlyStaticSpaOr404 = false;
+
       if (contentType.includes('application/json')) {
         const data = await response.json();
         if (data?.content) {
@@ -345,6 +400,8 @@ export async function chatWithHermesStream(
           return data.content;
         }
         if (data?.error) {
+          sawBackendExplicitError = true;
+          lastBackendErrorMsg = data.error;
           throw new Error(data.error);
         }
         continue;
@@ -359,9 +416,15 @@ export async function chatWithHermesStream(
       let accumulatedText = '';
       let buffer = '';
       let isStreamFinished = false;
+      let streamDeadline = Date.now() + firstChunkTimeoutMs;
 
       while (!isStreamFinished) {
-        const { value, done } = await reader.read();
+        const remainingMs = Math.max(1000, streamDeadline - Date.now());
+        const { value, done } = await readChunkWithTimeout(
+          reader,
+          accumulatedText.length > 0 ? nextChunkTimeoutMs : remainingMs,
+          () => reqController.abort()
+        );
         if (done) break;
 
         buffer += decoder.decode(value, { stream: true });
@@ -382,11 +445,14 @@ export async function chatWithHermesStream(
             parsed = JSON.parse(dataStr);
             if (parsed.text) {
               accumulatedText += parsed.text;
+              streamDeadline = Date.now() + nextChunkTimeoutMs;
               if (onChunk) {
                 onChunk(parsed.text);
               }
             }
             if (parsed.error) {
+              sawBackendExplicitError = true;
+              lastBackendErrorMsg = parsed.error;
               throw new Error(parsed.error);
             }
           } catch (e: any) {
@@ -399,14 +465,23 @@ export async function chatWithHermesStream(
         return accumulatedText;
       }
     } catch (err: any) {
-      if (signal?.aborted || err?.name === 'AbortError') {
+      if (signal?.aborted) {
         throw err;
       }
       console.warn(`Streaming endpoint ${endpoint} failed, trying next candidate...`, err);
+    } finally {
+      if (connectTimer) clearTimeout(connectTimer);
+      signal?.removeEventListener('abort', onUserAbort);
     }
   }
 
-  const fallbackText = await chatWithHermes(messages, noteContent, config, isVoiceCall);
+  // Only invoke non-streaming chatWithHermes fallback if we never got an active API error from our backend
+  // or if we're on a static host needing CORS/Render fallback.
+  if (sawBackendExplicitError && !isStaticHost() && !onlyStaticSpaOr404) {
+    throw new Error(lastBackendErrorMsg || 'Hermes AI could not complete this request. Please try again.');
+  }
+
+  const fallbackText = await chatWithHermes(messages, noteContent, activeConfig, isVoiceCall);
   if (onChunk) {
     const words = String(fallbackText).split(/(\s+)/);
     for (const word of words) {
@@ -422,18 +497,7 @@ export async function chatWithHermes(messages: ChatMessage[], noteContent: strin
   const attempts: HermesAttemptLog[] = [];
   const candidateUrls = getBackendCandidates('/api/hermes/chat');
 
-  // Auto-fetch activeConfig directly from Firestore if not provided or missing API key
-  let activeConfig = config;
-  if (!activeConfig || !activeConfig.apiKey) {
-    try {
-      const snap = await getDoc(doc(db, 'system', 'hermes'));
-      if (snap.exists()) {
-        activeConfig = snap.data() as AIConfig;
-      }
-    } catch (e) {
-      console.warn("Direct Firestore fetch for system/hermes fallback failed:", e);
-    }
-  }
+  const activeConfig = await loadHermesConfigWithTimeout(config, 3500);
 
   // Sanitize message history to strict { role, content } format, stripping internal diagnostic objects
   const cleanMessagesPayload = (messages || [])
@@ -447,10 +511,11 @@ export async function chatWithHermes(messages: ChatMessage[], noteContent: strin
   // Strategy 1: Attempt candidate backend proxies (local dev or Render backend for static hosts like Wasmer)
   for (const endpoint of candidateUrls) {
     const start = Date.now();
+    const isRemoteRender = endpoint.includes('onrender.com');
+    const timeoutMs = isRemoteRender ? 40000 : 35000;
     try {
       const controller = new AbortController();
-      // Allow 45s to accommodate Render free-tier cold boot if sleeping
-      const timeoutId = setTimeout(() => controller.abort(), 45000);
+      const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
 
       const response = await fetch(endpoint, {
         method: 'POST',
@@ -550,7 +615,7 @@ export async function chatWithHermes(messages: ChatMessage[], noteContent: strin
       const isTimeout = proxyErr?.name === 'AbortError';
       const durationMs = Date.now() - start;
       const errMsg = isTimeout
-        ? 'Timed out after 45s (Render instance may be waking from cold sleep)'
+        ? `Timed out after ${Math.round(timeoutMs / 1000)}s`
         : (proxyErr?.message || String(proxyErr));
 
       attempts.push({
@@ -570,8 +635,7 @@ export async function chatWithHermes(messages: ChatMessage[], noteContent: strin
   const provider = activeConfig?.provider || 'gemini';
   const rawKey = activeConfig?.apiKey || '';
   const cleanKey = rawKey.toString().replace(/\s+/g, '').replace(/['"]/g, '').replace(/[\u200B-\u200D\uFEFF]/g, '');
-  const geminiEnvKey = (typeof process !== 'undefined' && process.env ? process.env.GEMINI_API_KEY : '') || (import.meta as any).env?.VITE_GEMINI_API_KEY || '';
-  const activeGeminiKey = cleanKey.startsWith('AIza') ? cleanKey : (geminiEnvKey || cleanKey);
+  const activeGeminiKey = cleanKey.startsWith('AIza') ? cleanKey : '';
 
   const maxNoteLength = 12000;
   const truncatedNote = (noteContent || '').length > maxNoteLength
@@ -682,46 +746,7 @@ ${truncatedNote}`;
     }
   }
 
-  // B. Try Gemini if Gemini key or provider is available
-  if (activeGeminiKey && (provider === 'gemini' || cleanKey.startsWith('AIza') || !cleanKey)) {
-    const start = Date.now();
-    try {
-      const aiGen = new GoogleGenAI({ apiKey: activeGeminiKey });
-      const geminiModel = config?.model || 'gemini-3.8-flash';
-      const res = await aiGen.models.generateContent({
-        model: geminiModel,
-        contents: [
-          {
-            role: 'user',
-            parts: [{ text: `SYSTEM INSTRUCTIONS:\n${systemPrompt}\n\nUSER QUESTION:\n${latestUserMsg}` }]
-          }
-        ]
-      });
-      if (res.text) {
-        attempts.push({
-          target: `GoogleGenAI (${geminiModel})`,
-          strategy: 'client_direct_fallback',
-          status: 200,
-          statusText: 'OK',
-          contentType: 'application/json',
-          durationMs: Date.now() - start,
-          success: true,
-        });
-        return res.text;
-      }
-    } catch (geminiErr: any) {
-      attempts.push({
-        target: `GoogleGenAI (${config?.model || 'gemini-3.8-flash'})`,
-        strategy: 'client_direct_fallback',
-        status: 0,
-        statusText: 'SDK Error',
-        contentType: '',
-        durationMs: Date.now() - start,
-        error: `Gemini client call failed: ${geminiErr?.message || String(geminiErr)}`,
-        success: false,
-      });
-    }
-  }
+  // Gemini requests are handled exclusively through the server-side /api/hermes/chat route.
 
   // C. Try Groq if Groq key or provider is configured
   const groqKey = cleanKey.startsWith('gsk_') ? cleanKey : (provider === 'groq' ? cleanKey : '');
@@ -743,7 +768,8 @@ ${truncatedNote}`;
           ],
           temperature: 0.5,
           max_tokens: 2048
-        })
+        }),
+        signal: AbortSignal.timeout(15000),
       });
       if (groqRes.ok) {
         const groqData = await groqRes.json();
@@ -805,7 +831,8 @@ ${truncatedNote}`;
           ],
           temperature: 0.5,
           max_tokens: 2048
-        })
+        }),
+        signal: AbortSignal.timeout(15000),
       });
       if (orRes.ok) {
         const orData = await orRes.json();
@@ -865,7 +892,7 @@ ${truncatedNote}`;
       primaryCause = `Wasmer static server returned HTML (SPA fallback), and Render backend returned HTTP ${renderProxyAttempt.status} (${renderProxyAttempt.error || renderProxyAttempt.statusText}).`;
       recommendation = `Verify your AI Provider credentials in Admin Panel > Level 4 > Hermes AI Configuration.`;
     }
-  } else if (!cleanKey && !activeGeminiKey) {
+  } else if (!cleanKey && isStaticHost()) {
     primaryCause = `No API key is configured for Hermes AI provider "${provider}".`;
     recommendation = `Go to Admin Panel > Level 4 > Hermes AI Configuration and save a valid API key.`;
   } else if (directAttempt && (directAttempt.error?.includes('CORS') || directAttempt.error?.includes('Failed to fetch'))) {

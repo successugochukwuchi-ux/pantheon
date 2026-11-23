@@ -7,11 +7,13 @@ import http from "http";
 import path from "path";
 import fs from "fs";
 import { createServer as createViteServer } from "vite";
-import { GoogleGenAI } from "@google/genai";
+import { GoogleGenAI, ThinkingLevel } from "@google/genai";
 import { generateEdgeTTS, streamEdgeTTS, synthesizeViaGoogleTTS, MICROSOFT_VOICES } from "./src/lib/edge-tts";
 import { autoCorrectQuestionData, autoCorrectLatexSyntax, autoCorrectNoteContent } from "./src/lib/latexAutoCorrect";
 import { takanoStore } from "./server/takanoStore.js";
 import { emailWorker } from "./server/emailWorker.js";
+import { doc, getDoc } from "firebase/firestore";
+import { serverDb } from "./server/firebaseServer.js";
 
 async function startServer() {
   const app = express();
@@ -489,21 +491,128 @@ async function startServer() {
     res.sendStatus(200);
   });
 
+  const LEGACY_OR_INVALID_GEMINI_MODELS = new Set([
+    'gemini-3.5-flash-lite',
+    'gemini-3-flash-preview',
+    'gemini-3.1-flash-lite-preview',
+    'gemini-3.8-flash',
+    'gemini-flash-latest',
+    'gemini-pro',
+    'gemini-1.5-flash',
+    'gemini-1.5-pro',
+    'gemini-2.0-flash',
+    'gemini-2.0-pro',
+    'gemini-2.0-flash-thinking',
+    'gemini-2.5-flash',
+  ]);
+
+  function resolveGeminiModel(rawModel?: string): string {
+    const trimmed = (rawModel || '').trim();
+    if (!trimmed) return 'gemini-4-hydrogen';
+    if (
+      LEGACY_OR_INVALID_GEMINI_MODELS.has(trimmed) ||
+      trimmed.includes('1.5') ||
+      trimmed.includes('2.0') ||
+      trimmed === 'gemini-2.5-flash'
+    ) {
+      return 'gemini-4-hydrogen';
+    }
+    return trimmed;
+  }
+
+  function createGeminiClient(apiKey: string, baseUrl?: string) {
+    const cleanBase = baseUrl && baseUrl.startsWith('http') ? baseUrl.replace(/\/+$/, '') : undefined;
+    return new GoogleGenAI({
+      apiKey,
+      httpOptions: {
+        headers: { 'User-Agent': 'aistudio-build' },
+        ...(cleanBase ? { baseUrl: cleanBase } : {}),
+      },
+    });
+  }
+
+  function getThinkingConfigForModel(modelName: string) {
+    if (modelName === 'gemini-3.1-flash-lite') {
+      return { thinkingLevel: ThinkingLevel.MINIMAL };
+    }
+    if (modelName.startsWith('gemini-4-') || modelName.startsWith('gemini-3')) {
+      return { thinkingLevel: ThinkingLevel.LOW };
+    }
+    return undefined;
+  }
+
+  function raceTimeout<T>(promise: Promise<T>, ms: number, label: string, controller?: AbortController): Promise<T> {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const timeoutPromise = new Promise<never>((_, reject) => {
+      timer = setTimeout(() => {
+        try { controller?.abort(); } catch {}
+        reject(new Error(`${label} timed out after ${Math.round(ms / 1000)}s`));
+      }, ms);
+    });
+    return Promise.race([promise, timeoutPromise]).finally(() => {
+      if (timer) clearTimeout(timer);
+    });
+  }
+
+  async function resolveEffectiveHermesConfig(rawConfig: any) {
+    let cfg = rawConfig && typeof rawConfig === 'object' ? { ...rawConfig } : {};
+    if (!cfg.provider && !cfg.baseUrl && !cfg.apiKey) {
+      try {
+        const snap = await raceTimeout(getDoc(doc(serverDb, 'system', 'hermes')), 2000, 'Load system/hermes');
+        if (snap && snap.exists()) {
+          cfg = { ...snap.data(), ...cfg };
+        }
+      } catch {}
+    }
+
+    const rawKey = cfg?.apiKey || '';
+    const apiKey = rawKey?.toString().replace(/\s+/g, '').replace(/['"]/g, '').replace(/[\u200B-\u200D\uFEFF]/g, '') || '';
+    const baseUrl = typeof cfg?.baseUrl === 'string' ? cfg.baseUrl.trim() : '';
+
+    let provider = (cfg?.provider || '').toString().trim().toLowerCase();
+    if (!provider) {
+      if (baseUrl) {
+        provider = baseUrl.includes('generativelanguage.googleapis.com') ? 'gemini' : 'custom';
+      } else if (apiKey.startsWith('gsk_')) {
+        provider = 'groq';
+      } else if (apiKey.startsWith('sk-or-')) {
+        provider = 'openrouter';
+      } else if (apiKey.startsWith('AIza')) {
+        provider = 'gemini';
+      } else if (apiKey.startsWith('sk-')) {
+        provider = 'openai';
+      } else {
+        provider = 'gemini';
+      }
+    }
+
+    return { cfg, provider, apiKey, baseUrl };
+  }
+
   app.post("/api/hermes/chat", async (req, res) => {
+    let isClientClosed = false;
+    const cleanupSignals: AbortController[] = [];
+
     try {
-      const { messages, noteContent, config, isVoiceCall } = req.body || {};
-      
-      const provider = config?.provider || 'gemini';
-      let model = config?.model || (provider === 'groq' ? 'llama-3.3-70b-versatile' : provider === 'gemini' ? 'gemini-3.5-flash-lite' : provider === 'openrouter' ? 'google/gemini-2.0-flash-001' : 'gpt-4o-mini');
-      
+      const { messages, noteContent, config: incomingConfig, isVoiceCall } = req.body || {};
+      const { cfg: config, provider, apiKey } = await resolveEffectiveHermesConfig(incomingConfig);
+
+      let model = config?.model || (
+        provider === 'groq'
+          ? 'llama-3.3-70b-versatile'
+          : provider === 'gemini'
+          ? 'gemini-4-hydrogen'
+          : provider === 'openrouter'
+          ? 'google/gemini-2.0-flash-001'
+          : 'gpt-4o-mini'
+      );
+
       // Clean model ID for Groq
       if (provider === 'groq' && model.includes('/')) {
         const parts = model.split('/');
-        model = parts[parts.length - 1]; 
+        model = parts[parts.length - 1];
       }
 
-      const rawKey = config?.apiKey || '';
-      const apiKey = rawKey?.toString().replace(/\s+/g, '').replace(/['"]/g, '').replace(/[\u200B-\u200D\uFEFF]/g, '') || '';
       const serverGeminiKey = process.env.GEMINI_API_KEY || '';
 
       // 1. Truncate note content to prevent model context limits
@@ -557,19 +666,27 @@ ${truncatedNote}
       const latestUserMsg = sanitizedMessages.length > 0 ? sanitizedMessages[sanitizedMessages.length - 1].content : 'Hello';
 
       // 1. Establish SSE headers immediately
-      res.setHeader('Content-Type', 'text/event-stream');
+      res.setHeader('Content-Type', 'text/event-stream; charset=utf-8');
       res.setHeader('Cache-Control', 'no-cache, no-transform');
       res.setHeader('Connection', 'keep-alive');
       res.setHeader('X-Accel-Buffering', 'no');
       res.flushHeaders?.();
+      res.write(': connected\n\n');
+      if (typeof (res as any).flush === 'function') {
+        (res as any).flush();
+      }
 
-      let isClientClosed = false;
-      req.on('close', () => {
-        isClientClosed = true;
+      res.on('close', () => {
+        if (!res.writableEnded) {
+          isClientClosed = true;
+          for (const c of cleanupSignals) {
+            try { c.abort(); } catch {}
+          }
+        }
       });
 
       const sendChunk = (text: string) => {
-        if (isClientClosed || !text) return;
+        if (isClientClosed || res.writableEnded || !text) return;
         res.write(`data: ${JSON.stringify({ text })}\n\n`);
         if (typeof (res as any).flush === 'function') {
           (res as any).flush();
@@ -577,34 +694,45 @@ ${truncatedNote}
       };
 
       const sendDone = () => {
-        if (isClientClosed) return;
+        if (isClientClosed || res.writableEnded) return;
         res.write('data: [DONE]\n\n');
         res.end();
+      };
+
+      const formatGeminiError = (err: any): string => {
+        const raw = typeof err === 'string' ? err : (err?.message || 'Failed to get response from Gemini.');
+        try {
+          let current: any = raw;
+          for (let depth = 0; depth < 3 && typeof current === 'string' && current.trim().startsWith('{'); depth++) {
+            const parsed = JSON.parse(current);
+            current = parsed?.error?.message || parsed?.message || current;
+          }
+          if (typeof current === 'string') {
+            return current.trim();
+          }
+        } catch {}
+        return String(raw);
       };
 
       const sendError = (errorMessage: string) => {
-        if (isClientClosed) return;
-        res.write(`data: ${JSON.stringify({ error: errorMessage })}\n\n`);
+        if (isClientClosed || res.writableEnded) return;
+        res.write(`data: ${JSON.stringify({ error: formatGeminiError(errorMessage) })}\n\n`);
         res.write('data: [DONE]\n\n');
         res.end();
       };
 
-      // Helper function to stream Google Gemini using direct SSE with timeout and multi-model resiliency
+      // Stream Google Gemini using @google/genai SDK with fast ThinkingLevel.LOW and strict timeouts
       const callGeminiStream = async (key: string, geminiModelName?: string) => {
-        const primaryModel = geminiModelName || model || 'gemini-3.5-flash-lite';
+        const primaryModel = resolveGeminiModel(geminiModelName || model);
         const candidateModels = [
           primaryModel,
-          'gemini-3-flash-preview',
-          'gemini-3.1-flash-lite-preview',
-        ].filter((v, i, a) => v && a.indexOf(v) === i);
+          'gemini-4-hydrogen',
+          'gemini-3.1-flash-lite',
+        ].filter((v, i, a) => Boolean(v) && a.indexOf(v) === i);
 
-        const customBaseUrl = config?.baseUrl;
-        let apiBase = 'https://generativelanguage.googleapis.com/v1beta';
-        if (customBaseUrl && customBaseUrl.startsWith('http')) {
-          apiBase = customBaseUrl.replace(/\/+$/, '');
-        }
+        const aiGen = createGeminiClient(key, config?.baseUrl);
 
-        // Format conversation turns for Gemini
+        // Format conversation turns for Gemini (alternating roles ending with user)
         const geminiContents = sanitizedMessages.map((m: any) => ({
           role: m.role === 'assistant' ? 'model' : 'user',
           parts: [{ text: String(m.content) }]
@@ -616,102 +744,84 @@ ${truncatedNote}
           });
         }
 
-        const bodyPayload: any = {
-          contents: geminiContents,
-        };
-        if (systemPrompt.content) {
-          bodyPayload.systemInstruction = {
-            parts: [{ text: systemPrompt.content }]
-          };
-        }
-
         let lastErr: any = null;
-        for (const modelToTry of candidateModels) {
+        for (let idx = 0; idx < candidateModels.length; idx++) {
+          const modelToTry = candidateModels[idx];
           if (isClientClosed) return true;
-          const controller = new AbortController();
-          const timer = setTimeout(() => controller.abort(), 4000);
 
-          try {
-            const streamUrl = `${apiBase}/models/${modelToTry}:streamGenerateContent?alt=sse&key=${key}`;
-            const streamRes = await fetch(streamUrl, {
-              method: 'POST',
-              headers: {
-                'Content-Type': 'application/json',
-              },
-              body: JSON.stringify(bodyPayload),
-              signal: controller.signal,
-            });
-            clearTimeout(timer);
+          // Up to 2 attempts per model on transient 503 high-demand spikes
+          for (let attempt = 0; attempt < 2; attempt++) {
+            if (isClientClosed) return true;
+            const attemptController = new AbortController();
+            cleanupSignals.push(attemptController);
 
-            if (!streamRes.ok) {
-              const errBody = await streamRes.text().catch(() => '');
-              console.warn(`[Hermes Gemini Stream] Model ${modelToTry} returned HTTP ${streamRes.status}:`, errBody.slice(0, 100));
-              continue;
-            }
-
-            if (!streamRes.body) continue;
-
-            const reader = streamRes.body.getReader();
-            const decoder = new TextDecoder();
-            let buffer = '';
+            let iterator: AsyncIterator<any> | null = null;
             let textEmitted = false;
 
-            while (true) {
-              if (isClientClosed) break;
-              const { done, value } = await reader.read();
-              if (done) break;
+            try {
+              const thinkingConfig = getThinkingConfigForModel(modelToTry);
+              const stream = await raceTimeout(
+                aiGen.models.generateContentStream({
+                  model: modelToTry,
+                  contents: geminiContents,
+                  config: {
+                    systemInstruction: systemPrompt.content,
+                    abortSignal: attemptController.signal,
+                    ...(thinkingConfig ? { thinkingConfig } : {}),
+                  },
+                }),
+                10000,
+                `Gemini stream init (${modelToTry})`,
+                attemptController
+              );
 
-              buffer += decoder.decode(value, { stream: true });
-              const lines = buffer.split('\n');
-              buffer = lines.pop() || '';
+              iterator = stream[Symbol.asyncIterator]();
+              while (true) {
+                if (isClientClosed) break;
+                const chunkTimeoutMs = textEmitted ? 15000 : 12000;
+                const step = await raceTimeout(
+                  iterator.next(),
+                  chunkTimeoutMs,
+                  `Gemini stream chunk (${modelToTry})`,
+                  attemptController
+                );
+                if (step.done) break;
+                const chunkText = step.value?.text;
+                if (chunkText) {
+                  textEmitted = true;
+                  sendChunk(chunkText);
+                }
+              }
 
-              for (const line of lines) {
-                const trimmed = line.trim();
-                if (!trimmed.startsWith('data:')) continue;
-                const jsonStr = trimmed.slice(5).trim();
-                if (!jsonStr || jsonStr === '[DONE]') continue;
-                try {
-                  const data = JSON.parse(jsonStr);
-                  const chunkText = data.candidates?.[0]?.content?.parts?.[0]?.text;
-                  if (chunkText) {
-                    textEmitted = true;
-                    sendChunk(chunkText);
-                  }
-                } catch {}
+              if (textEmitted) {
+                return true;
+              }
+              break;
+            } catch (err: any) {
+              lastErr = err;
+              const msg = formatGeminiError(err);
+              const status = err?.status || err?.code;
+              console.warn(`[Hermes Gemini Stream] Model ${modelToTry} (attempt ${attempt + 1}) failed:`, msg);
+
+              const isTransient503 = status === 503 || msg.includes('UNAVAILABLE') || msg.includes('high demand');
+              if (isTransient503 && !textEmitted && attempt === 0 && !isClientClosed) {
+                await new Promise(r => setTimeout(r, 600));
+                continue;
+              }
+
+              // Fail fast on invalid key / permission / exhausted quota so fallback key or error surfaces immediately
+              if (status === 400 || status === 403 || status === 429 || msg.includes('API_KEY_INVALID') || msg.includes('PERMISSION_DENIED') || msg.includes('RESOURCE_EXHAUSTED')) {
+                if (!msg.includes('thinking') && !msg.includes('not found') && !msg.includes('NOT_FOUND')) {
+                  throw err;
+                }
+              }
+              break;
+            } finally {
+              if (iterator && typeof iterator.return === 'function') {
+                iterator.return().catch(() => {});
               }
             }
-
-            if (textEmitted) {
-              return true;
-            }
-          } catch (err: any) {
-            clearTimeout(timer);
-            lastErr = err;
-            console.warn(`[Hermes Gemini Stream] Model ${modelToTry} failed:`, err?.message || err);
           }
-        }
-
-        // Final fallback: try GoogleGenAI SDK with gemini-3-flash-preview
-        try {
-          const aiGen = new GoogleGenAI({ apiKey: key });
-          const stream = await aiGen.models.generateContentStream({
-            model: 'gemini-3-flash-preview',
-            contents: geminiContents,
-            config: {
-              systemInstruction: systemPrompt.content,
-            }
-          });
-          let sdkText = false;
-          for await (const chunk of stream) {
-            if (isClientClosed) break;
-            if (chunk.text) {
-              sdkText = true;
-              sendChunk(chunk.text);
-            }
-          }
-          if (sdkText) return true;
-        } catch (sdkErr: any) {
-          lastErr = sdkErr;
         }
 
         throw lastErr || new Error("Failed to stream response from Gemini.");
@@ -722,7 +832,7 @@ ${truncatedNote}
       if (isGeminiProvider) {
         const activeGeminiKey = apiKey || serverGeminiKey;
         if (!activeGeminiKey) {
-          sendError('Google Gemini Chat AI is not configured. Please set an API Key in the Admin Panel.');
+          sendError('Google Gemini Chat AI is not configured. Please check the server GEMINI_API_KEY configuration.');
           return;
         }
 
@@ -734,28 +844,22 @@ ${truncatedNote}
           console.error("Gemini stream error in Hermes chat proxy stream:", geminiErr);
           if (apiKey && serverGeminiKey && apiKey !== serverGeminiKey) {
             try {
-              await callGeminiStream(serverGeminiKey, 'gemini-3-flash-preview');
+              await callGeminiStream(serverGeminiKey, 'gemini-4-hydrogen');
               sendDone();
               return;
             } catch (secErr: any) {
               console.error("Server fallback Gemini key also failed:", secErr);
             }
           }
-          sendError(geminiErr.message || "Failed to stream response from Gemini.");
+          sendError(formatGeminiError(geminiErr));
           return;
         }
       }
 
       // ─── OPENAI-COMPATIBLE ENDPOINT (Groq, OpenRouter, OpenAI, Custom, etc.) ──────
-      // If provider key is missing, seamlessly stream from Gemini if server key exists
-      if (!apiKey && serverGeminiKey) {
-        try {
-          await callGeminiStream(serverGeminiKey, 'gemini-3-flash-preview');
-          sendDone();
-          return;
-        } catch (err: any) {
-          console.warn("Fallback to Gemini stream failed when API key was missing:", err);
-        }
+      if (!apiKey && !config?.baseUrl) {
+        sendError(`Hermes AI provider "${provider}" requires an API key. Please add one in Admin Panel > Level 4 > Hermes AI Configuration.`);
+        return;
       }
 
       const normalizedBaseUrl = normalizeOpenAIBaseUrl(config?.baseUrl, provider);
@@ -782,13 +886,25 @@ ${truncatedNote}
         stream: true,
       };
 
+      const fetchUpstream = async (targetUrl: string): Promise<Response> => {
+        const controller = new AbortController();
+        cleanupSignals.push(controller);
+        return raceTimeout(
+          fetch(targetUrl, {
+            method: 'POST',
+            headers,
+            body: JSON.stringify(payload),
+            signal: controller.signal,
+          }),
+          30000,
+          `Upstream AI request (${targetUrl})`,
+          controller
+        );
+      };
+
       let response: Response | null = null;
       try {
-        response = await fetch(primaryEndpoint, {
-          method: 'POST',
-          headers,
-          body: JSON.stringify(payload),
-        });
+        response = await fetchUpstream(primaryEndpoint);
       } catch (fetchErr: any) {
         console.warn(`Initial fetch to ${primaryEndpoint} failed:`, fetchErr?.message || fetchErr);
       }
@@ -805,11 +921,7 @@ ${truncatedNote}
         if (fallbackEndpoint && fallbackEndpoint !== primaryEndpoint) {
           console.warn(`Hermes primary endpoint ${primaryEndpoint} returned ${response.status}. Retrying fallback: ${fallbackEndpoint}`);
           try {
-            const fallbackRes = await fetch(fallbackEndpoint, {
-              method: 'POST',
-              headers,
-              body: JSON.stringify(payload),
-            });
+            const fallbackRes = await fetchUpstream(fallbackEndpoint);
             if (fallbackRes.ok) {
               response = fallbackRes;
               primaryEndpoint = fallbackEndpoint;
@@ -821,55 +933,68 @@ ${truncatedNote}
       }
 
       if (response && response.ok && response.body) {
-        try {
-          const reader = response.body.getReader();
-          const decoder = new TextDecoder();
-          let buffer = '';
-          let streamCompleted = false;
-
-          while (true) {
-            if (isClientClosed) break;
-            const { value, done } = await reader.read();
-            if (done) break;
-
-            buffer += decoder.decode(value, { stream: true });
-            const lines = buffer.split('\n');
-            buffer = lines.pop() || '';
-
-            for (const line of lines) {
-              const trimmed = line.trim();
-              if (!trimmed.startsWith('data:')) continue;
-              const dataStr = trimmed.slice(5).trim();
-              if (dataStr === '[DONE]') {
-                streamCompleted = true;
-                break;
-              }
-              try {
-                const parsed = JSON.parse(dataStr);
-                const deltaText = parsed.choices?.[0]?.delta?.content || parsed.choices?.[0]?.text;
-                if (deltaText) {
-                  sendChunk(deltaText);
-                }
-              } catch {}
+        const upstreamContentType = response.headers.get('content-type') || '';
+        if (upstreamContentType.includes('application/json')) {
+          try {
+            const jsonBody: any = await raceTimeout(response.json(), 12000, 'Upstream JSON parse');
+            const fullText = jsonBody?.choices?.[0]?.message?.content;
+            if (fullText) {
+              sendChunk(String(fullText));
+              sendDone();
+              return;
             }
-            if (streamCompleted) break;
+          } catch (jsonErr) {
+            console.warn("Failed reading JSON completion from upstream:", jsonErr);
           }
-          sendDone();
-          return;
-        } catch (streamErr: any) {
-          console.warn("Error reading upstream stream from AI provider:", streamErr);
-        }
-      }
+        } else {
+          const reader = response.body.getReader();
+          try {
+            const decoder = new TextDecoder();
+            let buffer = '';
+            let streamCompleted = false;
+            let textEmitted = false;
 
-      // If third-party stream was not successful, attempt fallback to Gemini stream
-      if (serverGeminiKey) {
-        try {
-          console.log("Attempting fallback to Gemini stream due to provider error...");
-          await callGeminiStream(serverGeminiKey, 'gemini-3-flash-preview');
-          sendDone();
-          return;
-        } catch (fbErr) {
-          console.error("Gemini stream fallback also failed:", fbErr);
+            while (true) {
+              if (isClientClosed) break;
+              const readStep = await raceTimeout(
+                reader.read(),
+                textEmitted ? 25000 : 30000,
+                `Upstream stream read (${provider})`
+              );
+              const { value, done } = readStep;
+              if (done) break;
+
+              buffer += decoder.decode(value, { stream: true });
+              const lines = buffer.split('\n');
+              buffer = lines.pop() || '';
+
+              for (const line of lines) {
+                const trimmed = line.trim();
+                if (!trimmed.startsWith('data:')) continue;
+                const dataStr = trimmed.slice(5).trim();
+                if (dataStr === '[DONE]') {
+                  streamCompleted = true;
+                  break;
+                }
+                try {
+                  const parsed = JSON.parse(dataStr);
+                  const deltaText = parsed.choices?.[0]?.delta?.content || parsed.choices?.[0]?.text;
+                  if (deltaText) {
+                    textEmitted = true;
+                    sendChunk(deltaText);
+                  }
+                } catch {}
+              }
+              if (streamCompleted) break;
+            }
+            if (textEmitted) {
+              sendDone();
+              return;
+            }
+          } catch (streamErr: any) {
+            console.warn("Error reading upstream stream from AI provider:", streamErr?.message || streamErr);
+            try { await reader.cancel(); } catch {}
+          }
         }
       }
 
@@ -885,29 +1010,11 @@ ${truncatedNote}
       sendError(errMsg);
     } catch (err: any) {
       console.error("Error in Hermes chat proxy stream:", err);
-      if (process.env.GEMINI_API_KEY) {
-        try {
-          const aiGen = new GoogleGenAI({ 
-            apiKey: process.env.GEMINI_API_KEY,
-            httpOptions: { headers: { 'User-Agent': 'aistudio-build' } }
-          });
-          const stream = await aiGen.models.generateContentStream({
-            model: 'gemini-3-flash-preview',
-            contents: `You are Hermes, an academic assistant. Please answer the user: ${(req.body?.messages?.slice(-1)?.[0]?.content) || 'Hello'}`
-          });
-          for await (const chunk of stream) {
-            if (chunk.text) {
-              res.write(`data: ${JSON.stringify({ text: chunk.text })}\n\n`);
-              if (typeof (res as any).flush === 'function') (res as any).flush();
-            }
-          }
-          res.write('data: [DONE]\n\n');
-          return res.end();
-        } catch (e) {}
+      if (!res.writableEnded) {
+        res.write(`data: ${JSON.stringify({ error: err?.message || "Internal server error" })}\n\n`);
+        res.write('data: [DONE]\n\n');
+        res.end();
       }
-      res.write(`data: ${JSON.stringify({ error: err.message || "Internal server error" })}\n\n`);
-      res.write('data: [DONE]\n\n');
-      res.end();
     }
   });
 
@@ -917,23 +1024,21 @@ ${truncatedNote}
   // Hermes AI LaTeX Auto-Correction & Healing Engine
   app.post("/api/hermes/heal-latex", async (req, res) => {
     try {
-      const { items, config } = req.body || {};
+      const { items, config: incomingConfig } = req.body || {};
       if (!Array.isArray(items) || items.length === 0) {
         return res.json({ success: true, items: [], count: 0 });
       }
 
-      const provider = config?.provider || 'gemini';
+      const { cfg: config, provider, apiKey } = await resolveEffectiveHermesConfig(incomingConfig);
       let model = config?.model;
       if (!model) {
-        model = provider === 'groq' ? 'llama-3.3-70b-versatile' : provider === 'gemini' ? 'gemini-3.8-flash' : provider === 'openrouter' ? 'google/gemini-2.0-flash-001' : 'gpt-4o-mini';
+        model = provider === 'groq' ? 'llama-3.3-70b-versatile' : provider === 'gemini' ? 'gemini-4-hydrogen' : provider === 'openrouter' ? 'google/gemini-2.0-flash-001' : 'gpt-4o-mini';
       }
       if (provider === 'groq' && model.includes('/')) {
         const parts = model.split('/');
         model = parts[parts.length - 1];
       }
 
-      const rawKey = config?.apiKey || '';
-      const apiKey = rawKey?.toString().replace(/\s+/g, '').replace(/['"]/g, '').replace(/[\u200B-\u200D\uFEFF]/g, '') || '';
       const serverGeminiKey = process.env.GEMINI_API_KEY || '';
 
       const promptInstructions = `You are the Hermes Academic LaTeX Auto-Correction and Healing Engine on CoLearn.
@@ -954,27 +1059,20 @@ CRITICAL REQUIREMENTS:
           throw new Error("Gemini free tier quota exhausted, switching directly to local engine.");
         }
 
-        const aiGen = new GoogleGenAI({ apiKey: key });
-        const candidateModels = [
-          geminiModelName,
-          'gemini-3.8-flash',
-          'gemini-flash-latest',
-        ].filter(Boolean) as string[];
-
-        const validModels = Array.from(new Set(
-          candidateModels
-            .filter(m => !m.includes('1.5') && !m.includes('2.0') && !m.includes('2.5'))
-            .concat(['gemini-3.8-flash', 'gemini-flash-latest'])
-        ));
+        const aiGen = createGeminiClient(key);
+        const primary = resolveGeminiModel(geminiModelName);
+        const validModels = Array.from(new Set([primary, 'gemini-4-hydrogen', 'gemini-3.1-flash-lite']));
 
         let lastErr: any = null;
         for (const modelToTry of validModels) {
           try {
+            const thinkingConfig = getThinkingConfigForModel(modelToTry);
             const generatePromise = aiGen.models.generateContent({
               model: modelToTry,
               contents: `${promptInstructions}\n\nINPUT ITEMS JSON:\n${JSON.stringify(items, null, 2)}`,
               config: {
                 responseMimeType: 'application/json',
+                ...(thinkingConfig ? { thinkingConfig } : {}),
               }
             });
             const timeoutPromise = new Promise<never>((_, reject) => 
@@ -1002,7 +1100,7 @@ CRITICAL REQUIREMENTS:
 
       // Helper function to heal items using OpenAI-compatible API
       const healWithOpenAICompatible = async () => {
-        const activeKey = apiKey || serverGeminiKey;
+        const activeKey = apiKey;
         const normalizedBaseUrl = normalizeOpenAIBaseUrl(config?.baseUrl, provider);
         const endpoint = `${normalizedBaseUrl}/chat/completions`;
 
@@ -1027,7 +1125,7 @@ CRITICAL REQUIREMENTS:
             } : {})
           },
           body: JSON.stringify(payload),
-          signal: AbortSignal.timeout(18000),
+          signal: AbortSignal.timeout(25000),
         });
 
         if (!resAI.ok) {
@@ -1044,7 +1142,7 @@ CRITICAL REQUIREMENTS:
       };
 
       let healedResult: any[] | null = null;
-      const isGemini = provider === 'gemini' || !provider || (config?.baseUrl && config.baseUrl.includes('generativelanguage.googleapis.com'));
+      const isGemini = provider === 'gemini' || (config?.baseUrl && config.baseUrl.includes('generativelanguage.googleapis.com'));
 
       try {
         if (isGemini) {
@@ -1056,15 +1154,7 @@ CRITICAL REQUIREMENTS:
           healedResult = await healWithOpenAICompatible();
         }
       } catch (aiErr: any) {
-        console.warn("Hermes AI LaTeX healing provider call failed, attempting fallback:", aiErr?.message || aiErr);
-        // Fallback to server Gemini key if custom provider failed and Gemini is not exhausted
-        if (serverGeminiKey && Date.now() >= geminiQuotaExhaustedUntil) {
-          try {
-            healedResult = await healWithGemini(serverGeminiKey, 'gemini-3.8-flash');
-          } catch (secErr) {
-            console.warn("Server Gemini fallback also failed:", secErr);
-          }
-        }
+        console.warn("Hermes AI LaTeX healing provider call failed, falling back to local healer:", aiErr?.message || aiErr);
       }
 
       // If AI succeeded and returned healed items:
@@ -1345,11 +1435,12 @@ CRITICAL REQUIREMENTS:
     const transcribePrompt =
       "Listen carefully to this student asking a question in a voice call with their academic tutor. Transcribe the student's exact words. Output ONLY the transcribed text. Do NOT add quotes, markdown formatting, introductory labels, or commentary. If the recording is silence or inaudible, return an empty string.";
 
-    const modelsToTry = ['gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-flash-latest'];
+    const modelsToTry = ['gemini-4-hydrogen', 'gemini-3.1-flash-lite'];
 
     for (const model of modelsToTry) {
       try {
-        const aiGen = new GoogleGenAI({ apiKey: geminiKey });
+        const aiGen = createGeminiClient(geminiKey);
+        const thinkingConfig = getThinkingConfigForModel(model);
         const response = await aiGen.models.generateContent({
           model,
           contents: [
@@ -1363,6 +1454,7 @@ CRITICAL REQUIREMENTS:
               text: transcribePrompt,
             },
           ],
+          ...(thinkingConfig ? { config: { thinkingConfig } } : {}),
         });
 
         const text = (response.text || '').trim();
