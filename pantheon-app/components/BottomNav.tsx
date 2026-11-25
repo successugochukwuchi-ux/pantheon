@@ -1,9 +1,9 @@
-import React from 'react';
-import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
+import React, { useEffect, useState } from 'react';
+import { View, Text, TouchableOpacity, StyleSheet, Keyboard, Platform } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useTheme } from '../context/ThemeContext';
 import { C, F } from './Theme';
-import { HomeIcon, NotesIcon, SocialIcon, CbtIcon, SettingsIcon, ChatIcon } from './Icons';
+import { HomeIcon, NotesIcon, SocialIcon, CbtIcon, SettingsIcon } from './Icons';
 import { stopSpeech } from '../lib/ttsService';
 
 type TabId = 'home' | 'notes' | 'social' | 'chat' | 'cbt' | 'profile' | 'settings';
@@ -12,21 +12,35 @@ interface BottomNavProps {
   active?: TabId;
 }
 
-export function BottomNav({ active }: BottomNavProps) {
+const TABS = [
+  { id: 'home', label: 'Home', icon: HomeIcon, route: '/dashboard' },
+  { id: 'notes', label: 'Study', icon: NotesIcon, route: '/notes' },
+  { id: 'social', label: 'Social', icon: SocialIcon, route: '/social' },
+  { id: 'cbt', label: 'CBT', icon: CbtIcon, route: '/cbt-setup' },
+  { id: 'settings', label: 'Settings', icon: SettingsIcon, route: '/settings' },
+] as const;
+
+export const BottomNav = React.memo(function BottomNav({ active }: BottomNavProps) {
   const router = useRouter();
   const { colors: C } = useTheme();
-  
-  const tabs = [
-    { id: 'home',     label: 'Home',     icon: HomeIcon,     route: '/dashboard' },
-    { id: 'notes',    label: 'Study',    icon: NotesIcon,    route: '/notes'     },
-    { id: 'social',   label: 'Social',   icon: SocialIcon,   route: '/social'    },
-    { id: 'cbt',      label: 'CBT',      icon: CbtIcon,      route: '/cbt-setup' },
-    { id: 'settings', label: 'Settings', icon: SettingsIcon, route: '/settings'  },
-  ];
+  const [keyboardVisible, setKeyboardVisible] = useState(false);
+
+  useEffect(() => {
+    const showEvent = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
+    const hideEvent = Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide';
+    const showSub = Keyboard.addListener(showEvent, () => setKeyboardVisible(true));
+    const hideSub = Keyboard.addListener(hideEvent, () => setKeyboardVisible(false));
+    return () => {
+      showSub.remove();
+      hideSub.remove();
+    };
+  }, []);
+
+  if (keyboardVisible) return null;
 
   return (
     <View style={[s.bottomNav, { backgroundColor: C.surface, borderColor: C.border }]}>
-      {tabs.map((tab) => {
+      {TABS.map((tab) => {
         const isActive = active === tab.id;
         const Icon = tab.icon;
         return (
@@ -46,7 +60,7 @@ export function BottomNav({ active }: BottomNavProps) {
       })}
     </View>
   );
-}
+});
 
 const s = StyleSheet.create({
   bottomNav: {

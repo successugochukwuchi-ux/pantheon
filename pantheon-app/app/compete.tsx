@@ -16,6 +16,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { Audio } from 'expo-av';
 import { BottomNav } from '../components/BottomNav';
+import { KeyboardSafeContainer, useKeyboardHeight } from '../components/KeyboardSafeWrapper';
 import { MathText } from '../components/MathText';
 import { F, width } from '../components/Theme';
 import { useTheme } from '../context/ThemeContext';
@@ -76,6 +77,8 @@ export default function CompeteScreen() {
   const userProfile = profile;
   const { colors: C, themeName } = useTheme();
   const s = useMemo(() => createStyles(C, themeName), [C, themeName]);
+  const { isKeyboardVisible } = useKeyboardHeight();
+  const scrollRef = useRef<ScrollView>(null);
 
   const [gameState, setGameState] = useState<'lobby' | 'selecting_course' | 'selecting_lobby_type' | 'waiting' | 'playing' | 'results'>('lobby');
 
@@ -1310,12 +1313,14 @@ export default function CompeteScreen() {
         <View style={{ width: 36 }} />
       </View>
 
-      <ScrollView
-        style={s.scroll}
-        contentContainerStyle={s.scrollContent}
-        keyboardShouldPersistTaps="handled"
-        showsVerticalScrollIndicator={false}
-      >
+      <KeyboardSafeContainer>
+        <ScrollView
+          ref={scrollRef}
+          style={s.scroll}
+          contentContainerStyle={[s.scrollContent, { paddingBottom: isKeyboardVisible ? 28 : 110 }]}
+          keyboardShouldPersistTaps="handled"
+          showsVerticalScrollIndicator={false}
+        >
         <Animated.View style={{ opacity: fadeAnim }}>
           {/* LOBBY STATE */}
           {gameState === 'lobby' && (
@@ -1523,6 +1528,7 @@ export default function CompeteScreen() {
                     keyboardType="number-pad"
                     style={[s.textInput, { backgroundColor: C.bgAlt, color: C.ink, borderColor: C.border }]}
                     value={String(customNumQuestions)}
+                    onFocus={() => setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 140)}
                     onChangeText={(val) => {
                       const parsed = parseInt(val, 10);
                       setCustomNumQuestions(isNaN(parsed) ? 10 : parsed);
@@ -1554,6 +1560,7 @@ export default function CompeteScreen() {
                   style={[s.textInput, { backgroundColor: C.bgAlt, color: C.ink, borderColor: C.border, fontFamily: F.bold }]}
                   maxLength={10}
                   value={joinRoomCode}
+                  onFocus={() => setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 140)}
                   onChangeText={setJoinRoomCode}
                 />
 
@@ -2383,7 +2390,8 @@ export default function CompeteScreen() {
           })()}
           {/* END OF RESULTS STATE */}
         </Animated.View>
-      </ScrollView>
+        </ScrollView>
+      </KeyboardSafeContainer>
 
       <BottomNav active="cbt" />
     </SafeAreaView>

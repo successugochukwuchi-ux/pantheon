@@ -48,6 +48,7 @@ interface UserProfile {
 interface SystemConfig {
   currentSemester: '1st' | '2nd' | 'none';
   maintenanceMode: boolean;
+  deviceLimit?: number;
 }
 
 export interface PromoConfig {
@@ -94,12 +95,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     email: string;
     studentId: string;
     semester: string;
+    deviceLimit: number;
   }>({
     visible: false,
     admin: null,
     email: '',
     studentId: '',
     semester: '1st',
+    deviceLimit: 2,
   });
 
   useEffect(() => {
@@ -244,12 +247,29 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           }
         } catch (e) {}
 
-        // Get current semester
+        // Get current semester and configured student device limit
         let currentSemester = '1st';
+        let studentDeviceLimit = 2;
+        try {
+          const cachedCfgStr = await AsyncStorage.getItem('colearn_system_config');
+          if (cachedCfgStr) {
+            const cachedCfg = JSON.parse(cachedCfgStr);
+            if (cachedCfg.currentSemester) currentSemester = cachedCfg.currentSemester;
+            const parsedCached = Number(cachedCfg.deviceLimit);
+            if (Number.isFinite(parsedCached) && parsedCached >= 1) {
+              studentDeviceLimit = Math.floor(parsedCached);
+            }
+          }
+        } catch (e) {}
         try {
           const configSnap = await getDoc(doc(db, 'system', 'config'));
           if (configSnap.exists()) {
-            currentSemester = configSnap.data().currentSemester || '1st';
+            const cfgData = configSnap.data();
+            currentSemester = cfgData.currentSemester || currentSemester || '1st';
+            const parsedLimit = Number(cfgData.deviceLimit);
+            if (Number.isFinite(parsedLimit) && parsedLimit >= 1) {
+              studentDeviceLimit = Math.floor(parsedLimit);
+            }
           }
         } catch (e) {}
 
@@ -279,19 +299,72 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           return;
         }
 
-        const isLevel5 = userData.level === '5' || user.email === 'successugochukwuchi@gmail.com';
-        const isExemptFromDeviceLimit = isLevel5;
+        const isLevel5 = userData.level === '5' || String(userData.level) === '5' || user.email === 'successugochukwuchi@gmail.com';
+        const isExemptFromDeviceLimit = isLevel5 || isLevel3Vendor;
         let devices = userData.devices || [];
         const currentDevices = devices.filter((d: any) => d.semester === currentSemester);
+        const deviceWord = studentDeviceLimit === 1 ? 'device' : 'devices';
 
         let deviceId = await getUserDeviceUUID(user.uid);
         const deviceName = getMobileDeviceName();
 
-        if (deviceId) {
-          // Device has stored UUID for this user account
-          const matched = currentDevices.find((d: any) => d.id === deviceId);
-          if (!matched) {
-            if (!isExemptFromDeviceLimit && currentDevices.length >= 2) {
+        if (!isExemptFromDeviceLimit) {
+          if (deviceId) {
+            // Device has stored UUID for this user account
+            const matched = currentDevices.find((d: any) => d.id === deviceId);
+            if (!matched) {
+              if (currentDevices.length >= studentDeviceLimit) {
+                const adminContact = await fetchMobileAdminContactForUniversity(userData.At);
+                setDeviceLimitModalInfo({
+                  visible: true,
+                  admin: adminContact,
+                  email: user.email || userData.email || '',
+                  studentId: userData.studentId || '',
+                  semester: currentSemester,
+                  deviceLimit: studentDeviceLimit,
+                });
+                setProfile(null);
+                signOut(auth).catch(() => {});
+                Alert.alert(
+                  "Device Limit Reached",
+                  `This account has reached the maximum of ${studentDeviceLimit} ${deviceWord} for this semester.\n\nAvailable Administrator for ${(userData.At || 'futo').toUpperCase()}:\n• Name: ${adminContact.name}\n• WhatsApp: +${adminContact.whatsapp}`,
+                  [
+                    { text: "Dismiss", style: "cancel" },
+                    {
+                      text: "Chat on WhatsApp",
+                      onPress: () => {
+                        const msg = encodeURIComponent(`Hello ${adminContact.name}, I reached the ${studentDeviceLimit}-device limit on my CoLearn account (${user.email || userData.email || ''}${userData.studentId ? `, Student ID: ${userData.studentId}` : ''}) for ${currentSemester} semester. Please help reset or unlink my device.`);
+                        Linking.openURL(`https://wa.me/${adminContact.whatsapp}?text=${msg}`).catch(() => {});
+                      }
+                    },
+                    {
+                      text: "Call Admin",
+                      onPress: () => {
+                        Linking.openURL(`tel:${adminContact.phone.replace(/\s+/g, '')}`).catch(() => {});
+                      }
+                    }
+                  ]
+                );
+                return;
+              } else {
+                // Re-register device
+                const newDevice = {
+                  id: deviceId,
+                  name: deviceName,
+                  semester: currentSemester,
+                  os: Platform.OS,
+                  addedAt: new Date().toISOString()
+                };
+                currentDevices.push(newDevice);
+                await updateDoc(doc(db, 'users', user.uid), { devices: currentDevices }).catch(() => {});
+              }
+            } else if (matched.name !== deviceName) {
+              matched.name = deviceName;
+              await updateDoc(doc(db, 'users', user.uid), { devices: currentDevices }).catch(() => {});
+            }
+          } else {
+            // First time on this device for this user account
+            if (currentDevices.length >= studentDeviceLimit) {
               const adminContact = await fetchMobileAdminContactForUniversity(userData.At);
               setDeviceLimitModalInfo({
                 visible: true,
@@ -299,32 +372,33 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                 email: user.email || userData.email || '',
                 studentId: userData.studentId || '',
                 semester: currentSemester,
+                deviceLimit: studentDeviceLimit,
               });
               setProfile(null);
               signOut(auth).catch(() => {});
               Alert.alert(
-                "Device Limit Reached",
-                `This account has reached the maximum of 2 devices for this semester.\n\nAvailable Administrator for ${(userData.At || 'futo').toUpperCase()}:\n• Name: ${adminContact.name}\n• WhatsApp: +${adminContact.whatsapp}`,
-                [
-                  { text: "Dismiss", style: "cancel" },
-                  {
-                    text: "Chat on WhatsApp",
-                    onPress: () => {
-                      const msg = encodeURIComponent(`Hello ${adminContact.name}, I reached the 2-device limit on my CoLearn account (${user.email || userData.email || ''}${userData.studentId ? `, Student ID: ${userData.studentId}` : ''}) for ${currentSemester} semester. Please help reset or unlink my device.`);
-                      Linking.openURL(`https://wa.me/${adminContact.whatsapp}?text=${msg}`).catch(() => {});
+                  "Device Limit Reached",
+                  `This account has reached the maximum of ${studentDeviceLimit} ${deviceWord} for this semester.\n\nAvailable Administrator for ${(userData.At || 'futo').toUpperCase()}:\n• Name: ${adminContact.name}\n• WhatsApp: +${adminContact.whatsapp}`,
+                  [
+                    { text: "Dismiss", style: "cancel" },
+                    {
+                      text: "Chat on WhatsApp",
+                      onPress: () => {
+                        const msg = encodeURIComponent(`Hello ${adminContact.name}, I reached the ${studentDeviceLimit}-device limit on my CoLearn account (${user.email || userData.email || ''}${userData.studentId ? `, Student ID: ${userData.studentId}` : ''}) for ${currentSemester} semester. Please help reset or unlink my device.`);
+                        Linking.openURL(`https://wa.me/${adminContact.whatsapp}?text=${msg}`).catch(() => {});
+                      }
+                    },
+                    {
+                      text: "Call Admin",
+                      onPress: () => {
+                        Linking.openURL(`tel:${adminContact.phone.replace(/\s+/g, '')}`).catch(() => {});
+                      }
                     }
-                  },
-                  {
-                    text: "Call Admin",
-                    onPress: () => {
-                      Linking.openURL(`tel:${adminContact.phone.replace(/\s+/g, '')}`).catch(() => {});
-                    }
-                  }
-                ]
-              );
+                  ]
+                );
               return;
             } else {
-              // Re-register device
+              deviceId = await generateNewDeviceUUID(user.uid);
               const newDevice = {
                 id: deviceId,
                 name: deviceName,
@@ -335,55 +409,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
               currentDevices.push(newDevice);
               await updateDoc(doc(db, 'users', user.uid), { devices: currentDevices }).catch(() => {});
             }
-          } else if (matched.name !== deviceName) {
-            matched.name = deviceName;
-            await updateDoc(doc(db, 'users', user.uid), { devices: currentDevices }).catch(() => {});
-          }
-        } else {
-          // First time on this device for this user account
-          if (!isExemptFromDeviceLimit && currentDevices.length >= 2) {
-            const adminContact = await fetchMobileAdminContactForUniversity(userData.At);
-            setDeviceLimitModalInfo({
-              visible: true,
-              admin: adminContact,
-              email: user.email || userData.email || '',
-              studentId: userData.studentId || '',
-              semester: currentSemester,
-            });
-            setProfile(null);
-            signOut(auth).catch(() => {});
-            Alert.alert(
-                "Device Limit Reached",
-                `This account has reached the maximum of 2 devices for this semester.\n\nAvailable Administrator for ${(userData.At || 'futo').toUpperCase()}:\n• Name: ${adminContact.name}\n• WhatsApp: +${adminContact.whatsapp}`,
-                [
-                  { text: "Dismiss", style: "cancel" },
-                  {
-                    text: "Chat on WhatsApp",
-                    onPress: () => {
-                      const msg = encodeURIComponent(`Hello ${adminContact.name}, I reached the 2-device limit on my CoLearn account (${user.email || userData.email || ''}${userData.studentId ? `, Student ID: ${userData.studentId}` : ''}) for ${currentSemester} semester. Please help reset or unlink my device.`);
-                      Linking.openURL(`https://wa.me/${adminContact.whatsapp}?text=${msg}`).catch(() => {});
-                    }
-                  },
-                  {
-                    text: "Call Admin",
-                    onPress: () => {
-                      Linking.openURL(`tel:${adminContact.phone.replace(/\s+/g, '')}`).catch(() => {});
-                    }
-                  }
-                ]
-              );
-            return;
-          } else {
-            deviceId = await generateNewDeviceUUID(user.uid);
-            const newDevice = {
-              id: deviceId,
-              name: deviceName,
-              semester: currentSemester,
-              os: Platform.OS,
-              addedAt: new Date().toISOString()
-            };
-            currentDevices.push(newDevice);
-            await updateDoc(doc(db, 'users', user.uid), { devices: currentDevices }).catch(() => {});
           }
         }
 
@@ -408,11 +433,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
               return;
             }
 
-            const isUserLevel5 = data.level === '5' || user.email === 'successugochukwuchi@gmail.com';
+            const isUserLevel5 = data.level === '5' || String(data.level) === '5' || user.email === 'successugochukwuchi@gmail.com';
             const liveDevices = (data.devices || []).filter((d: any) => d.semester === currentSemester);
             
-            // Disconnect ONLY if activeDeviceId was explicitly removed from liveDevices (exempt L5)
-            const stillRegistered = isUserLevel5 || liveDevices.some((d: any) => d.id === activeDeviceId);
+            // Disconnect ONLY if activeDeviceId was explicitly removed from liveDevices (exempt L5 & Vendors)
+            const stillRegistered = isUserLevel5 || isUserVendor || liveDevices.some((d: any) => d.id === activeDeviceId);
 
             if (!stillRegistered) {
               setProfile(null);
@@ -478,11 +503,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
 
 
-  // Keep track of connection status periodically
+  // Keep track of connection status periodically while app is active
   useEffect(() => {
     async function verifyConnection() {
-      // Always ping google to ensure accurate offline status, even if navigator.onLine is true
-      // Sometimes navigator.onLine is true but actual internet is unavailable
+      if (AppState.currentState !== 'active') return;
       try {
         const controller = new AbortController();
         const id = setTimeout(() => controller.abort(), 3000);
@@ -493,14 +517,20 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         });
         clearTimeout(id);
         setIsOffline(false);
-      } catch (err) {
+      } catch {
         setIsOffline(true);
       }
     }
 
     verifyConnection();
-    const interval = setInterval(verifyConnection, 5000);
-    return () => clearInterval(interval);
+    const interval = setInterval(verifyConnection, 15000);
+    const appStateSub = AppState.addEventListener('change', (nextState) => {
+      if (nextState === 'active') verifyConnection();
+    });
+    return () => {
+      clearInterval(interval);
+      appStateSub.remove();
+    };
   }, []);
 
   // Real-time Background Notification Dispatcher
@@ -809,7 +839,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
               <Text style={mobileDeviceLimitStyles.title}>Device Limit Reached</Text>
               <Text style={mobileDeviceLimitStyles.description}>
-                This account has reached the maximum of 2 devices for the current semester ({deviceLimitModalInfo.semester}).
+                This account has reached the maximum of {deviceLimitModalInfo.deviceLimit} active {deviceLimitModalInfo.deviceLimit === 1 ? 'device' : 'devices'} for the current semester ({deviceLimitModalInfo.semester}).
               </Text>
 
               <View style={mobileDeviceLimitStyles.adminBox}>
@@ -823,7 +853,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                 activeOpacity={0.8}
                 onPress={() => {
                   const msg = encodeURIComponent(
-                    `Hello ${deviceLimitModalInfo.admin?.name}, I reached the 2-device limit on my CoLearn account (${deviceLimitModalInfo.email}${deviceLimitModalInfo.studentId ? `, Student ID: ${deviceLimitModalInfo.studentId}` : ''}) for ${deviceLimitModalInfo.semester} semester. Please help reset or unlink my device.`
+                    `Hello ${deviceLimitModalInfo.admin?.name}, I reached the ${deviceLimitModalInfo.deviceLimit}-device limit on my CoLearn account (${deviceLimitModalInfo.email}${deviceLimitModalInfo.studentId ? `, Student ID: ${deviceLimitModalInfo.studentId}` : ''}) for ${deviceLimitModalInfo.semester} semester. Please help reset or unlink my device.`
                   );
                   Linking.openURL(`https://wa.me/${deviceLimitModalInfo.admin?.whatsapp}?text=${msg}`).catch(() => {});
                 }}

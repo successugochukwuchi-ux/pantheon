@@ -1,31 +1,83 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import {
   View,
   Text,
-  ScrollView,
+  FlatList,
   TouchableOpacity,
   StyleSheet,
   TextInput,
   Image,
   ActivityIndicator,
 } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { BottomNav } from '../components/BottomNav';
 import { Sidebar } from '../components/Sidebar';
+import { KeyboardSafeContainer, useKeyboardHeight } from '../components/KeyboardSafeWrapper';
 import { HamburgerIcon, BellIcon, SearchIcon } from '../components/Icons';
 import { F } from '../components/Theme';
-import { collection, query, where, onSnapshot, getDoc, doc } from 'firebase/firestore';
+import { collection, query, where, onSnapshot } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 import { useAuth } from '../context/AuthContext';
 import { useTheme } from '../context/ThemeContext';
 import { getOrFetchUserProfile } from '../lib/userCache';
+
+const ChatRoomRow = React.memo(function ChatRoomRow({
+  chat,
+  C,
+  s,
+  onPress,
+}: {
+  chat: any;
+  C: any;
+  s: any;
+  onPress: (c: any) => void;
+}) {
+  return (
+    <TouchableOpacity
+      style={[s.chatItem, { backgroundColor: C.surface, borderColor: C.border }]}
+      activeOpacity={0.7}
+      onPress={() => onPress(chat)}
+    >
+      <View style={s.avatarContainer}>
+        {chat.isGroup ? (
+          <View style={[s.groupAvatarMock, { backgroundColor: C.tagBg || C.bgAlt, borderColor: C.border }]}>
+            <Text style={{ fontSize: 20 }}>👥</Text>
+          </View>
+        ) : (
+          <Image source={{ uri: chat.image }} style={s.avatar} />
+        )}
+        {chat.unreadCount > 0 && <View style={[s.unreadIndicator, { borderColor: C.surface }]} />}
+      </View>
+      <View style={s.chatInfo}>
+        <View style={s.chatHeader}>
+          <Text style={[s.chatName, { color: C.ink }]} numberOfLines={1}>{chat.name}</Text>
+          <Text style={[s.chatTime, { color: C.inkLight }]}>
+            {chat.lastUpdatedAt ? new Date(chat.lastUpdatedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : ''}
+          </Text>
+        </View>
+        <View style={s.chatFooter}>
+          <Text style={[s.lastMsg, { color: C.inkMid }]} numberOfLines={1}>
+            {chat.lastMessage || 'Open thread to discuss blocks.'}
+          </Text>
+          {chat.unreadCount > 0 && (
+            <View style={[s.unreadBadge, { backgroundColor: C.ink }]}>
+              <Text style={[s.unreadText, { color: C.bg }]}>{chat.unreadCount}</Text>
+            </View>
+          )}
+        </View>
+      </View>
+    </TouchableOpacity>
+  );
+});
 
 export default function ChatListScreen() {
   const router = useRouter();
   const { profile } = useAuth();
   const { colors: C } = useTheme();
   const s = useMemo(() => createStyles(C), [C]);
+  const { isKeyboardVisible } = useKeyboardHeight();
 
   const [activeTab, setActiveTab] = useState<'DMs' | 'Groups'>('DMs');
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -33,11 +85,26 @@ export default function ChatListScreen() {
   const [search, setSearch] = useState('');
   const [chatRooms, setChatRooms] = useState<any[]>([]);
 
-  // Observe active chat rooms for current user in real-time
+  // Observe active chat rooms for current user in real-time + AsyncStorage instant cache
   useEffect(() => {
     if (!profile) return;
 
-    setLoading(true);
+    const cacheKey = `colearn_chat_list_${profile.uid}`;
+    let hasCached = false;
+
+    AsyncStorage.getItem(cacheKey)
+      .then((raw) => {
+        if (!raw) return;
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed)) {
+          setChatRooms(parsed);
+          hasCached = true;
+          setLoading(false);
+        }
+      })
+      .catch(() => {});
+
+    if (!hasCached) setLoading(true);
 
     const chatsRef = collection(db, 'chats');
     const q = query(chatsRef, where('uids', 'array-contains', profile.uid));
@@ -80,18 +147,24 @@ export default function ChatListScreen() {
 
       setChatRooms(filteredHydrated);
       setLoading(false);
+      AsyncStorage.setItem(cacheKey, JSON.stringify(filteredHydrated)).catch(() => {});
     });
 
     return () => unsubscribe();
   }, [profile]);
 
   const filteredChats = useMemo(() => {
+    const q = search.toLowerCase();
     return chatRooms.filter(c => {
-      const matchesSearch = c.name.toLowerCase().includes(search.toLowerCase());
+      const matchesSearch = c.name.toLowerCase().includes(q);
       const matchesTab = activeTab === 'Groups' ? c.isGroup : !c.isGroup;
       return matchesSearch && matchesTab;
     });
   }, [chatRooms, search, activeTab]);
+
+  const handleOpenRoom = useCallback((chat: any) => {
+    router.push({ pathname: '/chat-room', params: { id: chat.id, name: chat.name, isGroup: chat.isGroup ? 'true' : 'false' } });
+  }, [router]);
 
   return (
     <SafeAreaView style={[s.root, { backgroundColor: C.bg }]} edges={['top']}>
@@ -106,95 +179,73 @@ export default function ChatListScreen() {
         </TouchableOpacity>
       </View>
 
-      <View style={[s.searchSection, { backgroundColor: C.bg }]}>
-        <View style={[s.tabToggle, { backgroundColor: C.tabBg }]}>
-          <TouchableOpacity 
-            style={[s.tabItem, activeTab === 'DMs' && [s.tabItemActive, { backgroundColor: C.surface }]]} 
-            onPress={() => setActiveTab('DMs')}
-          >
-            <Text style={[s.tabLabel, activeTab === 'DMs' && [s.tabLabelActive, { color: C.ink }]]}>Direct Messages</Text>
-          </TouchableOpacity>
-          <TouchableOpacity 
-            style={[s.tabItem, activeTab === 'Groups' && [s.tabItemActive, { backgroundColor: C.surface }]]} 
-            onPress={() => setActiveTab('Groups')}
-          >
-            <Text style={[s.tabLabel, activeTab === 'Groups' && [s.tabLabelActive, { color: C.ink }]]}>Study Groups</Text>
-          </TouchableOpacity>
-        </View>
-
-        <View style={[s.searchWrap, { backgroundColor: C.surface, borderColor: C.border }]}>
-          <SearchIcon color={C.inkLight} />
-          <TextInput
-            style={[s.searchInput, { color: C.ink }]}
-            placeholder="Search channels or partners..."
-            placeholderTextColor={C.inkLight}
-            value={search}
-            onChangeText={setSearch}
-          />
-        </View>
-      </View>
-
-      <ScrollView style={s.scroll} contentContainerStyle={s.scrollContent} showsVerticalScrollIndicator={false}>
-        <Text style={[s.sectionTitle, { color: C.inkLight }]}>ACTIVE STUDY CHATS</Text>
-
-        {loading ? (
-          <ActivityIndicator color={C.activeText} style={{ marginTop: 40 }} />
-        ) : filteredChats.length === 0 ? (
-          <View style={[s.emptyCard, { borderColor: C.border }]}>
-             <Text style={[s.emptyCardText, { color: C.inkMid }]}>
-               {search ? "No matches fit your query." : `Your list of configured ${activeTab === 'DMs' ? 'Direct Messages' : 'Groups'} is empty.`}
-             </Text>
-             <TouchableOpacity style={[s.primaryActionButton, { backgroundColor: C.ink }]} onPress={() => router.push('/social')}>
-                <Text style={[s.primaryActionButtonText, { color: C.bg }]}>ACCESS SOCIAL HUB</Text>
-             </TouchableOpacity>
-          </View>
-        ) : (
-          filteredChats.map((chat) => (
-            <TouchableOpacity 
-              key={chat.id} 
-              style={[s.chatItem, { backgroundColor: C.surface, borderColor: C.border }]} 
-              activeOpacity={0.7}
-              onPress={() => router.push({ pathname: '/chat-room', params: { id: chat.id, name: chat.name, isGroup: chat.isGroup ? 'true' : 'false' } })}
+      <KeyboardSafeContainer>
+        <View style={[s.searchSection, { backgroundColor: C.bg }]}>
+          <View style={[s.tabToggle, { backgroundColor: C.tabBg }]}>
+            <TouchableOpacity
+              style={[s.tabItem, activeTab === 'DMs' && [s.tabItemActive, { backgroundColor: C.surface }]]}
+              onPress={() => setActiveTab('DMs')}
             >
-              <View style={s.avatarContainer}>
-                {chat.isGroup ? (
-                  <View style={[s.groupAvatarMock, { backgroundColor: C.tagBg || C.bgAlt, borderColor: C.border }]}>
-                     <Text style={{ fontSize: 20 }}>👥</Text>
-                  </View>
-                ) : (
-                  <Image source={{ uri: chat.image }} style={s.avatar} />
-                )}
-                {chat.unreadCount > 0 && <View style={[s.unreadIndicator, { borderColor: C.surface }]} />}
-              </View>
-              <View style={s.chatInfo}>
-                <View style={s.chatHeader}>
-                  <Text style={[s.chatName, { color: C.ink }]} numberOfLines={1}>{chat.name}</Text>
-                  <Text style={[s.chatTime, { color: C.inkLight }]}>
-                    {chat.lastUpdatedAt ? new Date(chat.lastUpdatedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : ''}
-                  </Text>
-                </View>
-                <View style={s.chatFooter}>
-                  <Text style={[s.lastMsg, { color: C.inkMid }]} numberOfLines={1}>
-                    {chat.lastMessage || 'Open thread to discuss blocks.'}
-                  </Text>
-                  {chat.unreadCount > 0 && (
-                    <View style={[s.unreadBadge, { backgroundColor: C.ink }]}>
-                      <Text style={[s.unreadText, { color: C.bg }]}>{chat.unreadCount}</Text>
-                    </View>
-                  )}
-                </View>
-              </View>
+              <Text style={[s.tabLabel, activeTab === 'DMs' && [s.tabLabelActive, { color: C.ink }]]}>Direct Messages</Text>
             </TouchableOpacity>
-          ))
-        )}
+            <TouchableOpacity
+              style={[s.tabItem, activeTab === 'Groups' && [s.tabItemActive, { backgroundColor: C.surface }]]}
+              onPress={() => setActiveTab('Groups')}
+            >
+              <Text style={[s.tabLabel, activeTab === 'Groups' && [s.tabLabelActive, { color: C.ink }]]}>Study Groups</Text>
+            </TouchableOpacity>
+          </View>
 
-        <View style={{ height: 100 }} />
-      </ScrollView>
+          <View style={[s.searchWrap, { backgroundColor: C.surface, borderColor: C.border }]}>
+            <SearchIcon color={C.inkLight} />
+            <TextInput
+              style={[s.searchInput, { color: C.ink }]}
+              placeholder="Search channels or partners..."
+              placeholderTextColor={C.inkLight}
+              value={search}
+              onChangeText={setSearch}
+            />
+          </View>
+        </View>
 
-      {/* FAB - Create study alliance / add friend shortcut */}
-      <TouchableOpacity style={[s.fab, { backgroundColor: C.ink }]} activeOpacity={0.8} onPress={() => router.push('/social')}>
-        <Text style={[s.fabText, { color: C.bg }]}>+</Text>
-      </TouchableOpacity>
+        <FlatList
+          data={loading ? [] : filteredChats}
+          keyExtractor={(item) => item.id}
+          style={s.scroll}
+          contentContainerStyle={[s.scrollContent, { paddingBottom: isKeyboardVisible ? 24 : 110 }]}
+          showsVerticalScrollIndicator={false}
+          keyboardShouldPersistTaps="handled"
+          initialNumToRender={12}
+          maxToRenderPerBatch={12}
+          windowSize={7}
+          removeClippedSubviews
+          ListHeaderComponent={<Text style={[s.sectionTitle, { color: C.inkLight }]}>ACTIVE STUDY CHATS</Text>}
+          ListEmptyComponent={
+            loading ? (
+              <ActivityIndicator color={C.activeText} style={{ marginTop: 40 }} />
+            ) : (
+              <View style={[s.emptyCard, { borderColor: C.border }]}>
+                <Text style={[s.emptyCardText, { color: C.inkMid }]}>
+                  {search ? "No matches fit your query." : `Your list of configured ${activeTab === 'DMs' ? 'Direct Messages' : 'Groups'} is empty.`}
+                </Text>
+                <TouchableOpacity style={[s.primaryActionButton, { backgroundColor: C.ink }]} onPress={() => router.push('/social')}>
+                  <Text style={[s.primaryActionButtonText, { color: C.bg }]}>ACCESS SOCIAL HUB</Text>
+                </TouchableOpacity>
+              </View>
+            )
+          }
+          renderItem={({ item }) => (
+            <ChatRoomRow chat={item} C={C} s={s} onPress={handleOpenRoom} />
+          )}
+        />
+      </KeyboardSafeContainer>
+
+      {/* FAB - Create study alliance / add friend shortcut (hide while keyboard is open) */}
+      {!isKeyboardVisible && (
+        <TouchableOpacity style={[s.fab, { backgroundColor: C.ink }]} activeOpacity={0.8} onPress={() => router.push('/social')}>
+          <Text style={[s.fabText, { color: C.bg }]}>+</Text>
+        </TouchableOpacity>
+      )}
 
       {/* Sidebar navigation */}
       <Sidebar isOpen={sidebarOpen} onClose={() => setSidebarOpen(false)} />

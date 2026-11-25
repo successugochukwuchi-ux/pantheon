@@ -1,17 +1,17 @@
-import React, { useEffect, useRef, useState, useMemo, useCallback } from 'react';
+import React, { useEffect, useState, useMemo, useCallback } from 'react';
 import {
   View,
   Text,
-  ScrollView,
+  FlatList,
   TouchableOpacity,
   StyleSheet,
-  Animated,
   ActivityIndicator,
   TextInput,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useFocusEffect } from 'expo-router';
 import { BottomNav } from '../components/BottomNav';
+import { KeyboardSafeContainer, useKeyboardHeight } from '../components/KeyboardSafeWrapper';
 import { F } from '../components/Theme';
 import { collection, query, where, getDocs } from 'firebase/firestore';
 import { db } from '../lib/firebase';
@@ -40,42 +40,36 @@ interface Course {
   isRecommended?: boolean;
 }
 
-function ProgressBar({ value }: { value: number }) {
-  const anim = useRef(new Animated.Value(value || 0)).current;
-  const { colors: C } = useTheme();
-  const s = useMemo(() => createStyles(C), [C]);
-  useEffect(() => {
-    Animated.timing(anim, { toValue: value || 0, duration: 500, useNativeDriver: false }).start();
-  }, [value]);
+const ProgressBar = React.memo(function ProgressBar({ value, s, activeColor }: { value: number; s: any; activeColor: string }) {
+  const clamped = Math.max(0, Math.min(100, value || 0));
   return (
     <View style={s.progressTrack}>
-      <Animated.View
+      <View
         style={[
           s.progressFill,
           {
-            backgroundColor: C.activeText,
-            width: anim.interpolate({
-              inputRange: [0, 100],
-              outputRange: ['0%', '100%'],
-            }),
+            backgroundColor: activeColor,
+            width: `${clamped}%`,
           },
         ]}
       />
     </View>
   );
-}
+});
 
 const CourseCard = React.memo(function CourseCard({
   course,
+  s,
+  C,
+  onViewNotes,
+  onOpenChat,
 }: {
   course: Course;
-  index: number;
-  onPress: () => void;
+  s: any;
+  C: any;
+  onViewNotes: (course: Course) => void;
+  onOpenChat: (courseId: string) => void;
 }) {
-  const router = useRouter();
-  const { colors: C } = useTheme();
-  const s = useMemo(() => createStyles(C), [C]);
-
   return (
     <View style={s.card}>
       {course.isRecommended && (
@@ -99,22 +93,19 @@ const CourseCard = React.memo(function CourseCard({
         <Text style={s.progressLabel}>Completion</Text>
         <Text style={s.progressPct}>{course.progress || 0}%</Text>
       </View>
-      <ProgressBar value={course.progress || 0} />
+      <ProgressBar value={course.progress || 0} s={s} activeColor={C.activeText} />
       <View style={s.actions}>
         <TouchableOpacity
           style={s.viewBtn}
           activeOpacity={0.85}
-          onPress={() => {
-            setCachedCourseById(course);
-            router.push(`/notes-topics?courseId=${course.id}`);
-          }}
+          onPress={() => onViewNotes(course)}
         >
           <Text style={s.viewBtnText}>VIEW NOTES</Text>
         </TouchableOpacity>
         <TouchableOpacity
           style={s.discussBtn}
           activeOpacity={0.8}
-          onPress={() => router.push(`/course-discussion?courseId=${course.id}`)}
+          onPress={() => onOpenChat(course.id)}
         >
           <Text style={s.discussIcon}>💬</Text>
           <Text style={s.discussBtnText}>CHAT</Text>
@@ -130,6 +121,7 @@ export default function NotesScreen() {
   const { profile, systemConfig, isOffline } = useAuth();
   const { colors: C } = useTheme();
   const s = useMemo(() => createStyles(C), [C]);
+  const { isKeyboardVisible } = useKeyboardHeight();
 
   const semester =
     !systemConfig?.currentSemester || systemConfig.currentSemester === 'none'
@@ -142,23 +134,23 @@ export default function NotesScreen() {
   const [searchQuery, setSearchQuery] = useState('');
   const [loading, setLoading] = useState(!initialCached || initialCached.length === 0);
 
+  const mapAndSort = useCallback((list: any[], progMap?: Record<string, number>): Course[] => {
+    const mapped = list.map((c) => ({
+      id: c.id,
+      code: (c.code || '').trim(),
+      title: (c.title || '').trim(),
+      semester: c.semester || semester,
+      level: c.level || '',
+      department: c.department || '',
+      progress: progMap ? (progMap[c.id] ?? c.progress ?? 0) : (c.progress || 0),
+    }));
+    return sortCoursesAlphabetically(mapped);
+  }, [semester]);
+
   useEffect(() => {
     if (!profile || !systemConfig) return;
 
     let isMounted = true;
-
-    const mapAndSort = (list: any[], progMap?: Record<string, number>): Course[] => {
-      const mapped = list.map((c) => ({
-        id: c.id,
-        code: (c.code || '').trim(),
-        title: (c.title || '').trim(),
-        semester: c.semester || semester,
-        level: c.level || '',
-        department: c.department || '',
-        progress: progMap ? (progMap[c.id] ?? c.progress ?? 0) : (c.progress || 0),
-      }));
-      return sortCoursesAlphabetically(mapped);
-    };
 
     const runLoad = async () => {
       // 1. Check in-memory or AsyncStorage cache first for instant flicker-free display
@@ -280,6 +272,45 @@ export default function NotesScreen() {
     return sortCoursesAlphabetically(list);
   }, [courses, searchQuery]);
 
+  const handleViewNotes = useCallback((course: Course) => {
+    setCachedCourseById(course);
+    router.push(`/notes-topics?courseId=${course.id}`);
+  }, [router]);
+
+  const handleOpenChat = useCallback((courseId: string) => {
+    router.push(`/course-discussion?courseId=${courseId}`);
+  }, [router]);
+
+  const listHeader = useMemo(() => (
+    <View>
+      {/* Semester label */}
+      <View style={s.semesterWrap}>
+        <View style={{ flexDirection: 'row', gap: 6, flexWrap: 'wrap' }}>
+          <View style={s.semesterPill}>
+            <Text style={s.semesterPillText}>ACADEMIC SESSION</Text>
+          </View>
+          {isOffline && (
+            <View style={[s.semesterPill, { backgroundColor: '#FADBD8' }]}>
+              <Text style={[s.semesterPillText, { color: '#C0392B' }]}>OFFLINE MODE</Text>
+            </View>
+          )}
+        </View>
+        <Text style={s.semesterTitle}>{systemConfig?.currentSemester === '2nd' ? '2nd' : '1st'} Semester</Text>
+      </View>
+
+      {/* Search Bar */}
+      <View style={s.searchWrap}>
+        <TextInput
+          style={s.searchInput}
+          placeholder="Search courses by code or title..."
+          placeholderTextColor={C.inkLight}
+          value={searchQuery}
+          onChangeText={setSearchQuery}
+        />
+      </View>
+    </View>
+  ), [s, C, isOffline, systemConfig?.currentSemester, searchQuery]);
+
   return (
     <SafeAreaView style={s.root} edges={['top']}>
       {/* Header */}
@@ -296,64 +327,47 @@ export default function NotesScreen() {
         </TouchableOpacity>
       </View>
 
-      <ScrollView
-        style={s.scroll}
-        contentContainerStyle={s.scrollContent}
-        showsVerticalScrollIndicator={false}
-      >
-        {/* Semester label */}
-        <View style={s.semesterWrap}>
-          <View style={{ flexDirection: 'row', gap: 6, flexWrap: 'wrap' }}>
-            <View style={s.semesterPill}>
-              <Text style={s.semesterPillText}>ACADEMIC SESSION</Text>
-            </View>
-            {isOffline && (
-              <View style={[s.semesterPill, { backgroundColor: '#FADBD8' }]}>
-                <Text style={[s.semesterPillText, { color: '#C0392B' }]}>OFFLINE MODE</Text>
+      <KeyboardSafeContainer>
+        <FlatList
+          data={loading && courses.length === 0 ? [] : filteredCourses}
+          keyExtractor={(item) => item.id}
+          style={s.scroll}
+          contentContainerStyle={[s.scrollContent, { paddingBottom: isKeyboardVisible ? 24 : 110 }]}
+          showsVerticalScrollIndicator={false}
+          keyboardShouldPersistTaps="handled"
+          initialNumToRender={10}
+          maxToRenderPerBatch={10}
+          windowSize={7}
+          removeClippedSubviews
+          ListHeaderComponent={listHeader}
+          ListEmptyComponent={
+            loading && courses.length === 0 ? (
+              <View style={{ paddingVertical: 100, alignItems: 'center' }}>
+                <ActivityIndicator size="large" color={C.ink} />
+                <Text style={{ marginTop: 12, fontFamily: F.medium, color: C.inkMid }}>Loading courses...</Text>
               </View>
-            )}
-          </View>
-          <Text style={s.semesterTitle}>{systemConfig?.currentSemester === '2nd' ? '2nd' : '1st'} Semester</Text>
-        </View>
-
-        {/* Search Bar */}
-        <View style={s.searchWrap}>
-          <TextInput
-            style={s.searchInput}
-            placeholder="Search courses by code or title..."
-            placeholderTextColor={C.inkLight}
-            value={searchQuery}
-            onChangeText={setSearchQuery}
-          />
-        </View>
-
-        {loading && courses.length === 0 ? (
-          <View style={{ paddingVertical: 100, alignItems: 'center' }}>
-            <ActivityIndicator size="large" color={C.ink} />
-            <Text style={{ marginTop: 12, fontFamily: F.medium, color: C.inkMid }}>Loading courses...</Text>
-          </View>
-        ) : filteredCourses.length > 0 ? (
-          filteredCourses.map((course, i) => (
+            ) : (
+              <View style={{ paddingVertical: 100, alignItems: 'center', paddingHorizontal: 40 }}>
+                <Text style={{ fontFamily: F.display, fontSize: 20, color: C.ink, textAlign: 'center', marginBottom: 8 }}>
+                  No courses found
+                </Text>
+                <Text style={{ fontFamily: F.body, fontSize: 14, color: C.inkMid, textAlign: 'center' }}>
+                  We couldn't find any courses matching your search. Try searching for a course code like "PHY101".
+                </Text>
+              </View>
+            )
+          }
+          renderItem={({ item }) => (
             <CourseCard
-              key={course.id}
-              course={course}
-              index={i}
-              onPress={() => {}}
+              course={item}
+              s={s}
+              C={C}
+              onViewNotes={handleViewNotes}
+              onOpenChat={handleOpenChat}
             />
-          ))
-        ) : (
-          <View style={{ paddingVertical: 100, alignItems: 'center', paddingHorizontal: 40 }}>
-            <Text style={{ fontFamily: F.display, fontSize: 20, color: C.ink, textAlign: 'center', marginBottom: 8 }}>
-              No courses found
-            </Text>
-            <Text style={{ fontFamily: F.body, fontSize: 14, color: C.inkMid, textAlign: 'center' }}>
-              We couldn't find any courses matching your search. Try searching for a course code like "PHY101".
-            </Text>
-          </View>
-        )}
-
-        <View style={{ height: 24 }} />
-      </ScrollView>
+          )}
+        />
+      </KeyboardSafeContainer>
 
       <BottomNav active="notes" />
     </SafeAreaView>

@@ -98,37 +98,235 @@ export function normalizeOpenAIBaseUrl(rawUrl?: string, provider?: string): stri
   return url.replace(/\/+$/, '');
 }
 
-export async function chatWithHermesMobile(
-  messages: ChatMessage[],
-  noteContent: string,
-  config?: AIConfig,
-  isVoiceCall?: boolean
-): Promise<string> {
-  // Strategy 1: Try candidate backend proxies first
-  const candidateUrls = getBackendUrls();
-  for (const baseUrl of candidateUrls) {
-    try {
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 18000);
-      const res = await fetch(`${baseUrl.replace(/\/+$/, '')}/api/hermes/chat`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ messages, noteContent, config, isVoiceCall: Boolean(isVoiceCall) }),
-        signal: controller.signal,
-      });
-      clearTimeout(timeoutId);
-      if (res.ok) {
-        const data = await res.json();
-        if (data?.content) {
-          return data.content as string;
+function buildHermesSystemPrompt(noteContent: string, isVoiceCall?: boolean): ChatMessage {
+  const maxNoteLength = 15000;
+  const truncatedNote =
+    (noteContent || '').length > maxNoteLength
+      ? noteContent.substring(0, maxNoteLength) +
+        '\n\n[Study material truncated to fit system context window limitations...]'
+      : noteContent || '';
+
+  const voiceCallDirective = isVoiceCall
+    ? `\n\nCRITICAL LIVE VOICE CALL DIRECTIVE:
+- Keep your response conversational, clear, and concise (2 to 4 sentences).
+- Answer the student's question immediately and naturally like a live tutor.\n`
+    : '';
+
+  return {
+    role: 'system',
+    content: `You are Hermes, a friendly, intelligent, and polite academic assistant on CoLearn designed to help students study, understand, and master their lecture notes and past examination questions.${voiceCallDirective}
+
+CORE CAPABILITIES & GUIDELINES:
+1. GREETINGS & COURTESY: Always respond warmly, politely, and helpfully to user greetings and pleasantries.
+2. ABOUT HERMES: Answer questions about yourself clearly, accurately, and politely. You are Hermes, the dedicated AI study companion on CoLearn.
+3. ACADEMIC HELP (NOTES & PAST QUESTIONS): Answer questions about the provided "STUDY MATERIAL CONTENT" below. If the material is a Past Examination Question, explain the step-by-step solution, why the correct option is right, why other options are incorrect, and the underlying academic concept clearly.
+4. MATHEMATICAL & SCIENTIFIC NOTATION:
+CRITICAL FORMATTING MANDATE: Every mathematical formula, equation, variable, fraction, power, or symbol MUST be wrapped in single dollar signs $ ... $ for inline math (e.g. $E=mc^2$, $\\frac{a}{b}$, $\\sqrt{x}$, $\\theta$) or double dollar signs $$ ... $$ for standalone display formulas. NEVER output raw bare LaTeX commands like \\frac or \\sqrt without dollar signs.
+5. Keep your explanations clear, educational, well-formatted, and helpful.
+
+STUDY MATERIAL CONTENT:
+${truncatedNote}
+`,
+  };
+}
+
+/**
+ * Streams an SSE/JSON POST request via XMLHttpRequest, which reliably supports
+ * incremental responseText reading across React Native Android, iOS, and Web.
+ */
+function streamPostXHR(
+  url: string,
+  headers: Record<string, string>,
+  bodyObj: any,
+  onEventData: (dataStr: string) => boolean | void,
+  options?: { signal?: AbortSignal; timeoutMs?: number }
+): Promise<{ status: number; rawText: string }> {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open('POST', url, true);
+    Object.entries(headers).forEach(([k, v]) => xhr.setRequestHeader(k, v));
+
+    if (options?.timeoutMs) {
+      xhr.timeout = options.timeoutMs;
+    }
+
+    let processedIdx = 0;
+    let lineBuffer = '';
+    let aborted = false;
+
+    const cleanup = () => {
+      if (options?.signal) {
+        options.signal.removeEventListener('abort', handleAbort);
+      }
+    };
+
+    const handleAbort = () => {
+      aborted = true;
+      try {
+        xhr.abort();
+      } catch {}
+      cleanup();
+      const err: any = new Error('Request aborted');
+      err.name = 'AbortError';
+      reject(err);
+    };
+
+    if (options?.signal) {
+      if (options.signal.aborted) {
+        const err: any = new Error('Request aborted');
+        err.name = 'AbortError';
+        reject(err);
+        return;
+      }
+      options.signal.addEventListener('abort', handleAbort);
+    }
+
+    const drainLines = (flushRemainder: boolean) => {
+      const responseText = xhr.responseText || '';
+      if (responseText.length > processedIdx) {
+        lineBuffer += responseText.slice(processedIdx);
+        processedIdx = responseText.length;
+      }
+
+      if (xhr.status >= 400) return;
+
+      const lines = lineBuffer.split(/\r?\n/);
+      lineBuffer = flushRemainder ? '' : (lines.pop() ?? '');
+
+      for (const rawLine of lines) {
+        const line = rawLine.trim();
+        if (!line || line.startsWith(':')) continue;
+        if (line.startsWith('data:')) {
+          const dataStr = line.slice(5).trim();
+          const shouldStop = onEventData(dataStr);
+          if (shouldStop === true) {
+            return;
+          }
         }
       }
-    } catch (errProxy) {
-      console.warn(`Backend candidate ${baseUrl} unavailable:`, errProxy);
+    };
+
+    xhr.onprogress = () => {
+      if (aborted) return;
+      try {
+        drainLines(false);
+      } catch (err) {
+        cleanup();
+        try {
+          xhr.abort();
+        } catch {}
+        reject(err);
+      }
+    };
+
+    xhr.onload = () => {
+      if (aborted) return;
+      cleanup();
+      try {
+        drainLines(true);
+        resolve({ status: xhr.status, rawText: xhr.responseText || '' });
+      } catch (err) {
+        reject(err);
+      }
+    };
+
+    xhr.onerror = () => {
+      if (aborted) return;
+      cleanup();
+      reject(new Error(`Network error while connecting to ${url}`));
+    };
+
+    xhr.ontimeout = () => {
+      if (aborted) return;
+      cleanup();
+      reject(new Error('Connection timed out while streaming response'));
+    };
+
+    xhr.send(JSON.stringify(bodyObj));
+  });
+}
+
+export async function chatWithHermesMobileStream(
+  messages: ChatMessage[],
+  noteContent: string,
+  onChunk: (chunk: string, fullText: string) => void,
+  config?: AIConfig,
+  isVoiceCall?: boolean,
+  signal?: AbortSignal
+): Promise<string> {
+  // Strategy 1: Stream directly from Backend /api/hermes/chat SSE endpoint
+  const candidateUrls = getBackendUrls();
+  for (const baseUrl of candidateUrls) {
+    if (signal?.aborted) {
+      const err: any = new Error('Request aborted');
+      err.name = 'AbortError';
+      throw err;
+    }
+
+    let streamedText = '';
+    let streamErrorMsg: string | null = null;
+    try {
+      const endpoint = `${baseUrl.replace(/\/+$/, '')}/api/hermes/chat`;
+      const res = await streamPostXHR(
+        endpoint,
+        {
+          'Content-Type': 'application/json',
+          Accept: 'text/event-stream, application/json',
+        },
+        { messages, noteContent, config, isVoiceCall: Boolean(isVoiceCall) },
+        (dataStr) => {
+          if (dataStr === '[DONE]') return true;
+          try {
+            const parsed = JSON.parse(dataStr);
+            if (parsed?.error) {
+              streamErrorMsg = parsed.error;
+              return true;
+            }
+            const piece = parsed?.text ?? parsed?.content ?? parsed?.choices?.[0]?.delta?.content ?? '';
+            if (piece) {
+              streamedText += piece;
+              onChunk(piece, streamedText);
+            }
+          } catch {}
+        },
+        { signal, timeoutMs: 45000 }
+      );
+
+      if (streamedText) {
+        return streamedText;
+      }
+
+      if (res.status >= 200 && res.status < 300) {
+        // Fallback if backend returned plain JSON instead of SSE
+        try {
+          const json = JSON.parse(res.rawText);
+          if (json?.content) {
+            onChunk(json.content, json.content);
+            return json.content as string;
+          }
+          if (json?.error) {
+            streamErrorMsg = json.error;
+          }
+        } catch {}
+      }
+
+      if (streamErrorMsg) {
+        console.warn(`Backend stream error on ${baseUrl}:`, streamErrorMsg);
+      }
+    } catch (errProxy: any) {
+      if (errProxy?.name === 'AbortError') throw errProxy;
+      if (streamedText) return streamedText;
+      console.warn(`Backend candidate ${baseUrl} stream unavailable:`, errProxy);
     }
   }
 
-  // Strategy 2: Direct Client-Side Fallback
+  if (signal?.aborted) {
+    const err: any = new Error('Request aborted');
+    err.name = 'AbortError';
+    throw err;
+  }
+
+  // Strategy 2: Direct Client-Side Streaming Fallback
   const provider = config?.provider || 'groq';
   let model = config?.model;
 
@@ -155,40 +353,18 @@ export async function chatWithHermesMobile(
     .replace(/['"]/g, '')
     .replace(/[\u200B-\u200D\uFEFF]/g, '');
 
-  const maxNoteLength = 15000;
-  const truncatedNote =
-    (noteContent || '').length > maxNoteLength
-      ? noteContent.substring(0, maxNoteLength) +
-        '\n\n[Study material truncated to fit system context window limitations...]'
-      : noteContent || '';
-
   const maxHistoryCount = 8;
   const slicedMessages = (messages || []).length > maxHistoryCount ? messages.slice(-maxHistoryCount) : messages || [];
+  const systemPrompt = buildHermesSystemPrompt(noteContent, isVoiceCall);
 
-  const voiceCallDirective = isVoiceCall
-    ? `\n\nCRITICAL LIVE VOICE CALL DIRECTIVE:
-- Keep your response conversational, clear, and concise (2 to 4 sentences).
-- Answer the student's question immediately and naturally like a live tutor.\n`
-    : '';
+  const sanitizedHistory = slicedMessages
+    .filter((m) => m && typeof m.content === 'string' && m.content.trim().length > 0)
+    .map((m) => ({
+      role: m.role === 'assistant' ? 'assistant' : 'user',
+      content: m.content.trim(),
+    }));
 
-  const systemPrompt: ChatMessage = {
-    role: 'system',
-    content: `You are Hermes, a friendly, intelligent, and polite academic assistant on CoLearn designed to help students study, understand, and master their lecture notes and past examination questions.${voiceCallDirective}
-
-CORE CAPABILITIES & GUIDELINES:
-1. GREETINGS & COURTESY: Always respond warmly, politely, and helpfully to user greetings and pleasantries.
-2. ABOUT HERMES: Answer questions about yourself clearly, accurately, and politely. You are Hermes, the dedicated AI study companion on CoLearn.
-3. ACADEMIC HELP (NOTES & PAST QUESTIONS): Answer questions about the provided "STUDY MATERIAL CONTENT" below. If the material is a Past Examination Question, explain the step-by-step solution, why the correct option is right, why other options are incorrect, and the underlying academic concept clearly.
-4. MATHEMATICAL & SCIENTIFIC NOTATION:
-CRITICAL FORMATTING MANDATE: Every mathematical formula, equation, variable, fraction, power, or symbol MUST be wrapped in single dollar signs $ ... $ for inline math (e.g. $E=mc^2$, $\\frac{a}{b}$, $\\sqrt{x}$, $\\theta$) or double dollar signs $$ ... $$ for standalone display formulas. NEVER output raw bare LaTeX commands like \\frac or \\sqrt without dollar signs.
-5. Keep your explanations clear, educational, well-formatted, and helpful.
-
-STUDY MATERIAL CONTENT:
-${truncatedNote}
-`,
-  };
-
-  // Google Gemini direct REST fallback
+  // Google Gemini direct SSE streaming fallback
   const isGemini =
     provider === 'gemini' ||
     apiKey.startsWith('AIza') ||
@@ -198,40 +374,85 @@ ${truncatedNote}
       throw new Error('Google Gemini Chat AI is not configured. Please set an API Key in the Admin Panel.');
     }
     const targetModel = !model || model.includes('1.5') || model.includes('2.0-flash-lite') ? 'gemini-2.5-flash' : model;
-    const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${targetModel}:generateContent?key=${apiKey}`;
+    const geminiStreamUrl = `https://generativelanguage.googleapis.com/v1beta/models/${targetModel}:streamGenerateContent?alt=sse&key=${apiKey}`;
 
     const latestUserMsg = slicedMessages.length > 0 ? slicedMessages[slicedMessages.length - 1].content : '';
+    const historyTranscript =
+      sanitizedHistory.length > 1
+        ? '\n\nRECENT CONVERSATION:\n' +
+          sanitizedHistory
+            .slice(0, -1)
+            .map((m) => `${m.role === 'assistant' ? 'Hermes' : 'Student'}: ${m.content}`)
+            .join('\n')
+        : '';
+
     const body = {
       contents: [
         {
           role: 'user',
-          parts: [{ text: `SYSTEM INSTRUCTIONS:\n${systemPrompt.content}\n\nUSER QUESTION: ${latestUserMsg}` }],
+          parts: [
+            {
+              text: `SYSTEM INSTRUCTIONS:\n${systemPrompt.content}${historyTranscript}\n\nUSER QUESTION: ${latestUserMsg}`,
+            },
+          ],
         },
       ],
     };
 
-    const response = await fetch(geminiUrl, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
-    });
+    let geminiText = '';
+    const res = await streamPostXHR(
+      geminiStreamUrl,
+      { 'Content-Type': 'application/json' },
+      body,
+      (dataStr) => {
+        if (dataStr === '[DONE]') return true;
+        try {
+          const parsed = JSON.parse(dataStr);
+          const parts = parsed?.candidates?.[0]?.content?.parts;
+          if (Array.isArray(parts)) {
+            const chunk = parts.map((p: any) => p?.text || '').join('');
+            if (chunk) {
+              geminiText += chunk;
+              onChunk(chunk, geminiText);
+            }
+          }
+        } catch {}
+      },
+      { signal, timeoutMs: 45000 }
+    );
 
-    if (!response.ok) {
-      const errData = await response.json().catch(() => ({}));
-      throw new Error(errData?.error?.message || `Gemini API error (${response.status})`);
+    if (res.status >= 400 && !geminiText) {
+      let errData: any = {};
+      try {
+        errData = JSON.parse(res.rawText);
+      } catch {}
+      throw new Error(errData?.error?.message || `Gemini API error (${res.status})`);
     }
 
-    const data = await response.json();
-    return data?.candidates?.[0]?.content?.parts?.[0]?.text || "I'm sorry, I couldn't generate a response.";
+    if (geminiText) return geminiText;
+
+    // Fallback parse if non-SSE JSON array returned
+    try {
+      const parsed = JSON.parse(res.rawText);
+      const chunks = Array.isArray(parsed) ? parsed : [parsed];
+      const text = chunks
+        .map((c: any) => c?.candidates?.[0]?.content?.parts?.[0]?.text || '')
+        .join('');
+      if (text) {
+        onChunk(text, text);
+        return text;
+      }
+    } catch {}
+    return "I'm sorry, I couldn't generate a response.";
   }
 
-  // OpenAI-compatible endpoint (Groq, OpenRouter, OpenAI, Custom/Xiaomi MiMo, etc.)
+  // OpenAI-compatible SSE streaming endpoint (Groq, OpenRouter, OpenAI, Custom, etc.)
   const normalizedBaseUrl = normalizeOpenAIBaseUrl(config?.baseUrl, provider);
   let primaryEndpoint = `${normalizedBaseUrl}/chat/completions`;
 
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
-    Accept: 'application/json',
+    Accept: 'text/event-stream, application/json',
     'User-Agent': 'CoLearn-Mobile-Hermes/1.0',
   };
 
@@ -243,25 +464,32 @@ ${truncatedNote}
     headers['X-Title'] = 'Hermes Academic Assistant';
   }
 
-  const sanitizedHistory = slicedMessages
-    .filter((m) => m && typeof m.content === 'string' && m.content.trim().length > 0)
-    .map((m) => ({
-      role: m.role === 'assistant' ? 'assistant' : 'user',
-      content: m.content.trim(),
-    }));
-
   const payload = {
     model: model,
     messages: [systemPrompt, ...sanitizedHistory],
+    stream: true,
   };
 
-  let response = await fetch(primaryEndpoint, {
-    method: 'POST',
+  let streamedOut = '';
+  let res = await streamPostXHR(
+    primaryEndpoint,
     headers,
-    body: JSON.stringify(payload),
-  });
+    payload,
+    (dataStr) => {
+      if (dataStr === '[DONE]') return true;
+      try {
+        const parsed = JSON.parse(dataStr);
+        const piece = parsed?.choices?.[0]?.delta?.content ?? parsed?.choices?.[0]?.message?.content ?? '';
+        if (piece) {
+          streamedOut += piece;
+          onChunk(piece, streamedOut);
+        }
+      } catch {}
+    },
+    { signal, timeoutMs: 45000 }
+  );
 
-  if (!response.ok && (response.status === 404 || response.status === 405)) {
+  if (!streamedOut && (res.status === 404 || res.status === 405)) {
     let fallbackEndpoint: string | null = null;
     if (!normalizedBaseUrl.endsWith('/v1') && !normalizedBaseUrl.includes('/v1/')) {
       fallbackEndpoint = `${normalizedBaseUrl}/v1/chat/completions`;
@@ -270,42 +498,72 @@ ${truncatedNote}
     }
 
     if (fallbackEndpoint && fallbackEndpoint !== primaryEndpoint) {
-      const fallbackRes = await fetch(fallbackEndpoint, {
-        method: 'POST',
+      streamedOut = '';
+      const fallbackRes = await streamPostXHR(
+        fallbackEndpoint,
         headers,
-        body: JSON.stringify(payload),
-      });
-      if (fallbackRes.ok) {
-        response = fallbackRes;
+        payload,
+        (dataStr) => {
+          if (dataStr === '[DONE]') return true;
+          try {
+            const parsed = JSON.parse(dataStr);
+            const piece = parsed?.choices?.[0]?.delta?.content ?? parsed?.choices?.[0]?.message?.content ?? '';
+            if (piece) {
+              streamedOut += piece;
+              onChunk(piece, streamedOut);
+            }
+          } catch {}
+        },
+        { signal, timeoutMs: 45000 }
+      );
+      if (fallbackRes.status < 400 || streamedOut) {
+        res = fallbackRes;
         primaryEndpoint = fallbackEndpoint;
       }
     }
   }
 
-  if (!response.ok) {
-    const rawText = await response.text().catch(() => '');
+  if (streamedOut) {
+    return streamedOut;
+  }
+
+  if (res.status >= 400) {
     let errInfo: any = {};
     try {
-      errInfo = JSON.parse(rawText);
+      errInfo = JSON.parse(res.rawText);
     } catch {
-      errInfo = { message: rawText || `HTTP ${response.status} from AI endpoint` };
+      errInfo = { message: res.rawText || `HTTP ${res.status} from AI endpoint` };
     }
 
     const nestedErr = errInfo.error?.error || errInfo.error || errInfo;
     const errMsg =
       typeof nestedErr === 'string' ? nestedErr : nestedErr.message || `Failed to connect to Hermes via ${provider}`;
-    const errCode = nestedErr.code || response.status;
+    const errCode = nestedErr.code || res.status;
     throw new Error(
       `${errMsg} | Code: ${errCode} | Provider: ${provider.toUpperCase()} | Model: ${model} | Endpoint: ${primaryEndpoint}`
     );
   }
 
-  const data = await response.json();
-  if (!data?.choices?.[0]?.message?.content) {
-    throw new Error('Unexpected response structure from AI provider.');
-  }
+  // Non-streaming JSON fallback if provider ignored stream: true
+  try {
+    const data = JSON.parse(res.rawText);
+    const content = data?.choices?.[0]?.message?.content;
+    if (content) {
+      onChunk(content, content);
+      return content as string;
+    }
+  } catch {}
 
-  return data.choices[0].message.content as string;
+  throw new Error('Unexpected response structure from AI provider.');
+}
+
+export async function chatWithHermesMobile(
+  messages: ChatMessage[],
+  noteContent: string,
+  config?: AIConfig,
+  isVoiceCall?: boolean
+): Promise<string> {
+  return chatWithHermesMobileStream(messages, noteContent, () => {}, config, isVoiceCall);
 }
 
 /**

@@ -235,17 +235,20 @@ export default function CbtExamScreen() {
     }
   }, [currentIdx, questions.length]);
 
+  // Keep handleSubmit fresh for timer expiry
+  const handleSubmitRef = useRef<(auto?: boolean) => void>(() => {});
+
   // Timer
   useEffect(() => {
     if (!timerEnabled) return;
     const interval = setInterval(() => {
       setTimeLeft(t => {
-        if (t <= 1) { clearInterval(interval); handleSubmit(true); return 0; }
+        if (t <= 1) { clearInterval(interval); handleSubmitRef.current(true); return 0; }
         return t - 1;
       });
     }, 1000);
     return () => clearInterval(interval);
-  }, []);
+  }, [timerEnabled]);
 
   // Back handler
   useEffect(() => {
@@ -259,30 +262,32 @@ export default function CbtExamScreen() {
     return () => sub.remove();
   }, []);
 
-  const animateSlide = (direction: 'left' | 'right', cb: () => void) => {
-    Animated.sequence([
-      Animated.timing(slideAnim, { toValue: direction === 'left' ? -30 : 30, duration: 100, useNativeDriver: true }),
-      Animated.timing(slideAnim, { toValue: 0, duration: 200, useNativeDriver: true }),
-    ]).start();
+  const animateSlide = useCallback((direction: 'left' | 'right', cb: () => void) => {
     cb();
-  };
+    slideAnim.setValue(direction === 'left' ? 18 : -18);
+    Animated.timing(slideAnim, { toValue: 0, duration: 120, useNativeDriver: true }).start();
+  }, [slideAnim]);
 
-  const goTo = (idx: number) => {
-    if (idx === currentIdx) return;
-    animateSlide(idx > currentIdx ? 'left' : 'right', () => setCurrentIdx(idx));
-  };
+  const goTo = useCallback((idx: number) => {
+    setCurrentIdx(prev => {
+      if (idx === prev) return prev;
+      slideAnim.setValue(idx > prev ? 18 : -18);
+      Animated.timing(slideAnim, { toValue: 0, duration: 120, useNativeDriver: true }).start();
+      return idx;
+    });
+  }, [slideAnim]);
 
-  const handleSelect = (optIdx: number) => {
+  const handleSelect = useCallback((optIdx: number) => {
     setAnswers(prev => ({ ...prev, [currentIdx]: optIdx }));
-  };
+  }, [currentIdx]);
 
-  const toggleFlag = () => {
+  const toggleFlag = useCallback(() => {
     setFlagged(prev => {
       const next = new Set(prev);
       next.has(currentIdx) ? next.delete(currentIdx) : next.add(currentIdx);
       return next;
     });
-  };
+  }, [currentIdx]);
 
   const handleSubmit = useCallback((auto = false) => {
     const confirm = () => {
@@ -309,6 +314,8 @@ export default function CbtExamScreen() {
       { text: 'Submit', onPress: confirm },
     ]);
   }, [answers, questions, started, courseId]);
+
+  handleSubmitRef.current = handleSubmit;
 
   const answered = Object.keys(answers).length;
 
@@ -337,7 +344,7 @@ export default function CbtExamScreen() {
           {[0,1,2].map(i => <View key={i} style={[s.menuLine, { backgroundColor: C.ink }]} />)}
         </TouchableOpacity>
         <Text style={[s.headerBrand, { color: C.ink }]}>COLEARN</Text>
-        <TouchableOpacity activeOpacity={0.7} style={s.iconBtn}>
+        <TouchableOpacity activeOpacity={0.7} style={s.iconBtn} onPress={() => router.push('/notifications')}>
           <View style={[s.bellBody, { borderColor: C.ink }]} />
           <View style={[s.bellBase, { backgroundColor: C.ink }]} />
           <View style={[s.bellClapper, { borderColor: C.ink }]} />
@@ -446,7 +453,7 @@ export default function CbtExamScreen() {
             question={q.q}
             options={q.opts}
             selectedOptionIndex={answers[currentIdx]}
-            onSelectOption={(oi) => handleSelect(oi)}
+            onSelectOption={handleSelect}
           />
         </Animated.View>
 

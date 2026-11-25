@@ -1,11 +1,11 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import {
   View,
   Text,
   TextInput,
   TouchableOpacity,
   StyleSheet,
-  ScrollView,
+  FlatList,
   Image,
   ActivityIndicator,
   Alert,
@@ -13,6 +13,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { BottomNav } from '../components/BottomNav';
+import { KeyboardSafeContainer, useKeyboardHeight } from '../components/KeyboardSafeWrapper';
 import { F } from '../components/Theme';
 import { collection, query, limit, getDocs, addDoc, where } from 'firebase/firestore';
 import { db } from '../lib/firebase';
@@ -72,8 +73,19 @@ interface Student {
   At?: string;
 }
 
-function FriendItem({ student, onAdd, isAdded, styles }: { student: Student; onAdd: () => void; isAdded: boolean; styles: any }) {
-  const { colors: C } = useTheme();
+const FriendItem = React.memo(function FriendItem({
+  student,
+  onAdd,
+  isAdded,
+  styles,
+  C,
+}: {
+  student: Student;
+  onAdd: (s: Student) => void;
+  isAdded: boolean;
+  styles: any;
+  C: any;
+}) {
   return (
     <View style={[styles.friendCard, { backgroundColor: C.surface, borderColor: C.border }]}>
       {student.photoURL ? (
@@ -87,9 +99,9 @@ function FriendItem({ student, onAdd, isAdded, styles }: { student: Student; onA
         <Text style={[styles.friendName, { color: C.ink }]}>{student.username || 'Student'}</Text>
         <Text style={[styles.friendSub, { color: C.inkLight }]}>{student.department || 'General Science'} • {student.academicLevel || '100 Level'}</Text>
       </View>
-      <TouchableOpacity 
-        style={[styles.addBtn, { borderColor: C.ink }, isAdded && { backgroundColor: C.ink }]} 
-        onPress={onAdd}
+      <TouchableOpacity
+        style={[styles.addBtn, { borderColor: C.ink }, isAdded && { backgroundColor: C.ink }]}
+        onPress={() => onAdd(student)}
         activeOpacity={0.7}
       >
         <Text style={[styles.addBtnText, { color: C.ink }, isAdded && { color: C.bg }]}>
@@ -98,7 +110,7 @@ function FriendItem({ student, onAdd, isAdded, styles }: { student: Student; onA
       </TouchableOpacity>
     </View>
   );
-}
+});
 
 // ── Main Screen ───────────────────────────────────────────────────────────────
 
@@ -108,12 +120,15 @@ export default function AddMembersScreen() {
   const { profile } = useAuth();
   const { colors: C } = useTheme();
   const s = useMemo(() => createStyles(C), [C]);
-  
+  const { isKeyboardVisible } = useKeyboardHeight();
+
   const [selected, setSelected] = useState<Student[]>([]);
   const [search, setSearch] = useState('');
   const [students, setStudents] = useState<Student[]>([]);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
+
+  const selectedIds = useMemo(() => new Set(selected.map(f => f.id)), [selected]);
 
   // Load students directory from Firestore (scoped by university At if defined)
   useEffect(() => {
@@ -142,23 +157,28 @@ export default function AddMembersScreen() {
   }, [profile]);
 
   // Handle fuzzy search
-  const displayedStudents = students.filter(student => {
+  const displayedStudents = useMemo(() => {
     const q = search.toLowerCase().trim();
-    if (!q) return true;
-    const sName = (student.username || '').toLowerCase();
-    const sDept = (student.department || '').toLowerCase();
-    return sName.includes(q) || sDept.includes(q);
-  });
+    if (!q) return students;
+    return students.filter(student => {
+      const sName = (student.username || '').toLowerCase();
+      const sDept = (student.department || '').toLowerCase();
+      return sName.includes(q) || sDept.includes(q);
+    });
+  }, [students, search]);
 
-  const toggleFriend = (student: Student) => {
-    if (selected.find(f => f.id === student.id)) {
-      setSelected(prev => prev.filter(f => f.id !== student.id));
-    } else if (selected.length < 10) {
-      setSelected(prev => [...prev, student]);
-    } else {
-      Alert.alert('Limit Reached', 'You can select at most 10 members for a study group.');
-    }
-  };
+  const toggleFriend = useCallback((student: Student) => {
+    setSelected(prev => {
+      if (prev.some(f => f.id === student.id)) {
+        return prev.filter(f => f.id !== student.id);
+      }
+      if (prev.length >= 10) {
+        Alert.alert('Limit Reached', 'You can select at most 10 members for a study group.');
+        return prev;
+      }
+      return [...prev, student];
+    });
+  }, []);
 
   const handleCreateGroup = async () => {
     if (!profile || !groupName) return;
@@ -170,7 +190,7 @@ export default function AddMembersScreen() {
     setSubmitting(true);
     try {
       const gNameStr = String(groupName);
-      
+
       // Write to global Firestore chats collection
       await addDoc(collection(db, 'chats'), {
         type: 'group',
@@ -193,6 +213,28 @@ export default function AddMembersScreen() {
     }
   };
 
+  const renderHeader = useMemo(() => (
+    <View>
+      <Text style={[s.pageTitle, { color: C.ink }]}>Add Members</Text>
+      <Text style={[s.pageSub, { color: C.inkMid }]}>Create your COLEARN studying squad for: "{groupName}"</Text>
+
+      <View style={[s.searchContainer, { backgroundColor: C.surface, borderColor: C.border }]}>
+        <SearchIcon />
+        <TextInput
+          style={[s.searchInput, { color: C.ink }]}
+          placeholder="Search students by username or major..."
+          placeholderTextColor={C.inkLight}
+          value={search}
+          onChangeText={setSearch}
+        />
+      </View>
+
+      <View style={s.sectionHeader}>
+        <Text style={[s.sectionTitle, { color: C.ink }]}>Available Peers</Text>
+      </View>
+    </View>
+  ), [s, C, groupName, search]);
+
   return (
     <SafeAreaView style={[s.root, { backgroundColor: C.bg }]} edges={['top']}>
       {/* Header */}
@@ -204,84 +246,80 @@ export default function AddMembersScreen() {
         <View style={{ width: 44 }} />
       </View>
 
-      <ScrollView style={s.scroll} contentContainerStyle={s.scrollContent} showsVerticalScrollIndicator={false}>
-        <Text style={[s.pageTitle, { color: C.ink }]}>Add Members</Text>
-        <Text style={[s.pageSub, { color: C.inkMid }]}>Create your COLEARN studying squad for: "{groupName}"</Text>
-
-        <View style={[s.searchContainer, { backgroundColor: C.surface, borderColor: C.border }]}>
-          <SearchIcon />
-          <TextInput
-            style={[s.searchInput, { color: C.ink }]}
-            placeholder="Search students by username or major..."
-            placeholderTextColor={C.inkLight}
-            value={search}
-            onChangeText={setSearch}
-          />
-        </View>
-
-        <View style={s.sectionHeader}>
-          <Text style={[s.sectionTitle, { color: C.ink }]}>Available Peers</Text>
-        </View>
-
-        {loading ? (
-          <ActivityIndicator size="large" color={C.activeText || C.ink} style={{ marginVertical: 32 }} />
-        ) : displayedStudents.length === 0 ? (
-          <Text style={{ textAlign: 'center', color: C.inkLight, marginVertical: 24, fontFamily: F.medium }}>No students found matching your query.</Text>
-        ) : (
-          displayedStudents.map(student => (
-            <FriendItem 
-              key={student.id} 
-              student={student} 
-              isAdded={!!selected.find(f => f.id === student.id)}
-              onAdd={() => toggleFriend(student)}
+      <KeyboardSafeContainer>
+        <FlatList
+          data={loading ? [] : displayedStudents}
+          keyExtractor={(item) => item.id}
+          style={s.scroll}
+          contentContainerStyle={s.scrollContent}
+          showsVerticalScrollIndicator={false}
+          keyboardShouldPersistTaps="handled"
+          initialNumToRender={12}
+          maxToRenderPerBatch={12}
+          windowSize={7}
+          removeClippedSubviews
+          ListHeaderComponent={renderHeader}
+          ListEmptyComponent={
+            loading ? (
+              <ActivityIndicator size="large" color={C.activeText || C.ink} style={{ marginVertical: 32 }} />
+            ) : (
+              <Text style={{ textAlign: 'center', color: C.inkLight, marginVertical: 24, fontFamily: F.medium }}>
+                No students found matching your query.
+              </Text>
+            )
+          }
+          renderItem={({ item }) => (
+            <FriendItem
+              student={item}
+              isAdded={selectedIds.has(item.id)}
+              onAdd={toggleFriend}
               styles={s}
+              C={C}
             />
-          ))
-        )}
-
-        <View style={{ height: 180 }} />
-      </ScrollView>
-
-      {/* Selected Members Footer */}
-      <View style={[s.footer, { backgroundColor: C.surface, borderTopColor: C.border }]}>
-        <Text style={[s.selectedCount, { color: C.inkLight }]}>SELECTED ({selected.length}/10)</Text>
-        <View style={s.selectedAvatars}>
-          {selected.map(f => (
-            <View key={f.id} style={s.selectedAvatarWrapper}>
-              {f.photoURL ? (
-                <Image source={{ uri: f.photoURL }} style={[s.selectedAvatar, { borderColor: C.ink }]} />
-              ) : (
-                <View style={[s.selectedAvatar, { backgroundColor: C.bgAlt, borderColor: C.ink, justifyContent: 'center', alignItems: 'center' }]}>
-                  <Text style={{ fontSize: 10 }}>👤</Text>
-                </View>
-              )}
-              <TouchableOpacity style={[s.removeBtn, { backgroundColor: C.ink }]} onPress={() => toggleFriend(f)}>
-                <Text style={{ color: C.bg, fontSize: 8, fontWeight: 'bold' }}>×</Text>
-              </TouchableOpacity>
-            </View>
-          ))}
-          {selected.length < 10 && (
-            <View style={[s.addMorePlaceholder, { borderColor: C.border }]}>
-              <AddMemberIcon />
-            </View>
           )}
+        />
+
+        {/* Selected Members Footer — in normal flex flow so it never covers the search bar or list when keyboard is open */}
+        <View style={[s.footer, { backgroundColor: C.surface, borderTopColor: C.border, paddingBottom: isKeyboardVisible ? 12 : 96 }]}>
+          <Text style={[s.selectedCount, { color: C.inkLight }]}>SELECTED ({selected.length}/10)</Text>
+          <View style={s.selectedAvatars}>
+            {selected.map(f => (
+              <View key={f.id} style={s.selectedAvatarWrapper}>
+                {f.photoURL ? (
+                  <Image source={{ uri: f.photoURL }} style={[s.selectedAvatar, { borderColor: C.ink }]} />
+                ) : (
+                  <View style={[s.selectedAvatar, { backgroundColor: C.bgAlt, borderColor: C.ink, justifyContent: 'center', alignItems: 'center' }]}>
+                    <Text style={{ fontSize: 10 }}>👤</Text>
+                  </View>
+                )}
+                <TouchableOpacity style={[s.removeBtn, { backgroundColor: C.ink }]} onPress={() => toggleFriend(f)}>
+                  <Text style={{ color: C.bg, fontSize: 8, fontWeight: 'bold' }}>×</Text>
+                </TouchableOpacity>
+              </View>
+            ))}
+            {selected.length < 10 && (
+              <View style={[s.addMorePlaceholder, { borderColor: C.border }]}>
+                <AddMemberIcon />
+              </View>
+            )}
+          </View>
+
+          <TouchableOpacity
+            style={[s.createBtn, { backgroundColor: C.ink }, (selected.length === 0 || submitting) && { opacity: 0.5 }]}
+            disabled={selected.length === 0 || submitting}
+            onPress={handleCreateGroup}
+          >
+            {submitting ? (
+              <ActivityIndicator size="small" color={C.bg} />
+            ) : (
+              <>
+                <Text style={[s.createBtnText, { color: C.bg }]}>Create Group</Text>
+                <ArrowRightIcon />
+              </>
+            )}
+          </TouchableOpacity>
         </View>
-
-        <TouchableOpacity 
-          style={[s.createBtn, { backgroundColor: C.ink }, (selected.length === 0 || submitting) && { opacity: 0.5 }]}
-          disabled={selected.length === 0 || submitting}
-          onPress={handleCreateGroup}
-        >
-          {submitting ? (
-            <ActivityIndicator size="small" color={C.bg} />
-          ) : (
-            <>
-              <Text style={[s.createBtnText, { color: C.bg }]}>Create Group</Text>
-              <ArrowRightIcon />
-            </>
-          )}
-        </TouchableOpacity>
-      </View>
+      </KeyboardSafeContainer>
 
       <BottomNav active="social" />
     </SafeAreaView>
@@ -302,7 +340,7 @@ const createStyles = (C: any) => StyleSheet.create({
   logoText: { fontFamily: F.bold, fontSize: 24, letterSpacing: -1 },
 
   scroll: { flex: 1 },
-  scrollContent: { padding: 20 },
+  scrollContent: { padding: 20, paddingBottom: 24 },
 
   pageTitle: { fontFamily: F.bold, fontSize: 32, marginBottom: 8 },
   pageSub: { fontFamily: F.medium, fontSize: 16, marginBottom: 24, lineHeight: 22 },
@@ -343,10 +381,6 @@ const createStyles = (C: any) => StyleSheet.create({
   addBtnText: { fontFamily: F.bold, fontSize: 11 },
 
   footer: {
-    position: 'absolute',
-    bottom: 84,
-    left: 0,
-    right: 0,
     padding: 16,
     borderTopWidth: 1,
   },

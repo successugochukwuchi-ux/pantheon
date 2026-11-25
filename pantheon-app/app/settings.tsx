@@ -106,15 +106,15 @@ function ProfileSmallIcon() {
   );
 }
 
-function SettingRow({ icon, title, subtitle, isDark, onPress }: {
+const SettingRow = React.memo(function SettingRow({ icon, title, subtitle, isDark, onPress, s, C }: {
   icon: React.ReactNode;
   title: string;
   subtitle: string;
   isDark?: boolean;
   onPress?: () => void;
+  s: any;
+  C: any;
 }) {
-  const { colors: C } = useTheme();
-  const s = useMemo(() => createStyles(C), [C]);
   return (
     <TouchableOpacity
       style={[s.row, isDark && s.rowDark]}
@@ -133,7 +133,7 @@ function SettingRow({ icon, title, subtitle, isDark, onPress }: {
       </View>
     </TouchableOpacity>
   );
-}
+});
 
 // ── Main Screen ───────────────────────────────────────────────────────────────
 
@@ -247,6 +247,8 @@ export default function SettingsScreen() {
           title={isUpdatingAcademic ? "Checking for Updates..." : "Academic Update"}
           subtitle={isUpdatingAcademic ? (updateStatusText || "Comparing SQLite with Firestore...") : "Sync new notes, questions & sheets to SQLite"}
           onPress={isUpdatingAcademic ? undefined : handleAcademicUpdate}
+          s={s}
+          C={C}
         />
 
         <Text style={s.sectionLabel}>ACCOUNT & PREFERENCES</Text>
@@ -255,12 +257,16 @@ export default function SettingsScreen() {
           title="Profile Settings"
           subtitle="Update your personal data and visibility"
           onPress={() => router.push('/profile-settings')}
+          s={s}
+          C={C}
         />
         <SettingRow
           icon={<GearIcon />}
           title="General Settings"
           subtitle="App preferences, theme, and language"
           onPress={() => router.push('/general-settings')}
+          s={s}
+          C={C}
         />
 
         <Text style={s.sectionLabel}>SUPPORT</Text>
@@ -269,12 +275,16 @@ export default function SettingsScreen() {
           title="Contact Admin"
           subtitle="Get help with academic or app issues"
           onPress={() => contactAdmin(profile?.At, !!isOffline, "Admin Support")}
+          s={s}
+          C={C}
         />
         <SettingRow
           icon={<MessageIcon />}
           title="Give Feedback"
           subtitle="Help us improve your COLEARN experience"
           onPress={() => router.push('/feedback')}
+          s={s}
+          C={C}
         />
 
         {/* Logout */}

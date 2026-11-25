@@ -11,7 +11,6 @@ import {
   Modal,
   TextInput,
   Platform,
-  KeyboardAvoidingView,
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter, usePathname, useFocusEffect } from 'expo-router';
@@ -24,6 +23,7 @@ import { QuestionRenderer } from '../components/QuestionRenderer';
 import { HermesMessageContent, extractReadableQuestionText } from '../components/HermesMessageContent';
 import { MathText } from '../components/MathText';
 import { BottomNav } from '../components/BottomNav';
+import { KeyboardSafeModalView, useKeyboardHeight } from '../components/KeyboardSafeWrapper';
 import { BirdIcon, MicIcon, StopIcon, SendIcon } from '../components/Icons';
 import { F, THEMES } from '../components/Theme';
 import {
@@ -39,7 +39,7 @@ import { sortCoursesAlphabetically } from '../lib/noteCache';
 import {
   ChatMessage,
   AIConfig,
-  chatWithHermesMobile,
+  chatWithHermesMobileStream,
   transcribeHermesAudio,
   sanitizeHermesError,
 } from '../lib/hermesService';
@@ -76,6 +76,8 @@ interface Question {
 export default function PastQuestionsScreen() {
   const router = useRouter();
   const pathname = usePathname();
+  const insets = useSafeAreaInsets();
+  const { isKeyboardVisible } = useKeyboardHeight();
   const { profile, systemConfig } = useAuth();
   const { colors: C } = useTheme();
 
@@ -114,16 +116,26 @@ export default function PastQuestionsScreen() {
   const [isTranscribingVoice, setIsTranscribingVoice] = useState(false);
   const recordingRef = useRef<Audio.Recording | null>(null);
   const hermesScrollRef = useRef<ScrollView>(null);
+  const hermesAbortRef = useRef<AbortController | null>(null);
+  const streamThrottleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const latestStreamTextRef = useRef<string>('');
 
   // Auto-scroll Hermes chat to follow the latest message
   useEffect(() => {
     if (hermesOpen) {
       const timer = setTimeout(() => {
         hermesScrollRef.current?.scrollToEnd({ animated: true });
-      }, 80);
+      }, 60);
       return () => clearTimeout(timer);
     }
-  }, [hermesChat, hermesLoading, hermesOpen]);
+  }, [hermesChat.length, hermesLoading, hermesOpen]);
+
+  useEffect(() => {
+    return () => {
+      hermesAbortRef.current?.abort();
+      if (streamThrottleTimerRef.current) clearTimeout(streamThrottleTimerRef.current);
+    };
+  }, []);
 
   // Anim state
   const questionAnim = useRef(new Animated.Value(0)).current;
@@ -584,6 +596,16 @@ export default function PastQuestionsScreen() {
     }
   };
 
+  const handleStopHermes = () => {
+    hermesAbortRef.current?.abort();
+    hermesAbortRef.current = null;
+    if (streamThrottleTimerRef.current) {
+      clearTimeout(streamThrottleTimerRef.current);
+      streamThrottleTimerRef.current = null;
+    }
+    setHermesLoading(false);
+  };
+
   const handleSendHermes = async (overrideText?: string) => {
     const textToSend = (overrideText !== undefined ? overrideText : hermesMsg).trim();
     if (!textToSend || hermesLoading) return;
@@ -601,23 +623,64 @@ export default function PastQuestionsScreen() {
 
     const userMessage: ChatMessage = { role: 'user', content: textToSend };
     const extendedChat = [...hermesChat, userMessage];
-    setHermesChat(extendedChat);
+    setHermesChat([...extendedChat, { role: 'assistant', content: '' }]);
     if (overrideText === undefined) {
       setHermesMsg('');
     }
     setHermesLoading(true);
+    latestStreamTextRef.current = '';
+
+    const controller = new AbortController();
+    hermesAbortRef.current = controller;
+
+    const commitStreamUpdate = (textVal: string) => {
+      setHermesChat(prev => {
+        if (prev.length === 0) return prev;
+        const copy = [...prev];
+        copy[copy.length - 1] = { role: 'assistant', content: textVal };
+        return copy;
+      });
+    };
 
     try {
-      const botResponse = await chatWithHermesMobile(
+      const botResponse = await chatWithHermesMobileStream(
         extendedChat,
         pastQuestionContext,
-        aiConfig || undefined
+        (_chunk, fullText) => {
+          latestStreamTextRef.current = fullText;
+          if (!streamThrottleTimerRef.current) {
+            streamThrottleTimerRef.current = setTimeout(() => {
+              streamThrottleTimerRef.current = null;
+              commitStreamUpdate(latestStreamTextRef.current);
+            }, 45);
+          }
+        },
+        aiConfig || undefined,
+        false,
+        controller.signal
       );
-      setHermesChat(prev => [...prev, { role: 'assistant', content: botResponse }]);
+      if (streamThrottleTimerRef.current) {
+        clearTimeout(streamThrottleTimerRef.current);
+        streamThrottleTimerRef.current = null;
+      }
+      commitStreamUpdate(botResponse || latestStreamTextRef.current);
     } catch (err: any) {
-      const sanitizedErrorMsg = sanitizeHermesError(err.message);
-      setHermesChat(prev => [...prev, { role: 'assistant', content: sanitizedErrorMsg }]);
+      if (streamThrottleTimerRef.current) {
+        clearTimeout(streamThrottleTimerRef.current);
+        streamThrottleTimerRef.current = null;
+      }
+      if (err?.name === 'AbortError') {
+        if (!latestStreamTextRef.current) {
+          setHermesChat(prev => prev.filter((m, idx) => !(idx === prev.length - 1 && m.role === 'assistant' && !m.content)));
+        } else {
+          commitStreamUpdate(latestStreamTextRef.current);
+        }
+      } else {
+        const sanitizedErrorMsg = sanitizeHermesError(err?.message || '');
+        commitStreamUpdate(latestStreamTextRef.current ? `${latestStreamTextRef.current}\n\n${sanitizedErrorMsg}` : sanitizedErrorMsg);
+      }
     } finally {
+      hermesAbortRef.current = null;
       setHermesLoading(false);
     }
   };
@@ -738,8 +801,8 @@ export default function PastQuestionsScreen() {
       <SafeAreaView style={s.root} edges={['top']}>
         {/* Hermes Floating Modal for Past Questions */}
         <Modal visible={hermesOpen} transparent animationType="slide" onRequestClose={handleCloseHermes}>
-          <View style={s.hermesOverlay}>
-            <View style={[s.hermesContent, { backgroundColor: C.bg }]}>
+          <KeyboardSafeModalView style={s.hermesOverlay}>
+            <View style={[s.hermesContent, { backgroundColor: C.bg, height: isKeyboardVisible ? '92%' : '75%' }]}>
               <View style={[s.hermesHeader, { backgroundColor: C.surfaceDark, justifyContent: 'space-between' }]}>
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
                   <BirdIcon color="#fff" />
@@ -809,69 +872,89 @@ export default function PastQuestionsScreen() {
                 ref={hermesScrollRef}
                 style={s.hermesChatScroll}
                 contentContainerStyle={{ padding: 16 }}
+                keyboardShouldPersistTaps="handled"
                 onContentSizeChange={() => {
-                  hermesScrollRef.current?.scrollToEnd({ animated: true });
+                  hermesScrollRef.current?.scrollToEnd({ animated: false });
                 }}
                 onLayout={() => {
                   hermesScrollRef.current?.scrollToEnd({ animated: false });
                 }}
               >
-                {hermesChat.map((m, i) => (
-                  <View
-                    key={i}
-                    style={[
-                      s.hermesBubble,
-                      m.role === 'user'
-                        ? [
-                            s.hermesUser,
-                            { backgroundColor: C.surfaceDark, alignSelf: 'flex-end', maxWidth: '85%' },
-                          ]
-                        : [
-                            s.hermesBot,
-                            {
-                              backgroundColor: C.surface,
-                              borderColor: C.border,
-                              borderWidth: 1,
-                              alignSelf: 'flex-start',
-                              maxWidth: '92%',
-                              width: 'auto',
-                              padding: 0,
-                            },
-                          ],
-                    ]}
-                  >
-                    {m.role === 'user' ? (
-                      <MathText
-                        text={m.content}
-                        style={[s.hermesText, { color: '#FFFFFF' }]}
-                        mathColor="#FFFFFF"
+                {hermesChat.map((m, i) => {
+                  if (m.role === 'assistant' && !m.content && hermesLoading) {
+                    return (
+                      <View
+                        key={i}
+                        style={[
+                          s.hermesBubble,
+                          s.hermesBot,
+                          {
+                            backgroundColor: C.surface,
+                            borderColor: C.border,
+                            borderWidth: 1,
+                            flexDirection: 'row',
+                            alignItems: 'center',
+                            gap: 8,
+                            padding: 12,
+                            alignSelf: 'flex-start',
+                          },
+                        ]}
                       >
-                        {m.content}
-                      </MathText>
-                    ) : (
-                      <HermesMessageContent content={m.content} C={C} />
-                    )}
-                  </View>
-                ))}
-                {hermesLoading && (
-                  <View
-                    style={[
-                      s.hermesBubble,
-                      s.hermesBot,
-                      {
-                        backgroundColor: C.surface,
-                        alignItems: 'center',
-                        padding: 10,
-                        alignSelf: 'flex-start',
-                      },
-                    ]}
-                  >
-                    <ActivityIndicator size="small" color={C.activeText} />
-                  </View>
-                )}
+                        <ActivityIndicator size="small" color={C.activeText} />
+                        <Text style={{ fontFamily: F.medium, fontSize: 13, color: C.inkMid }}>Hermes is thinking...</Text>
+                      </View>
+                    );
+                  }
+                  return (
+                    <View
+                      key={i}
+                      style={[
+                        s.hermesBubble,
+                        m.role === 'user'
+                          ? [
+                              s.hermesUser,
+                              { backgroundColor: C.surfaceDark, alignSelf: 'flex-end', maxWidth: '85%' },
+                            ]
+                          : [
+                              s.hermesBot,
+                              {
+                                backgroundColor: C.surface,
+                                borderColor: C.border,
+                                borderWidth: 1,
+                                alignSelf: 'flex-start',
+                                maxWidth: '92%',
+                                width: 'auto',
+                                padding: 0,
+                              },
+                            ],
+                      ]}
+                    >
+                      {m.role === 'user' ? (
+                        <MathText
+                          text={m.content}
+                          style={[s.hermesText, { color: '#FFFFFF' }]}
+                          mathColor="#FFFFFF"
+                        >
+                          {m.content}
+                        </MathText>
+                      ) : (
+                        <HermesMessageContent content={m.content} C={C} />
+                      )}
+                    </View>
+                  );
+                })}
               </ScrollView>
 
-              <View style={[s.hermesInputRow, { borderTopColor: C.border, alignItems: 'center' }]}>
+              <View
+                style={[
+                  s.hermesInputRow,
+                  {
+                    borderTopColor: C.border,
+                    alignItems: 'center',
+                    paddingBottom: isKeyboardVisible ? 12 : Math.max(insets.bottom, 16),
+                  },
+                ]}
+              >
                 <TextInput
                   style={[s.hermesInput, { backgroundColor: C.surface, color: C.ink, flex: 1 }]}
                   placeholder={
@@ -883,18 +966,20 @@ export default function PastQuestionsScreen() {
                   onChangeText={setHermesMsg}
                   placeholderTextColor={C.inkLight}
                   onSubmitEditing={() => {
-                    if (hermesMsg.trim()) handleSendHermes();
+                    if (hermesMsg.trim() && !hermesLoading) handleSendHermes();
                   }}
                 />
                 <TouchableOpacity
                   style={[
                     s.hermesSend,
                     {
-                      backgroundColor: isRecordingVoice ? '#ef4444' : C.ink,
+                      backgroundColor: (hermesLoading || isRecordingVoice) ? '#ef4444' : C.ink,
                     },
                   ]}
                   onPress={() => {
-                    if (isRecordingVoice) {
+                    if (hermesLoading) {
+                      handleStopHermes();
+                    } else if (isRecordingVoice) {
                       toggleVoiceRecording();
                     } else if (hermesMsg.trim()) {
                       handleSendHermes();
@@ -902,12 +987,12 @@ export default function PastQuestionsScreen() {
                       toggleVoiceRecording();
                     }
                   }}
-                  disabled={hermesLoading || isTranscribingVoice}
+                  disabled={isTranscribingVoice}
                   activeOpacity={0.8}
                 >
-                  {hermesLoading || isTranscribingVoice ? (
+                  {isTranscribingVoice ? (
                     <ActivityIndicator size="small" color={C.bg} />
-                  ) : isRecordingVoice ? (
+                  ) : hermesLoading || isRecordingVoice ? (
                     <StopIcon color="#ffffff" />
                   ) : hermesMsg.trim() ? (
                     <SendIcon color={C.bg} />
@@ -917,7 +1002,7 @@ export default function PastQuestionsScreen() {
                 </TouchableOpacity>
               </View>
             </View>
-          </View>
+          </KeyboardSafeModalView>
         </Modal>
 
         {/* Header */}

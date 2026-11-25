@@ -19,6 +19,7 @@ export interface DeviceLimitModalProps {
   accountEmail?: string;
   studentId?: string;
   semester?: string;
+  deviceLimit?: number;
 }
 
 export const DeviceLimitModal: React.FC<DeviceLimitModalProps> = ({
@@ -28,13 +29,19 @@ export const DeviceLimitModal: React.FC<DeviceLimitModalProps> = ({
   accountEmail,
   studentId,
   semester = '1st',
+  deviceLimit = 2,
 }) => {
   const [copied, setCopied] = React.useState(false);
 
   if (!adminInfo) return null;
 
+  const limitCount = typeof deviceLimit === 'number' && Number.isFinite(deviceLimit) && deviceLimit >= 1
+    ? Math.floor(deviceLimit)
+    : 2;
+  const deviceWord = limitCount === 1 ? 'device' : 'devices';
+
   const prefilledMessage = encodeURIComponent(
-    `Hello ${adminInfo.name}, I reached the 2-device limit on my CoLearn account (${accountEmail || 'Account'}${studentId ? `, Student ID: ${studentId}` : ''}) for the ${semester} semester. Could you please assist me in resetting or unlinking an old device?`
+    `Hello ${adminInfo.name}, I reached the ${limitCount}-device limit on my CoLearn account (${accountEmail || 'Account'}${studentId ? `, Student ID: ${studentId}` : ''}) for the ${semester} semester. Could you please assist me in resetting or unlinking an old device?`
   );
 
   const whatsappUrl = `https://wa.me/${adminInfo.whatsapp}?text=${prefilledMessage}`;
@@ -65,7 +72,7 @@ export const DeviceLimitModal: React.FC<DeviceLimitModalProps> = ({
             </div>
           </div>
           <DialogDescription className="text-sm text-muted-foreground leading-relaxed pt-1">
-            This account has reached the maximum of <span className="font-semibold text-foreground">2 active devices</span> for the current semester ({semester}). To unlink an old device or approve this device, contact your campus administrator:
+            This account has reached the maximum of <span className="font-semibold text-foreground">{limitCount} active {deviceWord}</span> for the current semester ({semester}). To unlink an old device or approve this device, contact your campus administrator:
           </DialogDescription>
         </DialogHeader>
 

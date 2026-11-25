@@ -5,10 +5,12 @@ import {
   TextInput,
   TouchableOpacity,
   StyleSheet,
+  ScrollView,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { BottomNav } from '../components/BottomNav';
+import { KeyboardSafeContainer, useKeyboardHeight } from '../components/KeyboardSafeWrapper';
 import { F } from '../components/Theme';
 import { useTheme } from '../context/ThemeContext';
 
@@ -40,6 +42,7 @@ export default function CreateGroupScreen() {
   const router = useRouter();
   const { colors: C } = useTheme();
   const s = useMemo(() => createStyles(C), [C]);
+  const { isKeyboardVisible } = useKeyboardHeight();
 
   const [groupName, setGroupName] = useState('');
 
@@ -56,32 +59,39 @@ export default function CreateGroupScreen() {
         </TouchableOpacity>
       </View>
 
-      <View style={s.content}>
-        <Text style={[s.label, { color: C.inkLight }]}>GROUP NAME</Text>
-        <TextInput
-          style={[s.input, { backgroundColor: C.surface, borderColor: C.border, color: C.ink }]}
-          placeholder="e.g. Quantum Mechanics Squad"
-          placeholderTextColor={C.inkLight}
-          value={groupName}
-          onChangeText={setGroupName}
-          autoFocus
-        />
-
-        <View style={{ flex: 1 }} />
-
-        <TouchableOpacity 
-          style={[s.continueBtn, { backgroundColor: C.ink }, !groupName && { opacity: 0.5 }]} 
-          disabled={!groupName}
-          onPress={() => router.push({ pathname: '/add-members', params: { groupName } })}
-          activeOpacity={0.8}
+      <KeyboardSafeContainer>
+        <ScrollView
+          style={{ flex: 1 }}
+          contentContainerStyle={[s.content, { paddingBottom: isKeyboardVisible ? 20 : 110 }]}
+          keyboardShouldPersistTaps="handled"
+          showsVerticalScrollIndicator={false}
         >
-          <Text style={[s.continueBtnText, { color: C.bg }]}>Continue</Text>
-        </TouchableOpacity>
+          <Text style={[s.label, { color: C.inkLight }]}>GROUP NAME</Text>
+          <TextInput
+            style={[s.input, { backgroundColor: C.surface, borderColor: C.border, color: C.ink }]}
+            placeholder="e.g. Quantum Mechanics Squad"
+            placeholderTextColor={C.inkLight}
+            value={groupName}
+            onChangeText={setGroupName}
+            autoFocus
+          />
 
-        <Text style={[s.footerText, { color: C.inkLight }]}>
-          By creating a group, you agree to COLEARN's{"\n"}community guidelines for academic integrity.
-        </Text>
-      </View>
+          <View style={{ flex: 1, minHeight: 24 }} />
+
+          <TouchableOpacity
+            style={[s.continueBtn, { backgroundColor: C.ink }, !groupName && { opacity: 0.5 }]}
+            disabled={!groupName}
+            onPress={() => router.push({ pathname: '/add-members', params: { groupName } })}
+            activeOpacity={0.8}
+          >
+            <Text style={[s.continueBtnText, { color: C.bg }]}>Continue</Text>
+          </TouchableOpacity>
+
+          <Text style={[s.footerText, { color: C.inkLight }]}>
+            By creating a group, you agree to COLEARN's{"\n"}community guidelines for academic integrity.
+          </Text>
+        </ScrollView>
+      </KeyboardSafeContainer>
 
       <BottomNav active="social" />
     </SafeAreaView>
@@ -101,7 +111,7 @@ const createStyles = (C: any) => StyleSheet.create({
   headerIcon: { width: 44, height: 44, justifyContent: 'center', alignItems: 'center', marginTop: 4 },
   headerTitle: { fontFamily: F.bold, fontSize: 36, flex: 1, marginLeft: 12, lineHeight: 40 },
 
-  content: { flex: 1, padding: 24, paddingTop: 60 },
+  content: { flexGrow: 1, padding: 24, paddingTop: 40 },
   label: { fontFamily: F.bold, fontSize: 13, letterSpacing: 1, marginBottom: 12 },
   input: {
     borderRadius: 12,

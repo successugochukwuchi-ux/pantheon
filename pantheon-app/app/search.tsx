@@ -1,8 +1,8 @@
-import React, { useState, useEffect, useMemo, useRef } from 'react';
+import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import {
   View,
   Text,
-  ScrollView,
+  FlatList,
   TouchableOpacity,
   StyleSheet,
   TextInput,
@@ -13,12 +13,48 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { BottomNav } from '../components/BottomNav';
 import { Sidebar } from '../components/Sidebar';
+import { KeyboardSafeContainer, useKeyboardHeight } from '../components/KeyboardSafeWrapper';
 import { HamburgerIcon, BellIcon, SearchIcon } from '../components/Icons';
 import { F } from '../components/Theme';
 import { collection, query, limit, getDocs } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 import { useAuth } from '../context/AuthContext';
 import { useTheme } from '../context/ThemeContext';
+
+const StudentDirectoryCard = React.memo(function StudentDirectoryCard({
+  item,
+  s,
+  C,
+  onViewProfile,
+}: {
+  item: any;
+  s: any;
+  C: any;
+  onViewProfile: (student: any) => void;
+}) {
+  return (
+    <View style={s.resultCard}>
+      <View style={s.avatarContainer}>
+        {item.photoURL ? (
+          <Image source={{ uri: item.photoURL.replace('/svg', '/png') }} style={s.avatar} />
+        ) : (
+          <View style={[s.avatar, s.avatarPlaceholder, { backgroundColor: C.tagBg, borderColor: C.border }]}>
+            <Text style={s.placeholderIcon}>👤</Text>
+          </View>
+        )}
+      </View>
+      <View style={s.infoContainer}>
+        <Text style={s.studentName}>{item.username || item.name || 'CoLearn Student'}</Text>
+        <Text style={s.studentSub}>{item.department || 'General Science'}</Text>
+        <Text style={s.studentSub}>{item.academicLevel ? `${item.academicLevel} Level` : '100 Level'}</Text>
+        <Text style={s.studentUid}>UID: {item.studentId || 'N/A'}</Text>
+      </View>
+      <TouchableOpacity style={s.viewBtn} activeOpacity={0.8} onPress={() => onViewProfile(item)}>
+        <Text style={s.viewBtnText}>View Profile</Text>
+      </TouchableOpacity>
+    </View>
+  );
+});
 
 // ── Main Screen ───────────────────────────────────────────────────────────────
 
@@ -27,8 +63,9 @@ export default function SearchResultsScreen() {
   const { profile } = useAuth();
   const { colors: C } = useTheme();
   const s = useMemo(() => createStyles(C), [C]);
+  const { isKeyboardVisible } = useKeyboardHeight();
   const [sidebarOpen, setSidebarOpen] = useState(false);
-  
+
   const [search, setSearch] = useState('');
   const [results, setResults] = useState<any[]>([]);
   const [searching, setSearching] = useState(false);
@@ -66,10 +103,10 @@ export default function SearchResultsScreen() {
       return;
     }
     const delayDebounceFn = setTimeout(async () => {
-      setSearching(true);
       try {
         let list = cachedUsersRef.current;
         if (list.length === 0) {
+          setSearching(true);
           const snapshot = await getDocs(query(collection(db, 'users'), limit(20)));
           list = snapshot.docs
             .map(doc => ({ id: doc.id, ...doc.data() }))
@@ -91,19 +128,48 @@ export default function SearchResultsScreen() {
       } finally {
         setSearching(false);
       }
-    }, 450);
+    }, 150);
 
     return () => clearTimeout(delayDebounceFn);
   }, [search, profile]);
 
-  const handleViewProfile = (student: any) => {
+  const handleViewProfile = useCallback((student: any) => {
     router.push({
       pathname: '/profile-view',
       params: {
         uid: student.id
       }
     });
-  };
+  }, [router]);
+
+  const listHeader = useMemo(() => (
+    <View>
+      {/* Search Bar */}
+      <View style={s.searchWrap}>
+        <View style={s.searchIconContainer}>
+          <SearchIcon />
+        </View>
+        <TextInput
+          style={s.searchInput}
+          value={search}
+          onChangeText={setSearch}
+          placeholder="Search students by username, major..."
+          placeholderTextColor={C.inkLight}
+        />
+        {search.length > 0 && (
+          <TouchableOpacity onPress={() => setSearch('')} style={s.clearBtn}>
+            <Text style={s.clearText}>✕</Text>
+          </TouchableOpacity>
+        )}
+      </View>
+
+      {/* Results Header */}
+      <View style={s.resultsHeader}>
+        <Text style={s.resultsTitle}>{search.trim() ? 'Search Results' : 'Student Directory'}</Text>
+        <Text style={s.resultsCount}>{results.length} Active Records</Text>
+      </View>
+    </View>
+  ), [s, C, search, results.length]);
 
   return (
     <SafeAreaView style={s.root} edges={['top']}>
@@ -120,71 +186,38 @@ export default function SearchResultsScreen() {
         </TouchableOpacity>
       </View>
 
-      <ScrollView style={s.scroll} contentContainerStyle={s.scrollContent} showsVerticalScrollIndicator={false}>
-        {/* Search Bar */}
-        <View style={s.searchWrap}>
-          <View style={s.searchIconContainer}>
-            <SearchIcon />
-          </View>
-          <TextInput
-            style={s.searchInput}
-            value={search}
-            onChangeText={setSearch}
-            placeholder="Search students by username, major..."
-            placeholderTextColor={C.inkLight}
-          />
-          {search.length > 0 && (
-            <TouchableOpacity onPress={() => setSearch('')} style={s.clearBtn}>
-              <Text style={s.clearText}>✕</Text>
-            </TouchableOpacity>
+      <KeyboardSafeContainer>
+        <FlatList
+          data={searching ? [] : results}
+          keyExtractor={(item) => item.id}
+          style={s.scroll}
+          contentContainerStyle={[s.scrollContent, { paddingBottom: isKeyboardVisible ? 24 : 110 }]}
+          showsVerticalScrollIndicator={false}
+          keyboardShouldPersistTaps="handled"
+          initialNumToRender={12}
+          maxToRenderPerBatch={12}
+          windowSize={7}
+          removeClippedSubviews
+          ListHeaderComponent={listHeader}
+          ListEmptyComponent={
+            searching ? (
+              <View style={s.searchingArea}>
+                <ActivityIndicator size="large" color={C.activeText} />
+                <Text style={[s.searchingText, { color: C.inkLight }]}>Searching directory index...</Text>
+              </View>
+            ) : (
+              <View style={s.emptyArea}>
+                <Text style={[s.emptyLabelText, { color: C.inkLight }]}>No matching students located.</Text>
+              </View>
+            )
+          }
+          renderItem={({ item }) => (
+            <StudentDirectoryCard item={item} s={s} C={C} onViewProfile={handleViewProfile} />
           )}
-        </View>
+        />
+      </KeyboardSafeContainer>
 
-        {/* Results Header */}
-        <View style={s.resultsHeader}>
-          <Text style={s.resultsTitle}>{search.trim() ? 'Search Results' : 'Student Directory'}</Text>
-          <Text style={s.resultsCount}>{results.length} Active Records</Text>
-        </View>
-
-        {/* Results List */}
-        {searching ? (
-          <View style={s.searchingArea}>
-            <ActivityIndicator size="large" color={C.activeText} />
-            <Text style={[s.searchingText, { color: C.inkLight }]}>Searching directory index...</Text>
-          </View>
-        ) : results.length === 0 ? (
-          <View style={s.emptyArea}>
-            <Text style={[s.emptyLabelText, { color: C.inkLight }]}>No matching students located.</Text>
-          </View>
-        ) : (
-          results.map((item) => (
-            <View key={item.id} style={s.resultCard}>
-              <View style={s.avatarContainer}>
-                {item.photoURL ? (
-                  <Image source={{ uri: item.photoURL.replace('/svg', '/png') }} style={s.avatar} />
-                ) : (
-                  <View style={[s.avatar, s.avatarPlaceholder, { backgroundColor: C.tagBg, borderColor: C.border }]}>
-                    <Text style={s.placeholderIcon}>👤</Text>
-                  </View>
-                )}
-              </View>
-              <View style={s.infoContainer}>
-                <Text style={s.studentName}>{item.username || item.name || 'CoLearn Student'}</Text>
-                <Text style={s.studentSub}>{item.department || 'General Science'}</Text>
-                <Text style={s.studentSub}>{item.academicLevel ? `${item.academicLevel} Level` : '100 Level'}</Text>
-                <Text style={s.studentUid}>UID: {item.studentId || 'N/A'}</Text>
-              </View>
-              <TouchableOpacity style={s.viewBtn} activeOpacity={0.8} onPress={() => handleViewProfile(item)}>
-                <Text style={s.viewBtnText}>View Profile</Text>
-              </TouchableOpacity>
-            </View>
-          ))
-        )}
-
-        <View style={{ height: 100 }} />
-      </ScrollView>
-
-      <BottomNav active="search" />
+      <BottomNav active="social" />
     </SafeAreaView>
   );
 }

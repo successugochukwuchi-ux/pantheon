@@ -1,8 +1,9 @@
-import React, { useState, useEffect, useRef, useMemo } from 'react';
+import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import {
   View,
   Text,
   ScrollView,
+  FlatList,
   TouchableOpacity,
   StyleSheet,
   TextInput,
@@ -10,13 +11,13 @@ import {
   Modal,
   ActivityIndicator,
   Alert,
-  Platform,
-  KeyboardAvoidingView,
 } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { F } from '../components/Theme';
-import { collection, query, where, getDocs, addDoc, onSnapshot, orderBy, doc, getDoc, limit, serverTimestamp, updateDoc } from 'firebase/firestore';
+import { KeyboardSafeContainer, KeyboardSafeModalView, useKeyboardHeight } from '../components/KeyboardSafeWrapper';
+import { collection, query, where, getDocs, addDoc, onSnapshot, orderBy, doc, getDoc, updateDoc } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 import { useAuth } from '../context/AuthContext';
 import { useTheme } from '../context/ThemeContext';
@@ -99,11 +100,89 @@ interface Message {
   referencedNoteTitle?: string;
 }
 
+const ChatMessageRow = React.memo(function ChatMessageRow({
+  item,
+  isMe,
+  C,
+  s,
+  onLongPress,
+  onReply,
+  onOpenNote,
+}: {
+  item: Message;
+  isMe: boolean;
+  C: any;
+  s: any;
+  onLongPress: (m: Message) => void;
+  onReply: (m: Message) => void;
+  onOpenNote: (noteId: string) => void;
+}) {
+  const timeLabel = item.createdAt
+    ? new Date(item.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+    : '';
+
+  return (
+    <TouchableOpacity
+      style={[s.msgWrapper, isMe && { justifyContent: 'flex-end' }]}
+      onLongPress={() => onLongPress(item)}
+      activeOpacity={0.9}
+    >
+      {!isMe && (
+        <View style={[s.msgAvatarPlaceholder, { backgroundColor: C.tagBg || C.bgAlt, borderColor: C.border }]}>
+          <Text style={[s.msgAvatarText, { color: C.ink }]}>{item.senderName[0]?.toUpperCase() || 'S'}</Text>
+        </View>
+      )}
+      <View style={[s.msgContentArea, isMe && { alignItems: 'flex-end' }]}>
+        {!isMe && <Text style={[s.msgSender, { color: C.inkMid }]}>{item.senderName}</Text>}
+        <View style={[s.msgBubble, { backgroundColor: C.surface, borderColor: C.border }, isMe && [s.msgBubbleMe, { backgroundColor: C.surfaceDark, borderColor: C.surfaceDark }]]}>
+          {item.replyTo && (
+            <View style={[s.replyBar, { borderLeftColor: C.inkLight }, isMe && { borderLeftColor: 'rgba(255,255,255,0.4)' }]}>
+              <Text style={[s.replySender, { color: C.ink }, isMe && { color: 'rgba(255,255,255,0.7)' }]}>@{item.replyTo.senderName}</Text>
+              <Text style={[s.replyText, { color: C.inkMid }, isMe && { color: 'rgba(255,255,255,0.6)' }]} numberOfLines={1}>
+                {item.replyTo.text}
+              </Text>
+            </View>
+          )}
+
+          <Text style={[s.msgText, { color: C.ink }, isMe && { color: '#FFFFFF' }]}>{item.text}</Text>
+          <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 6, gap: 12, borderTopWidth: 0.5, borderTopColor: isMe ? 'rgba(255,255,255,0.2)' : (C.border || 'rgba(0,0,0,0.1)'), paddingTop: 4, justifyContent: isMe ? 'flex-end' : 'flex-start' }}>
+            <Text style={{ fontSize: 9, color: isMe ? 'rgba(255,255,255,0.7)' : C.inkMid }}>
+              {timeLabel}
+            </Text>
+            <TouchableOpacity
+              onPress={() => onReply(item)}
+              style={{ padding: 2 }}
+              activeOpacity={0.7}
+            >
+              <Text style={{ fontSize: 11, fontFamily: F.bold, color: isMe ? '#A3E4D7' : (C.activeText || '#27AE60') }}>Reply</Text>
+            </TouchableOpacity>
+          </View>
+
+          {item.referencedNoteId && (
+            <TouchableOpacity
+              style={[s.refCard, { backgroundColor: C.bgAlt, borderColor: C.border }, isMe && s.refCardMe]}
+              activeOpacity={0.8}
+              onPress={() => onOpenNote(item.referencedNoteId!)}
+            >
+              <NoteIcon />
+              <View style={s.refInfo}>
+                <Text style={[s.refTitle, { color: C.ink }, isMe && { color: '#fff' }]} numberOfLines={1}>{item.referencedNoteTitle}</Text>
+                <Text style={[s.refSubtitle, { color: C.inkLight }, isMe && { color: 'rgba(255,255,255,0.7)' }]}>Tap to explore note</Text>
+              </View>
+            </TouchableOpacity>
+          )}
+        </View>
+      </View>
+    </TouchableOpacity>
+  );
+});
+
 export default function ChatRoomScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { colors: C } = useTheme();
   const s = useMemo(() => createStyles(C), [C]);
+  const { isKeyboardVisible } = useKeyboardHeight();
 
   const params = useLocalSearchParams<{
     id?: string;
@@ -120,7 +199,7 @@ export default function ChatRoomScreen() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [msg, setMsg] = useState('');
   const [replyingTo, setReplyingTo] = useState<Message['replyTo'] | null>(null);
-  
+
   // Note Picker
   const [notePickerOpen, setNotePickerOpen] = useState(false);
   const [availableNotes, setAvailableNotes] = useState<any[]>([]);
@@ -136,7 +215,7 @@ export default function ChatRoomScreen() {
   const [reportDetail, setReportDetail] = useState('');
   const [reportedMsgId, setReportedMsgId] = useState<string | null>(null);
 
-  const scrollRef = useRef<ScrollView>(null);
+  const flatListRef = useRef<FlatList<Message>>(null);
 
   const REPORT_REASONS = [
     'Bullying or Harassment',
@@ -275,18 +354,27 @@ export default function ChatRoomScreen() {
     initChatSession();
   }, [params.id, params.chatId, params.otherUid, params.isGroup, profile]);
 
-  // 2. Setup live message updates
+  // 2. Hydrate cached messages instantly + live Firestore updates
   useEffect(() => {
     if (!activeChatId) return;
+
+    const cacheKey = `colearn_chat_msgs_${activeChatId}`;
+    AsyncStorage.getItem(cacheKey)
+      .then((raw) => {
+        if (!raw) return;
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed)) setMessages(parsed);
+      })
+      .catch(() => {});
 
     const messagesRef = collection(db, 'chats', activeChatId, 'messages');
     const q = query(messagesRef, orderBy('createdAt', 'asc'));
 
     const unsubscribe = onSnapshot(q, (snapshot) => {
-      const list: Message[] = snapshot.docs.map(doc => {
-        const data = doc.data();
+      const list: Message[] = snapshot.docs.map(d => {
+        const data = d.data();
         return {
-          id: doc.id,
+          id: d.id,
           senderId: data.senderUid || data.senderId || '',
           senderName: data.senderName || '',
           text: data.text || '',
@@ -297,22 +385,22 @@ export default function ChatRoomScreen() {
         };
       });
       setMessages(list);
-      
-      // Auto-scroll immediately to follow latest message
+      AsyncStorage.setItem(cacheKey, JSON.stringify(list.slice(-80))).catch(() => {});
+
       setTimeout(() => {
-        scrollRef.current?.scrollToEnd({ animated: true });
-      }, 50);
+        flatListRef.current?.scrollToEnd({ animated: true });
+      }, 60);
     });
 
     return () => unsubscribe();
   }, [activeChatId]);
 
-  // Keep chat pinned to the latest message whenever messages array updates
+  // Keep chat pinned to the latest message when keyboard opens or messages grow
   useEffect(() => {
     if (messages.length > 0) {
-      scrollRef.current?.scrollToEnd({ animated: true });
+      setTimeout(() => flatListRef.current?.scrollToEnd({ animated: true }), 80);
     }
-  }, [messages.length]);
+  }, [messages.length, isKeyboardVisible]);
 
   // 3. Load notes list
   useEffect(() => {
@@ -354,6 +442,7 @@ export default function ChatRoomScreen() {
     loadCourses();
     return () => { active = false; };
   }, [systemConfig, isOffline, profile]);
+
   const handleSend = async () => {
     if (!profile || !activeChatId) {
       Alert.alert('Error', 'Thread not established.');
@@ -362,59 +451,78 @@ export default function ChatRoomScreen() {
     const txt = msg.trim();
     if (!txt && !selectedNote) return;
 
-    try {
-      const msgPayload: any = {
+    const prevMsg = msg;
+    const prevNote = selectedNote;
+    const prevReply = replyingTo;
+
+    const nowIso = new Date().toISOString();
+    const optimisticId = `pending_${Date.now()}`;
+    const msgPayload: any = {
+      senderId: profile.uid,
+      senderUid: profile.uid,
+      senderName: profile.username || 'Student',
+      text: txt,
+      createdAt: nowIso
+    };
+
+    if (prevReply) {
+      msgPayload.replyTo = prevReply;
+    }
+
+    if (prevNote) {
+      msgPayload.referencedNoteId = prevNote.id;
+      msgPayload.referencedNoteTitle = prevNote.title;
+      if (!msgPayload.text) {
+        msgPayload.text = `Shared note reference: ${prevNote.title}`;
+      }
+    }
+
+    // Optimistic clear & append for zero-lag UX
+    setMsg('');
+    setSelectedNote(null);
+    setReplyingTo(null);
+    setMessages((prev) => [
+      ...prev,
+      {
+        id: optimisticId,
         senderId: profile.uid,
-        senderUid: profile.uid,
-        senderName: profile.username || 'Student',
-        text: txt,
-        createdAt: new Date().toISOString()
-      };
+        senderName: msgPayload.senderName,
+        text: msgPayload.text,
+        replyTo: prevReply || undefined,
+        referencedNoteId: msgPayload.referencedNoteId,
+        referencedNoteTitle: msgPayload.referencedNoteTitle,
+        createdAt: nowIso,
+      },
+    ]);
 
-      if (replyingTo) {
-        msgPayload.replyTo = replyingTo;
-      }
-
-      if (selectedNote) {
-        msgPayload.referencedNoteId = selectedNote.id;
-        msgPayload.referencedNoteTitle = selectedNote.title;
-        if (!msgPayload.text) {
-          msgPayload.text = `Shared note reference: ${selectedNote.title}`;
-        }
-      }
-
+    try {
       // 1. Add to nested messages subcollection
       await addDoc(collection(db, 'chats', activeChatId, 'messages'), msgPayload);
-      
+
       // 2. Touch parent chat channel for lastMessage timestamp update
       await updateDoc(doc(db, 'chats', activeChatId), {
-         lastMessage: msgPayload.text || txt,
-         lastSenderId: profile.uid,
-         lastUpdatedAt: new Date().toISOString()
+        lastMessage: msgPayload.text || txt,
+        lastSenderId: profile.uid,
+        lastUpdatedAt: nowIso
       });
-
-      setMsg('');
-      setSelectedNote(null);
-      setReplyingTo(null);
-
-      // Instantly follow newly sent message
-      setTimeout(() => {
-        scrollRef.current?.scrollToEnd({ animated: true });
-      }, 50);
     } catch (e) {
       console.error("Error sending message:", e);
+      setMessages((prev) => prev.filter((m) => m.id !== optimisticId));
+      setMsg(prevMsg);
+      setSelectedNote(prevNote);
+      setReplyingTo(prevReply);
       Alert.alert('Sending Failed', 'Offline or transaction failed. Reconnect internet.');
     }
   };
 
-  const handleMsgLongPress = (item: Message) => {
+  const handleMsgLongPress = useCallback((item: Message) => {
     Alert.alert(
       'Message Options',
       undefined,
       [
         { text: 'Cancel', style: 'cancel' },
-        { 
-          text: 'Reply (Targeted Reply)', 
+        {
+          text: 'Reply (Targeted Reply)',
           onPress: () => {
             setReplyingTo({
               messageId: item.id,
@@ -423,8 +531,8 @@ export default function ChatRoomScreen() {
             });
           }
         },
-        { 
-          text: 'Report Spam/Harassment', 
+        {
+          text: 'Report Spam/Harassment',
           style: 'destructive',
           onPress: () => {
             setReportedMsgId(item.id);
@@ -434,7 +542,22 @@ export default function ChatRoomScreen() {
         }
       ]
     );
-  };
+  }, []);
+
+  const handleQuickReply = useCallback((item: Message) => {
+    setReplyingTo({
+      messageId: item.id,
+      text: item.text,
+      senderName: item.senderName
+    });
+  }, []);
+
+  const handleOpenReferencedNote = useCallback((noteId: string) => {
+    router.push({
+      pathname: '/note-viewer',
+      params: { noteId }
+    });
+  }, [router]);
 
   const handleReportSubmit = async () => {
     if (!profile || !selectedReason) return;
@@ -457,11 +580,17 @@ export default function ChatRoomScreen() {
     }
   };
 
-  const handleReferenceSelect = (note: any) => {
+  const handleReferenceSelect = useCallback((note: any) => {
     setSelectedNote(note);
     setSelectedCourseForNote(null);
     setNotePickerOpen(false);
-  };
+  }, []);
+
+  const filteredCourseNotes = useMemo(() => {
+    if (!selectedCourseForNote) return [];
+    const target = String(selectedCourseForNote).toLowerCase();
+    return availableNotes.filter(n => n.courseId && String(n.courseId).toLowerCase() === target);
+  }, [availableNotes, selectedCourseForNote]);
 
   if (loading) {
     return (
@@ -495,39 +624,49 @@ export default function ChatRoomScreen() {
               </View>
             )}
 
-            <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingBottom: 24 }}>
-              {!selectedCourseForNote ? (
-                courses.length === 0 ? (
+            {!selectedCourseForNote ? (
+              <FlatList
+                data={courses}
+                keyExtractor={(item) => item.id}
+                style={{ flex: 1 }}
+                contentContainerStyle={{ paddingBottom: 24 }}
+                keyboardShouldPersistTaps="handled"
+                initialNumToRender={12}
+                ListEmptyComponent={
                   <Text style={[s.emptyNotesPicker, { color: C.inkMid, padding: 20, textAlign: 'center' }]}>No active semester courses found.</Text>
-                ) : (
-                  courses.map(course => (
-                    <TouchableOpacity 
-                       key={course.id} 
-                       style={[s.noteItem, { borderBottomColor: C.border }]}
-                       onPress={() => setSelectedCourseForNote(course.id)}
-                    >
-                       <Text style={[s.noteItemTitle, { color: C.ink }]}>{course.code}</Text>
-                       <Text style={[s.noteItemCourse, { color: C.inkMid }]}>{course.title}</Text>
-                    </TouchableOpacity>
-                  ))
-                )
-              ) : (
-                availableNotes.filter(n => n.courseId && String(n.courseId).toLowerCase() === String(selectedCourseForNote).toLowerCase()).length === 0 ? (
+                }
+                renderItem={({ item: course }) => (
+                  <TouchableOpacity
+                    style={[s.noteItem, { borderBottomColor: C.border }]}
+                    onPress={() => setSelectedCourseForNote(course.id)}
+                  >
+                    <Text style={[s.noteItemTitle, { color: C.ink }]}>{course.code}</Text>
+                    <Text style={[s.noteItemCourse, { color: C.inkMid }]}>{course.title}</Text>
+                  </TouchableOpacity>
+                )}
+              />
+            ) : (
+              <FlatList
+                data={filteredCourseNotes}
+                keyExtractor={(item) => item.id}
+                style={{ flex: 1 }}
+                contentContainerStyle={{ paddingBottom: 24 }}
+                keyboardShouldPersistTaps="handled"
+                initialNumToRender={14}
+                ListEmptyComponent={
                   <Text style={[s.emptyNotesPicker, { color: C.inkMid, padding: 20, textAlign: 'center' }]}>No academic notes found for this course.</Text>
-                ) : (
-                  availableNotes.filter(n => n.courseId && String(n.courseId).toLowerCase() === String(selectedCourseForNote).toLowerCase()).map(n => (
-                    <TouchableOpacity 
-                       key={n.id} 
-                       style={[s.noteItem, { borderBottomColor: C.border }]}
-                       onPress={() => handleReferenceSelect(n)}
-                    >
-                       <Text style={[s.noteItemTitle, { color: C.ink }]}>{n.title}</Text>
-                       <Text style={[s.noteItemCourse, { color: C.activeText || C.inkMid }]}>Tap to reference note</Text>
-                    </TouchableOpacity>
-                  ))
-                )
-              )}
-            </ScrollView>
+                }
+                renderItem={({ item: n }) => (
+                  <TouchableOpacity
+                    style={[s.noteItem, { borderBottomColor: C.border }]}
+                    onPress={() => handleReferenceSelect(n)}
+                  >
+                    <Text style={[s.noteItemTitle, { color: C.ink }]}>{n.title}</Text>
+                    <Text style={[s.noteItemCourse, { color: C.activeText || C.inkMid }]}>Tap to reference note</Text>
+                  </TouchableOpacity>
+                )}
+              />
+            )}
           </View>
         </View>
       </Modal>
@@ -542,23 +681,23 @@ export default function ChatRoomScreen() {
           <Text style={[s.headerStatus, { color: C.activeText || C.inkMid }]}>{params.isGroup === 'true' ? '🔒 END-TO-END GROUP ALLIANCE' : '🔒 PEER-TO-PEER ENCRYPTED'}</Text>
         </View>
         <View style={s.headerActions}>
-           <TouchableOpacity style={s.headerIconBtn} onPress={() => setMenuOpen(true)}>
-             <MoreIcon />
-           </TouchableOpacity>
+          <TouchableOpacity style={s.headerIconBtn} onPress={() => setMenuOpen(true)}>
+            <MoreIcon />
+          </TouchableOpacity>
         </View>
       </View>
 
       {/* 3-Dot Options Dropdown */}
       <Modal visible={menuOpen} transparent animationType="fade">
-        <TouchableOpacity 
-          style={s.menuOverlay} 
-          activeOpacity={1} 
+        <TouchableOpacity
+          style={s.menuOverlay}
+          activeOpacity={1}
           onPress={() => setMenuOpen(false)}
         >
           <View style={[s.menuContent, { backgroundColor: C.surface, borderColor: C.border }]}>
             {params.isGroup === 'true' && (
-              <TouchableOpacity 
-                style={[s.menuItem, { borderBottomColor: C.border }]} 
+              <TouchableOpacity
+                style={[s.menuItem, { borderBottomColor: C.border }]}
                 onPress={() => {
                   setMenuOpen(false);
                   router.push('/add-members');
@@ -567,8 +706,8 @@ export default function ChatRoomScreen() {
                 <Text style={[s.menuItemText, { color: C.ink }]}>+ Add Member</Text>
               </TouchableOpacity>
             )}
-            <TouchableOpacity 
-              style={[s.menuItem, { borderBottomColor: C.border }]} 
+            <TouchableOpacity
+              style={[s.menuItem, { borderBottomColor: C.border }]}
               onPress={() => {
                 setMenuOpen(false);
                 setReportedMsgId(null);
@@ -584,7 +723,7 @@ export default function ChatRoomScreen() {
 
       {/* Flag / Report Flow */}
       <Modal visible={reportOpen} transparent animationType="slide">
-        <View style={s.modalOverlay}>
+        <KeyboardSafeModalView style={s.modalOverlay}>
           <View style={[s.modalContent, { backgroundColor: C.surface }]}>
             <View style={s.modalHeader}>
               <Text style={[s.modalTitle, { color: C.ink }]}>Incident Report</Text>
@@ -597,8 +736,8 @@ export default function ChatRoomScreen() {
               <ScrollView>
                 <Text style={[s.reportSub, { color: C.inkMid }]}>Select report factor:</Text>
                 {REPORT_REASONS.map((r) => (
-                  <TouchableOpacity 
-                    key={r} 
+                  <TouchableOpacity
+                    key={r}
                     style={[s.reasonItem, { borderBottomColor: C.border }]}
                     onPress={() => {
                       setSelectedReason(r);
@@ -612,7 +751,7 @@ export default function ChatRoomScreen() {
             )}
 
             {reportStep === 'detail' && (
-              <View style={{ paddingBottom: 24 }}>
+              <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={{ paddingBottom: 24 }}>
                 <Text style={[s.reportSub, { color: C.inkMid }]}>Details & circumstances:</Text>
                 <Text style={[s.reportMiniHint, { color: C.activeText || C.inkLight }]}>Category: {selectedReason}</Text>
                 <TextInput
@@ -625,9 +764,9 @@ export default function ChatRoomScreen() {
                   onChangeText={setReportDetail}
                 />
                 <TouchableOpacity style={[s.reportSubmitBtn, { backgroundColor: C.ink }]} onPress={handleReportSubmit}>
-                   <Text style={[s.reportSubmitText, { color: C.bg }]}>Submit Incident Report</Text>
+                  <Text style={[s.reportSubmitText, { color: C.bg }]}>Submit Incident Report</Text>
                 </TouchableOpacity>
-              </View>
+              </ScrollView>
             )}
 
             {reportStep === 'success' && (
@@ -638,107 +777,51 @@ export default function ChatRoomScreen() {
                   Your feedback has been appended to CoLearn security filters.
                 </Text>
                 <TouchableOpacity style={[s.reportSubmitBtn, { backgroundColor: C.ink }]} onPress={() => setReportOpen(false)}>
-                   <Text style={[s.reportSubmitText, { color: C.bg }]}>Dismiss</Text>
+                  <Text style={[s.reportSubmitText, { color: C.bg }]}>Dismiss</Text>
                 </TouchableOpacity>
               </View>
             )}
           </View>
-        </View>
+        </KeyboardSafeModalView>
       </Modal>
 
-      {/* Chat Body with Keyboard & System Navigation Bar Protection */}
-      <KeyboardAvoidingView 
-        style={{ flex: 1 }} 
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-      >
-        {/* Messages Scroll Area */}
-        <ScrollView 
-          ref={scrollRef} 
-          style={s.scroll} 
+      {/* Chat Body with Cross-Platform Keyboard Protection */}
+      <KeyboardSafeContainer>
+        <FlatList
+          ref={flatListRef}
+          data={messages}
+          keyExtractor={(item) => item.id}
+          style={s.scroll}
           contentContainerStyle={s.scrollContent}
           showsVerticalScrollIndicator={false}
           keyboardShouldPersistTaps="handled"
-          onContentSizeChange={() => scrollRef.current?.scrollToEnd({ animated: true })}
-          onLayout={() => scrollRef.current?.scrollToEnd({ animated: false })}
-        >
-          {messages.length === 0 ? (
+          initialNumToRender={18}
+          maxToRenderPerBatch={15}
+          windowSize={9}
+          removeClippedSubviews
+          onContentSizeChange={() => flatListRef.current?.scrollToEnd({ animated: true })}
+          onLayout={() => flatListRef.current?.scrollToEnd({ animated: false })}
+          ListEmptyComponent={
             <View style={s.emptyChatArea}>
               <Text style={[s.emptyChatTitle, { color: C.ink }]}>Conversation Channel Empty</Text>
               <Text style={[s.emptyChatDesc, { color: C.inkMid }]}>Press & hold any incoming chat block to reference replies or toggle safety flags.</Text>
             </View>
-          ) : (
-            messages.map((item) => {
-              const isMe = item.senderId === profile?.uid;
-              return (
-                <TouchableOpacity 
-                  key={item.id} 
-                  style={[s.msgWrapper, isMe && { justifyContent: 'flex-end' }]} 
-                  onLongPress={() => handleMsgLongPress(item)}
-                  activeOpacity={0.9}
-                >
-                  {!isMe && (
-                    <View style={[s.msgAvatarPlaceholder, { backgroundColor: C.tagBg || C.bgAlt, borderColor: C.border }]}>
-                      <Text style={[s.msgAvatarText, { color: C.ink }]}>{item.senderName[0]?.toUpperCase() || 'S'}</Text>
-                    </View>
-                  )}
-                  <View style={[s.msgContentArea, isMe && { alignItems: 'flex-end' }]}>
-                     {!isMe && <Text style={[s.msgSender, { color: C.inkMid }]}>{item.senderName}</Text>}
-                     <View style={[s.msgBubble, { backgroundColor: C.surface, borderColor: C.border }, isMe && [s.msgBubbleMe, { backgroundColor: C.surfaceDark, borderColor: C.surfaceDark }]]}>
-                       {item.replyTo && (
-                         <View style={[s.replyBar, { borderLeftColor: C.inkLight }, isMe && { borderLeftColor: 'rgba(255,255,255,0.4)' }]}>
-                            <Text style={[s.replySender, { color: C.ink }, isMe && { color: 'rgba(255,255,255,0.7)' }]}>@{item.replyTo.senderName}</Text>
-                            <Text style={[s.replyText, { color: C.inkMid }, isMe && { color: 'rgba(255,255,265,0.6)' }]} numberOfLines={1}>
-                              {item.replyTo.text}
-                            </Text>
-                         </View>
-                       )}
-                       
-                       <Text style={[s.msgText, { color: C.ink }, isMe && { color: '#FFFFFF' }]}>{item.text}</Text>
-                       <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 6, gap: 12, borderTopWidth: 0.5, borderTopColor: isMe ? 'rgba(255,255,255,0.2)' : (C.border || 'rgba(0,0,0,0.1)'), paddingTop: 4, justifyContent: isMe ? 'flex-end' : 'flex-start' }}>
-                         <Text style={{ fontSize: 9, color: isMe ? 'rgba(255,255,255,0.7)' : C.inkMid }}>
-                           {new Date(item.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                         </Text>
-                         <TouchableOpacity 
-                           onPress={() => {
-                             setReplyingTo({
-                               messageId: item.id,
-                               text: item.text,
-                               senderName: item.senderName
-                             });
-                           }}
-                           style={{ padding: 2 }}
-                           activeOpacity={0.7}
-                         >
-                           <Text style={{ fontSize: 11, fontFamily: F.bold, color: isMe ? '#A3E4D7' : (C.activeText || '#27AE60') }}>Reply</Text>
-                         </TouchableOpacity>
-                       </View>
-
-                       {item.referencedNoteId && (
-                         <TouchableOpacity 
-                           style={[s.refCard, { backgroundColor: C.bgAlt, borderColor: C.border }, isMe && s.refCardMe]} 
-                           activeOpacity={0.8}
-                           onPress={() => router.push({
-                             pathname: '/note-viewer',
-                             params: { noteId: item.referencedNoteId }
-                           })}
-                         >
-                            <NoteIcon />
-                            <View style={s.refInfo}>
-                               <Text style={[s.refTitle, { color: C.ink }, isMe && { color: '#fff' }]} numberOfLines={1}>{item.referencedNoteTitle}</Text>
-                               <Text style={[s.refSubtitle, { color: C.inkLight }, isMe && { color: 'rgba(255,255,255,0.7)' }]}>Tap to explore note</Text>
-                            </View>
-                         </TouchableOpacity>
-                       )}
-                     </View>
-                  </View>
-                </TouchableOpacity>
-              );
-            })
+          }
+          renderItem={({ item }) => (
+            <ChatMessageRow
+              item={item}
+              isMe={item.senderId === profile?.uid}
+              C={C}
+              s={s}
+              onLongPress={handleMsgLongPress}
+              onReply={handleQuickReply}
+              onOpenNote={handleOpenReferencedNote}
+            />
           )}
-        </ScrollView>
+        />
 
         {/* Input Tray */}
-        <View style={[s.inputContainer, { backgroundColor: C.surface, borderTopColor: C.border, paddingBottom: Math.max(insets.bottom, 12) }]}>
+        <View style={[s.inputContainer, { backgroundColor: C.surface, borderTopColor: C.border, paddingBottom: isKeyboardVisible ? 8 : Math.max(insets.bottom, 12) }]}>
           {replyingTo && (
             <View style={[s.replyOverlay, { backgroundColor: C.bgAlt, borderColor: C.border }]}>
               <View style={[s.replyIndicator, { backgroundColor: C.ink }]} />
@@ -764,29 +847,30 @@ export default function ChatRoomScreen() {
           )}
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
             <View style={[s.inputWrapper, { backgroundColor: C.bgAlt }]}>
-              <TextInput 
+              <TextInput
                 style={[s.textInput, { color: C.ink }]}
                 placeholder="Type messages..."
                 placeholderTextColor={C.inkLight}
                 value={msg}
                 onChangeText={setMsg}
+                onFocus={() => setTimeout(() => flatListRef.current?.scrollToEnd({ animated: true }), 120)}
               />
-              <TouchableOpacity 
-                style={s.inputIcon} 
+              <TouchableOpacity
+                style={s.inputIcon}
                 onPress={() => setNotePickerOpen(true)}
               >
                 <BookIcon />
               </TouchableOpacity>
             </View>
-            <TouchableOpacity 
+            <TouchableOpacity
               style={[s.sendBtn, { backgroundColor: C.ink }]}
-              onPress={() => handleSend()}
+              onPress={handleSend}
             >
               <SendIcon />
             </TouchableOpacity>
           </View>
         </View>
-      </KeyboardAvoidingView>
+      </KeyboardSafeContainer>
     </SafeAreaView>
   );
 }

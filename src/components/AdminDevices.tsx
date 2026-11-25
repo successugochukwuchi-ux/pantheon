@@ -6,13 +6,32 @@ import { Label } from './ui/label';
 import { Smartphone, Search, Trash2, ShieldAlert } from 'lucide-react';
 import { collection, query, where, getDocs, updateDoc, doc } from 'firebase/firestore';
 import { db, handleFirestoreError, OperationType } from '../firebase';
+import { useAuth } from '../contexts/AuthContext';
 import { toast } from 'sonner';
 
 export default function AdminDevices() {
+  const { systemConfig } = useAuth();
   const [emailOrStudentId, setEmailOrStudentId] = useState('');
   const [loading, setLoading] = useState(false);
   const [userDoc, setUserDoc] = useState<any>(null);
   const [confirmingDeviceId, setConfirmingDeviceId] = useState<string | null>(null);
+
+  const studentDeviceLimit =
+    typeof systemConfig?.deviceLimit === 'number' &&
+    Number.isFinite(systemConfig.deviceLimit) &&
+    systemConfig.deviceLimit >= 1
+      ? Math.floor(systemConfig.deviceLimit)
+      : 2;
+
+  const isUserVendor = Boolean(
+    userDoc && (
+      userDoc.level === '3' ||
+      String(userDoc.level) === '3' ||
+      userDoc.academicLevel?.toLowerCase() === 'vendor' ||
+      userDoc.department?.toLowerCase() === 'vendor'
+    )
+  );
+  const isUserLevel5 = Boolean(userDoc && (userDoc.level === '5' || String(userDoc.level) === '5'));
 
   const searchUser = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -72,7 +91,7 @@ export default function AdminDevices() {
           </CardTitle>
           <CardDescription>
             Forcefully disconnect devices from a user's account in case of loss or theft. 
-            Standard student users are limited to 2 devices per semester (Vendors and Level 5 Super Admins have unlimited devices).
+            Standard student users are limited to {studentDeviceLimit} {studentDeviceLimit === 1 ? 'device' : 'devices'} per semester (Vendors and Level 5 Overseers have unlimited devices).
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-6">
@@ -93,14 +112,22 @@ export default function AdminDevices() {
 
           {userDoc && (
             <div className="space-y-4 pt-4 border-t">
-              <div className="flex items-center justify-between">
+              <div className="flex items-center justify-between gap-2 flex-wrap">
                 <div>
                   <h3 className="font-semibold text-lg">{userDoc.name || userDoc.username || 'Unknown User'}</h3>
                   <p className="text-sm text-muted-foreground">{userDoc.email} • {userDoc.studentId}</p>
                 </div>
-                {userDoc.level === '5' && (
+                {isUserLevel5 ? (
                   <span className="text-xs px-2.5 py-1 rounded-full font-medium bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20">
                     Level 5 Overseer (Unlimited Devices)
+                  </span>
+                ) : isUserVendor ? (
+                  <span className="text-xs px-2.5 py-1 rounded-full font-medium bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">
+                    Vendor Account (Unlimited Devices)
+                  </span>
+                ) : (
+                  <span className="text-xs px-2.5 py-1 rounded-full font-medium bg-muted text-muted-foreground border border-border">
+                    Student ({studentDeviceLimit} {studentDeviceLimit === 1 ? 'Device' : 'Devices'} Limit)
                   </span>
                 )}
               </div>

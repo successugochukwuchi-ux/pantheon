@@ -2074,7 +2074,7 @@ export default function AdminPanel() {
         plusPrice: Number(plusPriceSetting),
         updatedBy: user?.uid,
         updatedAt: nowStr
-      });
+      }, { merge: true });
       
       // Save to price history
       await addDoc(collection(db, 'priceHistory'), {

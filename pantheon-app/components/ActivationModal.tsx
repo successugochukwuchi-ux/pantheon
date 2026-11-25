@@ -9,12 +9,14 @@ import {
   ActivityIndicator,
   Alert,
   Linking,
+  ScrollView,
 } from 'react-native';
 import { doc, getDoc, updateDoc, serverTimestamp, query, where, getDocs, collection, writeBatch, increment, setDoc, addDoc } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 import { useAuth } from '../context/AuthContext';
 import { C, F } from './Theme';
 import { contactAdmin } from '../lib/support';
+import { KeyboardSafeModalView } from './KeyboardSafeWrapper';
 
 async function sendTelegramAlertMobile(message: string) {
   try {
@@ -269,11 +271,17 @@ export function ActivationModal() {
 
   return (
     <Modal visible={showModal} transparent animationType="slide">
-      <View style={s.overlay}>
+      <KeyboardSafeModalView style={s.overlay}>
         <View style={s.sheet}>
           <TouchableOpacity onPress={() => setClosedByUser(true)} style={s.closeBtn} activeOpacity={0.7}>
             <Text style={s.closeBtnText}>✕</Text>
           </TouchableOpacity>
+          <ScrollView
+            style={{ width: '100%' }}
+            contentContainerStyle={{ alignItems: 'center' }}
+            keyboardShouldPersistTaps="handled"
+            showsVerticalScrollIndicator={false}
+          >
 
           {currentShowPromo ? (
             <>
@@ -375,8 +383,9 @@ export function ActivationModal() {
               </TouchableOpacity>
             </>
           )}
+          </ScrollView>
         </View>
-      </View>
+      </KeyboardSafeModalView>
     </Modal>
   );
 }

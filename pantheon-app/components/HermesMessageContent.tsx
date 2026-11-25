@@ -54,7 +54,7 @@ export function extractReadableQuestionText(raw: string): string {
   return trimmed;
 }
 
-export function HermesMessageContent({ content, C }: { content: string; C: any }) {
+export const HermesMessageContent = React.memo(function HermesMessageContent({ content, C }: { content: string; C: any }) {
   const isStructuredNote = useMemo(() => {
     if (!content) return false;
     if (content.includes('<PLX>') || content.includes('</PLX>')) return true;
@@ -496,4 +496,4 @@ export function HermesMessageContent({ content, C }: { content: string; C: any }
       })}
     </View>
   );
-}
+});

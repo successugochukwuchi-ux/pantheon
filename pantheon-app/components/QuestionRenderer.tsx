@@ -73,7 +73,7 @@ function formatOptionText(text: string): string {
   return processed;
 }
 
-export function QuestionRenderer({
+export const QuestionRenderer = React.memo(function QuestionRenderer({
   question,
   options = [],
   selectedOptionIndex = null,
@@ -189,7 +189,7 @@ export function QuestionRenderer({
       )}
     </View>
   );
-}
+});
 
 const s = StyleSheet.create({
   container: {

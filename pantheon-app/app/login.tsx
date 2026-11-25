@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import {
   View,
   Text,
@@ -6,16 +6,16 @@ import {
   TouchableOpacity,
   StyleSheet,
   ScrollView,
-  KeyboardAvoidingView,
-  Platform,
   Image,
+  Alert,
+  ActivityIndicator,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
+import { KeyboardSafeContainer } from '../components/KeyboardSafeWrapper';
 import { auth, db } from '../lib/firebase';
 import { signInWithEmailAndPassword, signOut } from 'firebase/auth';
 import { doc, getDoc } from 'firebase/firestore';
-import { Alert, ActivityIndicator } from 'react-native';
 
 const C = {
   bg: '#F0EFF5',
@@ -69,6 +69,7 @@ function InputField({
   hint,
   rightAction,
   error,
+  onFocusScroll,
 }: {
   label: string;
   placeholder: string;
@@ -80,6 +81,7 @@ function InputField({
   hint?: string;
   rightAction?: React.ReactNode;
   error?: string;
+  onFocusScroll?: () => void;
 }) {
   const [focused, setFocused] = useState(false);
   const [isSecured, setIsSecured] = useState(!!secureTextEntry);
@@ -104,7 +106,10 @@ function InputField({
           secureTextEntry={isSecured}
           keyboardType={keyboardType ?? 'default'}
           autoCapitalize={autoCapitalize ?? 'none'}
-          onFocus={() => setFocused(true)}
+          onFocus={() => {
+            setFocused(true);
+            onFocusScroll?.();
+          }}
           onBlur={() => setFocused(false)}
         />
         {secureTextEntry && (
@@ -130,6 +135,7 @@ function InputField({
 
 export default function LoginScreen() {
   const router = useRouter();
+  const scrollRef = useRef<ScrollView>(null);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [errors, setErrors] = useState<{ email?: string; password?: string }>({});
@@ -192,11 +198,9 @@ export default function LoginScreen() {
   return (
     <SafeAreaView style={s.root} edges={['top', 'bottom']}>
       <Navbar onHelp={() => {}} />
-      <KeyboardAvoidingView
-        style={{ flex: 1 }}
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-      >
+      <KeyboardSafeContainer>
         <ScrollView
+          ref={scrollRef}
           contentContainerStyle={s.scroll}
           keyboardShouldPersistTaps="handled"
           showsVerticalScrollIndicator={false}
@@ -228,6 +232,7 @@ export default function LoginScreen() {
               onChangeText={setPassword}
               secureTextEntry
               error={errors.password}
+              onFocusScroll={() => setTimeout(() => scrollRef.current?.scrollTo({ y: 200, animated: true }), 120)}
               rightAction={
                 <TouchableOpacity activeOpacity={0.7} onPress={() => {}}>
                   <Text style={s.forgotText}>Forgot?</Text>
@@ -287,7 +292,7 @@ export default function LoginScreen() {
             </View>
           </View>
         </ScrollView>
-      </KeyboardAvoidingView>
+      </KeyboardSafeContainer>
     </SafeAreaView>
   );
 }

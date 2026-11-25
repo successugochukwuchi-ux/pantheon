@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useRef } from 'react';
 import {
   View,
   Text,
@@ -6,13 +6,12 @@ import {
   TouchableOpacity,
   TextInput,
   ScrollView,
-  KeyboardAvoidingView,
-  Platform,
   Alert,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { F } from '../components/Theme';
+import { KeyboardSafeContainer } from '../components/KeyboardSafeWrapper';
 import { useTheme } from '../context/ThemeContext';
 import { addDoc, collection } from 'firebase/firestore';
 import { db } from '../lib/firebase';
@@ -33,6 +32,7 @@ export default function FeedbackScreen() {
   const { colors: C } = useTheme();
   const s = useMemo(() => createStyles(C), [C]);
   const { profile } = useAuth();
+  const scrollRef = useRef<ScrollView>(null);
 
   const [type, setType] = useState(FEEDBACK_TYPES[2]);
   const [subject, setSubject] = useState('');
@@ -78,10 +78,7 @@ export default function FeedbackScreen() {
 
   return (
     <SafeAreaView style={[s.root, { backgroundColor: C.bg }]} edges={['top']}>
-      <KeyboardAvoidingView 
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-        style={{ flex: 1 }}
-      >
+      <KeyboardSafeContainer>
         <View style={[s.header, { backgroundColor: C.surface, borderBottomColor: C.border }]}>
           <TouchableOpacity onPress={() => router.back()} style={s.backBtn}>
             <BackIcon color={C.ink} />
@@ -90,7 +87,13 @@ export default function FeedbackScreen() {
           <View style={{ width: 44 }} />
         </View>
 
-        <ScrollView style={s.content} contentContainerStyle={{ padding: 20 }}>
+        <ScrollView
+          ref={scrollRef}
+          style={s.content}
+          contentContainerStyle={{ padding: 20, paddingBottom: 40 }}
+          keyboardShouldPersistTaps="handled"
+          showsVerticalScrollIndicator={false}
+        >
           <Text style={[s.label, { color: C.inkLight }]}>WHAT TYPE OF FEEDBACK?</Text>
           <View style={s.typeGrid}>
             {FEEDBACK_TYPES.map((t) => (
@@ -122,11 +125,12 @@ export default function FeedbackScreen() {
             numberOfLines={8}
             textAlignVertical="top"
             value={message}
+            onFocus={() => setTimeout(() => scrollRef.current?.scrollTo({ y: 180, animated: true }), 120)}
             onChangeText={setMessage}
           />
 
-          <TouchableOpacity 
-            style={[s.submitBtn, { backgroundColor: C.ink }, submitting && { opacity: 0.7 }]} 
+          <TouchableOpacity
+            style={[s.submitBtn, { backgroundColor: C.ink }, submitting && { opacity: 0.7 }]}
             onPress={handleSubmit}
             disabled={submitting}
           >
@@ -139,7 +143,7 @@ export default function FeedbackScreen() {
             </Text>
           </View>
         </ScrollView>
-      </KeyboardAvoidingView>
+      </KeyboardSafeContainer>
     </SafeAreaView>
   );
 }

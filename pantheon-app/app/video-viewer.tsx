@@ -38,6 +38,93 @@ interface VideoQuestion {
   incorrectAnswers: string[];
 }
 
+interface VideoQuizCardProps {
+  q: VideoQuestion;
+  idx: number;
+  selectedAnswer: string | undefined;
+  showResults: boolean;
+  onSelect: (qId: string, opt: string) => void;
+  s: any;
+  C: any;
+}
+
+const VideoQuizCard = React.memo(function VideoQuizCard({
+  q,
+  idx,
+  selectedAnswer,
+  showResults,
+  onSelect,
+  s,
+  C,
+}: VideoQuizCardProps) {
+  const options = useMemo(() => {
+    return [...(q.incorrectAnswers || []), q.correctAnswer].sort();
+  }, [q]);
+
+  return (
+    <View style={[s.qCard, { backgroundColor: C.surface, borderColor: C.border }]}>
+      <Text style={[s.qIdxText, { color: C.inkLight }]}>QUESTION {idx + 1}</Text>
+      <MathText text={q.text} style={[s.qText, { color: C.ink }]} />
+
+      <View style={s.optionsList}>
+        {options.map((opt, oIdx) => {
+          const isSelected = selectedAnswer === opt;
+          const isCorrectAnswer = opt === q.correctAnswer;
+
+          let cardBg = C.surface;
+          let borderC = C.border;
+          let textC = C.inkMid;
+
+          if (showResults) {
+            if (isCorrectAnswer) {
+              cardBg = '#E8F6EF';
+              borderC = '#27AE60';
+              textC = '#27AE60';
+            } else if (isSelected) {
+              cardBg = '#FCE8E6';
+              borderC = '#E74C3C';
+              textC = '#E74C3C';
+            } else {
+              cardBg = C.bgAlt;
+              borderC = 'transparent';
+              textC = C.inkLight;
+            }
+          } else if (isSelected) {
+            cardBg = C.bgAlt;
+            borderC = C.ink;
+            textC = C.ink;
+          }
+
+          const prefix = showResults && isCorrectAnswer ? '✓ ' : showResults && isSelected ? '✗ ' : isSelected ? '● ' : '○ ';
+
+          return (
+            <TouchableOpacity
+              key={oIdx}
+              style={[s.optionBtn, { backgroundColor: cardBg, borderColor: borderC }]}
+              onPress={() => {
+                if (!showResults) {
+                  onSelect(q.id, opt);
+                }
+              }}
+              activeOpacity={0.7}
+              disabled={showResults}
+            >
+              <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                <Text style={{ color: textC, fontFamily: isSelected ? F.bold : F.body, marginRight: 4 }}>
+                  {prefix}
+                </Text>
+                <View style={{ flex: 1 }}>
+                  <MathText text={opt} style={[s.optionText, { color: textC }, isSelected && { fontFamily: F.bold }]} />
+                </View>
+              </View>
+            </TouchableOpacity>
+          );
+        })}
+      </View>
+    </View>
+  );
+});
+
 export default function VideoViewerScreen() {
   const router = useRouter();
   const { colors: C } = useTheme();
@@ -57,9 +144,13 @@ export default function VideoViewerScreen() {
   const [showResults, setShowResults] = useState(false);
   const [loadingQuestions, setLoadingQuestions] = useState(false);
 
+  const handleSelectOption = React.useCallback((qId: string, opt: string) => {
+    setUserAnswers(prev => ({ ...prev, [qId]: opt }));
+  }, []);
+
   // 1. Fetch note details dynamically to get the full, live description
   useEffect(() => {
-    if (!noteId || !profile) return;
+    if (!noteId || !profile?.uid) return;
     const docRef = doc(db, 'notes', noteId);
     const unsub = onSnapshot(docRef, (docSnap) => {
       if (docSnap.exists()) {
@@ -69,11 +160,11 @@ export default function VideoViewerScreen() {
       console.error('Error fetching note details:', err);
     });
     return () => unsub();
-  }, [noteId, profile]);
+  }, [noteId, profile?.uid]);
 
   // 2. Fetch the dynamic quiz check questions (VideoQuestions) for this lesson/note
   useEffect(() => {
-    if (!noteId || !profile) return;
+    if (!noteId || !profile?.uid) return;
     setLoadingQuestions(true);
     const q = query(collection(db, 'notes', noteId, 'videoQuestions'));
     const unsub = onSnapshot(q, (snapshot) => {
@@ -85,7 +176,7 @@ export default function VideoViewerScreen() {
       setLoadingQuestions(false);
     });
     return () => unsub();
-  }, [noteId, profile]);
+  }, [noteId, profile?.uid]);
 
   // Translate drive/youtube link to the secure embed formats
   const embedUrl = useMemo(() => {
@@ -412,75 +503,18 @@ export default function VideoViewerScreen() {
                 <Text style={[s.quizCount, { color: C.inkLight }]}>{questions.length} QUESTIONS</Text>
               </View>
 
-              {questions.map((q, idx) => {
-                // Stabilize sorting of option answers alphabetically
-                const options = useMemo(() => {
-                  return [...q.incorrectAnswers, q.correctAnswer].sort();
-                }, [q]);
-
-                return (
-                  <View key={q.id} style={[s.qCard, { backgroundColor: C.surface, borderColor: C.border }]}>
-                    <Text style={[s.qIdxText, { color: C.inkLight }]}>QUESTION {idx + 1}</Text>
-                    <MathText text={q.text} style={[s.qText, { color: C.ink }]} />
-
-                    <View style={s.optionsList}>
-                      {options.map((opt, oIdx) => {
-                        const isSelected = userAnswers[q.id] === opt;
-                        const isCorrectAnswer = opt === q.correctAnswer;
-                        
-                        let cardBg = C.surface;
-                        let borderC = C.border;
-                        let textC = C.inkMid;
-
-                        if (showResults) {
-                          if (isCorrectAnswer) {
-                            cardBg = '#E8F6EF';
-                            borderC = '#27AE60';
-                            textC = '#27AE60';
-                          } else if (isSelected) {
-                            cardBg = '#FCE8E6';
-                            borderC = '#E74C3C';
-                            textC = '#E74C3C';
-                          } else {
-                            cardBg = C.bgAlt;
-                            borderC = 'transparent';
-                            textC = C.inkLight;
-                          }
-                        } else if (isSelected) {
-                          cardBg = C.bgAlt;
-                          borderC = C.ink;
-                          textC = C.ink;
-                        }
-
-                        const prefix = showResults && isCorrectAnswer ? '✓ ' : showResults && isSelected ? '✗ ' : isSelected ? '● ' : '○ ';
-
-                        return (
-                          <TouchableOpacity
-                            key={oIdx}
-                            style={[s.optionBtn, { backgroundColor: cardBg, borderColor: borderC }]}
-                            onPress={() => {
-                              if (!showResults) {
-                                setUserAnswers(prev => ({ ...prev, [q.id]: opt }));
-                              }
-                            }}
-                            activeOpacity={0.7}
-                            disabled={showResults}
-                          >
-                            <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                              <Text style={{ color: textC, fontFamily: isSelected ? F.bold : F.body, marginRight: 4 }}>
-                                {prefix}
-                              </Text>
-                              <View style={{ flex: 1 }}>
-                                <MathText text={opt} style={[s.optionText, { color: textC }, isSelected && { fontFamily: F.bold }]} />
-                              </View>
-                            </View>
-                          </TouchableOpacity>
-                        );
-                      })}
-                    </View>
-                  </View>
-                );
-              })}
+              {questions.map((q, idx) => (
+                <VideoQuizCard
+                  key={q.id}
+                  q={q}
+                  idx={idx}
+                  selectedAnswer={userAnswers[q.id]}
+                  showResults={showResults}
+                  onSelect={handleSelectOption}
+                  s={s}
+                  C={C}
+                />
+              ))}
 
               {!showResults ? (
                 <TouchableOpacity 

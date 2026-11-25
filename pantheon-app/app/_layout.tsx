@@ -22,7 +22,8 @@ export default function RootLayout() {
   const [fontTimeout, setFontTimeout] = useState(false);
 
   useEffect(() => {
-    const timer = setTimeout(() => setFontTimeout(true), 2500);
+    initDatabase();
+    const timer = setTimeout(() => setFontTimeout(true), 1500);
     return () => clearTimeout(timer);
   }, []);
 
@@ -41,8 +42,6 @@ export default function RootLayout() {
   });
 
   useEffect(() => {
-    initDatabase();
-
     if (fontsLoaded || fontError || fontTimeout) {
       SplashScreen.hideAsync().catch(() => {});
     }
@@ -63,7 +62,7 @@ export default function RootLayout() {
         <AutoDownloader />
         <AppUpdater />
         <StatusBar style="auto" />
-        <Stack screenOptions={{ headerShown: false }}>
+        <Stack screenOptions={{ headerShown: false, animation: 'fade', animationDuration: 150, freezeOnBlur: true }}>
         <Stack.Screen name="index" />
         <Stack.Screen name="login" />
         <Stack.Screen name="register" />

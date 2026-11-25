@@ -1,20 +1,20 @@
-import React, { useMemo, useState, useEffect } from 'react';
+import React, { useMemo, useState, useEffect, useCallback } from 'react';
 import {
   View,
   Text,
-  ScrollView,
+  FlatList,
   TouchableOpacity,
   StyleSheet,
-  Image,
   ActivityIndicator,
   Alert,
+  Platform,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { BottomNav } from '../components/BottomNav';
 import { F } from '../components/Theme';
 import { useTheme } from '../context/ThemeContext';
-import { collection, query, where, getDocs, writeBatch, doc, deleteDoc, updateDoc } from 'firebase/firestore';
+import { collection, query, where, getDocs, writeBatch, doc } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 import { useAuth } from '../context/AuthContext';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -41,8 +41,7 @@ function UserSquareIcon() {
   );
 }
 
-function SpeakerIcon() {
-  const { colors: C } = useTheme();
+const SpeakerIcon = React.memo(function SpeakerIcon({ C }: { C: any }) {
   return (
     <View style={{ width: 22, height: 22, backgroundColor: C.ink, borderRadius: 11, justifyContent: 'center', alignItems: 'center' }}>
       <View style={{ width: 6, height: 4, backgroundColor: C.bg, borderTopRightRadius: 4, borderBottomRightRadius: 4, marginRight: 4 }} />
@@ -50,35 +49,9 @@ function SpeakerIcon() {
       <View style={{ position: 'absolute', right: 8, width: 3, height: 6, borderRightWidth: 1.5, borderTopWidth: 1.5, borderBottomWidth: 1.5, borderColor: C.bg, borderTopRightRadius: 3, borderBottomRightRadius: 3, borderLeftWidth: 0 }} />
     </View>
   );
-}
+});
 
-function GroupIcon() {
-  const { colors: C } = useTheme();
-  return (
-    <View style={{ width: 32, height: 32, backgroundColor: C.tagBg || C.bgAlt, borderRadius: 16, justifyContent: 'center', alignItems: 'center' }}>
-      <View style={{ flexDirection: 'row', gap: -2, marginBottom: -2 }}>
-        <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: C.inkLight }} />
-        <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: C.inkLight }} />
-      </View>
-      <View style={{ width: 14, height: 5, borderTopLeftRadius: 6, borderTopRightRadius: 6, backgroundColor: C.inkLight }} />
-    </View>
-  );
-}
-
-function CheckCircleIcon() {
-  const { colors: C } = useTheme();
-  return (
-    <View style={{ width: 32, height: 32, backgroundColor: C.tagBg || C.bgAlt, borderRadius: 16, justifyContent: 'center', alignItems: 'center' }}>
-      <View style={{ width: 18, height: 18, borderWidth: 1.5, borderColor: C.inkLight, borderRadius: 4, justifyContent: 'center', alignItems: 'center' }}>
-         <View style={{ width: 10, height: 2, backgroundColor: C.inkLight, borderRadius: 1, transform: [{ rotate: '45deg' }, { translateX: 2 }, { translateY: 0 }] }} />
-         <View style={{ position: 'absolute', width: 5, height: 2, backgroundColor: C.inkLight, borderRadius: 1, transform: [{ rotate: '-45deg' }, { translateX: -3 }, { translateY: 2 }] }} />
-      </View>
-    </View>
-  );
-}
-
-function ClockIcon() {
-  const { colors: C } = useTheme();
+const ClockIcon = React.memo(function ClockIcon({ C }: { C: any }) {
   return (
     <View style={{ width: 32, height: 32, backgroundColor: C.tagBg || C.bgAlt, borderRadius: 16, justifyContent: 'center', alignItems: 'center' }}>
       <View style={{ width: 18, height: 18, borderWidth: 1.5, borderColor: C.inkLight, borderRadius: 9, justifyContent: 'center', alignItems: 'center' }}>
@@ -87,25 +60,33 @@ function ClockIcon() {
       </View>
     </View>
   );
-}
+});
 
 interface NotificationItemProps {
-  icon: React.ReactNode;
+  isAnnouncement: boolean;
   sender: string;
   time: string;
   title: string;
   desc: string;
   isUnread?: boolean;
+  s: any;
+  C: any;
 }
 
-function NotificationCard({ icon, sender, time, title, desc, isUnread }: NotificationItemProps) {
-  const { colors: C } = useTheme();
-  const s = useMemo(() => createStyles(C), [C]);
-
+const NotificationCard = React.memo(function NotificationCard({
+  isAnnouncement,
+  sender,
+  time,
+  title,
+  desc,
+  isUnread,
+  s,
+  C,
+}: NotificationItemProps) {
   return (
     <TouchableOpacity style={[s.card, { backgroundColor: C.surface, borderColor: C.border }]} activeOpacity={0.7}>
       <View style={s.cardIconArea}>
-        {icon}
+        {isAnnouncement ? <SpeakerIcon C={C} /> : <ClockIcon C={C} />}
         {isUnread && <View style={[s.unreadDot, { backgroundColor: C.activeText || C.ink, borderColor: C.surface }]} />}
       </View>
       <View style={s.cardContent}>
@@ -118,6 +99,22 @@ function NotificationCard({ icon, sender, time, title, desc, isUnread }: Notific
       </View>
     </TouchableOpacity>
   );
+});
+
+function getRelativeTime(dateStr: string) {
+  if (!dateStr) return 'some time ago';
+  try {
+    const ms = new Date().getTime() - new Date(dateStr).getTime();
+    const mins = Math.floor(ms / 60000);
+    if (mins < 1) return 'Just now';
+    if (mins < 60) return `${mins}m ago`;
+    const hours = Math.floor(mins / 60);
+    if (hours < 24) return `${hours}h ago`;
+    const days = Math.floor(hours / 24);
+    return `${days}d ago`;
+  } catch {
+    return 'recent';
+  }
 }
 
 // ── Main Screen ───────────────────────────────────────────────────────────────
@@ -133,19 +130,26 @@ export default function NotificationsScreen() {
   const [clearedAnnouncements, setClearedAnnouncements] = useState<string[]>([]);
 
   useEffect(() => {
-    if (!profile) return;
-    const loadCleared = async () => {
+    if (!profile?.uid) return;
+    let cancelled = false;
+    (async () => {
       try {
-        const stored = await AsyncStorage.getItem(`cleared_announcements_${profile.uid}`);
-        if (stored) {
-          setClearedAnnouncements(JSON.parse(stored));
+        const [clearedRaw, cachedRaw] = await Promise.all([
+          AsyncStorage.getItem(`cleared_announcements_${profile.uid}`),
+          AsyncStorage.getItem(`colearn_notifs_${profile.uid}`),
+        ]);
+        if (cancelled) return;
+        if (clearedRaw) setClearedAnnouncements(JSON.parse(clearedRaw));
+        if (cachedRaw) {
+          setRawItems(JSON.parse(cachedRaw));
+          setLoading(false);
         }
       } catch (err) {
-        console.error("Error loading cleared announcements:", err);
+        console.error("Error loading cached notifications:", err);
       }
-    };
-    loadCleared();
-  }, [profile]);
+    })();
+    return () => { cancelled = true; };
+  }, [profile?.uid]);
 
   const items = useMemo(() => {
     return rawItems.filter((item) => {
@@ -157,56 +161,53 @@ export default function NotificationsScreen() {
   }, [rawItems, clearedAnnouncements]);
 
   useEffect(() => {
-    if (!profile) {
+    if (!profile?.uid) {
       setLoading(false);
       return;
     }
 
-    setLoading(true);
-
+    let cancelled = false;
     const fetchNotificationsAndAnnouncements = async () => {
       try {
-        // 1. Fetch user notifications
         const notifQuery = query(
           collection(db, 'notifications'),
           where('userId', '==', profile.uid)
         );
-        const snapshot = await getDocs(notifQuery);
-        const userNotifs = snapshot.docs.map(doc => ({
-          id: doc.id,
-          ...doc.data(),
+        const [snapshot, annSnapshot] = await Promise.all([
+          getDocs(notifQuery),
+          getDocs(collection(db, 'announcements')),
+        ]);
+        if (cancelled) return;
+
+        const userNotifs = snapshot.docs.map(docSnap => ({
+          id: docSnap.id,
+          ...docSnap.data(),
           isAnnouncement: false,
         }));
 
-        // 2. Fetch general announcements and filter
-        const annSnapshot = await getDocs(collection(db, 'announcements'));
-        const allAnn = annSnapshot.docs.map(doc => ({
-          id: doc.id,
-          ...doc.data(),
+        const allAnn = annSnapshot.docs.map(docSnap => ({
+          id: docSnap.id,
+          ...docSnap.data(),
           isAnnouncement: true,
         }));
 
-        // Filter based on user profile
         const userDept = (profile.department || '').toLowerCase();
         const userLevel = (profile.academicLevel || '100').replace('LVL', '').replace('lvl', '');
 
         const filteredAnn = allAnn.filter((ann: any) => {
-          // Check university filter
           if (ann.At && profile.At && ann.At !== profile.At) return false;
-
           if (ann.targetType === 'all') return true;
           if (ann.targetType === 'uid' && ann.targetValue === profile.uid) return true;
-          
+
           const annDept = (ann.targetValue || '').toLowerCase();
           if (ann.targetType === 'department' && (annDept === userDept || userDept.includes(annDept))) return true;
-          
+
           const annLvl = (ann.targetValue || '').replace('LVL', '').replace('lvl', '');
           if (ann.targetType === 'academicLevel' && annLvl === userLevel) return true;
           return false;
         });
 
-        // Parse date for sorting
-        const formatTime = (dateStr: any) => {
+        const getTs = (dateStr: any) => {
           if (!dateStr) return 0;
           try {
             return new Date(dateStr).getTime();
@@ -215,21 +216,20 @@ export default function NotificationsScreen() {
           }
         };
 
-        // Combine and Sort descending by date
-        const combined = [...userNotifs, ...filteredAnn].sort((a, b) => {
-          return formatTime(b.createdAt) - formatTime(a.createdAt);
-        });
+        const combined: any[] = [...userNotifs, ...filteredAnn].sort((a: any, b: any) => getTs(b.createdAt) - getTs(a.createdAt));
 
         setRawItems(combined);
         setLoading(false);
+        AsyncStorage.setItem(`colearn_notifs_${profile.uid}`, JSON.stringify(combined.slice(0, 50))).catch(() => {});
       } catch (err) {
         console.error("Notifications/Announcements fetch error:", err);
-        setLoading(false);
+        if (!cancelled) setLoading(false);
       }
     };
 
     fetchNotificationsAndAnnouncements();
-  }, [profile]);
+    return () => { cancelled = true; };
+  }, [profile?.uid, profile?.department, profile?.academicLevel, profile?.At]);
 
   // Mark all as read
   const handleMarkAllRead = async () => {
@@ -237,14 +237,17 @@ export default function NotificationsScreen() {
     try {
       const batch = writeBatch(db);
       let count = 0;
+      const markedIds = new Set<string>();
       items.forEach(item => {
         if (!item.isAnnouncement && !item.isRead) {
           batch.update(doc(db, 'notifications', item.id), { isRead: true });
+          markedIds.add(item.id);
           count++;
         }
       });
       if (count > 0) {
         await batch.commit();
+        setRawItems(prev => prev.map(it => markedIds.has(it.id) ? { ...it, isRead: true } : it));
         Alert.alert('Success', 'All notifications marked as read!');
       } else {
         Alert.alert('Info', 'No unread notifications.');
@@ -286,6 +289,9 @@ export default function NotificationsScreen() {
                 await batch.commit();
               }
 
+              setRawItems(prev => prev.filter(it => it.isAnnouncement));
+              AsyncStorage.removeItem(`colearn_notifs_${profile.uid}`).catch(() => {});
+
               if (newClearedAnnIds.length > clearedAnnouncements.length) {
                 setClearedAnnouncements(newClearedAnnIds);
                 await AsyncStorage.setItem(
@@ -304,24 +310,27 @@ export default function NotificationsScreen() {
     );
   };
 
-  // Helper to format dates to relative time
-  const getRelativeTime = (dateStr: string) => {
-    if (!dateStr) return 'some time ago';
-    try {
-      const ms = new Date().getTime() - new Date(dateStr).getTime();
-      const mins = Math.floor(ms / 60000);
-      if (mins < 1) return 'Just now';
-      if (mins < 60) return `${mins}m ago`;
-      const hours = Math.floor(mins / 60);
-      if (hours < 24) return `${hours}h ago`;
-      const days = Math.floor(hours / 24);
-      return `${days}d ago`;
-    } catch {
-      return 'recent';
-    }
-  };
-
   const hasUnread = items.some(it => !it.isAnnouncement && !it.isRead);
+
+  const renderItem = useCallback(({ item }: { item: any }) => {
+    const timeStr = getRelativeTime(item.createdAt);
+    const senderName = item.isAnnouncement ? "Announcement" : (item.sender || item.title || "COLEARN");
+    const titleText = item.title || "New System Notification";
+    const descText = item.desc || item.message || item.detail || "Notification update details.";
+
+    return (
+      <NotificationCard
+        isAnnouncement={!!item.isAnnouncement}
+        sender={senderName}
+        time={timeStr}
+        title={titleText}
+        desc={descText}
+        isUnread={!item.isAnnouncement && !item.isRead}
+        s={s}
+        C={C}
+      />
+    );
+  }, [s, C]);
 
   return (
     <SafeAreaView style={[s.root, { backgroundColor: C.bg }]} edges={['top']}>
@@ -339,14 +348,14 @@ export default function NotificationsScreen() {
       {/* Tabs / Actions */}
       <View style={s.actionRow}>
         <View style={s.tabContainer}>
-           <TouchableOpacity 
-             style={[s.tabActive, { backgroundColor: hasUnread ? C.ink : C.border }]} 
+           <TouchableOpacity
+             style={[s.tabActive, { backgroundColor: hasUnread ? C.ink : C.border }]}
              onPress={handleMarkAllRead}
              disabled={!hasUnread}
            >
              <Text style={[s.tabTextActive, { color: C.bg }]}>Mark all as read</Text>
            </TouchableOpacity>
-           <TouchableOpacity 
+           <TouchableOpacity
              style={[s.tab, { borderColor: C.border }]}
              onPress={handleDeleteAll}
            >
@@ -356,42 +365,33 @@ export default function NotificationsScreen() {
         <Text style={[s.sectionHeaderLabel, { color: C.inkMid }]}>LOGS</Text>
       </View>
 
-      <ScrollView style={s.scroll} contentContainerStyle={s.scrollContent} showsVerticalScrollIndicator={false}>
-        {loading ? (
-          <View style={{ padding: 40, alignItems: 'center' }}>
-            <ActivityIndicator size="large" color={C.ink} />
-          </View>
-        ) : items.length === 0 ? (
-          <View style={{ padding: 40, alignItems: 'center', justifyContent: 'center' }}>
-            <Text style={{ fontSize: 44, marginBottom: 12 }}>🔔</Text>
-            <Text style={{ fontFamily: F.bold, fontSize: 18, color: C.ink, marginBottom: 8 }}>All caught up!</Text>
-            <Text style={{ fontFamily: F.medium, fontSize: 14, color: C.inkLight, textAlign: 'center' }}>
-              No notifications or announcements found.
-            </Text>
-          </View>
-        ) : (
-          items.map((item) => {
-            const timeStr = getRelativeTime(item.createdAt);
-            const icon = item.isAnnouncement ? <SpeakerIcon /> : <ClockIcon />;
-            const senderName = item.isAnnouncement ? "Announcement" : (item.sender || item.title || "COLEARN");
-            const titleText = item.title || "New System Notification";
-            const descText = item.desc || item.message || item.detail || "Notification update details.";
-
-            return (
-              <NotificationCard
-                key={item.id}
-                icon={icon}
-                sender={senderName}
-                time={timeStr}
-                title={titleText}
-                desc={descText}
-                isUnread={!item.isAnnouncement && !item.isRead}
-              />
-            );
-          })
-        )}
-        <View style={{ height: 100 }} />
-      </ScrollView>
+      <FlatList
+        style={s.scroll}
+        contentContainerStyle={[s.scrollContent, { paddingBottom: 110 }]}
+        showsVerticalScrollIndicator={false}
+        data={loading ? [] : items}
+        keyExtractor={(item) => item.id}
+        renderItem={renderItem}
+        initialNumToRender={10}
+        maxToRenderPerBatch={10}
+        windowSize={7}
+        removeClippedSubviews={Platform.OS === 'android'}
+        ListEmptyComponent={
+          loading ? (
+            <View style={{ padding: 40, alignItems: 'center' }}>
+              <ActivityIndicator size="large" color={C.ink} />
+            </View>
+          ) : (
+            <View style={{ padding: 40, alignItems: 'center', justifyContent: 'center' }}>
+              <Text style={{ fontSize: 44, marginBottom: 12 }}>🔔</Text>
+              <Text style={{ fontFamily: F.bold, fontSize: 18, color: C.ink, marginBottom: 8 }}>All caught up!</Text>
+              <Text style={{ fontFamily: F.medium, fontSize: 14, color: C.inkLight, textAlign: 'center' }}>
+                No notifications or announcements found.
+              </Text>
+            </View>
+          )
+        }
+      />
 
       <BottomNav active="social" />
     </SafeAreaView>

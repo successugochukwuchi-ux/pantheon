@@ -1,14 +1,14 @@
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import {
   View,
   Text,
   StyleSheet,
-  ScrollView,
   TouchableOpacity,
   Image,
   Modal,
   FlatList,
   ActivityIndicator,
+  Platform,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
@@ -43,6 +43,64 @@ interface Note {
   courseId: string;
 }
 
+const DEFAULT_THUMBNAIL = 'https://images.unsplash.com/photo-1516321318423-f06f85e504b3?w=800&auto=format&fit=crop';
+
+const VideoCard = React.memo(function VideoCard({
+  item: v,
+  onPress,
+  s,
+  C,
+}: {
+  item: Note;
+  onPress: (note: Note) => void;
+  s: any;
+  C: any;
+}) {
+  return (
+    <TouchableOpacity
+      style={[s.videoCard, { backgroundColor: C.surface, borderColor: C.border }]}
+      activeOpacity={0.85}
+      onPress={() => onPress(v)}
+    >
+      <View style={s.thumbnailWrapper}>
+        <Image source={{ uri: v.thumbnail || DEFAULT_THUMBNAIL }} style={s.thumbnail} />
+        <View style={s.durationBadge}>
+          <Text style={s.durationText}>Lesson</Text>
+        </View>
+      </View>
+
+      <View style={s.cardBody}>
+        <View style={s.titleRow}>
+          <Text style={[s.videoTitle, { color: C.ink }]} numberOfLines={1}>{v.title}</Text>
+          <MoreIcon color={C.inkLight} />
+        </View>
+        <Text style={[s.videoDesc, { color: C.inkMid }]} numberOfLines={2}>
+          {v.summary || v.description || 'Interactive concept check video lesson for this note.'}
+        </Text>
+
+        <View style={s.metaRow}>
+          <View style={[s.badge, { backgroundColor: C.tagBg || C.bgAlt }]}>
+            <Text style={[s.badgeIcon, { color: C.inkLight }]}>👁</Text>
+            <Text style={[s.badgeText, { color: C.inkMid }]}>{v.views || '1.2k'} views</Text>
+          </View>
+
+          <View style={[s.badge, { backgroundColor: C.tagBg || C.bgAlt }]}>
+            <Text style={[s.badgeIcon, { color: C.inkLight }]}>☆</Text>
+            <Text style={[s.badgeText, { color: C.inkMid }]}>{v.rating || '4.9'}</Text>
+          </View>
+
+          {v.status && (
+            <View style={[s.badge, { backgroundColor: v.status === 'Completed' ? '#E8F6EF' : (C.tagBg || C.bgAlt) }]}>
+              {v.status === 'Completed' && <Text style={{ color: '#27AE60', marginRight: 4 }}>✓</Text>}
+              <Text style={[s.badgeText, { color: C.inkMid }, v.status === 'Completed' && { color: '#27AE60' }]}>{v.status}</Text>
+            </View>
+          )}
+        </View>
+      </View>
+    </TouchableOpacity>
+  );
+});
+
 export default function VideoLibraryScreen() {
   const router = useRouter();
   const { profile, systemConfig } = useAuth();
@@ -50,6 +108,92 @@ export default function VideoLibraryScreen() {
   const s = useMemo(() => createStyles(C), [C]);
 
   const isUnactivatedStudent = (!profile || !profile.isActivated) && profile?.level !== '3' && profile?.level !== '4';
+
+  const [courses, setCourses] = useState<Course[]>([]);
+  const [selectedCourse, setSelectedCourse] = useState<Course | null>(null);
+  const [notes, setNotes] = useState<Note[]>([]);
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const [loading, setLoading] = useState(true);
+
+  // 1. Fetch courses sorted by course code matching current active semester
+  useEffect(() => {
+    if (isUnactivatedStudent || !profile) return;
+    setLoading(true);
+
+    const applyCourseList = (filtered: Course[]) => {
+      filtered.sort((a, b) => (a.code || '').localeCompare(b.code || ''));
+      setCourses(filtered);
+      if (filtered.length > 0) {
+        setSelectedCourse(prev => (prev && filtered.some(c => c.id === prev.id)) ? prev : filtered[0]);
+      } else {
+        setSelectedCourse(null);
+      }
+      setLoading(false);
+    };
+
+    const activeSemester = (!systemConfig?.currentSemester || systemConfig.currentSemester === 'none') ? '1st' : systemConfig.currentSemester;
+
+    // Primary: Check local SQLite courses first (0 Firestore reads)
+    try {
+      const localCourses = getDownloadedCoursesLocal();
+      if (localCourses && localCourses.length > 0) {
+        getFilteredCoursesForStudent(localCourses, profile, true, activeSemester).then(filtered => {
+          if (filtered && filtered.length > 0) {
+            applyCourseList(filtered as Course[]);
+          } else {
+            setLoading(false);
+          }
+        });
+        return; // Completely bypass Firestore
+      }
+    } catch (e) {}
+
+    const q = query(
+      collection(db, 'courses'),
+      where('semester', '==', activeSemester)
+    );
+    getDocs(q).then(async (snapshot) => {
+      const allCourses = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Course));
+      const filtered = await getFilteredCoursesForStudent(allCourses, profile, true, activeSemester);
+      applyCourseList(filtered);
+    }).catch((err) => {
+      console.error('Error fetching courses:', err);
+      setLoading(false);
+    });
+  }, [isUnactivatedStudent, profile?.uid, profile?.department, profile?.academicLevel, systemConfig?.currentSemester]);
+
+  // 2. Fetch notes belonging to the selected course which have videoUrls
+  useEffect(() => {
+    if (isUnactivatedStudent || !selectedCourse?.id || !profile) {
+      setNotes([]);
+      return;
+    }
+    const q = query(collection(db, 'notes'), where('courseId', '==', selectedCourse.id));
+    getDocs(q).then((snapshot) => {
+      const allNotes = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Note));
+      // Only keep notes that have a non-empty videoUrl
+      const videoNotes = allNotes.filter(n => n.videoUrl && n.videoUrl.trim().length > 0);
+      setNotes(videoNotes);
+    }).catch((err) => {
+      console.error('Error fetching notes:', err);
+    });
+  }, [isUnactivatedStudent, selectedCourse?.id, profile?.uid]);
+
+  const handleOpenVideo = useCallback((v: Note) => {
+    router.push({
+      pathname: '/video-viewer',
+      params: {
+        noteId: v.id,
+        title: v.title,
+        videoUrl: v.videoUrl,
+        courseId: v.courseId,
+      },
+    });
+  }, [router]);
+
+  const renderVideoItem = useCallback(({ item }: { item: Note }) => (
+    <VideoCard item={item} onPress={handleOpenVideo} s={s} C={C} />
+  ), [handleOpenVideo, s, C]);
 
   if (isUnactivatedStudent) {
     return (
@@ -95,78 +239,6 @@ export default function VideoLibraryScreen() {
     );
   }
 
-  const [courses, setCourses] = useState<Course[]>([]);
-  const [selectedCourse, setSelectedCourse] = useState<Course | null>(null);
-  const [notes, setNotes] = useState<Note[]>([]);
-  const [pickerOpen, setPickerOpen] = useState(false);
-  const [loading, setLoading] = useState(true);
-
-  // 1. Fetch courses sorted by course code matching current active semester
-  useEffect(() => {
-    if (!profile) return;
-    setLoading(true);
-
-    const applyCourseList = (filtered: Course[]) => {
-      filtered.sort((a, b) => (a.code || '').localeCompare(b.code || ''));
-      setCourses(filtered);
-      if (filtered.length > 0) {
-        if (!selectedCourse || !filtered.some(c => c.id === selectedCourse.id)) {
-          setSelectedCourse(filtered[0]);
-        }
-      } else {
-        setSelectedCourse(null);
-      }
-      setLoading(false);
-    };
-
-    const activeSemester = (!systemConfig?.currentSemester || systemConfig.currentSemester === 'none') ? '1st' : systemConfig.currentSemester;
-
-    // Primary: Check local SQLite courses first (0 Firestore reads)
-    try {
-      const localCourses = getDownloadedCoursesLocal();
-      if (localCourses && localCourses.length > 0) {
-        getFilteredCoursesForStudent(localCourses, profile, true, activeSemester).then(filtered => {
-          if (filtered && filtered.length > 0) {
-            applyCourseList(filtered as Course[]);
-          } else {
-            setLoading(false);
-          }
-        });
-        return; // Completely bypass Firestore
-      }
-    } catch (e) {}
-
-    const q = query(
-      collection(db, 'courses'),
-      where('semester', '==', activeSemester)
-    );
-    getDocs(q).then(async (snapshot) => {
-      const allCourses = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Course));
-      const filtered = await getFilteredCoursesForStudent(allCourses, profile, true, activeSemester);
-      applyCourseList(filtered);
-    }).catch((err) => {
-      console.error('Error fetching courses:', err);
-      setLoading(false);
-    });
-  }, [profile, systemConfig]);
-
-  // 2. Fetch notes belonging to the selected course which have videoUrls
-  useEffect(() => {
-    if (!selectedCourse?.id || !profile) {
-      setNotes([]);
-      return;
-    }
-    const q = query(collection(db, 'notes'), where('courseId', '==', selectedCourse.id));
-    getDocs(q).then((snapshot) => {
-      const allNotes = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Note));
-      // Only keep notes that have a non-empty videoUrl
-      const videoNotes = allNotes.filter(n => n.videoUrl && n.videoUrl.trim().length > 0);
-      setNotes(videoNotes);
-    }).catch((err) => {
-      console.error('Error fetching notes:', err);
-    });
-  }, [selectedCourse, profile]);
-
   const videoLessonsCount = notes.length;
 
   return (
@@ -181,101 +253,58 @@ export default function VideoLibraryScreen() {
         </TouchableOpacity>
       </View>
 
-      <ScrollView style={s.content} showsVerticalScrollIndicator={false}>
-        <View style={[s.courseSelectorWrapper, { backgroundColor: C.bgAlt }]}>
-           <Text style={[s.label, { color: C.inkLight }]}>SELECT COURSE</Text>
-           <TouchableOpacity 
-             style={[s.courseSelector, { backgroundColor: C.surface, borderColor: C.border }]} 
-             activeOpacity={0.7}
-             onPress={() => setPickerOpen(true)}
-           >
-              <Text style={[s.courseText, { color: C.ink }]}>
-                {selectedCourse ? `${selectedCourse.code} - ${selectedCourse.title}` : 'Select Course...'}
+      <FlatList
+        style={s.content}
+        data={loading ? [] : notes}
+        keyExtractor={(item) => item.id}
+        renderItem={renderVideoItem}
+        showsVerticalScrollIndicator={false}
+        contentContainerStyle={{ paddingBottom: 100 }}
+        initialNumToRender={5}
+        maxToRenderPerBatch={5}
+        windowSize={7}
+        removeClippedSubviews={Platform.OS === 'android'}
+        ItemSeparatorComponent={() => <View style={{ height: 20 }} />}
+        ListHeaderComponent={
+          <>
+            <View style={[s.courseSelectorWrapper, { backgroundColor: C.bgAlt }]}>
+              <Text style={[s.label, { color: C.inkLight }]}>SELECT COURSE</Text>
+              <TouchableOpacity
+                style={[s.courseSelector, { backgroundColor: C.surface, borderColor: C.border }]}
+                activeOpacity={0.7}
+                onPress={() => setPickerOpen(true)}
+              >
+                <Text style={[s.courseText, { color: C.ink }]}>
+                  {selectedCourse ? `${selectedCourse.code} - ${selectedCourse.title}` : 'Select Course...'}
+                </Text>
+                <ChevronDownIcon />
+              </TouchableOpacity>
+            </View>
+
+            <View style={s.sectionHeader}>
+              <Text style={[s.sectionTitle, { color: C.ink }]}>Video Lessons</Text>
+              <Text style={[s.count, { color: C.inkLight }]}>
+                {videoLessonsCount} {videoLessonsCount === 1 ? 'LESSON' : 'LESSONS'}
               </Text>
-              <ChevronDownIcon />
-           </TouchableOpacity>
-        </View>
-
-        <View style={s.sectionHeader}>
-           <Text style={[s.sectionTitle, { color: C.ink }]}>Video Lessons</Text>
-           <Text style={[s.count, { color: C.inkLight }]}>
-             {videoLessonsCount} {videoLessonsCount === 1 ? 'LESSON' : 'LESSONS'}
-           </Text>
-        </View>
-
-        {loading ? (
-          <View style={s.loadingContainer}>
-            <ActivityIndicator size="large" color={C.ink} />
-          </View>
-        ) : notes.length === 0 ? (
-          <View style={s.emptyContainer}>
-            <Text style={{ fontSize: 44, marginBottom: 12 }}>📹</Text>
-            <Text style={[s.emptyTitle, { color: C.ink }]}>No video lessons found</Text>
-            <Text style={[s.emptyText, { color: C.inkLight }]}>
-              There are no video lessons available for this course yet.
-            </Text>
-          </View>
-        ) : (
-          <View style={s.videoList}>
-            {notes.map((v) => {
-              const defaultThumbnail = 'https://images.unsplash.com/photo-1516321318423-f06f85e504b3?w=800&auto=format&fit=crop';
-              return (
-                <TouchableOpacity 
-                  key={v.id} 
-                  style={[s.videoCard, { backgroundColor: C.surface, borderColor: C.border }]} 
-                  activeOpacity={0.85}
-                  onPress={() => router.push({ 
-                    pathname: '/video-viewer', 
-                    params: { 
-                      noteId: v.id, 
-                      title: v.title,
-                      videoUrl: v.videoUrl,
-                      courseId: v.courseId
-                    } 
-                  })}
-                >
-                  <View style={s.thumbnailWrapper}>
-                    <Image source={{ uri: v.thumbnail || defaultThumbnail }} style={s.thumbnail} />
-                    <View style={s.durationBadge}>
-                      <Text style={s.durationText}>Lesson</Text>
-                    </View>
-                  </View>
-                  
-                  <View style={s.cardBody}>
-                    <View style={s.titleRow}>
-                      <Text style={[s.videoTitle, { color: C.ink }]} numberOfLines={1}>{v.title}</Text>
-                      <MoreIcon color={C.inkLight} />
-                    </View>
-                    <Text style={[s.videoDesc, { color: C.inkMid }]} numberOfLines={2}>
-                      {v.summary || v.description || 'Interactive concept check video lesson for this note.'}
-                    </Text>
-                    
-                    <View style={s.metaRow}>
-                      <View style={[s.badge, { backgroundColor: C.tagBg || C.bgAlt }]}>
-                        <Text style={[s.badgeIcon, { color: C.inkLight }]}>👁</Text>
-                        <Text style={[s.badgeText, { color: C.inkMid }]}>{v.views || '1.2k'} views</Text>
-                      </View>
-                      
-                       <View style={[s.badge, { backgroundColor: C.tagBg || C.bgAlt }]}>
-                         <Text style={[s.badgeIcon, { color: C.inkLight }]}>☆</Text>
-                         <Text style={[s.badgeText, { color: C.inkMid }]}>{v.rating || '4.9'}</Text>
-                       </View>
-
-                       {v.status && (
-                          <View style={[s.badge, { backgroundColor: v.status === 'Completed' ? '#E8F6EF' : (C.tagBg || C.bgAlt) }]}>
-                             {v.status === 'Completed' && <Text style={{ color: '#27AE60', marginRight: 4 }}>✓</Text>}
-                             <Text style={[s.badgeText, { color: C.inkMid }, v.status === 'Completed' && { color: '#27AE60' }]}>{v.status}</Text>
-                          </View>
-                       )}
-                    </View>
-                  </View>
-                </TouchableOpacity>
-              );
-            })}
-          </View>
-        )}
-        <View style={{ height: 100 }} />
-      </ScrollView>
+            </View>
+          </>
+        }
+        ListEmptyComponent={
+          loading ? (
+            <View style={s.loadingContainer}>
+              <ActivityIndicator size="large" color={C.ink} />
+            </View>
+          ) : (
+            <View style={s.emptyContainer}>
+              <Text style={{ fontSize: 44, marginBottom: 12 }}>📹</Text>
+              <Text style={[s.emptyTitle, { color: C.ink }]}>No video lessons found</Text>
+              <Text style={[s.emptyText, { color: C.inkLight }]}>
+                There are no video lessons available for this course yet.
+              </Text>
+            </View>
+          )
+        }
+      />
 
       {/* Dynamic Course Picker Modal */}
       <Modal

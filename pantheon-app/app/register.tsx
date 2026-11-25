@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import {
   View,
   Text,
@@ -6,18 +6,18 @@ import {
   TouchableOpacity,
   StyleSheet,
   ScrollView,
-  KeyboardAvoidingView,
-  Platform,
   Modal,
   FlatList,
   Image,
+  Alert,
+  ActivityIndicator,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
+import { KeyboardSafeContainer } from '../components/KeyboardSafeWrapper';
 import { auth, db } from '../lib/firebase';
 import { createUserWithEmailAndPassword } from 'firebase/auth';
-import { doc, setDoc, serverTimestamp, increment, collection, getDocs } from 'firebase/firestore';
-import { Alert, ActivityIndicator } from 'react-native';
+import { doc, setDoc, increment, collection, getDocs } from 'firebase/firestore';
 
 const C = {
   bg: '#F0EFF5',
@@ -144,6 +144,7 @@ function InputField({
   keyboardType,
   autoCapitalize,
   error,
+  onFocusScroll,
 }: {
   label: string;
   placeholder: string;
@@ -153,6 +154,7 @@ function InputField({
   keyboardType?: any;
   autoCapitalize?: any;
   error?: string;
+  onFocusScroll?: () => void;
 }) {
   const [focused, setFocused] = useState(false);
   const [isSecured, setIsSecured] = useState(!!secureTextEntry);
@@ -174,7 +176,10 @@ function InputField({
           secureTextEntry={isSecured}
           keyboardType={keyboardType ?? 'default'}
           autoCapitalize={autoCapitalize ?? 'none'}
-          onFocus={() => setFocused(true)}
+          onFocus={() => {
+            setFocused(true);
+            onFocusScroll?.();
+          }}
           onBlur={() => setFocused(false)}
         />
         {secureTextEntry && (
@@ -267,6 +272,7 @@ type FormErrors = {
 
 export default function RegisterScreen() {
   const router = useRouter();
+  const scrollRef = useRef<ScrollView>(null);
 
   const [accountType, setAccountType] = useState<'student' | 'vendor'>('student');
   const [form, setForm] = useState({
@@ -424,11 +430,9 @@ export default function RegisterScreen() {
   return (
     <SafeAreaView style={s.root} edges={['top', 'bottom']}>
       <Navbar />
-      <KeyboardAvoidingView
-        style={{ flex: 1 }}
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-      >
+      <KeyboardSafeContainer>
         <ScrollView
+          ref={scrollRef}
           contentContainerStyle={s.scroll}
           keyboardShouldPersistTaps="handled"
           showsVerticalScrollIndicator={false}
@@ -530,6 +534,7 @@ export default function RegisterScreen() {
               onChangeText={set('phone')}
               keyboardType="phone-pad"
               error={errors.phone}
+              onFocusScroll={() => setTimeout(() => scrollRef.current?.scrollTo({ y: 480, animated: true }), 140)}
             />
 
             <InputField
@@ -539,6 +544,7 @@ export default function RegisterScreen() {
               onChangeText={set('password')}
               secureTextEntry
               error={errors.password}
+              onFocusScroll={() => setTimeout(() => scrollRef.current?.scrollTo({ y: 580, animated: true }), 140)}
             />
 
             <InputField
@@ -548,6 +554,7 @@ export default function RegisterScreen() {
               onChangeText={set('confirmPassword')}
               secureTextEntry
               error={errors.confirmPassword}
+              onFocusScroll={() => setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 140)}
             />
 
             <TouchableOpacity 
@@ -591,7 +598,7 @@ export default function RegisterScreen() {
             <Text style={s.footerCopy}>© 2026 Pillara Education 2026</Text>
           </View>
         </ScrollView>
-      </KeyboardAvoidingView>
+      </KeyboardSafeContainer>
     </SafeAreaView>
   );
 }

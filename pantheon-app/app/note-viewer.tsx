@@ -13,7 +13,6 @@ import {
   ActivityIndicator,
   Image,
   Alert,
-  KeyboardAvoidingView,
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter, useLocalSearchParams, usePathname } from 'expo-router';
@@ -33,6 +32,7 @@ import { BirdIcon, CalculatorIcon, MicIcon, StopIcon, SendIcon } from '../compon
 import { NoteRenderer } from '../components/NoteRenderer';
 import { HermesMessageContent } from '../components/HermesMessageContent';
 import { MathText } from '../components/MathText';
+import { KeyboardSafeModalView, useKeyboardHeight } from '../components/KeyboardSafeWrapper';
 import { Audio } from 'expo-av';
 import * as FileSystem from 'expo-file-system';
 import { getBackendUrls } from '../lib/backendConfig';
@@ -57,7 +57,13 @@ import {
   setCachedCourseNotes,
   sortNotesAlphabetically,
 } from '../lib/noteCache';
-import { transcribeHermesAudio } from '../lib/hermesService';
+import {
+  ChatMessage,
+  AIConfig,
+  chatWithHermesMobileStream,
+  transcribeHermesAudio,
+  sanitizeHermesError,
+} from '../lib/hermesService';
 import * as Speech from 'expo-speech';
 import { WebView } from 'react-native-webview';
 
@@ -94,278 +100,6 @@ interface Note {
   summary?: string;
 }
 
-interface ChatMessage {
-  role: 'user' | 'assistant' | 'system';
-  content: string;
-}
-
-interface AIConfig {
-  provider: 'gemini' | 'groq' | 'openrouter' | 'openai' | 'custom';
-  baseUrl?: string;
-  apiKey: string;
-  model?: string;
-  isActive?: boolean;
-}
-
-// Helper to normalize OpenAI-compatible Base URLs for Mobile
-function normalizeOpenAIBaseUrl(rawUrl?: string, provider?: string): string {
-  let url = (rawUrl || '').trim();
-  if (!url) {
-    if (provider === 'groq') return 'https://api.groq.com/openai/v1';
-    if (provider === 'openrouter') return 'https://openrouter.ai/api/v1';
-    if (provider === 'openai' || provider === 'custom') return 'https://api.openai.com/v1';
-    return 'https://api.openai.com/v1';
-  }
-
-  // Strip trailing slashes
-  url = url.replace(/\/+$/, '');
-
-  // Upgrade insecure HTTP to HTTPS for remote domains
-  if (url.startsWith('http://') && !url.includes('localhost') && !url.includes('127.0.0.1') && !url.includes('192.168.') && !url.includes('10.') && !url.includes('172.16.')) {
-    url = 'https://' + url.substring(7);
-  }
-
-  // Strip full endpoint suffixes if mistakenly pasted
-  if (url.endsWith('/chat/completions')) {
-    url = url.replace(/\/chat\/completions$/, '');
-  }
-
-  // Provider specific canonical paths
-  if (/^https?:\/\/api\.openai\.com$/i.test(url)) {
-    url = 'https://api.openai.com/v1';
-  }
-  if (/^https?:\/\/api\.groq\.com$/i.test(url) || /^https?:\/\/api\.groq\.com\/v1$/i.test(url)) {
-    url = 'https://api.groq.com/openai/v1';
-  }
-  if (/^https?:\/\/openrouter\.ai$/i.test(url) || /^https?:\/\/openrouter\.ai\/v1$/i.test(url) || /^https?:\/\/openrouter\.ai\/api$/i.test(url)) {
-    url = 'https://openrouter.ai/api/v1';
-  }
-  if (/^https?:\/\/api\.deepseek\.com$/i.test(url)) {
-    url = 'https://api.deepseek.com/v1';
-  }
-  if (/^https?:\/\/api\.together\.xyz$/i.test(url) || /^https?:\/\/api\.together\.ai$/i.test(url)) {
-    url = 'https://api.together.xyz/v1';
-  }
-  if (/^https?:\/\/api\.x\.ai$/i.test(url)) {
-    url = 'https://api.x.ai/v1';
-  }
-  if (/^https?:\/\/api\.mistral\.ai$/i.test(url)) {
-    url = 'https://api.mistral.ai/v1';
-  }
-  if (/^https?:\/\/api\.perplexity\.ai$/i.test(url)) {
-    url = 'https://api.perplexity.ai';
-  }
-
-  return url.replace(/\/+$/, '');
-}
-
-function getMobileBackendUrls(): string[] {
-  const urls: string[] = [];
-  urls.push('https://colearn-backend-tzo9.onrender.com');
-
-  if (typeof process !== 'undefined' && (process.env as any)?.EXPO_PUBLIC_BACKEND_URL) {
-    urls.push((process.env as any).EXPO_PUBLIC_BACKEND_URL);
-  }
-
-  if (typeof window !== 'undefined' && window.location?.origin && window.location.origin.startsWith('http')) {
-    const origin = window.location.origin;
-    if (!origin.includes(':8081') && !origin.includes(':19000') && !origin.includes(':8082')) {
-      urls.push(origin);
-    }
-  }
-
-  return Array.from(new Set(urls.filter(Boolean)));
-}
-
-async function chatWithHermesMobile(messages: ChatMessage[], noteContent: string, config?: AIConfig, isVoiceCall?: boolean) {
-  // Strategy 1: Try candidate backend proxies first (which handle keys and resilient fallbacks)
-  const candidateUrls = getMobileBackendUrls();
-  for (const baseUrl of candidateUrls) {
-    try {
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 12000);
-      const res = await fetch(`${baseUrl.replace(/\/+$/, '')}/api/hermes/chat`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ messages, noteContent, config, isVoiceCall: Boolean(isVoiceCall) }),
-        signal: controller.signal
-      });
-      clearTimeout(timeoutId);
-      if (res.ok) {
-        const data = await res.json();
-        if (data?.content) {
-          return data.content as string;
-        }
-      }
-    } catch (errProxy) {
-      console.warn(`Backend candidate ${baseUrl} unavailable:`, errProxy);
-    }
-  }
-
-  // Strategy 2: Direct Client-Side Fallback
-  const provider = config?.provider || 'groq';
-  let model = config?.model;
-  
-  if (!model) {
-    model = provider === 'groq' ? 'llama-3.3-70b-versatile' : provider === 'gemini' ? 'gemini-2.5-flash' : provider === 'openrouter' ? 'google/gemini-2.0-flash-001' : 'gpt-4o-mini';
-  }
-  
-  // Clean model ID for Groq
-  if (provider === 'groq' && model.includes('/')) {
-    const parts = model.split('/');
-    model = parts[parts.length - 1]; 
-  }
-
-  const rawKey = config?.apiKey || '';
-  const apiKey = rawKey.toString().replace(/\s+/g, '').replace(/['"]/g, '').replace(/[\u200B-\u200D\uFEFF]/g, '');
-
-  // 1. Truncate note content to prevent model context limits
-  const maxNoteLength = 15000;
-  const truncatedNote = (noteContent || '').length > maxNoteLength
-    ? noteContent.substring(0, maxNoteLength) + "\n\n[Study Note content truncated to fit system context window limitations...]"
-    : (noteContent || '');
-
-  // 2. Slice messages history to keep context footprint small
-  const maxHistoryCount = 8;
-  const slicedMessages = (messages || []).length > maxHistoryCount
-    ? messages.slice(-maxHistoryCount)
-    : (messages || []);
-
-  const voiceCallDirective = isVoiceCall
-    ? `\n\nCRITICAL LIVE VOICE CALL DIRECTIVE (GEMINI LIVE STYLE):
-- You are currently speaking with the student on a LIVE REAL-TIME PHONE/VOICE CALL.
-- Keep your response strictly conversational, punchy, and concise: MAXIMUM 1 TO 2 SHORT SENTENCES (under 25 words).
-- Answer the student's question immediately and naturally like a live tutor on the phone.
-- STRICTLY FORBIDDEN: NEVER use emojis, bullet points, numbered lists, markdown headings, code blocks, bold markers, or conversational filler like "Sure thing!" or "Certainly!".
-- Never give long lectures or over-explain; if the student wants more depth, they will ask in their next turn.\n`
-    : '';
-
-  const systemPrompt: ChatMessage = {
-    role: 'system',
-    content: `You are Hermes, a friendly, intelligent, and polite academic assistant on CoLearn designed to help students study, understand, and query their lecture notes.${voiceCallDirective}
-
-CORE CAPABILITIES & GUIDELINES:
-1. GREETINGS & COURTESY: Always respond warmly, politely, and helpfully to user greetings (e.g. "hi", "hello", "good day", "how are you?") and pleasantries. Welcome the student and express readiness to assist them with their note.
-2. ABOUT HERMES: Answer questions about yourself clearly, accurately, and politely. You are Hermes, the dedicated AI study companion on CoLearn, designed to help students explore, understand, summarize, and master their lecture notes and academic materials.
-3. NOTE INQUIRIES & ACADEMIC HELP: Answer questions about the provided "STUDY NOTE CONTENT" below. Explain, summarize, simplify, or clarify the concepts, definitions, examples, and details found in the note.
-4. MATHEMATICAL & SCIENTIFIC NOTATION:
-CRITICAL FORMATTING MANDATE: Every mathematical formula, equation, variable, fraction, power, or symbol MUST be wrapped in single dollar signs $ ... $ for inline math (e.g. $E=mc^2$, $\\frac{a}{b}$, $\\sqrt{x}$, $\\theta$) or double dollar signs $$ ... $$ for standalone display formulas. NEVER output raw bare LaTeX commands like \\frac or \\sqrt without dollar signs.
-5. BOUNDARIES FOR UNRELATED TOPICS: You should only answer questions about yourself, user greetings, and this study note. If the user asks about completely unrelated topics (such as general entertainment, unrelated coding, pop culture, or unrelated news), politely explain that you are dedicated to helping them with this note and invite them to ask questions about the current topic.
-6. Keep your explanations clear, educational, well-formatted, and helpful.
-
-STUDY NOTE CONTENT:
-${truncatedNote}
-`
-  };
-
-  // ─── GOOGLE GEMINI (Direct REST API) ─────────────────────────────────────────
-  const isGemini = provider === 'gemini' || apiKey.startsWith('AIza') || (config?.baseUrl && config.baseUrl.includes('generativelanguage.googleapis.com'));
-  if (isGemini) {
-    if (!apiKey) {
-      throw new Error('Google Gemini Chat AI is not configured. Please set an API Key in the Admin Panel.');
-    }
-    const targetModel = !model || model.includes('1.5') || model.includes('2.0-flash-lite') ? 'gemini-2.5-flash' : model;
-    const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${targetModel}:generateContent?key=${apiKey}`;
-    
-    const latestUserMsg = slicedMessages.length > 0 ? slicedMessages[slicedMessages.length - 1].content : '';
-    const body = {
-      contents: [
-        {
-          role: 'user',
-          parts: [{ text: `SYSTEM INSTRUCTIONS:\n${systemPrompt.content}\n\nUSER QUESTION: ${latestUserMsg}` }]
-        }
-      ]
-    };
-
-    const response = await fetch(geminiUrl, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
-    });
-
-    if (!response.ok) {
-      const errData = await response.json().catch(() => ({}));
-      throw new Error(errData?.error?.message || `Gemini API error (${response.status})`);
-    }
-
-    const data = await response.json();
-    return data?.candidates?.[0]?.content?.parts?.[0]?.text || "I'm sorry, I couldn't generate a response.";
-  }
-
-  // ─── OPENAI-COMPATIBLE ENDPOINT (Groq, OpenRouter, OpenAI, Custom, etc.) ──────
-  const normalizedBaseUrl = normalizeOpenAIBaseUrl(config?.baseUrl, provider);
-  let primaryEndpoint = `${normalizedBaseUrl}/chat/completions`;
-
-  const headers: Record<string, string> = {
-    'Content-Type': 'application/json',
-    'Accept': 'application/json',
-    'User-Agent': 'CoLearn-Mobile-Hermes/1.0',
-  };
-
-  if (apiKey) {
-    headers['Authorization'] = `Bearer ${apiKey}`;
-  }
-
-  if (provider === 'openrouter' || primaryEndpoint.includes('openrouter.ai')) {
-    headers['X-Title'] = 'Hermes Academic Assistant';
-  }
-
-  const payload = {
-    model: model,
-    messages: [systemPrompt, ...slicedMessages],
-  };
-
-  let response = await fetch(primaryEndpoint, {
-    method: 'POST',
-    headers,
-    body: JSON.stringify(payload),
-  });
-
-  // Automatic fallback retry for 404/405
-  if (!response.ok && (response.status === 404 || response.status === 405)) {
-    let fallbackEndpoint: string | null = null;
-    if (!normalizedBaseUrl.endsWith('/v1') && !normalizedBaseUrl.includes('/v1/')) {
-      fallbackEndpoint = `${normalizedBaseUrl}/v1/chat/completions`;
-    } else if (normalizedBaseUrl.endsWith('/v1')) {
-      fallbackEndpoint = `${normalizedBaseUrl.replace(/\/v1$/, '')}/chat/completions`;
-    }
-
-    if (fallbackEndpoint && fallbackEndpoint !== primaryEndpoint) {
-      const fallbackRes = await fetch(fallbackEndpoint, {
-        method: 'POST',
-        headers,
-        body: JSON.stringify(payload),
-      });
-      if (fallbackRes.ok) {
-        response = fallbackRes;
-        primaryEndpoint = fallbackEndpoint;
-      }
-    }
-  }
-
-  if (!response.ok) {
-    const rawText = await response.text().catch(() => '');
-    let errInfo: any = {};
-    try {
-      errInfo = JSON.parse(rawText);
-    } catch {
-      errInfo = { message: rawText || `HTTP ${response.status} from AI endpoint` };
-    }
-
-    const nestedErr = errInfo.error?.error || errInfo.error || errInfo;
-    const errMsg = typeof nestedErr === 'string' ? nestedErr : nestedErr.message || `Failed to connect to Hermes via ${provider}`;
-    const errCode = nestedErr.code || response.status;
-    throw new Error(`${errMsg} | Code: ${errCode} | Provider: ${provider.toUpperCase()} | Model: ${model} | Endpoint: ${primaryEndpoint}`);
-  }
-
-  const data = await response.json();
-  if (!data?.choices?.[0]?.message?.content) {
-    throw new Error("Unexpected response structure from AI provider.");
-  }
-
-  return data.choices[0].message.content as string;
-}
-
 // ── Toolbar overlay ───────────────────────────────────────────────────────────
 function Toolbar({ visible, onClose, s, C }: { visible: boolean; onClose: () => void; s: any; C: any }) {
   if (!visible) return null;
@@ -391,6 +125,7 @@ export default function NoteViewerScreen() {
   const s = useMemo(() => createStyles(C), [C]);
 
   const { noteId, courseId } = useLocalSearchParams<{ noteId: string; courseId: string }>();
+  const { isKeyboardVisible } = useKeyboardHeight();
   const [hermesOpen, setHermesOpen] = useState(false);
   const [isRecordingVoice, setIsRecordingVoice] = useState(false);
   const [isTranscribingVoice, setIsTranscribingVoice] = useState(false);
@@ -402,16 +137,26 @@ export default function NoteViewerScreen() {
   const [aiConfig, setAiConfig] = useState<AIConfig | null>(null);
   const [hermesLoading, setHermesLoading] = useState(false);
   const hermesScrollRef = useRef<ScrollView>(null);
+  const hermesAbortRef = useRef<AbortController | null>(null);
+  const streamThrottleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const latestStreamTextRef = useRef<string>('');
 
   // Auto-scroll Hermes chat to follow the latest message
   useEffect(() => {
     if (hermesOpen) {
       const timer = setTimeout(() => {
         hermesScrollRef.current?.scrollToEnd({ animated: true });
-      }, 80);
+      }, 60);
       return () => clearTimeout(timer);
     }
-  }, [hermesChat, hermesLoading, hermesOpen]);
+  }, [hermesChat.length, hermesLoading, hermesOpen]);
+
+  useEffect(() => {
+    return () => {
+      hermesAbortRef.current?.abort();
+      if (streamThrottleTimerRef.current) clearTimeout(streamThrottleTimerRef.current);
+    };
+  }, []);
 
   // Text-To-Speech states
   const [speechIsPreparing, setSpeechIsPreparing] = useState(false);
@@ -983,49 +728,13 @@ export default function NoteViewerScreen() {
     }
   };
 
-  const sanitizeHermesError = (rawMessage: string) => {
-    let errorCode = "BUSY";
-    let cleanMsg = rawMessage || "Failed to generate response";
-
-    // If error contains 405, provide friendly reassurance
-    if (cleanMsg.includes('405') || cleanMsg.includes('Method Not Allowed')) {
-      return "Hermes AI is currently busy or updating its study connection. Please ask your question again in a moment.";
-    }
-
-    // Try to parse status code
-    const codeMatch = cleanMsg.match(/(?:Code|status):\s*(\d+)/i);
-    if (codeMatch) {
-      errorCode = codeMatch[1] === '405' ? 'BUSY' : codeMatch[1];
-    }
-
-    // If there are segments separated by '|' or similar, keep only the first segment which is the human-friendly message
-    if (cleanMsg.includes('|')) {
-      cleanMsg = cleanMsg.split('|')[0].trim();
-    }
-
-    // Remove potential sensitive keywords (case-insensitive)
-    const blacklist = [
-      /groq/gi, /openrouter/gi, /openai/gi, /gemini/gi, /claude/gi, /google/gi,
-      /gpt-[a-zA-Z0-9.-]+/gi, /llama[a-zA-Z0-9.-]*/gi, /mixtral/gi, /deepseek/gi,
-      /https?:\/\/\S+/gi, /\/\S+completions/gi, /endpoint:\s*\S+/gi, /provider:\s*\S+/gi,
-      /model:\s*\S+/gi, /\b405\b/g
-    ];
-
-    for (const pattern of blacklist) {
-      cleanMsg = cleanMsg.replace(pattern, '').trim();
-    }
-
-    // Clean trailing spaces, punctuation or extra dividers
-    cleanMsg = cleanMsg.replace(/\s*[|:-]+\s*$/g, '').trim() || "An unexpected network error occurred.";
-
-    if (errorCode === 'BUSY') {
-      return "Hermes AI is currently busy connecting to the academic network. Please try asking again in a moment.";
-    }
-
-    return `Error Code: ${errorCode}\nError Message: ${cleanMsg}\n\nPlease inform an administrator about this issue.`;
-  };
-
   const handleCloseHermes = async () => {
+    hermesAbortRef.current?.abort();
+    if (streamThrottleTimerRef.current) {
+      clearTimeout(streamThrottleTimerRef.current);
+      streamThrottleTimerRef.current = null;
+    }
+    setHermesLoading(false);
     try {
       if (recordingRef.current) {
         await recordingRef.current.stopAndUnloadAsync();
@@ -1128,6 +837,16 @@ export default function NoteViewerScreen() {
     }
   };
 
+  const handleStopHermes = () => {
+    hermesAbortRef.current?.abort();
+    hermesAbortRef.current = null;
+    if (streamThrottleTimerRef.current) {
+      clearTimeout(streamThrottleTimerRef.current);
+      streamThrottleTimerRef.current = null;
+    }
+    setHermesLoading(false);
+  };
+
   const handleSendHermes = async (overrideText?: string) => {
     const textToSend = (overrideText !== undefined ? overrideText : hermesMsg).trim();
     if (!textToSend || hermesLoading) return;
@@ -1139,18 +858,63 @@ export default function NoteViewerScreen() {
 
     const userMessage: ChatMessage = { role: 'user', content: textToSend };
     const extendedChat = [...hermesChat, userMessage];
-    setHermesChat(extendedChat);
+    setHermesChat([...extendedChat, { role: 'assistant', content: '' }]);
     setHermesMsg('');
     setHermesLoading(true);
+    latestStreamTextRef.current = '';
+
+    const controller = new AbortController();
+    hermesAbortRef.current = controller;
+
+    const commitStreamUpdate = (textVal: string) => {
+      setHermesChat(prev => {
+        if (prev.length === 0) return prev;
+        const copy = [...prev];
+        copy[copy.length - 1] = { role: 'assistant', content: textVal };
+        return copy;
+      });
+    };
 
     try {
-      const botResponse = await chatWithHermesMobile(extendedChat, note?.content || '', aiConfig || undefined);
-      setHermesChat(prev => [...prev, { role: 'assistant', content: botResponse }]);
+      const botResponse = await chatWithHermesMobileStream(
+        extendedChat,
+        note?.content || '',
+        (_chunk, fullText) => {
+          latestStreamTextRef.current = fullText;
+          if (!streamThrottleTimerRef.current) {
+            streamThrottleTimerRef.current = setTimeout(() => {
+              streamThrottleTimerRef.current = null;
+              commitStreamUpdate(latestStreamTextRef.current);
+            }, 45);
+          }
+        },
+        aiConfig || undefined,
+        false,
+        controller.signal
+      );
+      if (streamThrottleTimerRef.current) {
+        clearTimeout(streamThrottleTimerRef.current);
+        streamThrottleTimerRef.current = null;
+      }
+      commitStreamUpdate(botResponse || latestStreamTextRef.current);
     } catch (err: any) {
-      console.error('Hermes AI Chat Error:', err);
-      const sanitizedErrorMsg = sanitizeHermesError(err.message);
-      setHermesChat(prev => [...prev, { role: 'assistant', content: sanitizedErrorMsg }]);
+      if (streamThrottleTimerRef.current) {
+        clearTimeout(streamThrottleTimerRef.current);
+        streamThrottleTimerRef.current = null;
+      }
+      if (err?.name === 'AbortError') {
+        if (!latestStreamTextRef.current) {
+          setHermesChat(prev => prev.filter((m, idx) => !(idx === prev.length - 1 && m.role === 'assistant' && !m.content)));
+        } else {
+          commitStreamUpdate(latestStreamTextRef.current);
+        }
+      } else {
+        console.error('Hermes AI Chat Error:', err);
+        const sanitizedErrorMsg = sanitizeHermesError(err?.message || '');
+        commitStreamUpdate(latestStreamTextRef.current ? `${latestStreamTextRef.current}\n\n${sanitizedErrorMsg}` : sanitizedErrorMsg);
+      }
     } finally {
+      hermesAbortRef.current = null;
       setHermesLoading(false);
     }
   };
@@ -1227,12 +991,9 @@ export default function NoteViewerScreen() {
   return (
     <SafeAreaView style={s.root} edges={['top']}>
       {/* Hermes Floating Interface */}
-      <Modal visible={hermesOpen} transparent animationType="slide">
-        <KeyboardAvoidingView 
-          style={s.hermesOverlay} 
-          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-        >
-           <View style={[s.hermesContent, { backgroundColor: C.bg }]}>
+      <Modal visible={hermesOpen} transparent animationType="slide" onRequestClose={handleCloseHermes}>
+        <KeyboardSafeModalView style={s.hermesOverlay}>
+           <View style={[s.hermesContent, { backgroundColor: C.bg, height: isKeyboardVisible ? '92%' : '70%' }]}>
               <View style={[s.hermesHeader, { backgroundColor: C.surfaceDark, justifyContent: 'space-between' }]}>
                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
                    <BirdIcon color="#fff" />
@@ -1272,42 +1033,50 @@ export default function NoteViewerScreen() {
                 contentContainerStyle={{ padding: 16 }}
                 keyboardShouldPersistTaps="handled"
                 onContentSizeChange={() => {
-                  hermesScrollRef.current?.scrollToEnd({ animated: true });
+                  hermesScrollRef.current?.scrollToEnd({ animated: false });
                 }}
                 onLayout={() => {
                   hermesScrollRef.current?.scrollToEnd({ animated: false });
                 }}
               >
-                {hermesChat.map((m, i) => (
-                  <View 
-                    key={i} 
-                    style={[
-                      s.hermesBubble, 
-                      m.role === 'user' 
-                        ? [s.hermesUser, { backgroundColor: C.surfaceDark, alignSelf: 'flex-end', maxWidth: '85%' }] 
-                        : [s.hermesBot, { backgroundColor: C.surface, borderColor: C.border, borderWidth: 1, alignSelf: 'flex-start', maxWidth: '92%', width: 'auto', padding: 0 }] 
-                    ]}
-                  >
-                    {m.role === 'user' ? (
-                      <MathText
-                        text={m.content}
-                        style={[s.hermesText, { color: '#FFFFFF' }]}
-                        mathColor="#FFFFFF"
+                {hermesChat.map((m, i) => {
+                  if (m.role === 'assistant' && !m.content && hermesLoading) {
+                    return (
+                      <View
+                        key={i}
+                        style={[s.hermesBubble, s.hermesBot, { backgroundColor: C.surface, borderColor: C.border, borderWidth: 1, flexDirection: 'row', alignItems: 'center', gap: 8, padding: 12, alignSelf: 'flex-start' }]}
                       >
-                        {m.content}
-                      </MathText>
-                    ) : (
-                      <HermesMessageContent content={m.content} C={C} />
-                    )}
-                  </View>
-                ))}
-                {hermesLoading && (
-                  <View style={[s.hermesBubble, s.hermesBot, { backgroundColor: C.surface, alignItems: 'center', padding: 10, alignSelf: 'flex-start' }]}>
-                    <ActivityIndicator size="small" color={C.activeText} />
-                  </View>
-                )}
+                        <ActivityIndicator size="small" color={C.activeText} />
+                        <Text style={{ fontFamily: F.medium, fontSize: 13, color: C.inkMid }}>Hermes is thinking...</Text>
+                      </View>
+                    );
+                  }
+                  return (
+                    <View 
+                      key={i} 
+                      style={[
+                        s.hermesBubble, 
+                        m.role === 'user' 
+                          ? [s.hermesUser, { backgroundColor: C.surfaceDark, alignSelf: 'flex-end', maxWidth: '85%' }] 
+                          : [s.hermesBot, { backgroundColor: C.surface, borderColor: C.border, borderWidth: 1, alignSelf: 'flex-start', maxWidth: '92%', width: 'auto', padding: 0 }] 
+                      ]}
+                    >
+                      {m.role === 'user' ? (
+                        <MathText
+                          text={m.content}
+                          style={[s.hermesText, { color: '#FFFFFF' }]}
+                          mathColor="#FFFFFF"
+                        >
+                          {m.content}
+                        </MathText>
+                      ) : (
+                        <HermesMessageContent content={m.content} C={C} />
+                      )}
+                    </View>
+                  );
+                })}
               </ScrollView>
-              <View style={[s.hermesInputRow, { borderTopColor: C.border, alignItems: 'center', paddingBottom: Math.max(insets.bottom, 16) }]}>
+              <View style={[s.hermesInputRow, { borderTopColor: C.border, alignItems: 'center', paddingBottom: isKeyboardVisible ? 12 : Math.max(insets.bottom, 16) }]}>
                 <TextInput 
                   style={[s.hermesInput, { backgroundColor: C.surface, color: C.ink, flex: 1 }]} 
                   placeholder={isRecordingVoice ? "Listening... Speak now" : "Ask Hermes or tap mic to speak..."} 
@@ -1315,18 +1084,20 @@ export default function NoteViewerScreen() {
                   onChangeText={setHermesMsg}
                   placeholderTextColor={C.inkLight}
                   onSubmitEditing={() => {
-                    if (hermesMsg.trim()) handleSendHermes();
+                    if (hermesMsg.trim() && !hermesLoading) handleSendHermes();
                   }}
                 />
                 <TouchableOpacity 
                   style={[
                     s.hermesSend,
                     {
-                      backgroundColor: isRecordingVoice ? '#ef4444' : C.ink,
+                      backgroundColor: (hermesLoading || isRecordingVoice) ? '#ef4444' : C.ink,
                     },
                   ]}
                   onPress={() => {
-                    if (isRecordingVoice) {
+                    if (hermesLoading) {
+                      handleStopHermes();
+                    } else if (isRecordingVoice) {
                       toggleVoiceRecording();
                     } else if (hermesMsg.trim()) {
                       handleSendHermes();
@@ -1334,12 +1105,12 @@ export default function NoteViewerScreen() {
                       toggleVoiceRecording();
                     }
                   }}
-                  disabled={hermesLoading || isTranscribingVoice}
+                  disabled={isTranscribingVoice}
                   activeOpacity={0.8}
                 >
-                  {hermesLoading || isTranscribingVoice ? (
+                  {isTranscribingVoice ? (
                     <ActivityIndicator size="small" color={C.bg} />
-                  ) : isRecordingVoice ? (
+                  ) : hermesLoading || isRecordingVoice ? (
                     <StopIcon color="#ffffff" />
                   ) : hermesMsg.trim() ? (
                     <SendIcon color={C.bg} />
@@ -1349,7 +1120,7 @@ export default function NoteViewerScreen() {
                 </TouchableOpacity>
               </View>
            </View>
-        </KeyboardAvoidingView>
+        </KeyboardSafeModalView>
       </Modal>
 
       {/* Scientific Calculator Floating Interface */}

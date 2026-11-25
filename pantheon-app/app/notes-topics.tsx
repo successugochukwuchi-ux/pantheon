@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState, useMemo, useCallback } from 'react'
 import {
   View,
   Text,
-  ScrollView,
+  FlatList,
   TouchableOpacity,
   TextInput,
   StyleSheet,
@@ -10,13 +10,15 @@ import {
   ActivityIndicator,
   Alert,
 } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useLocalSearchParams, useFocusEffect } from 'expo-router';
-import { collection, query, where, getDocs, doc, getDoc, orderBy } from 'firebase/firestore';
+import { collection, query, where, getDocs, doc, getDoc } from 'firebase/firestore';
 import { db, auth } from '../lib/firebase';
 import { useAuth } from '../context/AuthContext';
 import { F } from '../components/Theme';
 import { useTheme } from '../context/ThemeContext';
+import { KeyboardSafeContainer } from '../components/KeyboardSafeWrapper';
 import { isCourseDownloadedLocal, getLocalNotes, getDatabase } from '../lib/db';
 import {
   getCachedCourseById,
@@ -99,15 +101,17 @@ function extractNotePlainText(content: string | undefined | null): string {
     .replace(/\[\/?[BIU]\]/gi, '');
 }
 
-function searchCourseNote(topic: Note, queryStr: string): { matches: boolean; snippet: string } {
+function searchNotePlainText(
+  topic: Note,
+  plainText: string,
+  plainTextLower: string,
+  queryStr: string
+): { matches: boolean; snippet: string } {
   const q = (queryStr || '').trim().toLowerCase();
   if (!q) return { matches: true, snippet: '' };
 
   const titleLower = (topic.title || '').toLowerCase();
   const titleMatches = titleLower.includes(q);
-
-  const plainText = extractNotePlainText(topic.content);
-  const plainTextLower = plainText.toLowerCase();
   const matchIndex = plainTextLower.indexOf(q);
 
   if (titleMatches || matchIndex !== -1) {
@@ -130,7 +134,7 @@ function searchCourseNote(topic: Note, queryStr: string): { matches: boolean; sn
 function ProgressBarDark({ value, s }: { value: number; s: any }) {
   const anim = useRef(new Animated.Value(value || 0)).current;
   useEffect(() => {
-    Animated.timing(anim, { toValue: value || 0, duration: 600, useNativeDriver: false }).start();
+    Animated.timing(anim, { toValue: value || 0, duration: 500, useNativeDriver: false }).start();
   }, [value]);
   return (
     <View style={s.progressTrack}>
@@ -145,6 +149,75 @@ function ProgressBarDark({ value, s }: { value: number; s: any }) {
     </View>
   );
 }
+
+const TopicRow = React.memo(function TopicRow({
+  topic,
+  index,
+  snippet,
+  isLocked,
+  hasSearch,
+  C,
+  s,
+  onPress,
+}: {
+  topic: Note;
+  index: number;
+  snippet: string;
+  isLocked: boolean;
+  hasSearch: boolean;
+  C: any;
+  s: any;
+  onPress: (topic: Note, isLocked: boolean) => void;
+}) {
+  return (
+    <TouchableOpacity
+      style={[s.topicCard, { backgroundColor: C.surface, borderColor: C.border }]}
+      activeOpacity={0.85}
+      onPress={() => onPress(topic, isLocked)}
+    >
+      <View style={[s.topicCheck, { backgroundColor: C.bg, borderColor: C.border }, topic.completed && [s.topicCheckDone, { backgroundColor: C.ink, borderColor: C.ink }]]}>
+        {topic.completed ? (
+          <Text style={s.checkmark}>✓</Text>
+        ) : (
+          <Text style={[s.topicNum, { color: C.inkLight }]}>{String(index + 1).padStart(2, '0')}</Text>
+        )}
+      </View>
+      <View style={s.topicMeta}>
+        <Text style={[s.topicTitle, { color: C.ink }]}>{topic.title}</Text>
+        <View style={s.topicSubRow}>
+          <Text style={[s.topicDuration, { color: C.inkLight }]}>{topic.duration || '5 min read'}</Text>
+          <View
+            style={[
+              s.tagPill,
+              { backgroundColor: topic.tag === 'ADVANCED' ? C.academicBg : C.newBg },
+            ]}
+          >
+            <Text
+              style={[
+                s.tagText,
+                { color: topic.tag === 'ADVANCED' ? C.academicText : C.newText },
+              ]}
+            >
+              {topic.tag || 'CORE'}
+            </Text>
+          </View>
+        </View>
+        {hasSearch && snippet ? (
+          <View style={[s.snippetBox, { backgroundColor: C.bg, borderColor: C.border }]}>
+            <Text style={[s.snippetText, { color: C.inkLight }]} numberOfLines={2}>
+              {snippet}
+            </Text>
+          </View>
+        ) : null}
+      </View>
+      {isLocked ? (
+        <Text style={{ fontSize: 16, color: C.inkLight, marginRight: 4 }}>🔒</Text>
+      ) : (
+        <Text style={[s.chevron, { color: C.border }]}>›</Text>
+      )}
+    </TouchableOpacity>
+  );
+});
 
 export default function NotesTopicsScreen() {
   const router = useRouter();
@@ -354,55 +427,56 @@ export default function NotesTopicsScreen() {
     }
   }, [loading, course]);
 
-  const completed = topics.filter((t) => t.completed).length;
-  
+  const completed = useMemo(() => topics.filter((t) => t.completed).length, [topics]);
+
+  // Precompute plain-text cache once when topics change so search keystrokes never re-parse JSON blocks
+  const indexedTopics = useMemo(() => {
+    return topics.map((t, idx) => {
+      const plainText = extractNotePlainText(t.content);
+      return {
+        topic: t,
+        originalIndex: idx,
+        plainText,
+        plainTextLower: plainText.toLowerCase(),
+      };
+    });
+  }, [topics]);
+
   const searchFilteredTopics = useMemo(() => {
-    return topics
-      .filter((t) => filter === 'ALL' || t.tag === filter)
-      .map((t) => ({ topic: t, searchResult: searchCourseNote(t, searchQuery) }))
+    return indexedTopics
+      .filter((item) => filter === 'ALL' || item.topic.tag === filter)
+      .map((item) => ({
+        topic: item.topic,
+        originalIndex: item.originalIndex,
+        searchResult: searchNotePlainText(item.topic, item.plainText, item.plainTextLower, searchQuery),
+      }))
       .filter((item) => item.searchResult.matches);
-  }, [topics, filter, searchQuery]);
+  }, [indexedTopics, filter, searchQuery]);
 
-  if (loading) {
+  const handleOpenTopic = useCallback((topic: Note, isTopicLocked: boolean) => {
+    if (isTopicLocked) {
+      Alert.alert(
+        'Academic Trial Limit',
+        'Standard accounts only have access to the oldest study guide/lecture note of each course. Activate your account using an activation pin to unlock all notes, past questions, and full study materials.',
+        [
+          { text: 'Activate Account', onPress: () => router.push('/dashboard') },
+          { text: 'Cancel', style: 'cancel' }
+        ]
+      );
+      return;
+    }
+    if (course?.id && topic?.id) {
+      setCachedNoteById({ ...topic, courseId: course.id });
+      router.push(`/note-viewer?courseId=${course.id}&noteId=${topic.id}`);
+    }
+  }, [course?.id, router]);
+
+  const hasSearch = searchQuery.trim().length > 0;
+
+  const listHeader = useMemo(() => {
+    if (!course) return null;
     return (
-      <SafeAreaView style={[s.root, { justifyContent: 'center', alignItems: 'center' }]}>
-        <ActivityIndicator size="large" color={C.activeText} />
-        <Text style={{ marginTop: 12, fontFamily: F.medium, color: C.inkLight }}>Loading topics...</Text>
-      </SafeAreaView>
-    );
-  }
-
-  if (!course) {
-    return (
-      <SafeAreaView style={[s.root, { justifyContent: 'center', alignItems: 'center' }]}>
-        <Text style={{ fontFamily: F.medium, color: C.ink }}>Course not found.</Text>
-        <TouchableOpacity onPress={() => router.back()} style={{ marginTop: 20 }}>
-          <Text style={{ color: C.activeText, fontFamily: F.bold }}>Go Back</Text>
-        </TouchableOpacity>
-      </SafeAreaView>
-    );
-  }
-
-  return (
-    <SafeAreaView style={s.root} edges={['top']}>
-      {/* Header */}
-      <View style={[s.header, { backgroundColor: C.surface, borderBottomColor: C.border }]}>
-        <TouchableOpacity onPress={() => router.push('/notes')} activeOpacity={0.7} style={s.iconBtn}>
-          <View style={[s.backArrow, { backgroundColor: C.ink }]} />
-          <View style={[s.backArrowHead, { borderColor: C.ink }]} />
-        </TouchableOpacity>
-        <Text style={[s.headerBrand, { color: C.ink }]}>COLEARN</Text>
-        <TouchableOpacity activeOpacity={0.7} style={s.iconBtn}>
-          <View style={[s.dot, { backgroundColor: C.ink, marginBottom: 4 }]} />
-          <View style={[s.dot, { backgroundColor: C.ink }]} />
-        </TouchableOpacity>
-      </View>
-
-      <ScrollView
-        style={s.scroll}
-        contentContainerStyle={s.scrollContent}
-        showsVerticalScrollIndicator={false}
-      >
+      <View>
         {/* Dark hero card */}
         <Animated.View
           style={[s.heroCard, { backgroundColor: C.surfaceDark, opacity: heroOpacity, transform: [{ translateY: heroY }] }]}
@@ -463,7 +537,7 @@ export default function NotesTopicsScreen() {
           )}
         </View>
 
-        {searchQuery.trim().length > 0 && (
+        {hasSearch && (
           <View style={[s.searchSummary, { backgroundColor: C.surface, borderColor: C.border }]}>
             <Text style={[s.searchSummaryText, { color: C.inkLight }]}>
               Found <Text style={{ fontFamily: F.bold, color: C.ink }}>{searchFilteredTopics.length}</Text> of {topics.length} topic{topics.length === 1 ? '' : 's'} in {course.code} mentioning "{searchQuery}"
@@ -486,105 +560,95 @@ export default function NotesTopicsScreen() {
         </View>
 
         <Text style={[s.sectionLabel, { color: C.inkLight }]}>TOPICS (ALPHABETICAL)</Text>
+      </View>
+    );
+  }, [course, s, C, heroOpacity, heroY, completed, topics.length, searchQuery, hasSearch, searchFilteredTopics.length, filter]);
 
-        {/* Topic rows */}
-        {searchFilteredTopics.length > 0 ? (
-          searchFilteredTopics.map(({ topic, searchResult }, i) => {
-            const originalIndex = topics.findIndex(t => t.id === topic.id);
-            const isTopicLocked = isUnactivatedStudent && originalIndex > 0;
-            return (
-              <Animated.View
-                key={topic.id}
-                style={{ opacity: 1, transform: [{ translateY: 0 }] }}
-              >
+  if (loading) {
+    return (
+      <SafeAreaView style={[s.root, { justifyContent: 'center', alignItems: 'center' }]}>
+        <ActivityIndicator size="large" color={C.activeText} />
+        <Text style={{ marginTop: 12, fontFamily: F.medium, color: C.inkLight }}>Loading topics...</Text>
+      </SafeAreaView>
+    );
+  }
+
+  if (!course) {
+    return (
+      <SafeAreaView style={[s.root, { justifyContent: 'center', alignItems: 'center' }]}>
+        <Text style={{ fontFamily: F.medium, color: C.ink }}>Course not found.</Text>
+        <TouchableOpacity onPress={() => router.back()} style={{ marginTop: 20 }}>
+          <Text style={{ color: C.activeText, fontFamily: F.bold }}>Go Back</Text>
+        </TouchableOpacity>
+      </SafeAreaView>
+    );
+  }
+
+  return (
+    <SafeAreaView style={s.root} edges={['top']}>
+      {/* Header */}
+      <View style={[s.header, { backgroundColor: C.surface, borderBottomColor: C.border }]}>
+        <TouchableOpacity onPress={() => router.push('/notes')} activeOpacity={0.7} style={s.iconBtn}>
+          <View style={[s.backArrow, { backgroundColor: C.ink }]} />
+          <View style={[s.backArrowHead, { borderColor: C.ink }]} />
+        </TouchableOpacity>
+        <Text style={[s.headerBrand, { color: C.ink }]}>COLEARN</Text>
+        <TouchableOpacity activeOpacity={0.7} style={s.iconBtn}>
+          <View style={[s.dot, { backgroundColor: C.ink, marginBottom: 4 }]} />
+          <View style={[s.dot, { backgroundColor: C.ink }]} />
+        </TouchableOpacity>
+      </View>
+
+      <KeyboardSafeContainer>
+        <FlatList
+          data={searchFilteredTopics}
+          keyExtractor={(item) => item.topic.id}
+          style={s.scroll}
+          contentContainerStyle={s.scrollContent}
+          showsVerticalScrollIndicator={false}
+          keyboardShouldPersistTaps="handled"
+          initialNumToRender={12}
+          maxToRenderPerBatch={12}
+          windowSize={7}
+          removeClippedSubviews
+          ListHeaderComponent={listHeader}
+          ListEmptyComponent={
+            topics.length > 0 && searchQuery ? (
+              <View style={{ paddingVertical: 40, alignItems: 'center', paddingHorizontal: 20 }}>
+                <Text style={{ fontSize: 28, marginBottom: 8 }}>🔍</Text>
+                <Text style={{ fontFamily: F.bold, color: C.ink, fontSize: 15, textAlign: 'center' }}>
+                  No matching notes in {course.code}
+                </Text>
+                <Text style={{ fontFamily: F.body, color: C.inkLight, fontSize: 13, textAlign: 'center', marginTop: 4 }}>
+                  No note mentions "{searchQuery}".
+                </Text>
                 <TouchableOpacity
-                  style={[s.topicCard, { backgroundColor: C.surface, borderColor: C.border }]}
-                  activeOpacity={0.85}
-                  onPress={() => {
-                    if (isTopicLocked) {
-                      Alert.alert(
-                        'Academic Trial Limit',
-                        'Standard accounts only have access to the oldest study guide/lecture note of each course. Activate your account using an activation pin to unlock all notes, past questions, and full study materials.',
-                        [
-                          { text: 'Activate Account', onPress: () => router.push('/dashboard') },
-                          { text: 'Cancel', style: 'cancel' }
-                        ]
-                      );
-                      return;
-                    }
-                    if (course?.id && topic?.id) {
-                      setCachedNoteById({ ...topic, courseId: course.id });
-                      router.push(`/note-viewer?courseId=${course.id}&noteId=${topic.id}`);
-                    }
-                  }}
+                  onPress={() => setSearchQuery('')}
+                  style={{ marginTop: 14, paddingHorizontal: 16, paddingVertical: 8, backgroundColor: C.surface, borderRadius: 20, borderWidth: 1, borderColor: C.border }}
                 >
-                  <View style={[s.topicCheck, { backgroundColor: C.bg, borderColor: C.border }, topic.completed && [s.topicCheckDone, { backgroundColor: C.ink, borderColor: C.ink }]]}>
-                    {topic.completed ? (
-                      <Text style={s.checkmark}>✓</Text>
-                    ) : (
-                      <Text style={[s.topicNum, { color: C.inkLight }]}>{String(i + 1).padStart(2, '0')}</Text>
-                    )}
-                  </View>
-                  <View style={s.topicMeta}>
-                    <Text style={[s.topicTitle, { color: C.ink }]}>{topic.title}</Text>
-                    <View style={s.topicSubRow}>
-                      <Text style={[s.topicDuration, { color: C.inkLight }]}>{topic.duration || '5 min read'}</Text>
-                      <View
-                        style={[
-                          s.tagPill,
-                          { backgroundColor: topic.tag === 'ADVANCED' ? C.academicBg : C.newBg },
-                        ]}
-                      >
-                        <Text
-                          style={[
-                            s.tagText,
-                            { color: topic.tag === 'ADVANCED' ? C.academicText : C.newText },
-                          ]}
-                        >
-                          {topic.tag || 'CORE'}
-                        </Text>
-                      </View>
-                    </View>
-                    {searchQuery.trim().length > 0 && searchResult.snippet ? (
-                      <View style={[s.snippetBox, { backgroundColor: C.bg, borderColor: C.border }]}>
-                        <Text style={[s.snippetText, { color: C.inkLight }]} numberOfLines={2}>
-                          {searchResult.snippet}
-                        </Text>
-                      </View>
-                    ) : null}
-                  </View>
-                  {isTopicLocked ? (
-                    <Text style={{ fontSize: 16, color: C.inkLight, marginRight: 4 }}>🔒</Text>
-                  ) : (
-                    <Text style={[s.chevron, { color: C.border }]}>›</Text>
-                  )}
+                  <Text style={{ fontFamily: F.bold, color: C.ink, fontSize: 12 }}>Clear Search</Text>
                 </TouchableOpacity>
-              </Animated.View>
-            );
-          })
-        ) : topics.length > 0 && searchQuery ? (
-          <View style={{ paddingVertical: 40, alignItems: 'center', paddingHorizontal: 20 }}>
-            <Text style={{ fontSize: 28, marginBottom: 8 }}>🔍</Text>
-            <Text style={{ fontFamily: F.bold, color: C.ink, fontSize: 15, textAlign: 'center' }}>
-              No matching notes in {course.code}
-            </Text>
-            <Text style={{ fontFamily: F.body, color: C.inkLight, fontSize: 13, textAlign: 'center', marginTop: 4 }}>
-              No note mentions "{searchQuery}".
-            </Text>
-            <TouchableOpacity 
-              onPress={() => setSearchQuery('')}
-              style={{ marginTop: 14, paddingHorizontal: 16, paddingVertical: 8, backgroundColor: C.surface, borderRadius: 20, borderWidth: 1, borderColor: C.border }}
-            >
-              <Text style={{ fontFamily: F.bold, color: C.ink, fontSize: 12 }}>Clear Search</Text>
-            </TouchableOpacity>
-          </View>
-        ) : (
-          <View style={{ paddingVertical: 40, alignItems: 'center' }}>
-            <Text style={{ fontFamily: F.medium, color: C.inkLight }}>No topics found for this course.</Text>
-          </View>
-        )}
-        <View style={{ height: 24 }} />
-      </ScrollView>
+              </View>
+            ) : (
+              <View style={{ paddingVertical: 40, alignItems: 'center' }}>
+                <Text style={{ fontFamily: F.medium, color: C.inkLight }}>No topics found for this course.</Text>
+              </View>
+            )
+          }
+          renderItem={({ item, index }) => (
+            <TopicRow
+              topic={item.topic}
+              index={index}
+              snippet={item.searchResult.snippet}
+              isLocked={isUnactivatedStudent && item.originalIndex > 0}
+              hasSearch={hasSearch}
+              C={C}
+              s={s}
+              onPress={handleOpenTopic}
+            />
+          )}
+        />
+      </KeyboardSafeContainer>
     </SafeAreaView>
   );
 }

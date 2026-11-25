@@ -1,17 +1,16 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import {
   View,
   Text,
   ScrollView,
   TouchableOpacity,
   StyleSheet,
-  Dimensions,
   Image,
   Alert,
-  Animated,
   ActivityIndicator,
   Clipboard,
 } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { BottomNav } from '../components/BottomNav';
@@ -33,7 +32,7 @@ const HUB_ITEMS = [
 
 // ── Sub-components ────────────────────────────────────────────────────────────
 
-function TopBar({ onMenu, onSearch, onBell, s, C }: {
+const TopBar = React.memo(function TopBar({ onMenu, onSearch, onBell, s, C }: {
   onMenu: () => void; onSearch: () => void; onBell: () => void; s: any; C: any;
 }) {
   return (
@@ -61,9 +60,9 @@ function TopBar({ onMenu, onSearch, onBell, s, C }: {
       </View>
     </View>
   );
-}
+});
 
-function ProfileCard({ s, C }: { s: any; C: any }) {
+const ProfileCard = React.memo(function ProfileCard({ s, C }: { s: any; C: any }) {
   const { profile, systemConfig } = useAuth();
   const [copied, setCopied] = useState(false);
   const handleCopy = () => {
@@ -134,7 +133,7 @@ function ProfileCard({ s, C }: { s: any; C: any }) {
       </View>
     </View>
   );
-}
+});
 
 function getContrastColor(hexColor: string) {
   if (!hexColor) return '#FFFFFF';
@@ -147,20 +146,19 @@ function getContrastColor(hexColor: string) {
   return yiq >= 128 ? '#0A0A0A' : '#FFFFFF';
 }
 
-function AcademicHub({ s, C }: { s: any; C: any }) {
+const AcademicHub = React.memo(function AcademicHub({ s, C }: { s: any; C: any }) {
   const router = useRouter();
-  const handlePress = (id: string) => {
+  const handlePress = useCallback((id: string) => {
     if (id === 'notes') { router.push('/notes'); return; }
     if (id === 'cbt') { router.push('/cbt-setup'); return; }
     if (id === 'video') { router.push('/video-library'); return; }
     if (id === 'past_questions') { router.push('/past-questions'); return; }
     if (id === 'timetable') { router.push('/timetable'); return; }
     Alert.alert('Coming soon', `${id} screen is under construction.`);
-  };
+  }, [router]);
 
   const contrastColor = useMemo(() => getContrastColor(C.selectedBg), [C.selectedBg]);
 
-  // Group items into 2-column rows to guarantee a rigid 2x2 grid on any screen width, DPI, or font scaling
   const hubRows = useMemo(() => {
     const rows = [];
     for (let i = 0; i < HUB_ITEMS.length; i += 2) {
@@ -196,21 +194,19 @@ function AcademicHub({ s, C }: { s: any; C: any }) {
                 </Text>
               </TouchableOpacity>
             ))}
-            {/* If a row has an odd number of items, insert an invisible spacer card so the single item stays at 50% width */}
             {row.length === 1 && <View style={[s.hubCard, { opacity: 0, borderWidth: 0 }]} />}
           </View>
         ))}
       </View>
     </View>
   );
-}
+});
 
-function UpdateCard({ item, s, C }: { item: any; s: any; C: any }) {
+const UpdateCard = React.memo(function UpdateCard({ item, s, C }: { item: any; s: any; C: any }) {
   const formattedTime = useMemo(() => {
     if (!item.createdAt) return 'Recent';
     try {
       const d = item.createdAt.seconds ? new Date(item.createdAt.seconds * 1000) : new Date(item.createdAt);
-      // simplified relative day format
       const diff = new Date().getTime() - d.getTime();
       const hours = Math.floor(diff / (1000 * 60 * 60));
       if (hours < 1) return 'Just now';
@@ -245,43 +241,53 @@ function UpdateCard({ item, s, C }: { item: any; s: any; C: any }) {
       <Text style={[s.updateBody, { color: C.inkMid }]} numberOfLines={3}>{item.content || item.body || ''}</Text>
     </TouchableOpacity>
   );
-}
+});
 
-function UpdatesSection({ s, C }: { s: any; C: any }) {
+const UpdatesSection = React.memo(function UpdatesSection({ s, C }: { s: any; C: any }) {
   const [news, setNews] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const { profile } = useAuth();
+  const uniKey = (profile?.At || 'futo').toLowerCase();
 
   useEffect(() => {
+    let cancelled = false;
+    AsyncStorage.getItem(`colearn_news_${uniKey}`)
+      .then(raw => {
+        if (!cancelled && raw) {
+          setNews(JSON.parse(raw));
+          setLoading(false);
+        }
+      })
+      .catch(() => {});
+
     const q = query(collection(db, 'news'), orderBy('createdAt', 'desc'), limit(5));
     const unsubscribe = onSnapshot(q, (snapshot) => {
-      let newsData = snapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data()
+      let newsData = snapshot.docs.map(docSnap => ({
+        id: docSnap.id,
+        ...docSnap.data()
       }));
 
-      // Filter by university (At) matching profile
-      if (profile?.At) {
-        newsData = newsData.filter((item: any) => !item.At || item.At.toLowerCase() === profile.At.toLowerCase());
-      } else {
-        newsData = newsData.filter((item: any) => !item.At || item.At.toLowerCase() === 'futo');
-      }
+      newsData = newsData.filter((item: any) => !item.At || item.At.toLowerCase() === uniKey);
 
-      // Sort newest news first
       newsData.sort((a: any, b: any) => {
         const timeA = a.createdAt ? (a.createdAt.seconds ? a.createdAt.seconds * 1000 : new Date(a.createdAt).getTime()) : 0;
         const timeB = b.createdAt ? (b.createdAt.seconds ? b.createdAt.seconds * 1000 : new Date(b.createdAt).getTime()) : 0;
         return timeB - timeA;
       });
-      setNews(newsData.slice(0, 5));
+      const top5 = newsData.slice(0, 5);
+      setNews(top5);
       setLoading(false);
+      AsyncStorage.setItem(`colearn_news_${uniKey}`, JSON.stringify(top5)).catch(() => {});
     }, (error) => {
       console.error("Error fetching news updates:", error);
       setLoading(false);
     });
 
-    return () => unsubscribe();
-  }, [profile]);
+    return () => {
+      cancelled = true;
+      unsubscribe();
+    };
+  }, [uniKey]);
 
   return (
     <View style={s.section}>
@@ -299,7 +305,7 @@ function UpdatesSection({ s, C }: { s: any; C: any }) {
       )}
     </View>
   );
-}
+});
 
 // ── Main Screen ───────────────────────────────────────────────────────────────
 
@@ -309,6 +315,11 @@ export default function DashboardScreen() {
   const s = useMemo(() => createStyles(C), [C]);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const { user, profile, loading } = useAuth();
+
+  const handleOpenMenu = useCallback(() => setSidebarOpen(true), []);
+  const handleCloseMenu = useCallback(() => setSidebarOpen(false), []);
+  const handleSearch = useCallback(() => router.push('/search'), [router]);
+  const handleBell = useCallback(() => router.push('/notifications'), [router]);
 
   useEffect(() => {
     if (!loading) {
@@ -325,9 +336,9 @@ export default function DashboardScreen() {
   return (
     <SafeAreaView style={[s.root, { backgroundColor: C.bg }]} edges={['top']}>
       <TopBar 
-        onMenu={() => setSidebarOpen(true)} 
-        onSearch={() => router.push('/search')} 
-        onBell={() => router.push('/notifications')} 
+        onMenu={handleOpenMenu} 
+        onSearch={handleSearch} 
+        onBell={handleBell} 
         s={s} 
         C={C} 
       />
@@ -347,7 +358,7 @@ export default function DashboardScreen() {
 
       <ActivationModal />
 
-      <Sidebar isOpen={sidebarOpen} onClose={() => setSidebarOpen(false)} />
+      <Sidebar isOpen={sidebarOpen} onClose={handleCloseMenu} />
     </SafeAreaView>
   );
 }

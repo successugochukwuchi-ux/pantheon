@@ -241,6 +241,38 @@ export default function OverseerControl() {
   const [turnShowPassword, setTurnShowPassword] = useState(false);
   const [turnSaving, setTurnSaving] = useState(false);
 
+  // Student Device Limit Configuration — stored in Firestore system/config
+  const [studentDeviceLimit, setStudentDeviceLimit] = useState<number>(2);
+  const [deviceLimitSaving, setDeviceLimitSaving] = useState(false);
+
+  const handleSaveDeviceLimit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const parsedLimit = Math.floor(Number(studentDeviceLimit));
+    if (!Number.isFinite(parsedLimit) || parsedLimit < 1 || parsedLimit > 50) {
+      toast.error('Please enter a valid student device limit between 1 and 50.');
+      return;
+    }
+    setDeviceLimitSaving(true);
+    try {
+      await setDoc(
+        doc(db, 'system', 'config'),
+        {
+          deviceLimit: parsedLimit,
+          updatedBy: user?.email || user?.uid || 'overseer',
+          updatedAt: new Date().toISOString(),
+        },
+        { merge: true }
+      );
+      setStudentDeviceLimit(parsedLimit);
+      toast.success(`Student device limit updated to ${parsedLimit} ${parsedLimit === 1 ? 'device' : 'devices'} per semester.`);
+    } catch (err: any) {
+      console.error('Error saving student device limit:', err);
+      toast.error(err.message || 'Failed to save student device limit');
+    } finally {
+      setDeviceLimitSaving(false);
+    }
+  };
+
   const handleSaveTurnConfig = async (e: React.FormEvent) => {
     e.preventDefault();
     if (turnEnabled && (!turnUrl.trim() || !turnUsername.trim() || !turnPassword.trim())) {
@@ -408,7 +440,7 @@ export default function OverseerControl() {
       const discList = discSnap.docs.map(d => ({ id: d.id, ...d.data() } as DisciplineItem));
       setDisciplines(discList);
 
-      // Fetch Pricing Config
+      // Fetch Pricing & System Policy Config
       const configDoc = await getDoc(doc(db, 'system', 'config'));
       if (configDoc.exists()) {
         const data = configDoc.data();
@@ -417,6 +449,8 @@ export default function OverseerControl() {
         setBulkStandardPrice(data.bulkStandardPrice ?? data.standardWholesalePrice ?? 800);
         setBulkPlusPrice(data.bulkPlusPrice ?? data.plusWholesalePrice ?? 1500);
         setVendorCommissionPercentage(data.vendorCommissionPercentage ?? 15);
+        const parsedLimit = Number(data.deviceLimit);
+        setStudentDeviceLimit(Number.isFinite(parsedLimit) && parsedLimit >= 1 ? Math.floor(parsedLimit) : 2);
       }
 
       // Fetch Takano Pay Config
@@ -3075,6 +3109,87 @@ export default function OverseerControl() {
               >
                 {turnSaving ? <Loader2 className="h-4 w-4 animate-spin mr-1.5" /> : <Radio className="h-4 w-4 mr-1.5" />}
                 {turnSaving ? 'Saving Credentials...' : 'Save TURN Credentials'}
+              </Button>
+            </div>
+          </form>
+        </CardContent>
+      </Card>
+
+      {/* 4. Student Device Limit Policy (Overseer Authority — stored in system/config) */}
+      <Card className="border-amber-200 dark:border-amber-900 shadow-xs">
+        <CardHeader>
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+            <div>
+              <CardTitle className="flex items-center gap-2 text-amber-700 dark:text-amber-400">
+                <Smartphone className="h-5 w-5" />
+                Student Device Limit Policy
+              </CardTitle>
+              <CardDescription className="mt-1">
+                Control how many active devices each regular student account can register per semester across Web and Mobile. Vendor accounts and Level 5 Overseers are automatically exempt and have unlimited devices.
+              </CardDescription>
+            </div>
+            <div className="flex items-center gap-2 self-start sm:self-center">
+              <Badge className="bg-amber-600 text-white">
+                Students: Max {studentDeviceLimit} {studentDeviceLimit === 1 ? 'Device' : 'Devices'}
+              </Badge>
+              <Badge variant="outline" className="border-emerald-500/40 text-emerald-700 dark:text-emerald-300">
+                Vendors &amp; L5: Unlimited
+              </Badge>
+            </div>
+          </div>
+        </CardHeader>
+        <CardContent>
+          <form onSubmit={handleSaveDeviceLimit} className="space-y-4">
+            <div className="grid gap-4 md:grid-cols-2 items-end">
+              <div className="space-y-2">
+                <Label htmlFor="studentDeviceLimit" className="font-semibold">
+                  Maximum Devices Per Student (Per Semester)
+                </Label>
+                <Input
+                  id="studentDeviceLimit"
+                  type="number"
+                  min={1}
+                  max={50}
+                  step={1}
+                  value={studentDeviceLimit}
+                  onChange={(e) => {
+                    const val = parseInt(e.target.value, 10);
+                    setStudentDeviceLimit(Number.isNaN(val) ? 1 : val);
+                  }}
+                  required
+                />
+                <p className="text-[11px] text-muted-foreground">
+                  Applied immediately to new device logins on both the Web portal and Mobile app.
+                </p>
+              </div>
+
+              <div className="space-y-2">
+                <span className="text-xs font-semibold text-muted-foreground block">Quick Presets</span>
+                <div className="flex flex-wrap gap-2">
+                  {[1, 2, 3, 5, 10].map((preset) => (
+                    <Button
+                      key={preset}
+                      type="button"
+                      size="sm"
+                      variant={studentDeviceLimit === preset ? 'default' : 'outline'}
+                      onClick={() => setStudentDeviceLimit(preset)}
+                      className={studentDeviceLimit === preset ? 'bg-amber-600 hover:bg-amber-700 text-white' : ''}
+                    >
+                      {preset} {preset === 1 ? 'Device' : 'Devices'}
+                    </Button>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            <div className="flex justify-end pt-2 border-t">
+              <Button
+                type="submit"
+                disabled={deviceLimitSaving}
+                className="bg-amber-600 hover:bg-amber-700 text-white"
+              >
+                {deviceLimitSaving ? <Loader2 className="h-4 w-4 animate-spin mr-1.5" /> : <Smartphone className="h-4 w-4 mr-1.5" />}
+                {deviceLimitSaving ? 'Saving Device Limit...' : 'Save Student Device Limit'}
               </Button>
             </div>
           </form>

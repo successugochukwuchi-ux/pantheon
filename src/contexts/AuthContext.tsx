@@ -86,6 +86,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   });
   const [isOnline, setIsOnline] = useState(typeof navigator !== 'undefined' ? navigator.onLine : true);
 
+  const [hasLiveSystemConfig, setHasLiveSystemConfig] = useState(false);
+
+  const normalizeDeviceLimit = (val: unknown): number => {
+    const parsed = Number(val);
+    return Number.isFinite(parsed) && parsed >= 1 ? Math.floor(parsed) : 2;
+  };
+
   const verifiedDeviceKeyRef = useRef<string | null>(null);
   const currentSemesterRef = useRef<string>(systemConfig?.currentSemester || '1st');
 
@@ -101,6 +108,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     accountEmail?: string;
     studentId?: string;
     semester?: string;
+    deviceLimit?: number;
   }>({
     isOpen: false,
     adminInfo: null,
@@ -163,6 +171,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   useEffect(() => {
     const configTimer = setTimeout(() => {
       setIsSystemConfigReady(true);
+      setHasLiveSystemConfig(true);
     }, 1500);
 
     const unsubscribeConfig = onSnapshot(doc(db, 'system', 'config'), (snapshot) => {
@@ -177,6 +186,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         const defaultConfig: SystemConfig = {
           currentSemester: 'none',
           maintenanceMode: false,
+          deviceLimit: 2,
           updatedBy: 'system',
           updatedAt: new Date().toISOString()
         };
@@ -186,6 +196,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         } catch {}
       }
       setIsSystemConfigReady(true);
+      setHasLiveSystemConfig(true);
     }, (error) => {
       clearTimeout(configTimer);
       console.error("System config listener details:", error);
@@ -193,12 +204,14 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         const defaultConfig: SystemConfig = {
           currentSemester: 'none',
           maintenanceMode: false,
+          deviceLimit: 2,
           updatedBy: 'system',
           updatedAt: new Date().toISOString()
         };
         setSystemConfig(defaultConfig);
       }
       setIsSystemConfigReady(true);
+      setHasLiveSystemConfig(true);
     });
 
     const unsubscribePromo = onSnapshot(doc(db, 'system', 'promo'), (snapshot) => {
@@ -237,20 +250,37 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     };
   }, []);
 
-  const verifyDeviceInBackground = async (firebaseUser: User, userData: any, semester: string) => {
-    const checkKey = `${firebaseUser.uid}_${semester}`;
+  const verifyDeviceInBackground = async (
+    firebaseUser: User,
+    userData: any,
+    semester: string,
+    deviceLimit: number
+  ) => {
+    const limitCount = normalizeDeviceLimit(deviceLimit);
+    const checkKey = `${firebaseUser.uid}_${semester}_${limitCount}`;
     if (verifiedDeviceKeyRef.current === checkKey) return;
     verifiedDeviceKeyRef.current = checkKey;
 
     try {
-      const isLevel5 = userData.level === '5' || firebaseUser.email === 'successugochukwuchi@gmail.com';
-      const isVendor = userData.level === '3' ||
-                       String(userData.level) === '3' ||
-                       userData.academicLevel?.toLowerCase() === 'vendor' ||
-                       userData.department?.toLowerCase() === 'vendor';
+      const isLevel5 =
+        userData.level === '5' ||
+        String(userData.level) === '5' ||
+        firebaseUser.email === 'successugochukwuchi@gmail.com';
+      const isVendor =
+        userData.level === '3' ||
+        String(userData.level) === '3' ||
+        userData.academicLevel?.toLowerCase() === 'vendor' ||
+        userData.department?.toLowerCase() === 'vendor';
       const isExemptFromDeviceLimit = isLevel5 || isVendor;
+
+      // Vendors and Level 5 Overseers have unlimited devices and bypass device-limit enforcement
+      if (isExemptFromDeviceLimit) {
+        return;
+      }
+
       const devices = userData.devices || [];
       const currentDevices = devices.filter((d: any) => d.semester === semester);
+      const deviceWord = limitCount === 1 ? 'device' : 'devices';
 
       let deviceId = await getUserDeviceUUID(firebaseUser.uid);
       const deviceName = getWebDeviceName();
@@ -258,7 +288,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       if (deviceId) {
         const matched = currentDevices.find((d: any) => d.id === deviceId);
         if (!matched) {
-          if (!isExemptFromDeviceLimit && currentDevices.length >= 2) {
+          if (currentDevices.length >= limitCount) {
             const adminInfo = await fetchAdminContactForUniversity(userData.At || 'futo');
             setDeviceLimitModal({
               isOpen: true,
@@ -266,11 +296,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
               accountEmail: firebaseUser.email || userData.email || '',
               studentId: userData.studentId || '',
               semester,
+              deviceLimit: limitCount,
             });
             writeCachedProfile(firebaseUser.uid, null);
             setProfile(null);
             firebaseSignOut(auth).catch(() => {});
-            toast.error(`Device Limit Reached: Max 2 devices for semester (${semester}). Please contact your campus administrator.`);
+            toast.error(`Device Limit Reached: Max ${limitCount} ${deviceWord} for semester (${semester}). Please contact your campus administrator.`);
             return;
           } else {
             const newDevice = {
@@ -288,7 +319,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           await updateDoc(doc(db, 'users', firebaseUser.uid), { devices: currentDevices }).catch(() => {});
         }
       } else {
-        if (!isExemptFromDeviceLimit && currentDevices.length >= 2) {
+        if (currentDevices.length >= limitCount) {
           const adminInfo = await fetchAdminContactForUniversity(userData.At || 'futo');
           setDeviceLimitModal({
             isOpen: true,
@@ -296,11 +327,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             accountEmail: firebaseUser.email || userData.email || '',
             studentId: userData.studentId || '',
             semester,
+            deviceLimit: limitCount,
           });
           writeCachedProfile(firebaseUser.uid, null);
           setProfile(null);
           firebaseSignOut(auth).catch(() => {});
-          toast.error(`Device Limit Reached: Max 2 devices for semester (${semester}). Please contact your campus administrator.`);
+          toast.error(`Device Limit Reached: Max ${limitCount} ${deviceWord} for semester (${semester}). Please contact your campus administrator.`);
           return;
         } else {
           deviceId = await generateNewDeviceUUID(firebaseUser.uid);
@@ -347,9 +379,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             isActivated: true
           }).catch(err => console.error("Failed to promote admin:", err));
         }
-
-        const sem = currentSemesterRef.current || '1st';
-        verifyDeviceInBackground(user, data, sem);
       } else {
         setProfile(null);
         writeCachedProfile(user.uid, null);
@@ -383,10 +412,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   }, [user]);
 
   useEffect(() => {
-    if (user && profile && systemConfig?.currentSemester) {
-      verifyDeviceInBackground(user, profile, systemConfig.currentSemester);
+    if (user && profile && hasLiveSystemConfig) {
+      const sem = systemConfig?.currentSemester || currentSemesterRef.current || '1st';
+      const limit = normalizeDeviceLimit(systemConfig?.deviceLimit);
+      verifyDeviceInBackground(user, profile, sem, limit);
     }
-  }, [user, profile, systemConfig?.currentSemester]);
+  }, [user, profile, hasLiveSystemConfig, systemConfig?.currentSemester, systemConfig?.deviceLimit]);
 
   const [uniSemester, setUniSemester] = useState<Semester | null>(null);
 
@@ -452,6 +483,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             accountEmail={deviceLimitModal.accountEmail}
             studentId={deviceLimitModal.studentId}
             semester={deviceLimitModal.semester}
+            deviceLimit={deviceLimitModal.deviceLimit}
           />
         </Suspense>
       )}

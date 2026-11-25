@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import {
   View,
   Text,
@@ -10,13 +10,15 @@ import {
   ActivityIndicator,
   Alert,
 } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { BottomNav } from '../components/BottomNav';
 import { Sidebar } from '../components/Sidebar';
+import { KeyboardSafeContainer, useKeyboardHeight } from '../components/KeyboardSafeWrapper';
 import { HamburgerIcon, BellIcon, SearchIcon } from '../components/Icons';
 import { F } from '../components/Theme';
-import { collection, query, where, onSnapshot, doc, updateDoc, addDoc, getDoc } from 'firebase/firestore';
+import { collection, query, where, onSnapshot, doc, updateDoc, addDoc } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 import { useAuth } from '../context/AuthContext';
 import { useTheme } from '../context/ThemeContext';
@@ -26,20 +28,289 @@ function TrashIcon() {
   return <Text style={{ fontSize: 18, color: '#E74C3C' }}>✕</Text>;
 }
 
+const RequestCard = React.memo(function RequestCard({
+  req,
+  C,
+  s,
+  onAccept,
+  onDecline,
+}: {
+  req: any;
+  C: any;
+  s: any;
+  onAccept: (r: any) => void;
+  onDecline: (r: any) => void;
+}) {
+  return (
+    <View style={[s.pendingCard, { backgroundColor: C.surface, borderColor: C.border }]}>
+      <Image
+        source={{ uri: req.fromPhoto || req.fromPhotoURL || `https://api.dicebear.com/7.x/avataaars/svg?seed=${req.fromUid || 'Student'}` }}
+        style={s.pendingAvatar}
+      />
+      <View style={s.requestInfo}>
+        <Text style={[s.requestName, { color: C.ink }]}>{req.fromName || 'Student'}</Text>
+        <Text style={[s.requestDept, { color: C.inkMid }]}>{req.fromDept || 'CoLearn Student'}</Text>
+      </View>
+      <View style={s.requestActions}>
+        <TouchableOpacity style={[s.acceptBtn, { backgroundColor: C.ink }]} onPress={() => onAccept(req)}>
+          <Text style={[s.btnIcon, { color: C.bg }]}>✓</Text>
+        </TouchableOpacity>
+        <TouchableOpacity style={[s.declineBtn, { backgroundColor: C.surface, borderColor: C.border }]} onPress={() => onDecline(req)}>
+          <TrashIcon />
+        </TouchableOpacity>
+      </View>
+    </View>
+  );
+});
+
+const FriendCard = React.memo(function FriendCard({
+  friend,
+  C,
+  s,
+  onChat,
+}: {
+  friend: any;
+  C: any;
+  s: any;
+  onChat: (chatId: string) => void;
+}) {
+  return (
+    <View style={[s.friendCard, { backgroundColor: C.surface, borderColor: C.border }]}>
+      <View style={s.friendTop}>
+        <View style={s.friendAvatarBox}>
+          {friend.photoURL ? (
+            <Image source={{ uri: friend.photoURL }} style={s.friendAvatar} />
+          ) : (
+            <View style={[s.avatarPlaceholder, { backgroundColor: C.tagBg || C.bgAlt, borderColor: C.border }]}>
+              <Text style={[s.initials, { color: C.inkMid }]}>{friend.name.charAt(0).toUpperCase()}</Text>
+            </View>
+          )}
+        </View>
+        <View style={s.friendDetails}>
+          <Text style={[s.friendName, { color: C.ink }]}>{friend.name}</Text>
+          <Text style={[s.friendDept, { color: C.inkMid }]}>{friend.dept} • {friend.level}</Text>
+        </View>
+      </View>
+
+      <View style={s.friendBtnRow}>
+        <TouchableOpacity style={[s.chatBtn, { backgroundColor: C.ink }]} onPress={() => onChat(friend.chatId)}>
+          <Text style={[s.chatBtnText, { color: C.bg }]}>SEND DM</Text>
+        </TouchableOpacity>
+      </View>
+    </View>
+  );
+});
+
+const GroupCard = React.memo(function GroupCard({
+  group,
+  C,
+  s,
+  onOpen,
+}: {
+  group: any;
+  C: any;
+  s: any;
+  onOpen: (groupId: string) => void;
+}) {
+  return (
+    <View style={[s.friendCard, { backgroundColor: C.surface, borderColor: C.border }]}>
+      <View style={s.friendTop}>
+        <View style={s.friendAvatarBox}>
+          <View style={[s.groupPlaceholderBox, { backgroundColor: C.tagBg || C.bgAlt, borderColor: C.border }]}>
+            <Text style={[s.initials, { color: C.inkMid }]}>👥</Text>
+          </View>
+        </View>
+        <View style={s.friendDetails}>
+          <Text style={[s.friendName, { color: C.ink }]}>{group.name || 'Study Group'}</Text>
+          <Text style={[s.friendDept, { color: C.inkMid }]}>{(group.uids || []).length} Allies joined</Text>
+        </View>
+      </View>
+
+      <View style={s.friendBtnRow}>
+        <TouchableOpacity style={[s.chatBtn, { backgroundColor: C.ink }]} onPress={() => onOpen(group.id)}>
+          <Text style={[s.chatBtnText, { color: C.bg }]}>ENTER COMPANION CHAT</Text>
+        </TouchableOpacity>
+      </View>
+    </View>
+  );
+});
+
 export default function SocialHubScreen() {
   const router = useRouter();
   const { profile } = useAuth();
   const { colors: C } = useTheme();
   const s = useMemo(() => createStyles(C), [C]);
+  const { isKeyboardVisible } = useKeyboardHeight();
+  const scrollRef = useRef<ScrollView>(null);
 
   const isUnactivatedStudent = (!profile || !profile.isActivated) && profile?.level !== '3' && profile?.level !== '4';
+
+  const [activeTab, setActiveTab] = useState<'Friends' | 'Requests' | 'Groups'>('Friends');
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [loading, setLoading] = useState(true);
+
+  // Lists
+  const [friendsList, setFriendsList] = useState<any[]>([]);
+  const [groupsList, setGroupsList] = useState<any[]>([]);
+  const [requestsList, setRequestsList] = useState<any[]>([]);
+
+  // Search local list inputs
+  const [searchQuery, setSearchQuery] = useState('');
+
+  // 1. Instant AsyncStorage hydration + live Firestore observers
+  useEffect(() => {
+    if (!profile || isUnactivatedStudent) return;
+
+    const cacheKey = `colearn_social_${profile.uid}`;
+    let hasCached = false;
+
+    AsyncStorage.getItem(cacheKey)
+      .then((raw) => {
+        if (!raw) return;
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed.friends)) setFriendsList(parsed.friends);
+        if (Array.isArray(parsed.groups)) setGroupsList(parsed.groups);
+        if (Array.isArray(parsed.requests)) setRequestsList(parsed.requests);
+        hasCached = true;
+        setLoading(false);
+      })
+      .catch(() => {});
+
+    if (!hasCached) setLoading(true);
+
+    const latestCache = { friends: [] as any[], groups: [] as any[], requests: [] as any[] };
+    const persistCache = () => {
+      AsyncStorage.setItem(cacheKey, JSON.stringify(latestCache)).catch(() => {});
+    };
+
+    // Live groups observer
+    const qGroups = query(
+      collection(db, 'chats'),
+      where('type', '==', 'group'),
+      where('uids', 'array-contains', profile.uid)
+    );
+    const unsubGroups = onSnapshot(qGroups, (snapshot) => {
+      const list = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
+      latestCache.groups = list;
+      setGroupsList(list);
+      persistCache();
+    });
+
+    // Live private messages observer to establish friends listing
+    const qDMs = query(
+      collection(db, 'chats'),
+      where('type', '==', 'dm'),
+      where('uids', 'array-contains', profile.uid)
+    );
+    const unsubDMs = onSnapshot(qDMs, async (snapshot) => {
+      const dmRooms = snapshot.docs.map(d => ({ id: d.id, ...d.data() as any }));
+
+      // Resolve other user names using cached profiles (drastically saves Firestore reads)
+      const resolvedFriends = await Promise.all(dmRooms.map(async (room) => {
+        const otherUid = room.uids.find((id: string) => id !== profile.uid);
+        if (!otherUid) return null;
+
+        const uData = await getOrFetchUserProfile(otherUid);
+        return {
+          chatId: room.id,
+          uid: otherUid,
+          name: uData?.name || uData?.username || 'Classmate',
+          dept: uData?.dept || uData?.department || 'CoLearn Student',
+          level: uData?.level || uData?.academicLevel || '100 Level',
+          photoURL: uData?.photoURL || null
+        };
+      }));
+
+      const cleanFriends = resolvedFriends.filter(Boolean);
+      latestCache.friends = cleanFriends;
+      setFriendsList(cleanFriends);
+      setLoading(false);
+      persistCache();
+    });
+
+    // Live pending friend request observer
+    const qRequests = query(
+      collection(db, 'friend_requests'),
+      where('toUid', '==', profile.uid),
+      where('status', '==', 'pending')
+    );
+    const unsubRequests = onSnapshot(qRequests, (snapshot) => {
+      const list = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
+      latestCache.requests = list;
+      setRequestsList(list);
+      persistCache();
+    });
+
+    return () => {
+      unsubGroups();
+      unsubDMs();
+      unsubRequests();
+    };
+  }, [profile, isUnactivatedStudent]);
+
+  // 2. Request Actions
+  const handleAcceptRequest = useCallback(async (request: any) => {
+    if (!profile) return;
+    try {
+      await updateDoc(doc(db, 'friend_requests', request.id), { status: 'accepted' });
+      await addDoc(collection(db, 'friendships'), {
+        uids: [profile.uid, request.fromUid],
+        createdAt: new Date().toISOString()
+      });
+
+      // Also auto create a DM chat session if it does not already exist
+      await addDoc(collection(db, 'chats'), {
+        type: 'dm',
+        uids: [profile.uid, request.fromUid],
+        lastMessage: 'Friendship establish',
+        lastSenderId: profile.uid,
+        lastUpdatedAt: new Date().toISOString()
+      });
+
+      Alert.alert('Request Accepted', `You are now friends with ${request.fromName || 'Student'}!`);
+    } catch (e) {
+      console.error(e);
+      Alert.alert('Error', 'Failed to approve request.');
+    }
+  }, [profile]);
+
+  const handleDeclineRequest = useCallback(async (request: any) => {
+    try {
+      await updateDoc(doc(db, 'friend_requests', request.id), { status: 'declined' });
+      Alert.alert('Declined', 'Friend request has been ignored.');
+    } catch (e) {
+      console.error(e);
+    }
+  }, []);
+
+  const handleOpenChat = useCallback((chatId: string) => {
+    router.push({ pathname: '/chat-room', params: { id: chatId } });
+  }, [router]);
+
+  const handleSearchFocus = useCallback((tab: 'Friends' | 'Groups') => {
+    setTimeout(() => {
+      scrollRef.current?.scrollTo({ y: tab === 'Groups' ? 240 : 140, animated: true });
+    }, 120);
+  }, []);
+
+  const displayedFriends = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase();
+    if (!q) return friendsList;
+    return friendsList.filter(f => f.name.toLowerCase().includes(q));
+  }, [friendsList, searchQuery]);
+
+  const displayedGroups = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase();
+    if (!q) return groupsList;
+    return groupsList.filter(g => (g.name || 'Study Group').toLowerCase().includes(q));
+  }, [groupsList, searchQuery]);
 
   if (isUnactivatedStudent) {
     return (
       <SafeAreaView style={[s.root, { backgroundColor: C.bg }]} edges={['top']}>
         {/* Simple Header */}
         <View style={[s.header, { backgroundColor: C.surface, borderBottomColor: C.border }]}>
-          <TouchableOpacity onPress={() => router.push('/dashboard')} activeOpacity={0.7} style={s.headerBtn}>
+          <TouchableOpacity onPress={() => router.push('/dashboard')} activeOpacity={0.7} style={s.iconBtn}>
             <Text style={{ fontSize: 28, color: C.ink, marginLeft: 8 }}>‹</Text>
           </TouchableOpacity>
           <Text style={[s.headerBrand, { color: C.ink, flex: 1, textAlign: 'center', marginRight: 36 }]}>
@@ -77,127 +348,6 @@ export default function SocialHubScreen() {
       </SafeAreaView>
     );
   }
-  
-  const [activeTab, setActiveTab] = useState<'Friends' | 'Requests' | 'Groups'>('Friends');
-  const [sidebarOpen, setSidebarOpen] = useState(false);
-  const [loading, setLoading] = useState(true);
-
-  // Lists
-  const [friendsList, setFriendsList] = useState<any[]>([]);
-  const [groupsList, setGroupsList] = useState<any[]>([]);
-  const [requestsList, setRequestsList] = useState<any[]>([]);
-
-  // Search local list inputs
-  const [searchQuery, setSearchQuery] = useState('');
-
-  // 1. Fetch live groups and chats from Firestore
-  useEffect(() => {
-    if (!profile) return;
-
-    setLoading(true);
-
-    // Live groups observer
-    const qGroups = query(
-      collection(db, 'chats'),
-      where('type', '==', 'group'),
-      where('uids', 'array-contains', profile.uid)
-    );
-    const unsubGroups = onSnapshot(qGroups, (snapshot) => {
-      const list = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-      setGroupsList(list);
-    });
-
-    // Live private messages observer to establish friends listing
-    const qDMs = query(
-      collection(db, 'chats'),
-      where('type', '==', 'dm'),
-      where('uids', 'array-contains', profile.uid)
-    );
-    const unsubDMs = onSnapshot(qDMs, async (snapshot) => {
-      const dmRooms = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() as any }));
-      
-      // Resolve other user names using cached profiles (drastically saves Firestore reads)
-      const resolvedFriends = await Promise.all(dmRooms.map(async (room) => {
-        const otherUid = room.uids.find((id: string) => id !== profile.uid);
-        if (!otherUid) return null;
-
-        const uData = await getOrFetchUserProfile(otherUid);
-        return {
-          chatId: room.id,
-          uid: otherUid,
-          name: uData?.name || uData?.username || 'Classmate',
-          dept: uData?.dept || uData?.department || 'CoLearn Student',
-          level: uData?.level || uData?.academicLevel || '100 Level',
-          photoURL: uData?.photoURL || null
-        };
-      }));
-
-      setFriendsList(resolvedFriends.filter(Boolean));
-      setLoading(false);
-    });
-
-    // Live pending friend request observer
-    const qRequests = query(
-      collection(db, 'friend_requests'),
-      where('toUid', '==', profile.uid),
-      where('status', '==', 'pending')
-    );
-    const unsubRequests = onSnapshot(qRequests, (snapshot) => {
-      const list = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-      setRequestsList(list);
-    });
-
-    return () => {
-      unsubGroups();
-      unsubDMs();
-      unsubRequests();
-    };
-  }, [profile]);
-
-  // 2. Request Actions
-  const handleAcceptRequest = async (request: any) => {
-    if (!profile) return;
-    try {
-      await updateDoc(doc(db, 'friend_requests', request.id), { status: 'accepted' });
-      await addDoc(collection(db, 'friendships'), {
-        uids: [profile.uid, request.fromUid],
-        createdAt: new Date().toISOString()
-      });
-
-      // Also auto create a DM chat session if it does not already exist
-      await addDoc(collection(db, 'chats'), {
-        type: 'dm',
-        uids: [profile.uid, request.fromUid],
-        lastMessage: 'Friendship establish',
-        lastSenderId: profile.uid,
-        lastUpdatedAt: new Date().toISOString()
-      });
-
-      Alert.alert('Request Accepted', `You are now friends with ${request.fromName || 'Student'}!`);
-    } catch (e) {
-      console.error(e);
-      Alert.alert('Error', 'Failed to approve request.');
-    }
-  };
-
-  const handleDeclineRequest = async (request: any) => {
-    try {
-      await updateDoc(doc(db, 'friend_requests', request.id), { status: 'declined' });
-      Alert.alert('Declined', 'Friend request has been ignored.');
-    } catch (e) {
-      console.error(e);
-    }
-  };
-
-  const displayedFriends = friendsList.filter(f => {
-    if (!searchQuery.trim()) return true;
-    return f.name.toLowerCase().includes(searchQuery.toLowerCase());
-  });
-
-  const displayedGroups = groupsList.filter(g => {
-    if (!searchQuery.trim()) return true;
-    return (g.name || 'Study Group').toLowerCase().includes(searchQuery.toLowerCase());
-  });
 
   return (
     <SafeAreaView style={[s.root, { backgroundColor: C.bg }]} edges={['top']}>
@@ -215,194 +365,164 @@ export default function SocialHubScreen() {
         </TouchableOpacity>
       </View>
 
-      <ScrollView style={s.scroll} contentContainerStyle={s.scrollContent} showsVerticalScrollIndicator={false}>
-        {/* Welcome */}
-        <Text style={[s.pageTitle, { color: C.ink }]}>Social Hub</Text>
-        <Text style={[s.pageSubtitle, { color: C.inkMid }]}>
-          Build study alliances, manage comrades, and discuss lecture blocks in real-time.
-        </Text>
+      <KeyboardSafeContainer>
+        <ScrollView
+          ref={scrollRef}
+          style={s.scroll}
+          contentContainerStyle={[s.scrollContent, { paddingBottom: isKeyboardVisible ? 36 : 110 }]}
+          showsVerticalScrollIndicator={false}
+          keyboardShouldPersistTaps="handled"
+        >
+          {/* Welcome */}
+          <Text style={[s.pageTitle, { color: C.ink }]}>Social Hub</Text>
+          <Text style={[s.pageSubtitle, { color: C.inkMid }]}>
+            Build study alliances, manage comrades, and discuss lecture blocks in real-time.
+          </Text>
 
-        {/* Tab Controls */}
-        <View style={[s.tabContainer, { backgroundColor: C.tabBg }]}>
-          {(['Friends', 'Requests', 'Groups'] as const).map(tab => {
-            const isSel = activeTab === tab;
-            return (
-              <TouchableOpacity
-                key={tab}
-                style={[s.tab, isSel && [s.tabActive, { backgroundColor: C.surface }]]}
-                onPress={() => { setActiveTab(tab); setSearchQuery(''); }}
-              >
-                <Text style={[s.tabText, isSel && [s.tabTextActive, { color: C.ink }]]}>{tab}</Text>
-              </TouchableOpacity>
-            );
-          })}
-        </View>
+          {/* Tab Controls */}
+          <View style={[s.tabContainer, { backgroundColor: C.tabBg }]}>
+            {(['Friends', 'Requests', 'Groups'] as const).map(tab => {
+              const isSel = activeTab === tab;
+              return (
+                <TouchableOpacity
+                  key={tab}
+                  style={[s.tab, isSel && [s.tabActive, { backgroundColor: C.surface }]]}
+                  onPress={() => { setActiveTab(tab); setSearchQuery(''); }}
+                >
+                  <Text style={[s.tabText, isSel && [s.tabTextActive, { color: C.ink }]]}>{tab}</Text>
+                </TouchableOpacity>
+              );
+            })}
+          </View>
 
-        {/* CREATE STUDY GROUP (Groups tab only) */}
-        {activeTab === 'Groups' && (
-          <TouchableOpacity 
-            style={[s.createGroupCard, { backgroundColor: C.surfaceDark }]} 
-            onPress={() => router.push('/create-group')}
-            activeOpacity={0.9}
-          >
-             <View style={[s.plusCircle, { backgroundColor: C.surface }]}>
+          {/* CREATE STUDY GROUP (Groups tab only) */}
+          {activeTab === 'Groups' && (
+            <TouchableOpacity
+              style={[s.createGroupCard, { backgroundColor: C.surfaceDark }]}
+              onPress={() => router.push('/create-group')}
+              activeOpacity={0.9}
+            >
+              <View style={[s.plusCircle, { backgroundColor: C.surface }]}>
                 <Text style={[s.plusText, { color: C.ink }]}>+</Text>
-             </View>
-             <View style={{ flex: 1 }}>
+              </View>
+              <View style={{ flex: 1 }}>
                 <Text style={s.createTitle}>Establish Group</Text>
                 <Text style={s.createSubtitle}>Create an academic alliance & share resources.</Text>
-             </View>
-          </TouchableOpacity>
-        )}
-
-        {/* PENDING REGISTER REQUESTS (Requests tab only) */}
-        {activeTab === 'Requests' && (
-          <View style={{ marginBottom: 24 }}>
-            <Text style={[s.sectionLabel, { color: C.inkMid }]}>PENDING FRIEND REQUESTS</Text>
-            {loading ? (
-              <ActivityIndicator color={C.activeText} style={{ marginVertical: 12 }} />
-            ) : requestsList.length === 0 ? (
-              <View style={[s.emptyCard, { borderColor: C.border }]}>
-                <Text style={[s.emptyText, { color: C.inkLight }]}>No new pending requests at this time.</Text>
-                <TouchableOpacity style={[s.lookupBtn, { backgroundColor: C.ink }]} onPress={() => router.push('/search')}>
-                   <Text style={[s.lookupBtnText, { color: C.bg }]}>LOOKUP COMRADES</Text>
-                </TouchableOpacity>
               </View>
-            ) : (
-              requestsList.map((req) => (
-                <View key={req.id} style={[s.pendingCard, { backgroundColor: C.surface, borderColor: C.border }]}>
-                  <Image 
-                    source={{ uri: req.fromPhoto || req.fromPhotoURL || `https://api.dicebear.com/7.x/avataaars/svg?seed=${req.fromUid || 'Student'}` }} 
-                    style={s.pendingAvatar} 
-                  />
-                  <View style={s.requestInfo}>
-                    <Text style={[s.requestName, { color: C.ink }]}>{req.fromName || 'Student'}</Text>
-                    <Text style={[s.requestDept, { color: C.inkMid }]}>{req.fromDept || 'CoLearn Student'}</Text>
-                  </View>
-                  <View style={s.requestActions}>
-                    <TouchableOpacity style={[s.acceptBtn, { backgroundColor: C.ink }]} onPress={() => handleAcceptRequest(req)}>
-                      <Text style={[s.btnIcon, { color: C.bg }]}>✓</Text>
-                    </TouchableOpacity>
-                    <TouchableOpacity style={[s.declineBtn, { backgroundColor: C.surface, borderColor: C.border }]} onPress={() => handleDeclineRequest(req)}>
-                      <TrashIcon />
-                    </TouchableOpacity>
-                  </View>
+            </TouchableOpacity>
+          )}
+
+          {/* PENDING REGISTER REQUESTS (Requests tab only) */}
+          {activeTab === 'Requests' && (
+            <View style={{ marginBottom: 24 }}>
+              <Text style={[s.sectionLabel, { color: C.inkMid }]}>PENDING FRIEND REQUESTS</Text>
+              {loading ? (
+                <ActivityIndicator color={C.activeText} style={{ marginVertical: 12 }} />
+              ) : requestsList.length === 0 ? (
+                <View style={[s.emptyCard, { borderColor: C.border }]}>
+                  <Text style={[s.emptyText, { color: C.inkLight }]}>No new pending requests at this time.</Text>
+                  <TouchableOpacity style={[s.lookupBtn, { backgroundColor: C.ink }]} onPress={() => router.push('/search')}>
+                    <Text style={[s.lookupBtnText, { color: C.bg }]}>LOOKUP COMRADES</Text>
+                  </TouchableOpacity>
                 </View>
-              ))
-            )}
-          </View>
-        )}
-
-        {/* MAIN LISTINGS */}
-        {activeTab === 'Friends' && (
-          <>
-            <View style={s.friendsHeaderRow}>
-               <Text style={[s.sectionLabel, { color: C.inkMid, marginBottom: 0 }]}>YOUR COMRADES ({displayedFriends.length})</Text>
-               <View style={[s.searchRow, { backgroundColor: C.bgAlt }]}>
-                  <SearchIcon color={C.inkLight} size={14} />
-                  <TextInput 
-                     style={[s.searchInput, { color: C.ink }]}
-                     placeholder="Search..."
-                     placeholderTextColor={C.inkLight}
-                     value={searchQuery}
-                     onChangeText={setSearchQuery}
+              ) : (
+                requestsList.map((req) => (
+                  <RequestCard
+                    key={req.id}
+                    req={req}
+                    C={C}
+                    s={s}
+                    onAccept={handleAcceptRequest}
+                    onDecline={handleDeclineRequest}
                   />
-               </View>
+                ))
+              )}
             </View>
+          )}
 
-            {loading ? (
-              <ActivityIndicator color={C.activeText} style={{ marginTop: 40 }} />
-            ) : displayedFriends.length === 0 ? (
-              <View style={[s.emptyCard, { borderColor: C.border }]}>
-                <Text style={[s.emptyText, { color: C.inkLight }]}>
-                  {searchQuery ? "No comrades match your filters." : "You have not established any partnerships yet."}
-                </Text>
-                <TouchableOpacity style={[s.lookupBtn, { backgroundColor: C.ink }]} onPress={() => router.push('/search')}>
-                   <Text style={[s.lookupBtnText, { color: C.bg }]}>LOOKUP COMRADES</Text>
-                </TouchableOpacity>
+          {/* MAIN LISTINGS */}
+          {activeTab === 'Friends' && (
+            <>
+              <View style={s.friendsHeaderRow}>
+                <Text style={[s.sectionLabel, { color: C.inkMid, marginBottom: 0 }]}>YOUR COMRADES ({displayedFriends.length})</Text>
+                <View style={[s.searchRow, { backgroundColor: C.bgAlt }]}>
+                  <SearchIcon color={C.inkLight} />
+                  <TextInput
+                    style={[s.searchInput, { color: C.ink }]}
+                    placeholder="Search..."
+                    placeholderTextColor={C.inkLight}
+                    value={searchQuery}
+                    onChangeText={setSearchQuery}
+                    onFocus={() => handleSearchFocus('Friends')}
+                  />
+                </View>
               </View>
-            ) : (
+
+              {loading ? (
+                <ActivityIndicator color={C.activeText} style={{ marginTop: 40 }} />
+              ) : displayedFriends.length === 0 ? (
+                <View style={[s.emptyCard, { borderColor: C.border }]}>
+                  <Text style={[s.emptyText, { color: C.inkLight }]}>
+                    {searchQuery ? "No comrades match your filters." : "You have not established any partnerships yet."}
+                  </Text>
+                  <TouchableOpacity style={[s.lookupBtn, { backgroundColor: C.ink }]} onPress={() => router.push('/search')}>
+                    <Text style={[s.lookupBtnText, { color: C.bg }]}>LOOKUP COMRADES</Text>
+                  </TouchableOpacity>
+                </View>
+              ) : (
                 displayedFriends.map((friend) => (
-                  <View key={friend.uid} style={[s.friendCard, { backgroundColor: C.surface, borderColor: C.border }]}>
-                     <View style={s.friendTop}>
-                        <View style={s.friendAvatarBox}>
-                           {friend.photoURL ? (
-                             <Image source={{ uri: friend.photoURL }} style={s.friendAvatar} />
-                           ) : (
-                             <View style={[s.avatarPlaceholder, { backgroundColor: C.tagBg || C.bgAlt, borderColor: C.border }]}>
-                                <Text style={[s.initials, { color: C.inkMid }]}>{friend.name.charAt(0).toUpperCase()}</Text>
-                             </View>
-                           )}
-                        </View>
-                        <View style={s.friendDetails}>
-                           <Text style={[s.friendName, { color: C.ink }]}>{friend.name}</Text>
-                           <Text style={[s.friendDept, { color: C.inkMid }]}>{friend.dept} • {friend.level}</Text>
-                        </View>
-                     </View>
-                     
-                     <View style={s.friendBtnRow}>
-                        <TouchableOpacity style={[s.chatBtn, { backgroundColor: C.ink }]} onPress={() => router.push({ pathname: '/chat-room', params: { id: friend.chatId } })}>
-                           <Text style={[s.chatBtnText, { color: C.bg }]}>SEND DM</Text>
-                        </TouchableOpacity>
-                     </View>
-                  </View>
-                ))
-            )}
-          </>
-        )}
-
-        {activeTab === 'Groups' && (
-          <>
-            <View style={s.friendsHeaderRow}>
-               <Text style={[s.sectionLabel, { color: C.inkMid, marginBottom: 0 }]}>STUDY ALLIANCES ({displayedGroups.length})</Text>
-               <View style={[s.searchRow, { backgroundColor: C.bgAlt }]}>
-                  <SearchIcon color={C.inkLight} size={14} />
-                  <TextInput 
-                     style={[s.searchInput, { color: C.ink }]}
-                     placeholder="Search..."
-                     placeholderTextColor={C.inkLight}
-                     value={searchQuery}
-                     onChangeText={setSearchQuery}
+                  <FriendCard
+                    key={friend.uid}
+                    friend={friend}
+                    C={C}
+                    s={s}
+                    onChat={handleOpenChat}
                   />
-               </View>
-            </View>
-
-            {loading ? (
-              <ActivityIndicator color={C.activeText} style={{ marginTop: 40 }} />
-            ) : displayedGroups.length === 0 ? (
-              <View style={[s.emptyCard, { borderColor: C.border }]}>
-                <Text style={[s.emptyText, { color: C.inkLight }]}>
-                  {searchQuery ? "No study groups found." : "You are not a member of any study groups yet."}
-                </Text>
-              </View>
-            ) : (
-                displayedGroups.map((group) => (
-                  <View key={group.id} style={[s.friendCard, { backgroundColor: C.surface, borderColor: C.border }]}>
-                     <View style={s.friendTop}>
-                        <View style={s.friendAvatarBox}>
-                           <View style={[s.groupPlaceholderBox, { backgroundColor: C.tagBg || C.bgAlt, borderColor: C.border }]}>
-                              <Text style={[s.initials, { color: C.inkMid }]}>👥</Text>
-                           </View>
-                        </View>
-                        <View style={s.friendDetails}>
-                           <Text style={[s.friendName, { color: C.ink }]}>{group.name || 'Study Group'}</Text>
-                           <Text style={[s.friendDept, { color: C.inkMid }]}>{(group.uids || []).length} Allies joined</Text>
-                        </View>
-                     </View>
-                     
-                     <View style={s.friendBtnRow}>
-                        <TouchableOpacity style={[s.chatBtn, { backgroundColor: C.ink }]} onPress={() => router.push({ pathname: '/chat-room', params: { id: group.id } })}>
-                           <Text style={[s.chatBtnText, { color: C.bg }]}>ENTER COMPANION CHAT</Text>
-                        </TouchableOpacity>
-                     </View>
-                  </View>
                 ))
-            )}
-          </>
-        )}
+              )}
+            </>
+          )}
 
-        <View style={{ height: 100 }} />
-      </ScrollView>
+          {activeTab === 'Groups' && (
+            <>
+              <View style={s.friendsHeaderRow}>
+                <Text style={[s.sectionLabel, { color: C.inkMid, marginBottom: 0 }]}>STUDY ALLIANCES ({displayedGroups.length})</Text>
+                <View style={[s.searchRow, { backgroundColor: C.bgAlt }]}>
+                  <SearchIcon color={C.inkLight} />
+                  <TextInput
+                    style={[s.searchInput, { color: C.ink }]}
+                    placeholder="Search..."
+                    placeholderTextColor={C.inkLight}
+                    value={searchQuery}
+                    onChangeText={setSearchQuery}
+                    onFocus={() => handleSearchFocus('Groups')}
+                  />
+                </View>
+              </View>
+
+              {loading ? (
+                <ActivityIndicator color={C.activeText} style={{ marginTop: 40 }} />
+              ) : displayedGroups.length === 0 ? (
+                <View style={[s.emptyCard, { borderColor: C.border }]}>
+                  <Text style={[s.emptyText, { color: C.inkLight }]}>
+                    {searchQuery ? "No study groups found." : "You are not a member of any study groups yet."}
+                  </Text>
+                </View>
+              ) : (
+                displayedGroups.map((group) => (
+                  <GroupCard
+                    key={group.id}
+                    group={group}
+                    C={C}
+                    s={s}
+                    onOpen={handleOpenChat}
+                  />
+                ))
+              )}
+            </>
+          )}
+        </ScrollView>
+      </KeyboardSafeContainer>
 
       <BottomNav active="social" />
     </SafeAreaView>

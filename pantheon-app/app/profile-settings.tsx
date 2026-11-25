@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import {
   View,
   Text,
@@ -14,6 +14,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { F } from '../components/Theme';
+import { KeyboardSafeContainer } from '../components/KeyboardSafeWrapper';
 import { useTheme } from '../context/ThemeContext';
 import { useAuth } from '../context/AuthContext';
 import { db } from '../lib/firebase';
@@ -108,6 +109,7 @@ export default function ProfileSettingsScreen() {
   const { user, profile } = useAuth();
   const { colors: C } = useTheme();
   const s = useMemo(() => createStyles(C), [C]);
+  const scrollRef = useRef<ScrollView>(null);
   
   const [style, setStyle] = useState('avataaars');
   const [seed, setSeed] = useState('');
@@ -251,7 +253,14 @@ export default function ProfileSettingsScreen() {
         <Text style={s.headerTitle}>Profile Settings</Text>
       </View>
 
-      <ScrollView style={s.scroll} contentContainerStyle={s.scrollContent} showsVerticalScrollIndicator={false}>
+      <KeyboardSafeContainer>
+        <ScrollView
+          ref={scrollRef}
+          style={s.scroll}
+          contentContainerStyle={s.scrollContent}
+          showsVerticalScrollIndicator={false}
+          keyboardShouldPersistTaps="handled"
+        >
         
         {/* Avatar Section */}
         <View style={s.card}>
@@ -337,6 +346,7 @@ export default function ProfileSettingsScreen() {
                   style={s.seedInput}
                   value={seed}
                   onChangeText={setSeed}
+                  onFocus={() => setTimeout(() => scrollRef.current?.scrollTo({ y: 260, animated: true }), 120)}
                   placeholder="e.g. unique_seed"
                   placeholderTextColor={C.inkLight}
                 />
@@ -354,6 +364,7 @@ export default function ProfileSettingsScreen() {
               style={s.usernameInput}
               value={username}
               onChangeText={setUsername}
+              onFocus={() => setTimeout(() => scrollRef.current?.scrollTo({ y: 380, animated: true }), 120)}
             />
             <EditIcon color={C.inkMid} />
           </View>
@@ -367,6 +378,7 @@ export default function ProfileSettingsScreen() {
               style={s.usernameInput}
               value={mobileNumber}
               onChangeText={setMobileNumber}
+              onFocus={() => setTimeout(() => scrollRef.current?.scrollTo({ y: 500, animated: true }), 120)}
               keyboardType="phone-pad"
             />
             <EditIcon color={C.inkMid} />
@@ -389,7 +401,7 @@ export default function ProfileSettingsScreen() {
                   style={{
                     flexDirection: 'row',
                     alignItems: 'center',
-                    justify: 'space-between',
+                    justifyContent: 'space-between',
                     padding: 12,
                     borderRadius: 14,
                     borderWidth: 1,
@@ -504,7 +516,8 @@ export default function ProfileSettingsScreen() {
         </Text>
 
         <View style={{ height: 40 }} />
-      </ScrollView>
+        </ScrollView>
+      </KeyboardSafeContainer>
     </SafeAreaView>
   );
 }

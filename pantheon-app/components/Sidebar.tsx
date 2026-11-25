@@ -6,9 +6,9 @@ import {
   TouchableOpacity,
   StyleSheet,
   Animated,
-  SafeAreaView,
   Image,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { Linking } from 'react-native';
 import { useAuth } from '../context/AuthContext';
@@ -49,7 +49,7 @@ const NAV_ITEMS = [
   { label: 'Settings',      route: '/settings',      icon: SettingsIcon },
 ];
 
-export function Sidebar({ isOpen, onClose }: SidebarProps) {
+export const Sidebar = React.memo(function Sidebar({ isOpen, onClose }: SidebarProps) {
   const router = useRouter();
   const { profile, logout, isOffline } = useAuth();
   const { colors: C, themeName } = useTheme();
@@ -62,13 +62,13 @@ export function Sidebar({ isOpen, onClose }: SidebarProps) {
     if (isOpen) {
       setRender(true);
       Animated.parallel([
-        Animated.timing(slideAnim, { toValue: 0, duration: 400, useNativeDriver: true }),
-        Animated.timing(opacityAnim, { toValue: 1, duration: 400, useNativeDriver: true }),
+        Animated.timing(slideAnim, { toValue: 0, duration: 200, useNativeDriver: true }),
+        Animated.timing(opacityAnim, { toValue: 1, duration: 200, useNativeDriver: true }),
       ]).start();
     } else {
       Animated.parallel([
-        Animated.timing(slideAnim, { toValue: -width, duration: 350, useNativeDriver: true }),
-        Animated.timing(opacityAnim, { toValue: 0, duration: 350, useNativeDriver: true }),
+        Animated.timing(slideAnim, { toValue: -width, duration: 160, useNativeDriver: true }),
+        Animated.timing(opacityAnim, { toValue: 0, duration: 160, useNativeDriver: true }),
       ]).start(() => setRender(false));
     }
   }, [isOpen]);
@@ -171,7 +171,7 @@ export function Sidebar({ isOpen, onClose }: SidebarProps) {
       </Animated.View>
     </View>
   );
-}
+});
 
 const s = StyleSheet.create({
   sidebarOverlay: { ...StyleSheet.absoluteFill, backgroundColor: 'rgba(0,0,0,0.4)' },

@@ -1,12 +1,14 @@
-import React, { useEffect, useRef, useState, useMemo } from 'react';
+import React, { useEffect, useRef, useState, useMemo, useCallback } from 'react';
 import {
   View,
   Text,
   ScrollView,
+  FlatList,
   TouchableOpacity,
   StyleSheet,
   Animated,
   ActivityIndicator,
+  Platform,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useLocalSearchParams } from 'expo-router';
@@ -40,21 +42,26 @@ function getGrade(pct: number): { label: string; sub: string } {
 }
 
 // ── Circular Score ─────────────────────────────────────────────────────────────
-function CircleScore({ correct, total }: { correct: number; total: number }) {
-  const { colors: C } = useTheme();
-  const s = createStyles(C);
+const CircleScore = React.memo(function CircleScore({
+  correct,
+  total,
+  s,
+  C,
+}: {
+  correct: number;
+  total: number;
+  s: any;
+  C: any;
+}) {
   const pct = total > 0 ? correct / total : 0;
   const animPct = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
-    Animated.timing(animPct, { toValue: pct, duration: 1200, useNativeDriver: false }).start();
-  }, []);
+    Animated.timing(animPct, { toValue: pct, duration: 500, useNativeDriver: false }).start();
+  }, [pct]);
 
-  // SVG-style circle using border trick
   const size = 160;
   const stroke = 10;
-  const radius = (size - stroke) / 2;
-  const circumference = 2 * Math.PI * radius;
 
   return (
     <View style={s.circleWrap}>
@@ -110,28 +117,28 @@ function CircleScore({ correct, total }: { correct: number; total: number }) {
       </View>
     </View>
   );
-}
+});
 
 // ── Stat card ─────────────────────────────────────────────────────────────────
-function StatCard({
+const StatCard = React.memo(function StatCard({
   iconChild,
   label,
   value,
   delay,
+  s,
 }: {
   iconChild: React.ReactNode;
   label: string;
   value: string;
   delay: number;
+  s: any;
 }) {
-  const { colors: C } = useTheme();
-  const s = createStyles(C);
   const opacity = useRef(new Animated.Value(0)).current;
-  const y = useRef(new Animated.Value(16)).current;
+  const y = useRef(new Animated.Value(10)).current;
   useEffect(() => {
     Animated.parallel([
-      Animated.timing(opacity, { toValue: 1, duration: 500, delay, useNativeDriver: true }),
-      Animated.timing(y, { toValue: 0, duration: 500, delay, useNativeDriver: true }),
+      Animated.timing(opacity, { toValue: 1, duration: 220, delay, useNativeDriver: true }),
+      Animated.timing(y, { toValue: 0, duration: 220, delay, useNativeDriver: true }),
     ]).start();
   }, []);
 
@@ -142,7 +149,53 @@ function StatCard({
       <Text style={s.statValue}>{value}</Text>
     </Animated.View>
   );
-}
+});
+
+const CorrectionCard = React.memo(function CorrectionCard({
+  question,
+  index,
+  selectedOpt,
+  s,
+}: {
+  question: any;
+  index: number;
+  selectedOpt: number | undefined;
+  s: any;
+}) {
+  const correctOpt = question.answer;
+  const isCorrect = selectedOpt === correctOpt;
+  const isUnanswered = selectedOpt === undefined;
+
+  return (
+    <View style={s.correctionCard}>
+      <View style={s.correctionHeader}>
+        <Text style={s.qNumber}>QUESTION {pad(index + 1)}</Text>
+        {isCorrect ? (
+          <View style={[s.badge, s.badgeCorrect]}>
+            <Text style={s.badgeTextCorrect}>✓ Correct</Text>
+          </View>
+        ) : isUnanswered ? (
+          <View style={[s.badge, s.badgeUnanswered]}>
+            <Text style={s.badgeTextUnanswered}>⚠ Unanswered</Text>
+          </View>
+        ) : (
+          <View style={[s.badge, s.badgeWrong]}>
+            <Text style={s.badgeTextWrong}>✕ Incorrect</Text>
+          </View>
+        )}
+      </View>
+
+      <QuestionRenderer
+        question={question.q || question.question || ''}
+        options={question.opts || question.options || []}
+        selectedOptionIndex={selectedOpt}
+        correctOptionIndex={correctOpt}
+        isAnswered={true}
+        explanation={question.explanation}
+      />
+    </View>
+  );
+});
 
 // ── Main ──────────────────────────────────────────────────────────────────────
 export default function CbtResultsScreen() {
@@ -188,12 +241,15 @@ export default function CbtResultsScreen() {
 
   // Load active questions and answers from storage for review
   useEffect(() => {
+    let cancelled = false;
     async function loadReviewData() {
       try {
         setLoadingReview(true);
-        const questionsJSON = await AsyncStorage.getItem('colearn_active_exam_questions');
-        const answersJSON = await AsyncStorage.getItem('colearn_active_exam_answers');
-        
+        const [questionsJSON, answersJSON] = await Promise.all([
+          AsyncStorage.getItem('colearn_active_exam_questions'),
+          AsyncStorage.getItem('colearn_active_exam_answers'),
+        ]);
+        if (cancelled) return;
         if (questionsJSON) {
           setReviewQuestions(JSON.parse(questionsJSON));
         }
@@ -205,20 +261,30 @@ export default function CbtResultsScreen() {
       } catch (err) {
         console.log('Error preparing exam review corrections data:', err);
       } finally {
-        setLoadingReview(false);
+        if (!cancelled) setLoadingReview(false);
       }
     }
     loadReviewData();
+    return () => { cancelled = true; };
   }, [params.answers, showReview]);
 
   const headerOpacity = useRef(new Animated.Value(0)).current;
-  const headerY = useRef(new Animated.Value(-20)).current;
+  const headerY = useRef(new Animated.Value(-10)).current;
   useEffect(() => {
     Animated.parallel([
-      Animated.timing(headerOpacity, { toValue: 1, duration: 600, useNativeDriver: true }),
-      Animated.timing(headerY, { toValue: 0, duration: 600, useNativeDriver: true }),
+      Animated.timing(headerOpacity, { toValue: 1, duration: 220, useNativeDriver: true }),
+      Animated.timing(headerY, { toValue: 0, duration: 220, useNativeDriver: true }),
     ]).start();
   }, []);
+
+  const renderCorrectionItem = useCallback(({ item, index }: { item: any; index: number }) => (
+    <CorrectionCard
+      question={item}
+      index={index}
+      selectedOpt={reviewAnswers[index]}
+      s={s}
+    />
+  ), [reviewAnswers, s]);
 
   if (showReview) {
     return (
@@ -233,69 +299,46 @@ export default function CbtResultsScreen() {
           <View style={{ width: 36 }} />
         </View>
 
-        <ScrollView style={s.scroll} contentContainerStyle={s.scrollContent} showsVerticalScrollIndicator={false}>
-          <View style={s.reviewMetaCard}>
-            <Text style={s.reviewMetaTitle}>{courseLabel} Review</Text>
-            <Text style={s.reviewMetaSub}>
-              Reviewing {reviewQuestions.length} questions. You got {correct} correct and {total - correct} incorrect.
-            </Text>
-          </View>
-
-          {loadingReview ? (
-            <View style={{ paddingVertical: 100, alignItems: 'center' }}>
-              <ActivityIndicator size="large" color={C.ink} />
-              <Text style={{ marginTop: 12, fontFamily: F.medium, color: C.inkMid }}>Loading questions review...</Text>
+        <FlatList
+          style={s.scroll}
+          contentContainerStyle={s.scrollContent}
+          showsVerticalScrollIndicator={false}
+          data={loadingReview ? [] : reviewQuestions}
+          keyExtractor={(q, idx) => q.id ? `${q.id}_${idx}` : String(idx)}
+          renderItem={renderCorrectionItem}
+          initialNumToRender={5}
+          maxToRenderPerBatch={5}
+          windowSize={5}
+          removeClippedSubviews={Platform.OS === 'android'}
+          ListHeaderComponent={
+            <View style={s.reviewMetaCard}>
+              <Text style={s.reviewMetaTitle}>{courseLabel} Review</Text>
+              <Text style={s.reviewMetaSub}>
+                Reviewing {reviewQuestions.length} questions. You got {correct} correct and {total - correct} incorrect.
+              </Text>
             </View>
-          ) : reviewQuestions.length === 0 ? (
-            <View style={s.emptyCard}>
-              <Text style={{ fontFamily: F.medium, textAlign: 'center' }}>No questions saved from your practice session to review.</Text>
-            </View>
-          ) : (
-            reviewQuestions.map((question, index) => {
-              const selectedOpt = reviewAnswers[index];
-              const correctOpt = question.answer;
-              const isCorrect = selectedOpt === correctOpt;
-              const isUnanswered = selectedOpt === undefined;
-
-              return (
-                <View key={question.id || index} style={s.correctionCard}>
-                  {/* Status header */}
-                  <View style={s.correctionHeader}>
-                    <Text style={s.qNumber}>QUESTION {pad(index + 1)}</Text>
-                    {isCorrect ? (
-                      <View style={[s.badge, s.badgeCorrect]}>
-                        <Text style={s.badgeTextCorrect}>✓ Correct</Text>
-                      </View>
-                    ) : isUnanswered ? (
-                      <View style={[s.badge, s.badgeUnanswered]}>
-                        <Text style={s.badgeTextUnanswered}>⚠ Unanswered</Text>
-                      </View>
-                    ) : (
-                      <View style={[s.badge, s.badgeWrong]}>
-                        <Text style={s.badgeTextWrong}>✕ Incorrect</Text>
-                      </View>
-                    )}
-                  </View>
-
-                  <QuestionRenderer
-                    question={question.q || question.question || ''}
-                    options={question.opts || question.options || []}
-                    selectedOptionIndex={selectedOpt}
-                    correctOptionIndex={correctOpt}
-                    isAnswered={true}
-                    explanation={question.explanation}
-                  />
-                </View>
-              );
-            })
-          )}
-
-          <TouchableOpacity style={s.closeReviewBtn} onPress={() => setShowReview(false)} activeOpacity={0.8}>
-            <Text style={s.closeReviewText}>Close Review & Go Back</Text>
-          </TouchableOpacity>
-
-          <View style={{ height: 40 }} />
-        </ScrollView>
+          }
+          ListEmptyComponent={
+            loadingReview ? (
+              <View style={{ paddingVertical: 100, alignItems: 'center' }}>
+                <ActivityIndicator size="large" color={C.ink} />
+                <Text style={{ marginTop: 12, fontFamily: F.medium, color: C.inkMid }}>Loading questions review...</Text>
+              </View>
+            ) : (
+              <View style={s.emptyCard}>
+                <Text style={{ fontFamily: F.medium, textAlign: 'center', color: C.inkMid }}>No questions saved from your practice session to review.</Text>
+              </View>
+            )
+          }
+          ListFooterComponent={
+            <>
+              <TouchableOpacity style={s.closeReviewBtn} onPress={() => setShowReview(false)} activeOpacity={0.8}>
+                <Text style={s.closeReviewText}>Close Review & Go Back</Text>
+              </TouchableOpacity>
+              <View style={{ height: 40 }} />
+            </>
+          }
+        />
       </SafeAreaView>
     );
   }
@@ -309,7 +352,7 @@ export default function CbtResultsScreen() {
           <View style={s.backArrowHead} />
         </TouchableOpacity>
         <Text style={s.headerTitle}>Practice Results</Text>
-        <TouchableOpacity activeOpacity={0.7} style={s.iconBtn}>
+        <TouchableOpacity activeOpacity={0.7} style={s.iconBtn} onPress={() => router.push('/notifications')}>
           <View style={s.bellBody} />
           <View style={s.bellBase} />
           <View style={s.bellClapper} />
@@ -323,7 +366,7 @@ export default function CbtResultsScreen() {
             <Text style={s.courseBadgeText}>{courseLabel}</Text>
           </View>
 
-          <CircleScore correct={correct} total={total} />
+          <CircleScore correct={correct} total={total} s={s} C={C} />
 
           <Text style={s.gradeLabel}>{grade.label}</Text>
           <Text style={s.gradeSub}>{grade.sub}</Text>
@@ -331,7 +374,8 @@ export default function CbtResultsScreen() {
 
         {/* Stat cards */}
         <StatCard
-          delay={200}
+          delay={50}
+          s={s}
           iconChild={
             <View style={{ width: 28, height: 28, borderRadius: 8, borderWidth: 1.5, borderColor: C.border, justifyContent: 'center', alignItems: 'center' }}>
               <Text style={{ fontSize: 14 }}>⏱</Text>
@@ -342,10 +386,11 @@ export default function CbtResultsScreen() {
         />
 
         <StatCard
-          delay={300}
+          delay={100}
+          s={s}
           iconChild={
             <View style={{ width: 28, height: 28, borderRadius: 14, borderWidth: 1.5, borderColor: C.border, justifyContent: 'center', alignItems: 'center' }}>
-              <Text style={{ fontSize: 14, color: C.correct }}>✓</Text>
+              <Text style={{ fontSize: 14, color: C.activeText }}>✓</Text>
             </View>
           }
           label="Correct"
@@ -353,10 +398,11 @@ export default function CbtResultsScreen() {
         />
 
         <StatCard
-          delay={400}
+          delay={150}
+          s={s}
           iconChild={
             <View style={{ width: 28, height: 28, borderRadius: 14, borderWidth: 1.5, borderColor: C.border, justifyContent: 'center', alignItems: 'center' }}>
-              <Text style={{ fontSize: 14, color: C.wrong }}>✕</Text>
+              <Text style={{ fontSize: 14, color: C.error }}>✕</Text>
             </View>
           }
           label="Incorrect"
@@ -375,7 +421,7 @@ export default function CbtResultsScreen() {
                 s.pctFill,
                 {
                   width: `${pct}%`,
-                  backgroundColor: pct >= 70 ? C.correct : pct >= 50 ? C.gold : C.wrong,
+                  backgroundColor: pct >= 70 ? C.activeText : pct >= 50 ? C.gold : C.error,
                 },
               ]}
             />

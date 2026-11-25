@@ -1,24 +1,25 @@
-import React, { useState, useEffect, useRef, useMemo } from 'react';
+import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import {
   View,
   Text,
-  ScrollView,
   TouchableOpacity,
   StyleSheet,
   TextInput,
   ActivityIndicator,
-  KeyboardAvoidingView,
   Platform,
   Modal,
+  FlatList,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useRouter, useLocalSearchParams } from 'expo-router';
-import { collection, query, where, orderBy, onSnapshot, addDoc, doc, getDoc, limit } from 'firebase/firestore';
+import { collection, query, where, onSnapshot, addDoc, doc, getDoc, limit } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 import { useAuth } from '../context/AuthContext';
 import { useTheme } from '../context/ThemeContext';
 import { F } from '../components/Theme';
 import { getLocalNotes } from '../lib/db';
+import { KeyboardSafeContainer } from '../components/KeyboardSafeWrapper';
 
 interface Message {
   id: string;
@@ -49,25 +50,96 @@ function NoteIcon({ color }: { color: string }) {
   );
 }
 
+const DiscussionBubble = React.memo(function DiscussionBubble({
+  msg,
+  isMine,
+  courseId,
+  onOpenNote,
+  C,
+  s,
+}: {
+  msg: Message;
+  isMine: boolean;
+  courseId?: string;
+  onOpenNote: (noteId: string) => void;
+  C: any;
+  s: any;
+}) {
+  const isAdmin = msg.userLevel === '3' || msg.userLevel === '4';
+  const timeText = useMemo(() => {
+    try {
+      return new Date(msg.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    } catch {
+      return '';
+    }
+  }, [msg.createdAt]);
+
+  return (
+    <View style={[s.bubbleRow, isMine ? { justifyContent: 'flex-end' } : { justifyContent: 'flex-start' }]}>
+      {!isMine && (
+        <View style={[s.avatar, { backgroundColor: C.border }]}>
+          <Text style={[s.avatarText, { color: C.inkMid }]}>
+            {(msg.username || 'S').charAt(0).toUpperCase()}
+          </Text>
+        </View>
+      )}
+      <View style={[s.bubble, isMine ? s.bubbleMe : [s.bubbleThem, { backgroundColor: C.surface }]]}>
+        <View style={s.bubbleHeader}>
+          <Text style={[s.bubbleName, isMine ? { color: 'rgba(255,255,255,0.7)' } : { color: C.inkLight }]}>
+            {msg.username}
+          </Text>
+          {isAdmin && (
+            <View style={[s.adminBadge, { backgroundColor: C.gold }]}>
+              <Text style={s.adminBadgeText}>MOD</Text>
+            </View>
+          )}
+        </View>
+        <Text style={[s.bubbleText, isMine ? { color: '#fff' } : { color: C.ink }]}>{msg.text}</Text>
+
+        {msg.referencedNoteId && (
+          <TouchableOpacity
+            style={[s.refCard, isMine ? s.refCardMe : [s.refCardThem, { backgroundColor: C.bg, borderColor: C.border }]]}
+            activeOpacity={0.8}
+            onPress={() => onOpenNote(msg.referencedNoteId!)}
+          >
+            <NoteIcon color={isMine ? '#fff' : C.activeText} />
+            <View style={{ flex: 1, marginLeft: 8 }}>
+              <Text style={[s.refCardTitle, { color: isMine ? '#fff' : C.ink }]} numberOfLines={1}>
+                {msg.referencedNoteTitle || 'Shared Lecture Note'}
+              </Text>
+              <Text style={{ fontSize: 10, color: isMine ? 'rgba(255,255,255,0.7)' : C.inkLight }}>
+                Tap to read note offline
+              </Text>
+            </View>
+          </TouchableOpacity>
+        )}
+
+        <Text style={[s.bubbleTime, isMine ? { color: 'rgba(255,255,255,0.4)' } : { color: C.inkLight }]}>
+          {timeText}
+        </Text>
+      </View>
+    </View>
+  );
+});
+
 export default function CourseDiscussionScreen() {
   const router = useRouter();
   const { courseId } = useLocalSearchParams<{ courseId: string }>();
   const { profile } = useAuth();
   const { colors: C } = useTheme();
   const s = useMemo(() => createStyles(C), [C]);
-  
+
   const [course, setCourse] = useState<Course | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
   const [allNotes, setAllNotes] = useState<any[]>([]);
   const [text, setText] = useState('');
   const [loading, setLoading] = useState(true);
-  const [sending, setSending] = useState(false);
-  
-  // Note sharing state
+
   const [notePickerOpen, setNotePickerOpen] = useState(false);
   const [selectedNote, setSelectedNote] = useState<any | null>(null);
 
-  const scrollRef = useRef<ScrollView>(null);
+  const flatListRef = useRef<FlatList<Message>>(null);
+  const initialScrolledRef = useRef(false);
 
   // Fetch Notes for reference picker
   useEffect(() => {
@@ -77,82 +149,103 @@ export default function CourseDiscussionScreen() {
     try {
       localNotesArray = getLocalNotes(courseId);
       if (localNotesArray && localNotesArray.length > 0) {
-        setAllNotes(localNotesArray.map(n => ({ id: n.id, ...n, courseId })));
-        console.log("Loaded local notes for discussion ref:", localNotesArray.length);
+        setAllNotes(localNotesArray.map((n) => ({ id: n.id, ...n, courseId })));
       }
     } catch (e) {
-      console.log("Error loading local notes for discussion:", e);
+      console.log('Error loading local notes for discussion:', e);
     }
 
     const qNotes = query(collection(db, 'notes'), where('courseId', '==', courseId));
-    const unsubNotes = onSnapshot(qNotes, (snap) => {
-      const fbNotes = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-      console.log("Fetched cloud notes for discussion ref:", fbNotes.length);
-      if (fbNotes.length > 0) {
-        setAllNotes(fbNotes);
-      } else if (localNotesArray.length === 0) {
-        setAllNotes([]);
+    const unsubNotes = onSnapshot(
+      qNotes,
+      (snap) => {
+        const fbNotes = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+        if (fbNotes.length > 0) {
+          setAllNotes(fbNotes);
+        } else if (localNotesArray.length === 0) {
+          setAllNotes([]);
+        }
+      },
+      (err) => {
+        console.log('Discussion note loader error:', err);
       }
-    }, (err) => {
-      console.log("Discussion note loader error:", err);
-    });
+    );
     return () => unsubNotes();
   }, [profile, courseId]);
 
   useEffect(() => {
     if (!courseId) return;
+    let cancelled = false;
+    const courseCacheKey = `colearn_disc_course_${courseId}`;
+    const msgsCacheKey = `colearn_disc_msgs_${courseId}`;
 
-    // Fetch Course Info
-    async function fetchCourse() {
-      try {
-        const d = await getDoc(doc(db, 'courses', courseId));
-        if (d.exists()) {
-          setCourse({ id: d.id, ...d.data() } as Course);
+    // Instant hydration from AsyncStorage
+    Promise.all([AsyncStorage.getItem(courseCacheKey), AsyncStorage.getItem(msgsCacheKey)])
+      .then(([cStr, mStr]) => {
+        if (cancelled) return;
+        if (cStr) {
+          try {
+            setCourse(JSON.parse(cStr));
+          } catch {}
         }
-      } catch (e) {
-        console.error("Error fetching course:", e);
-      }
-    }
-    fetchCourse();
+        if (mStr) {
+          try {
+            const parsed = JSON.parse(mStr);
+            if (Array.isArray(parsed)) {
+              setMessages(parsed);
+              setLoading(false);
+            }
+          } catch {}
+        }
+      })
+      .catch(() => {});
 
-    // Listen to Messages
-    const q = query(
-      collection(db, 'discussions'),
-      where('courseId', '==', courseId),
-      limit(100)
+    getDoc(doc(db, 'courses', courseId))
+      .then((d) => {
+        if (!cancelled && d.exists()) {
+          const courseObj = { id: d.id, ...d.data() } as Course;
+          setCourse(courseObj);
+          AsyncStorage.setItem(courseCacheKey, JSON.stringify(courseObj)).catch(() => {});
+        }
+      })
+      .catch((e) => console.error('Error fetching course:', e));
+
+    const q = query(collection(db, 'discussions'), where('courseId', '==', courseId), limit(100));
+
+    const unsub = onSnapshot(
+      q,
+      (snapshot) => {
+        if (cancelled) return;
+        const msgs = snapshot.docs.map((d) => ({
+          id: d.id,
+          ...d.data(),
+        })) as Message[];
+
+        const sortedMsgs = msgs.sort(
+          (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
+        );
+
+        setMessages(sortedMsgs);
+        setLoading(false);
+        AsyncStorage.setItem(msgsCacheKey, JSON.stringify(sortedMsgs.slice(-60))).catch(() => {});
+      },
+      (err) => {
+        console.error('Discussion listener error:', err);
+        if (!cancelled) setLoading(false);
+      }
     );
 
-    const unsub = onSnapshot(q, (snapshot) => {
-      const msgs = snapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data()
-      })) as Message[];
-      
-      // Sort client-side to avoid index requirement
-      const sortedMsgs = msgs.sort((a, b) => 
-        new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
-      );
-      
-      setMessages(sortedMsgs);
-      setLoading(false);
-      
-      // Auto scroll to bottom
-      setTimeout(() => {
-        scrollRef.current?.scrollToEnd({ animated: true });
-      }, 300);
-    }, (err) => {
-      console.error("Discussion listener error:", err);
-      setLoading(false);
-    });
-
-    return () => unsub();
+    return () => {
+      cancelled = true;
+      unsub();
+    };
   }, [courseId]);
 
-  const handleSend = async () => {
+  const handleSend = useCallback(() => {
     const textToSend = text.trim();
-    if (!textToSend && !selectedNote && !profile || !courseId) return;
-    
-    setSending(true);
+    if ((!textToSend && !selectedNote) || !profile || !courseId) return;
+
+    const noteRef = selectedNote;
     const msgData: any = {
       courseId,
       userId: profile.uid,
@@ -160,43 +253,67 @@ export default function CourseDiscussionScreen() {
       userLevel: profile.level || '1',
       userAcademicLevel: profile.academicLevel || '100',
       text: textToSend,
-      createdAt: new Date().toISOString()
+      createdAt: new Date().toISOString(),
     };
 
-    if (selectedNote) {
-      msgData.referencedNoteId = selectedNote.id;
-      msgData.referencedNoteTitle = selectedNote.title;
+    if (noteRef) {
+      msgData.referencedNoteId = noteRef.id;
+      msgData.referencedNoteTitle = noteRef.title;
       if (!textToSend) {
-        msgData.text = `Shared note reference: ${selectedNote.title}`;
+        msgData.text = `Shared note reference: ${noteRef.title}`;
       }
     }
 
-    try {
-      setText('');
-      setSelectedNote(null);
-      await addDoc(collection(db, 'discussions'), msgData);
-      setTimeout(() => {
-        scrollRef.current?.scrollToEnd({ animated: true });
-      }, 50);
-    } catch (e) {
-      console.error("Error sending message:", e);
-      setText(msgData.text); // Restore text if failed
-    } finally {
-      setSending(false);
-    }
-  };
+    const optimisticId = `pending_${Date.now()}`;
+    setMessages((prev) => [...prev, { id: optimisticId, ...msgData }]);
+    setText('');
+    setSelectedNote(null);
 
-  useEffect(() => {
-    if (messages.length > 0) {
-      scrollRef.current?.scrollToEnd({ animated: true });
-    }
-  }, [messages.length]);
+    requestAnimationFrame(() => {
+      flatListRef.current?.scrollToEnd({ animated: true });
+    });
+
+    addDoc(collection(db, 'discussions'), msgData).catch((e) => {
+      console.error('Error sending message:', e);
+      setMessages((prev) => prev.filter((m) => m.id !== optimisticId));
+      setText(textToSend);
+      if (noteRef) setSelectedNote(noteRef);
+    });
+  }, [text, selectedNote, profile, courseId]);
+
+  const handleOpenNote = useCallback(
+    (noteId: string) => {
+      router.push({
+        pathname: '/note-viewer',
+        params: { courseId, noteId },
+      });
+    },
+    [router, courseId]
+  );
 
   const availableNotes = useMemo(() => {
-    return allNotes.filter(n => !n.courseId || String(n.courseId).toLowerCase() === String(courseId).toLowerCase());
+    return allNotes.filter(
+      (n) => !n.courseId || String(n.courseId).toLowerCase() === String(courseId).toLowerCase()
+    );
   }, [allNotes, courseId]);
 
-  if (loading) {
+  const renderMessageItem = useCallback(
+    ({ item }: { item: Message }) => (
+      <DiscussionBubble
+        msg={item}
+        isMine={item.userId === profile?.uid}
+        courseId={courseId}
+        onOpenNote={handleOpenNote}
+        C={C}
+        s={s}
+      />
+    ),
+    [profile?.uid, courseId, handleOpenNote, C, s]
+  );
+
+  const keyExtractor = useCallback((item: Message) => item.id, []);
+
+  if (loading && messages.length === 0) {
     return (
       <SafeAreaView style={[s.root, { justifyContent: 'center', alignItems: 'center' }]}>
         <ActivityIndicator size="large" color={C.ink} />
@@ -207,7 +324,7 @@ export default function CourseDiscussionScreen() {
   return (
     <SafeAreaView style={s.root} edges={['top']}>
       {/* Note Picker Modal */}
-      <Modal visible={notePickerOpen} transparent animationType="slide">
+      <Modal visible={notePickerOpen} transparent animationType="slide" onRequestClose={() => setNotePickerOpen(false)}>
         <View style={s.modalOverlay}>
           <View style={[s.modalContent, { backgroundColor: C.surface }]}>
             <View style={s.modalHeader}>
@@ -216,25 +333,29 @@ export default function CourseDiscussionScreen() {
                 <Text style={[s.modalClose, { color: C.inkLight }]}>✕ Close</Text>
               </TouchableOpacity>
             </View>
-            <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingBottom: 24 }}>
-              {availableNotes.length === 0 ? (
-                <Text style={[s.emptyNotesPicker, { color: C.inkMid }]}>No academic notes found for this course in the cloud.</Text>
-              ) : (
-                availableNotes.map(n => (
-                  <TouchableOpacity 
-                     key={n.id} 
-                     style={[s.noteItem, { borderBottomColor: C.border }]}
-                     onPress={() => {
-                       setSelectedNote(n);
-                       setNotePickerOpen(false);
-                     }}
-                  >
-                     <Text style={[s.noteItemTitle, { color: C.ink }]}>{n.title}</Text>
-                     <Text style={[s.noteItemCategory, { color: C.activeText }]}>Tap to attach reference link</Text>
-                  </TouchableOpacity>
-                ))
+            <FlatList
+              data={availableNotes}
+              keyExtractor={(n) => String(n.id)}
+              contentContainerStyle={{ paddingBottom: 24 }}
+              keyboardShouldPersistTaps="handled"
+              ListEmptyComponent={
+                <Text style={[s.emptyNotesPicker, { color: C.inkMid }]}>
+                  No academic notes found for this course in the cloud.
+                </Text>
+              }
+              renderItem={({ item: n }) => (
+                <TouchableOpacity
+                  style={[s.noteItem, { borderBottomColor: C.border }]}
+                  onPress={() => {
+                    setSelectedNote(n);
+                    setNotePickerOpen(false);
+                  }}
+                >
+                  <Text style={[s.noteItemTitle, { color: C.ink }]}>{n.title}</Text>
+                  <Text style={[s.noteItemCategory, { color: C.activeText }]}>Tap to attach reference link</Text>
+                </TouchableOpacity>
               )}
-            </ScrollView>
+            />
           </View>
         </View>
       </Modal>
@@ -252,88 +373,44 @@ export default function CourseDiscussionScreen() {
         <View style={{ width: 44 }} />
       </View>
 
-      <KeyboardAvoidingView 
-        style={{ flex: 1 }} 
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-        keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 20}
-      >
-        <ScrollView
-          ref={scrollRef}
+      <KeyboardSafeContainer style={{ flex: 1 }}>
+        <FlatList
+          ref={flatListRef}
+          data={messages}
+          keyExtractor={keyExtractor}
+          renderItem={renderMessageItem}
           style={s.scroll}
           contentContainerStyle={s.scrollContent}
           showsVerticalScrollIndicator={false}
-          onContentSizeChange={() => scrollRef.current?.scrollToEnd({ animated: true })}
-        >
-          {messages.length === 0 ? (
+          keyboardShouldPersistTaps="handled"
+          removeClippedSubviews={Platform.OS === 'android'}
+          initialNumToRender={16}
+          maxToRenderPerBatch={10}
+          windowSize={9}
+          onContentSizeChange={() => {
+            if (!initialScrolledRef.current && messages.length > 0) {
+              initialScrolledRef.current = true;
+              flatListRef.current?.scrollToEnd({ animated: false });
+            }
+          }}
+          ListEmptyComponent={
             <View style={s.empty}>
               <Text style={[s.emptyText, { color: C.inkLight }]}>No messages yet. Start the conversation!</Text>
             </View>
-          ) : (
-            messages.map((msg) => {
-              const myMsg = msg.userId === profile?.uid;
-              const isAdmin = msg.userLevel === '3' || msg.userLevel === '4';
-              
-              return (
-                <View key={msg.id} style={[s.bubbleRow, myMsg ? { justifyContent: 'flex-end' } : { justifyContent: 'flex-start' }]}>
-                  {!myMsg && (
-                    <View style={[s.avatar, { backgroundColor: C.border }]}>
-                      <Text style={[s.avatarText, { color: C.inkMid }]}>{msg.username.charAt(0).toUpperCase()}</Text>
-                    </View>
-                  )}
-                  <View style={[s.bubble, myMsg ? s.bubbleMe : [s.bubbleThem, { backgroundColor: C.surface }]]}>
-                    <View style={s.bubbleHeader}>
-                      <Text style={[s.bubbleName, myMsg ? { color: 'rgba(255,255,255,0.7)' } : { color: C.inkLight }]}>
-                        {msg.username}
-                      </Text>
-                      {isAdmin && (
-                        <View style={[s.adminBadge, { backgroundColor: C.gold }]}>
-                          <Text style={s.adminBadgeText}>MOD</Text>
-                        </View>
-                      )}
-                    </View>
-                    <Text style={[s.bubbleText, myMsg ? { color: '#fff' } : { color: C.ink }]}>
-                      {msg.text}
-                    </Text>
+          }
+        />
 
-                    {msg.referencedNoteId && (
-                      <TouchableOpacity
-                        style={[s.refCard, myMsg ? s.refCardMe : [s.refCardThem, { backgroundColor: C.bg, borderColor: C.border }]]}
-                        activeOpacity={0.8}
-                        onPress={() => router.push({
-                          pathname: '/note-viewer',
-                          params: { courseId, noteId: msg.referencedNoteId }
-                        })}
-                      >
-                        <NoteIcon color={myMsg ? '#fff' : C.activeText} />
-                        <View style={{ flex: 1, marginLeft: 8 }}>
-                          <Text style={[s.refCardTitle, { color: myMsg ? '#fff' : C.ink }]} numberOfLines={1}>
-                            {msg.referencedNoteTitle || 'Shared Lecture Note'}
-                          </Text>
-                          <Text style={{ fontSize: 10, color: myMsg ? 'rgba(255,255,255,0.7)' : C.inkLight }}>
-                            Tap to read note offline
-                          </Text>
-                        </View>
-                      </TouchableOpacity>
-                    )}
-
-                    <Text style={[s.bubbleTime, myMsg ? { color: 'rgba(255,255,255,0.4)' } : { color: C.inkLight }]}>
-                      {new Date(msg.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                    </Text>
-                  </View>
-                </View>
-              );
-            })
-          )}
-        </ScrollView>
-
-        {/* Selected Note Attachment Preview Bar (just like site) */}
         {selectedNote && (
           <View style={[s.selectedNotePreviewBar, { backgroundColor: C.bgAlt, borderColor: C.border }]}>
             <View style={{ flex: 1, flexDirection: 'row', alignItems: 'center' }}>
               <NoteIcon color={C.activeText} />
               <View style={{ marginLeft: 8, flex: 1 }}>
-                <Text style={{ fontSize: 10, color: C.inkLight, fontFamily: F.bold, textTransform: 'uppercase' }}>REFERENCING NOTE</Text>
-                <Text style={{ fontSize: 13, color: C.ink, fontFamily: F.bold }} numberOfLines={1}>{selectedNote.title}</Text>
+                <Text style={{ fontSize: 10, color: C.inkLight, fontFamily: F.bold, textTransform: 'uppercase' }}>
+                  REFERENCING NOTE
+                </Text>
+                <Text style={{ fontSize: 13, color: C.ink, fontFamily: F.bold }} numberOfLines={1}>
+                  {selectedNote.title}
+                </Text>
               </View>
             </View>
             <TouchableOpacity onPress={() => setSelectedNote(null)} style={s.selectedNoteClose}>
@@ -342,10 +419,9 @@ export default function CourseDiscussionScreen() {
           </View>
         )}
 
-        {/* Input */}
         <View style={[s.inputBar, { borderTopColor: C.border, backgroundColor: C.bg }]}>
-          <TouchableOpacity 
-            style={[s.attachBtn, { backgroundColor: C.surface, borderColor: C.border }]} 
+          <TouchableOpacity
+            style={[s.attachBtn, { backgroundColor: C.surface, borderColor: C.border }]}
             activeOpacity={0.7}
             onPress={() => setNotePickerOpen(true)}
           >
@@ -353,25 +429,24 @@ export default function CourseDiscussionScreen() {
           </TouchableOpacity>
           <TextInput
             style={[s.input, { backgroundColor: C.surface, color: C.ink }]}
-            placeholder={selectedNote ? "Add a comment directly..." : "Type a message..."}
+            placeholder={selectedNote ? 'Add a comment directly...' : 'Type a message...'}
             placeholderTextColor={C.inkLight}
             value={text}
             onChangeText={setText}
             multiline
+            onFocus={() => {
+              setTimeout(() => flatListRef.current?.scrollToEnd({ animated: true }), 120);
+            }}
           />
-          <TouchableOpacity 
-            style={[s.sendBtn, { backgroundColor: C.ink }, (!text.trim() && !selectedNote || sending) && { opacity: 0.5 }]} 
+          <TouchableOpacity
+            style={[s.sendBtn, { backgroundColor: C.ink }, !text.trim() && !selectedNote && { opacity: 0.5 }]}
             onPress={handleSend}
-            disabled={(!text.trim() && !selectedNote) || sending}
+            disabled={!text.trim() && !selectedNote}
           >
-            {sending ? (
-              <ActivityIndicator size="small" color="#fff" />
-            ) : (
-              <Text style={s.sendBtnText}>➔</Text>
-            )}
+            <Text style={s.sendBtnText}>➔</Text>
           </TouchableOpacity>
         </View>
-      </KeyboardAvoidingView>
+      </KeyboardSafeContainer>
     </SafeAreaView>
   );
 }

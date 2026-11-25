@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useRef } from 'react';
+import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import {
   View,
   Text,
@@ -8,12 +8,11 @@ import {
   Switch,
   ActivityIndicator,
   Alert,
-  FlatList,
-  Animated,
   Platform,
   Linking,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useRouter } from 'expo-router';
 import { BottomNav } from '../components/BottomNav';
 import { F } from '../components/Theme';
@@ -72,35 +71,29 @@ export function formatTime(hour: number, minute: number): string {
 
 export function generateSlots(blockSize: '20min' | '30min' | '1hr') {
   const slots: { id: string; name: string; hour: number; minute: number }[] = [];
-  const startHour = 8; // 08:00 AM
-  const endHour = 22;  // 10:00 PM (up to 22:00)
-  
+  const startHour = 8;
+  const endHour = 22;
+
   if (blockSize === '1hr') {
     for (let h = startHour; h < endHour; h++) {
-      const startStr = formatTime(h, 0);
-      const endStr = formatTime(h + 1, 0);
       slots.push({
         id: `slot_1h_${h}`,
-        name: `${startStr} - ${endStr}`,
+        name: `${formatTime(h, 0)} - ${formatTime(h + 1, 0)}`,
         hour: h,
         minute: 0
       });
     }
   } else if (blockSize === '30min') {
     for (let h = startHour; h < endHour; h++) {
-      const startStr1 = formatTime(h, 0);
-      const endStr1 = formatTime(h, 30);
       slots.push({
         id: `slot_30m_${h}_0`,
-        name: `${startStr1} - ${endStr1}`,
+        name: `${formatTime(h, 0)} - ${formatTime(h, 30)}`,
         hour: h,
         minute: 0
       });
-      const startStr2 = formatTime(h, 30);
-      const endStr2 = formatTime(h + 1, 0);
       slots.push({
         id: `slot_30m_${h}_30`,
-        name: `${startStr2} - ${endStr2}`,
+        name: `${formatTime(h, 30)} - ${formatTime(h + 1, 0)}`,
         hour: h,
         minute: 30
       });
@@ -159,13 +152,11 @@ const createEmptyTimetable = (blockSize: '20min' | '30min' | '1hr' = '1hr') => {
   return table;
 };
 
-// Request notifications permissions
 async function requestNotifPermissions() {
   const { status: existingStatus } = await Notifications.getPermissionsAsync();
   let finalStatus = existingStatus;
 
   if (existingStatus === 'denied') {
-    // If permission has already been denied, we guide the user to the Settings screen
     Alert.alert(
       "Permissions Required",
       "Notification permissions are currently disabled on your device. Please enable notifications in System Settings to trigger timely study alarms.",
@@ -198,48 +189,32 @@ async function requestNotifPermissions() {
   return finalStatus === 'granted';
 }
 
-// Helper to calculate the next occurrence of a weekday, hour, and minute
 function getNextOccurrence(weekday: number, hour: number, minute: number): Date {
   const result = new Date();
-  
-  // Map target weekday from DAY_TO_WEEKDAY_MAP:
-  // 1 (Sunday) ... 7 (Saturday)
-  // In javascript Date getDay(), 0 is Sunday ... 6 is Saturday
-  const targetDay = weekday - 1; 
-
-  // We want to find the next day with targetDay that complies with standard UTC/local cycles
-  // Let's increment result day-by-day until it matches targetDay AND is in the future
+  const targetDay = weekday - 1;
   let attempts = 0;
   while (attempts < 14) {
     if (result.getDay() === targetDay) {
-      // Set the exact hour and minute
       result.setHours(hour, minute, 0, 0);
       if (result.getTime() > Date.now() + 10000) {
-        // Found a valid future slot!
         return result;
       }
     }
-    // Advance to next day
     result.setDate(result.getDate() + 1);
-    result.setHours(0, 0, 0, 0); // reset clock for next day search
+    result.setHours(0, 0, 0, 0);
     attempts++;
   }
-  
-  // Fallback
   return new Date(Date.now() + 24 * 60 * 60 * 1000);
 }
 
-// Scheduled study reminders helper
 async function scheduleStudyReminders(timetableGrid: any, blockSize: '20min' | '30min' | '1hr' = '1hr') {
   let androidPermissionWarning = false;
-  // Clear all previous periodic timetable notifications first
   try {
     await Notifications.cancelAllScheduledNotificationsAsync();
   } catch (err) {
     console.warn('[Reminders Sync] Failed to clear previous Notifications:', err);
   }
 
-  // Clear alarms if the custom platform modules support cancellation methods
   if (Platform.OS === 'ios' && ExpoAlarmKit) {
     try {
       if (typeof ExpoAlarmKit.cancelAllAlarms === 'function') {
@@ -282,22 +257,21 @@ async function scheduleStudyReminders(timetableGrid: any, blockSize: '20min' | '
 
         const titleText = `📚 Study Block: ${item.code}`;
         const bodyText = `Starting now at ${standardHour}:${displayMinute} ${period}. Time block: "${item.title || item.code}". Let's learn!`;
-        
+
         if (Platform.OS === 'ios') {
           let alarmScheduled = false;
           if (ExpoAlarmKit) {
             try {
               if (typeof ExpoAlarmKit.setAlarm === 'function') {
                 await ExpoAlarmKit.setAlarm({
-                  hour: hour,
-                  minute: minute,
+                  hour,
+                  minute,
                   title: titleText,
                   message: bodyText,
                   repeats: true,
                   weekday: weekdayNum,
                 });
                 alarmScheduled = true;
-                console.log(`[Reminders Sync] Scheduled study block ${item.code} at ${hour}:${minute} using expo-alarm-kit on iOS`);
               }
             } catch (err) {
               console.warn('[Reminders Sync] expo-alarm-kit setAlarm failed:', err);
@@ -306,38 +280,31 @@ async function scheduleStudyReminders(timetableGrid: any, blockSize: '20min' | '
 
           if (!alarmScheduled) {
             await Notifications.scheduleNotificationAsync({
-              content: {
-                title: titleText,
-                body: bodyText,
-                sound: true,
-              },
+              content: { title: titleText, body: bodyText, sound: true },
               trigger: {
                 type: Notifications.SchedulableTriggerInputTypes.CALENDAR,
                 weekday: weekdayNum,
-                hour: hour,
-                minute: minute,
+                hour,
+                minute,
                 repeats: true,
               } as any,
             });
-            console.log(`[Reminders Sync] Scheduled study block ${item.code} at ${hour}:${minute} using fallback Notifications on iOS`);
           }
           count++;
         } else {
-          // Android
           let alarmScheduled = false;
           if (ExpoAlarmModule) {
             try {
               if (typeof ExpoAlarmModule.setAlarm === 'function') {
                 await ExpoAlarmModule.setAlarm({
-                  hour: hour,
-                  minute: minute,
+                  hour,
+                  minute,
                   title: titleText,
                   message: bodyText,
                   repeats: true,
                   weekday: weekdayNum,
                 });
                 alarmScheduled = true;
-                console.log(`[Reminders Sync] Scheduled study block ${item.code} at ${hour}:${minute} using expo-alarm-module on Android`);
               }
             } catch (err) {
               console.warn('[Reminders Sync] expo-alarm-module setAlarm failed:', err);
@@ -346,34 +313,19 @@ async function scheduleStudyReminders(timetableGrid: any, blockSize: '20min' | '
           }
 
           if (!alarmScheduled) {
-            // Android: fallback 'calendar' trigger is not supported, using date triggers instead.
-            // We schedule the next 2 weekly occurrences to provide reliable foresight without overload.
             const nextDate1 = getNextOccurrence(weekdayNum, hour, minute);
             const nextDate2 = new Date(nextDate1.getTime() + 7 * 24 * 60 * 60 * 1000);
 
-            console.log(`[Reminders Sync] Scheduling block ${item.code} on Android with fallback. Current Time: ${new Date().toString()}`);
-            console.log(`[Reminders Sync] - Occur 1: ${nextDate1.toString()} (timestamp: ${nextDate1.getTime()})`);
-            console.log(`[Reminders Sync] - Occur 2: ${nextDate2.toString()} (timestamp: ${nextDate2.getTime()})`);
-
             await Notifications.scheduleNotificationAsync({
-              content: {
-                title: titleText,
-                body: bodyText,
-                sound: true,
-              },
-              trigger: nextDate1, // Pass Date object directly to avoid bridge serialization problems
+              content: { title: titleText, body: bodyText, sound: true },
+              trigger: nextDate1,
             });
             count++;
 
-            // Only schedule second occurrence if we haven't hit notification limit threshold (max 40)
             if (count < 40) {
               await Notifications.scheduleNotificationAsync({
-                content: {
-                  title: titleText,
-                  body: bodyText,
-                  sound: true,
-                },
-                trigger: nextDate2, // Pass Date object directly to avoid bridge serialization problems
+                content: { title: titleText, body: bodyText, sound: true },
+                trigger: nextDate2,
               });
               count++;
             }
@@ -404,14 +356,17 @@ async function scheduleStudyReminders(timetableGrid: any, blockSize: '20min' | '
   return count;
 }
 
-export default function TimetableScreen() {
-  const router = useRouter();
-  const { profile, user, systemConfig } = useAuth();
-  const { colors: C } = useTheme();
-  const s = useMemo(() => createStyles(C), [C]);
-
-  const [viewMode, setViewMode] = useState<'matrix' | 'daily'>('matrix');
-  const [systemTime, setSystemTime] = useState(new Date());
+// Isolated live clock so 1-second ticks never re-render the timetable matrix
+const LiveClockBanner = React.memo(function LiveClockBanner({
+  timezoneString,
+  C,
+  s,
+}: {
+  timezoneString: string;
+  C: any;
+  s: any;
+}) {
+  const [systemTime, setSystemTime] = useState(() => new Date());
 
   useEffect(() => {
     const timer = setInterval(() => {
@@ -420,52 +375,234 @@ export default function TimetableScreen() {
     return () => clearInterval(timer);
   }, []);
 
-  const localTimeString = useMemo(() => {
-    return systemTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-  }, [systemTime]);
+  const localTimeString = systemTime.toLocaleTimeString([], {
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+  });
+  const localDateString = systemTime.toLocaleDateString([], {
+    weekday: 'long',
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+  });
 
-  const localDateString = useMemo(() => {
-    return systemTime.toLocaleDateString([], { weekday: 'long', month: 'short', day: 'numeric', year: 'numeric' });
-  }, [systemTime]);
+  return (
+    <View style={[s.clockCard, { backgroundColor: C.bgAlt, borderColor: C.border }]}>
+      <View style={s.clockHeader}>
+        <View style={s.clockStatusDot} />
+        <Text style={[s.clockTitle, { color: C.inkMid }]}>LOCAL SYSTEM CLOCK (ALIGNED)</Text>
+      </View>
+      <View style={s.clockRow}>
+        <Text style={[s.clockTimeText, { color: C.ink }]}>{localTimeString}</Text>
+        <View style={s.clockMeta}>
+          <Text style={[s.clockZoneText, { color: C.ink }]}>{timezoneString}</Text>
+          <Text style={[s.clockDateText, { color: C.inkLight }]}>{localDateString}</Text>
+        </View>
+      </View>
+      <Text style={s.clockFooter}>
+        ✓ Study alarm notifications recalculate precisely to synchronize with your system clock.
+      </Text>
+    </View>
+  );
+});
+
+const MatrixCell = React.memo(function MatrixCell({
+  day,
+  slotId,
+  code,
+  isCustom,
+  isSelectedDay,
+  onPressCell,
+  C,
+  s,
+}: {
+  day: string;
+  slotId: string;
+  code: string;
+  isCustom: boolean;
+  isSelectedDay: boolean;
+  onPressCell: (day: string, slotId: string) => void;
+  C: any;
+  s: any;
+}) {
+  const hasValue = code !== '';
+  return (
+    <TouchableOpacity
+      style={[
+        s.matrixCell,
+        isSelectedDay && { borderWidth: 1.5, borderColor: C.ink },
+        hasValue && (isCustom ? { backgroundColor: '#FFF5EB' } : { backgroundColor: '#EEF2FF' }),
+      ]}
+      onPress={() => onPressCell(day, slotId)}
+      activeOpacity={0.75}
+    >
+      {hasValue ? (
+        <Text
+          style={[
+            s.matrixCellCodeText,
+            isCustom ? { color: '#D97706' } : { color: C.ink },
+          ]}
+          numberOfLines={1}
+          ellipsizeMode="clip"
+        >
+          {code}
+        </Text>
+      ) : (
+        <Text style={[s.matrixCellEmptyText, { color: C.border }]}>+</Text>
+      )}
+    </TouchableOpacity>
+  );
+});
+
+const DailySlotTile = React.memo(function DailySlotTile({
+  slotId,
+  rangeLabel,
+  code,
+  title,
+  isCustom,
+  onPressTile,
+  onClearTile,
+  C,
+  s,
+}: {
+  slotId: string;
+  rangeLabel: string;
+  code: string;
+  title: string;
+  isCustom: boolean;
+  onPressTile: (slotId: string) => void;
+  onClearTile: (slotId: string) => void;
+  C: any;
+  s: any;
+}) {
+  const hasValue = code !== '';
+  return (
+    <TouchableOpacity
+      style={[
+        s.gridTileItem,
+        { backgroundColor: C.surface, borderColor: C.border },
+        hasValue &&
+          (isCustom
+            ? { backgroundColor: '#FFF5EB', borderColor: '#FFD1A4' }
+            : { backgroundColor: '#EEF2FF', borderColor: '#C7D2FE' }),
+      ]}
+      onPress={() => onPressTile(slotId)}
+      activeOpacity={0.8}
+    >
+      <View style={s.tileHeader}>
+        <Text style={[s.tileTimeText, { color: C.inkMid }]}>{rangeLabel}</Text>
+        {hasValue && (
+          <TouchableOpacity
+            style={s.tileClearBtn}
+            onPress={(e) => {
+              e.stopPropagation();
+              onClearTile(slotId);
+            }}
+            activeOpacity={0.7}
+          >
+            <Text style={{ fontSize: 13, color: C.error, fontWeight: 'bold' }}>×</Text>
+          </TouchableOpacity>
+        )}
+      </View>
+
+      <View style={s.tileBody}>
+        {hasValue ? (
+          <View style={{ flex: 1, justifyContent: 'space-between', alignItems: 'flex-start' }}>
+            <View
+              style={[
+                s.tileCodeBadge,
+                isCustom ? { backgroundColor: '#FFA500' } : { backgroundColor: C.ink },
+              ]}
+            >
+              <Text style={s.tileCodeBadgeText} numberOfLines={1}>
+                {code}
+              </Text>
+            </View>
+            <Text style={[s.tileCourseTitle, { color: C.ink }]} numberOfLines={2}>
+              {title.includes(':') ? title.split(':').slice(1).join(':').trim() : title}
+            </Text>
+          </View>
+        ) : (
+          <View style={s.tileEmptyContainer}>
+            <Text style={[s.tileEmptyText, { color: C.inkLight }]}>+ Free</Text>
+          </View>
+        )}
+      </View>
+    </TouchableOpacity>
+  );
+});
+
+export default function TimetableScreen() {
+  const router = useRouter();
+  const { profile, user, systemConfig } = useAuth();
+  const { colors: C } = useTheme();
+  const s = useMemo(() => createStyles(C), [C]);
+
+  const [viewMode, setViewMode] = useState<'matrix' | 'daily'>('matrix');
 
   const timezoneString = useMemo(() => {
     try {
       return Intl.DateTimeFormat().resolvedOptions().timeZone || 'System TZ';
-    } catch (e) {
+    } catch {
       return 'Local Time';
     }
   }, []);
 
-  // Helper to format short range clock times for tile cells
-  const getShortRange = (slot: any) => {
-    const startStr = formatTime(slot.hour, slot.minute).replace(':00', '').replace(' AM', 'a').replace(' PM', 'p');
-    let endHour = slot.hour;
-    let endMinute = slot.minute + (blockSize === '20min' ? 20 : blockSize === '30min' ? 30 : 60);
-    if (endMinute >= 60) {
-      endHour += 1;
-      endMinute -= 30; // safety correction back to slot sizes
-    }
-    const endStr = formatTime(endHour, endMinute).replace(':00', '').replace(' AM', 'a').replace(' PM', 'p');
-    return `${startStr} - ${endStr}`;
-  };
-
   const [blockSize, setBlockSize] = useState<'20min' | '30min' | '1hr'>('1hr');
-  const [timetable, setTimetable] = useState<Record<string, Record<string, { code: string; title: string; isCustom?: boolean }>>>(createEmptyTimetable('1hr'));
+  const [timetable, setTimetable] = useState<
+    Record<string, Record<string, { code: string; title: string; isCustom?: boolean }>>
+  >(() => createEmptyTimetable('1hr'));
   const [courses, setCourses] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [hasRecommended, setHasRecommended] = useState(false);
   const [recommendedGrid, setRecommendedGrid] = useState<any | null>(null);
   const [recommendedBlockSize, setRecommendedBlockSize] = useState<'20min' | '30min' | '1hr'>('1hr');
-  
+
   const [selectedDay, setSelectedDay] = useState('Monday');
-  const [selectedBlockItem, setSelectedBlockItem] = useState<{ code: string; title: string; isCustom?: boolean } | null>(null);
+  const [selectedBlockItem, setSelectedBlockItem] = useState<{
+    code: string;
+    title: string;
+    isCustom?: boolean;
+  } | null>(null);
   const [remindersEnabled, setRemindersEnabled] = useState(true);
+
+  const selectedBlockItemRef = useRef(selectedBlockItem);
+  selectedBlockItemRef.current = selectedBlockItem;
+  const selectedDayRef = useRef(selectedDay);
+  selectedDayRef.current = selectedDay;
+
+  const slots = useMemo(() => generateSlots(blockSize), [blockSize]);
+
+  const slotShortRanges = useMemo(() => {
+    const map: Record<string, string> = {};
+    const stepMins = blockSize === '20min' ? 20 : blockSize === '30min' ? 30 : 60;
+    for (const slot of slots) {
+      const startStr = formatTime(slot.hour, slot.minute)
+        .replace(':00', '')
+        .replace(' AM', 'a')
+        .replace(' PM', 'p');
+      let endHour = slot.hour;
+      let endMinute = slot.minute + stepMins;
+      if (endMinute >= 60) {
+        endHour += Math.floor(endMinute / 60);
+        endMinute = endMinute % 60;
+      }
+      const endStr = formatTime(endHour, endMinute)
+        .replace(':00', '')
+        .replace(' AM', 'a')
+        .replace(' PM', 'p');
+      map[slot.id] = `${startStr} - ${endStr}`;
+    }
+    return map;
+  }, [slots, blockSize]);
 
   const studentLevel = profile?.academicLevel || (profile?.level ? `${profile.level}00` : '100');
   const studentDept = profile?.department || 'Computer Science';
 
-  const isUnactivatedStudent = (!profile || !profile.isActivated) && profile?.level !== '3' && profile?.level !== '4';
+  const isUnactivatedStudent =
+    (!profile || !profile.isActivated) && profile?.level !== '3' && profile?.level !== '4';
 
   useEffect(() => {
     if (isUnactivatedStudent) {
@@ -475,115 +612,177 @@ export default function TimetableScreen() {
 
     if (!profile || !user) return;
 
-    setLoading(true);
+    let cancelled = false;
+    const cacheKey = `colearn_timetable_${user.uid}`;
+    const recId = `${studentLevel}_${studentDept.replace(/\s+/g, '_')}`;
+    const recCacheKey = `colearn_timetable_rec_${recId}`;
+
+    // Instant hydration from AsyncStorage cache so the screen opens immediately
+    Promise.all([AsyncStorage.getItem(cacheKey), AsyncStorage.getItem(recCacheKey)])
+      .then(([cachedStr, recStr]) => {
+        if (cancelled) return;
+        if (cachedStr) {
+          try {
+            const data = JSON.parse(cachedStr);
+            if (data.blockSize) setBlockSize(data.blockSize);
+            if (data.grid) setTimetable(data.grid);
+            if (data.remindersEnabled !== undefined) setRemindersEnabled(data.remindersEnabled);
+            setLoading(false);
+          } catch {}
+        }
+        if (recStr) {
+          try {
+            const rData = JSON.parse(recStr);
+            if (rData.blockSize) setRecommendedBlockSize(rData.blockSize);
+            if (rData.grid) {
+              setRecommendedGrid(rData.grid);
+              setHasRecommended(true);
+            }
+          } catch {}
+        }
+      })
+      .catch(() => {});
 
     // 1. Fetch available course options (SQLite first to save reads)
     try {
       const semesterArg = systemConfig?.currentSemester === '2nd' ? '2nd' : '1st';
       const localCourses = getDownloadedCoursesLocal();
       if (localCourses && localCourses.length > 0) {
-        getFilteredCoursesForStudent(localCourses, profile, true, semesterArg).then(relevant => {
-          if (relevant && relevant.length > 0) {
+        getFilteredCoursesForStudent(localCourses, profile, true, semesterArg).then((relevant) => {
+          if (!cancelled && relevant && relevant.length > 0) {
             setCourses(relevant);
           }
         });
       } else {
-        const coursesQuery = query(
-          collection(db, 'courses'),
-          where('semester', '==', semesterArg)
-        );
-
-        getDocs(coursesQuery).then(async (snapshot) => {
-          const allFetched = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as any));
-          const relevant = await getFilteredCoursesForStudent(allFetched, profile, true, semesterArg);
-          setCourses(relevant);
-        }).catch(err => {
-          console.error("Error loading timetable courses:", err);
-          handleFirestoreError(err, OperationType.LIST, 'courses');
-        });
+        const coursesQuery = query(collection(db, 'courses'), where('semester', '==', semesterArg));
+        getDocs(coursesQuery)
+          .then(async (snapshot) => {
+            const allFetched = snapshot.docs.map((d) => ({ id: d.id, ...d.data() } as any));
+            const relevant = await getFilteredCoursesForStudent(allFetched, profile, true, semesterArg);
+            if (!cancelled) setCourses(relevant);
+          })
+          .catch((err) => {
+            console.error('Error loading timetable courses:', err);
+            handleFirestoreError(err, OperationType.LIST, 'courses');
+          });
       }
     } catch (e) {
       console.log('Error checking local courses in timetable:', e);
     }
 
-    // 2. Fetch User timetable grid
-    getDoc(doc(db, 'timetables', user.uid)).then((snapshot) => {
-      if (snapshot.exists()) {
-        const data = snapshot.data();
-        if (data.blockSize) {
-          setBlockSize(data.blockSize);
-        }
-        if (data.grid) {
-          setTimetable(data.grid);
-        }
-        if (data.remindersEnabled !== undefined) {
-          setRemindersEnabled(data.remindersEnabled);
-        }
-      }
-      setLoading(false);
-    }).catch(err => {
-      console.error("Error loading timetable from Firestore:", err);
-      setLoading(false);
-      handleFirestoreError(err, OperationType.GET, `timetables/${user.uid}`);
+    // 2. Fetch User timetable & Recommended timetable in parallel
+    Promise.all([
+      getDoc(doc(db, 'timetables', user.uid))
+        .then((snapshot) => {
+          if (!cancelled && snapshot.exists()) {
+            const data = snapshot.data();
+            if (data.blockSize) setBlockSize(data.blockSize);
+            if (data.grid) setTimetable(data.grid);
+            if (data.remindersEnabled !== undefined) setRemindersEnabled(data.remindersEnabled);
+            AsyncStorage.setItem(
+              cacheKey,
+              JSON.stringify({
+                blockSize: data.blockSize || '1hr',
+                grid: data.grid || null,
+                remindersEnabled: data.remindersEnabled,
+              })
+            ).catch(() => {});
+          }
+        })
+        .catch((err) => {
+          console.error('Error loading timetable from Firestore:', err);
+          handleFirestoreError(err, OperationType.GET, `timetables/${user.uid}`);
+        }),
+      getDoc(doc(db, 'recommended_timetables', recId))
+        .then((snapshot) => {
+          if (!cancelled && snapshot.exists()) {
+            const rData = snapshot.data();
+            if (rData.blockSize) setRecommendedBlockSize(rData.blockSize);
+            if (rData.grid) {
+              setRecommendedGrid(rData.grid);
+              setHasRecommended(true);
+            }
+            AsyncStorage.setItem(
+              recCacheKey,
+              JSON.stringify({
+                blockSize: rData.blockSize || '1hr',
+                grid: rData.grid || null,
+              })
+            ).catch(() => {});
+          }
+        })
+        .catch((err) => {
+          console.error('Error checking recommended timetable:', err);
+          handleFirestoreError(err, OperationType.GET, `recommended_timetables/${recId}`);
+        }),
+    ]).finally(() => {
+      if (!cancelled) setLoading(false);
     });
 
-    // 3. Fetch recommended timetable availability
-    const recId = `${studentLevel}_${studentDept.replace(/\s+/g, '_')}`;
-    getDoc(doc(db, 'recommended_timetables', recId)).then((snapshot) => {
-      if (snapshot.exists()) {
-        const rData = snapshot.data();
-        if (rData.blockSize) {
-          setRecommendedBlockSize(rData.blockSize);
-        }
-        if (rData.grid) {
-          setRecommendedGrid(rData.grid);
-          setHasRecommended(true);
-        }
-      }
-    }).catch(err => {
-      console.error("Error checking recommended timetable:", err);
-      handleFirestoreError(err, OperationType.GET, `recommended_timetables/${recId}`);
-    });
-
+    return () => {
+      cancelled = true;
+    };
   }, [profile, user, isUnactivatedStudent, studentLevel, studentDept, systemConfig]);
 
-  // Handle cell selection / tap paint
-  const handleCellClick = (slotId: string) => {
-    if (selectedBlockItem) {
-      setTimetable(prev => {
-        const updated = { ...prev };
-        updated[selectedDay] = { ...updated[selectedDay] };
-        updated[selectedDay][slotId] = {
-          code: selectedBlockItem.code,
-          title: selectedBlockItem.title,
-          isCustom: selectedBlockItem.isCustom || false,
-        };
-        return updated;
-      });
+  // Stable callbacks so MatrixCell / DailySlotTile never re-render when painting unrelated slots
+  const handleMatrixCellPress = useCallback((day: string, slotId: string) => {
+    setSelectedDay(day);
+    const activeBrush = selectedBlockItemRef.current;
+    if (activeBrush) {
+      setTimetable((prev) => ({
+        ...prev,
+        [day]: {
+          ...prev[day],
+          [slotId]: {
+            code: activeBrush.code,
+            title: activeBrush.title,
+            isCustom: activeBrush.isCustom || false,
+          },
+        },
+      }));
+    }
+  }, []);
+
+  const handleDailyTilePress = useCallback((slotId: string) => {
+    const day = selectedDayRef.current;
+    const activeBrush = selectedBlockItemRef.current;
+    if (activeBrush) {
+      setTimetable((prev) => ({
+        ...prev,
+        [day]: {
+          ...prev[day],
+          [slotId]: {
+            code: activeBrush.code,
+            title: activeBrush.title,
+            isCustom: activeBrush.isCustom || false,
+          },
+        },
+      }));
     } else {
-      // Clear cell if no painting item and active cell has code
-      setTimetable(prev => {
-        const updated = { ...prev };
-        updated[selectedDay] = { ...updated[selectedDay] };
-        if (updated[selectedDay][slotId] && updated[selectedDay][slotId].code !== '') {
-          updated[selectedDay][slotId] = { code: '', title: '' };
-        }
-        return updated;
+      setTimetable((prev) => {
+        if (!prev[day]?.[slotId]?.code) return prev;
+        return {
+          ...prev,
+          [day]: {
+            ...prev[day],
+            [slotId]: { code: '', title: '' },
+          },
+        };
       });
     }
-  };
+  }, []);
 
-  // Clear single cell
-  const handleClearCell = (slotId: string) => {
-    setTimetable(prev => {
-      const updated = { ...prev };
-      updated[selectedDay] = { ...updated[selectedDay] };
-      updated[selectedDay][slotId] = { code: '', title: '' };
-      return updated;
-    });
-  };
+  const handleClearCell = useCallback((slotId: string) => {
+    const day = selectedDayRef.current;
+    setTimetable((prev) => ({
+      ...prev,
+      [day]: {
+        ...prev[day],
+        [slotId]: { code: '', title: '' },
+      },
+    }));
+  }, []);
 
-  // Use recommended template
   const handleApplyRecommended = () => {
     if (!recommendedGrid) return;
     Alert.alert(
@@ -591,8 +790,8 @@ export default function TimetableScreen() {
       "Applying the recommended timetable will overwrite your current schedule draft. Do you wish to continue?",
       [
         { text: "Cancel", style: "cancel" },
-        { 
-          text: "Replace", 
+        {
+          text: "Replace",
           onPress: () => {
             setBlockSize(recommendedBlockSize);
             setTimetable(recommendedGrid);
@@ -603,15 +802,14 @@ export default function TimetableScreen() {
     );
   };
 
-  // Reset entire timetable
   const handleResetTimetable = () => {
     Alert.alert(
       "Reset Schedule",
       "Are you sure you want to clear the entire timetable sheet?",
       [
         { text: "Cancel", style: "cancel" },
-        { 
-          text: "Clear All", 
+        {
+          text: "Clear All",
           style: "destructive",
           onPress: () => {
             setTimetable(createEmptyTimetable(blockSize));
@@ -621,28 +819,36 @@ export default function TimetableScreen() {
     );
   };
 
-  // Save changes to cloud & synchronize local reminders
   const handleSaveAndSync = async () => {
     if (!user) return;
     setIsSaving(true);
     try {
-      // Save to cloud
-      await setDoc(doc(db, 'timetables', user.uid), {
+      const payload = {
         userId: user.uid,
         updatedAt: new Date().toISOString(),
         grid: timetable,
         remindersEnabled,
         blockSize,
-      });
+      };
+      AsyncStorage.setItem(
+        `colearn_timetable_${user.uid}`,
+        JSON.stringify({ blockSize, grid: timetable, remindersEnabled })
+      ).catch(() => {});
 
-      // Handle alarms/reminders
+      await setDoc(doc(db, 'timetables', user.uid), payload);
+
       if (remindersEnabled) {
         const isGranted = await requestNotifPermissions();
         if (isGranted) {
           const count = await scheduleStudyReminders(timetable, blockSize);
+          const nowTimeStr = new Date().toLocaleTimeString([], {
+            hour: '2-digit',
+            minute: '2-digit',
+            second: '2-digit',
+          });
           Alert.alert(
             "Schedule Synchronized",
-            `Your study timetable is now active offline! Based on your active device system time (${localTimeString}) in the ${timezoneString} timezone, we've registered ${count} weekly periodic reminders aligned with your agenda.`
+            `Your study timetable is now active offline! Based on your active device system time (${nowTimeStr}) in the ${timezoneString} timezone, we've registered ${count} weekly periodic reminders aligned with your agenda.`
           );
         } else {
           Alert.alert(
@@ -667,11 +873,9 @@ export default function TimetableScreen() {
     }
   };
 
-  // Unactivated students view
   if (isUnactivatedStudent) {
     return (
       <SafeAreaView style={[s.root, { backgroundColor: C.bg }]} edges={['top']}>
-        {/* Lock Screen Header */}
         <View style={[s.header, { backgroundColor: C.surface, borderBottomColor: C.border }]}>
           <TouchableOpacity onPress={() => router.push('/dashboard')} activeOpacity={0.7} style={s.iconBtn}>
             <View style={[s.backArrow, { backgroundColor: C.ink }]} />
@@ -715,15 +919,14 @@ export default function TimetableScreen() {
 
   return (
     <SafeAreaView style={[s.root, { backgroundColor: C.bg }]} edges={['top']}>
-      {/* Header */}
       <View style={[s.header, { backgroundColor: C.surface, borderBottomColor: C.border }]}>
         <TouchableOpacity onPress={() => router.push('/dashboard')} activeOpacity={0.7} style={s.iconBtn}>
           <View style={[s.backArrow, { backgroundColor: C.ink }]} />
           <View style={[s.backArrowHead, { borderColor: C.ink }]} />
         </TouchableOpacity>
         <Text style={[s.headerTextTitle, { color: C.ink }]}>Study Timetable</Text>
-        <TouchableOpacity 
-          onPress={handleSaveAndSync} 
+        <TouchableOpacity
+          onPress={handleSaveAndSync}
           disabled={isSaving}
           style={[s.headerActionBtn, { backgroundColor: C.ink }]}
           activeOpacity={0.7}
@@ -743,30 +946,13 @@ export default function TimetableScreen() {
         </View>
       ) : (
         <View style={{ flex: 1 }}>
-          <ScrollView 
-            style={s.scrollView} 
+          <ScrollView
+            style={s.scrollView}
             contentContainerStyle={s.scrollContent}
             showsVerticalScrollIndicator={false}
           >
-            {/* System Clock & Synchronization Banner */}
-            <View style={[s.clockCard, { backgroundColor: C.bgAlt, borderColor: C.border }]}>
-              <View style={s.clockHeader}>
-                <View style={s.clockStatusDot} />
-                <Text style={[s.clockTitle, { color: C.inkMid }]}>LOCAL SYSTEM CLOCK (ALIGNED)</Text>
-              </View>
-              <View style={s.clockRow}>
-                <Text style={[s.clockTimeText, { color: C.ink }]}>{localTimeString}</Text>
-                <View style={s.clockMeta}>
-                  <Text style={[s.clockZoneText, { color: C.ink }]}>{timezoneString}</Text>
-                  <Text style={[s.clockDateText, { color: C.inkLight }]}>{localDateString}</Text>
-                </View>
-              </View>
-              <Text style={s.clockFooter}>
-                ✓ Study alarm notifications recalculate precisely to synchronize with your system clock.
-              </Text>
-            </View>
+            <LiveClockBanner timezoneString={timezoneString} C={C} s={s} />
 
-            {/* Target Cohort Badge */}
             <View style={[s.cohortBox, { backgroundColor: C.bgAlt, borderColor: C.border }]}>
               <View style={{ flex: 1 }}>
                 <Text style={[s.cohortSub, { color: C.inkLight }]}>ACADEMIC DIVISION</Text>
@@ -775,7 +961,7 @@ export default function TimetableScreen() {
                 </Text>
               </View>
               {hasRecommended && (
-                <TouchableOpacity 
+                <TouchableOpacity
                   style={[s.recBtn, { backgroundColor: C.activeBg }]}
                   onPress={handleApplyRecommended}
                   activeOpacity={0.8}
@@ -785,7 +971,6 @@ export default function TimetableScreen() {
               )}
             </View>
 
-            {/* Custom study block size selection */}
             <View style={[s.cohortBox, { backgroundColor: C.bgAlt, borderColor: C.border, marginTop: -8, marginBottom: 16 }]}>
               <View style={{ flex: 1 }}>
                 <Text style={[s.cohortSub, { color: C.inkLight, marginBottom: 6 }]}>CHOOSE BLOCK SIZE</Text>
@@ -796,13 +981,14 @@ export default function TimetableScreen() {
                       <TouchableOpacity
                         key={blockVal}
                         onPress={() => {
+                          if (blockSize === blockVal) return;
                           Alert.alert(
                             "Change Block Size",
                             "Changing your preferred study block spacing will reset your current timetable draft to fit the custom spacing grid. Proceed?",
                             [
                               { text: "Cancel", style: "cancel" },
-                              { 
-                                text: "Reset & Change", 
+                              {
+                                text: "Reset & Change",
                                 style: "destructive",
                                 onPress: () => {
                                   setBlockSize(blockVal);
@@ -827,7 +1013,6 @@ export default function TimetableScreen() {
               </View>
             </View>
 
-            {/* Notification Control Bar */}
             <View style={[s.switchRow, { backgroundColor: C.surface, borderColor: C.border }]}>
               <View style={{ flex: 1, marginRight: 12 }}>
                 <Text style={[s.switchLabel, { color: C.ink }]}>Enable Study Alarms</Text>
@@ -849,7 +1034,6 @@ export default function TimetableScreen() {
               />
             </View>
 
-            {/* View Mode Segmented Tab Toggles */}
             <View style={s.viewToggleRow}>
               <TouchableOpacity
                 style={[s.toggleTab, viewMode === 'matrix' && s.toggleTabActive]}
@@ -871,7 +1055,6 @@ export default function TimetableScreen() {
               </TouchableOpacity>
             </View>
 
-            {/* Interactive paint guide card */}
             <View style={[s.paintInstructionBox, { backgroundColor: '#FFF9E6', borderColor: '#FFE89C' }]}>
               <Text style={{ fontFamily: F.bold, color: '#B78103', fontSize: 11, letterSpacing: 1, marginBottom: 4 }}>
                 💡 SMART DEPOSITION BRUSH
@@ -881,10 +1064,9 @@ export default function TimetableScreen() {
               </Text>
             </View>
 
-            {/* paint-block Paint Brush Selector */}
             <Text style={[s.sectionHeader, { color: C.inkLight }]}>SELECT ACTIVITY BLOCK TO PAINT</Text>
-            <ScrollView 
-              horizontal 
+            <ScrollView
+              horizontal
               showsHorizontalScrollIndicator={false}
               style={{ marginHorizontal: -16, paddingHorizontal: 16, marginBottom: 20 }}
             >
@@ -939,7 +1121,6 @@ export default function TimetableScreen() {
               </View>
             </ScrollView>
 
-            {/* Selector active indicator notification */}
             {selectedBlockItem && (
               <View style={[s.brushActiveBar, { backgroundColor: C.ink, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 12 }]}>
                 <Text style={{ color: C.bg, fontFamily: F.bold, fontSize: 12, flex: 1 }}>
@@ -955,17 +1136,15 @@ export default function TimetableScreen() {
             )}
 
             {viewMode === 'matrix' ? (
-              /* WEEKLY GRID BOARD VIEW */
               <View style={{ marginBottom: 20 }}>
                 <Text style={[s.sectionHeader, { color: C.inkLight }]}>WEEK METRIC MATRIX GRID</Text>
-                <ScrollView 
-                  horizontal 
+                <ScrollView
+                  horizontal
                   showsHorizontalScrollIndicator={true}
                   style={{ marginHorizontal: -16 }}
                   contentContainerStyle={{ paddingHorizontal: 16, paddingVertical: 4 }}
                 >
                   <View style={[s.matrixContainer, { borderColor: C.border, backgroundColor: C.surface }]}>
-                    {/* Table Header Row */}
                     <View style={[s.matrixHeaderRow, { backgroundColor: C.border }]}>
                       <View style={s.matrixTimeHeaderCell}>
                         <Text style={[s.matrixHeaderCellText, { color: C.ink, fontFamily: F.bold }]}>Time Block</Text>
@@ -979,75 +1158,32 @@ export default function TimetableScreen() {
                       ))}
                     </View>
 
-                    {/* Table Time Slots Rows */}
-                    {generateSlots(blockSize).map((slot) => {
-                      return (
-                        <View key={slot.id} style={[s.matrixRow, { borderBottomColor: C.border }]}>
-                          {/* Left Column: Clock Time Header */}
-                          <View style={[s.matrixTimeCell, { backgroundColor: C.bgAlt }]}>
-                            <Text style={[s.matrixTimeText, { color: C.ink }]}>
-                              {formatTime(slot.hour, slot.minute).replace(' AM', 'a').replace(' PM', 'p').replace(':00', '')}
-                            </Text>
-                          </View>
-
-                          {/* Data Columns for Days */}
-                          {DAYS.map((day) => {
-                            const assigned = timetable[day]?.[slot.id];
-                            const hasValue = assigned && assigned.code !== '';
-                            const isCustomActivity = assigned?.isCustom;
-                            const isCurrentlySelectedDay = selectedDay === day;
-
-                            return (
-                              <TouchableOpacity
-                                key={day}
-                                style={[
-                                  s.matrixCell,
-                                  isCurrentlySelectedDay && { borderWidth: 1.5, borderColor: C.ink },
-                                  hasValue && (isCustomActivity 
-                                    ? { backgroundColor: '#FFF5EB' } 
-                                    : { backgroundColor: '#EEF2FF' })
-                                ]}
-                                onPress={() => {
-                                  setSelectedDay(day);
-                                  if (selectedBlockItem) {
-                                    // Paint cell immediately inside the full weekly matrix
-                                    setTimetable(prev => {
-                                      const updated = { ...prev };
-                                      updated[day] = { ...updated[day] };
-                                      updated[day][slot.id] = {
-                                        code: selectedBlockItem.code,
-                                        title: selectedBlockItem.title,
-                                        isCustom: selectedBlockItem.isCustom || false,
-                                      };
-                                      return updated;
-                                    });
-                                  } else {
-                                    // If no brush active, change selectedDay to view details in tile list
-                                    setSelectedDay(day);
-                                  }
-                                }}
-                                activeOpacity={0.8}
-                              >
-                                {hasValue ? (
-                                  <Text 
-                                    style={[
-                                      s.matrixCellCodeText, 
-                                      isCustomActivity ? { color: '#D97706' } : { color: C.ink }
-                                    ]} 
-                                    numberOfLines={1}
-                                    ellipsizeMode="clip"
-                                  >
-                                    {assigned!.code}
-                                  </Text>
-                                ) : (
-                                  <Text style={[s.matrixCellEmptyText, { color: C.border }]}>+</Text>
-                                )}
-                              </TouchableOpacity>
-                            );
-                          })}
+                    {slots.map((slot) => (
+                      <View key={slot.id} style={[s.matrixRow, { borderBottomColor: C.border }]}>
+                        <View style={[s.matrixTimeCell, { backgroundColor: C.bgAlt }]}>
+                          <Text style={[s.matrixTimeText, { color: C.ink }]}>
+                            {formatTime(slot.hour, slot.minute).replace(' AM', 'a').replace(' PM', 'p').replace(':00', '')}
+                          </Text>
                         </View>
-                      );
-                    })}
+
+                        {DAYS.map((day) => {
+                          const assigned = timetable[day]?.[slot.id];
+                          return (
+                            <MatrixCell
+                              key={day}
+                              day={day}
+                              slotId={slot.id}
+                              code={assigned?.code || ''}
+                              isCustom={Boolean(assigned?.isCustom)}
+                              isSelectedDay={selectedDay === day}
+                              onPressCell={handleMatrixCellPress}
+                              C={C}
+                              s={s}
+                            />
+                          );
+                        })}
+                      </View>
+                    ))}
                   </View>
                 </ScrollView>
                 <Text style={{ fontSize: 11, fontFamily: F.mono, color: C.inkLight, textAlign: 'center', marginTop: 10 }}>
@@ -1055,9 +1191,7 @@ export default function TimetableScreen() {
                 </Text>
               </View>
             ) : (
-              /* DAILY TILE GRID VIEW */
               <View>
-                {/* horizontal Day of the week Selector */}
                 <View style={s.daysWrap}>
                   <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ paddingVertical: 4 }}>
                     {DAYS.map((day) => {
@@ -1086,70 +1220,29 @@ export default function TimetableScreen() {
                   </ScrollView>
                 </View>
 
-                {/* List of Slots structured as 2-column Grid tiles */}
                 <Text style={[s.sectionHeader, { color: C.inkLight }]}>{selectedDay.toUpperCase()} TIMESLOTS GRID</Text>
                 <View style={s.dailyGridRow}>
-                  {generateSlots(blockSize).map((slot) => {
+                  {slots.map((slot) => {
                     const assigned = timetable[selectedDay]?.[slot.id];
-                    const hasValue = assigned && assigned.code !== '';
-                    const isCustomActivity = assigned?.isCustom;
-
                     return (
-                      <TouchableOpacity
+                      <DailySlotTile
                         key={slot.id}
-                        style={[
-                          s.gridTileItem,
-                          { backgroundColor: C.surface, borderColor: C.border },
-                          hasValue && (isCustomActivity 
-                            ? { backgroundColor: '#FFF5EB', borderColor: '#FFD1A4' } 
-                            : { backgroundColor: '#EEF2FF', borderColor: '#C7D2FE' })
-                        ]}
-                        onPress={() => handleCellClick(slot.id)}
-                        activeOpacity={0.85}
-                      >
-                        <View style={s.tileHeader}>
-                          <Text style={[s.tileTimeText, { color: C.inkMid }]}>{getShortRange(slot)}</Text>
-                          {hasValue && (
-                            <TouchableOpacity
-                              style={s.tileClearBtn}
-                              onPress={(e) => {
-                                e.stopPropagation();
-                                handleClearCell(slot.id);
-                              }}
-                              activeOpacity={0.7}
-                            >
-                              <Text style={{ fontSize: 13, color: C.error, fontWeight: 'bold' }}>×</Text>
-                            </TouchableOpacity>
-                          )}
-                        </View>
-
-                        <View style={s.tileBody}>
-                          {hasValue ? (
-                            <View style={{ flex: 1, justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                              <View style={[
-                                s.tileCodeBadge,
-                                isCustomActivity ? { backgroundColor: '#FFA500' } : { backgroundColor: C.ink }
-                              ]}>
-                                <Text style={s.tileCodeBadgeText} numberOfLines={1}>{assigned.code}</Text>
-                              </View>
-                              <Text style={[s.tileCourseTitle, { color: C.ink }]} numberOfLines={2}>
-                                {assigned.title.includes(':') ? assigned.title.split(':').slice(1).join(':').trim() : assigned.title}
-                              </Text>
-                            </View>
-                          ) : (
-                            <View style={s.tileEmptyContainer}>
-                              <Text style={[s.tileEmptyText, { color: C.inkLight }]}>+ Free</Text>
-                            </View>
-                          )}
-                        </View>
-                      </TouchableOpacity>
+                        slotId={slot.id}
+                        rangeLabel={slotShortRanges[slot.id] || ''}
+                        code={assigned?.code || ''}
+                        title={assigned?.title || ''}
+                        isCustom={Boolean(assigned?.isCustom)}
+                        onPressTile={handleDailyTilePress}
+                        onClearTile={handleClearCell}
+                        C={C}
+                        s={s}
+                      />
                     );
                   })}
                 </View>
               </View>
             )}
 
-            {/* Quick Actions Footer */}
             <TouchableOpacity
               style={[s.dangerBtn, { borderColor: C.error }]}
               onPress={handleResetTimetable}
