@@ -53,7 +53,6 @@ import {
   ExternalLink,
   CheckCircle,
   XCircle,
-  Sparkles,
   Inbox,
   ShieldCheck
 } from 'lucide-react';

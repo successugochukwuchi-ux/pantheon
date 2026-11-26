@@ -22,7 +22,6 @@ import {
   PlayCircle,
   Bell,
   Zap,
-  Sparkles,
   Trophy,
   Compass,
   Star,
@@ -215,7 +214,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ onClose, isCollapsed = false, 
 
       {isCollapsed && !isFluxMode && (
         <div className="px-2 mb-4 flex justify-center">
-          <div className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse" title="System Online" />
+          <div className="h-2 w-2 rounded-full bg-emerald-500" title="Online" />
         </div>
       )}
 
@@ -229,7 +228,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ onClose, isCollapsed = false, 
         <div className="py-2">
           {!isCollapsed && (
             <p className="px-3 text-xs font-semibold text-sidebar-foreground/50 uppercase tracking-wider mb-2">
-              {isFluxMode ? 'Flux Ecosystem' : 'Main Menu'}
+              {isFluxMode ? 'CoLearn Flux' : 'Menu'}
             </p>
           )}
           {navItems.map((item) => {
@@ -282,7 +281,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ onClose, isCollapsed = false, 
         {isAtLeastLevel2 && !isLevel3Vendor && !isAdminPath && !isFluxMode && !isCollapsed && (
           <div className="py-4 border-t border-sidebar-border mt-4">
             <p className="px-3 text-xs font-bold text-primary uppercase tracking-widest mb-3">
-              Privileged Access
+              Administration
             </p>
             <Link
               to="/administrator"
@@ -290,7 +289,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ onClose, isCollapsed = false, 
               className="flex items-center gap-3 px-3 py-3 rounded-xl text-sm font-bold bg-primary/10 text-primary hover:bg-primary/20 transition-all shadow-sm border border-primary/20"
             >
               <Shield className="h-4 w-4" />
-              Admin Control Panel
+              Admin Panel
             </Link>
           </div>
         )}

@@ -17,7 +17,7 @@ import { toast } from 'sonner';
 import { motion, AnimatePresence } from 'motion/react';
 import { Badge } from '../../components/ui/badge';
 import { Button } from '../../components/ui/button';
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '../../components/ui/card';
+import { Card } from '../../components/ui/card';
 
 interface CompletedTrack {
   id: string;
@@ -92,23 +92,27 @@ const FluxPortfolio: React.FC = () => {
         </div>
         
         <div className="relative z-10 grid grid-cols-1 lg:grid-cols-2 gap-12 items-center">
-          <div className="space-y-6">
+          <div className="space-y-5">
             <div className="flex items-center gap-3">
               <div className="p-3 bg-pink-500 rounded-2xl">
                 <Star className="text-white w-6 h-6 fill-white" />
               </div>
-              <h1 className="text-4xl font-black tracking-tighter">SMART PORTFOLIO</h1>
+              <h1 className="text-3xl font-bold tracking-tight">Skill Portfolio</h1>
             </div>
-            <p className="text-stone-500 text-lg font-medium leading-relaxed max-w-sm">
-              Your cryptographic proof of mastery. Every completed track increases your global impact factor.
+            <p className="text-stone-400 text-base leading-relaxed max-w-md">
+              View your completed skill tracks, points earned, and learning milestones.
             </p>
-            <div className="flex gap-4">
-               <Button className="bg-white text-black hover:bg-stone-200 font-black rounded-xl">
-                 SHARE PROFILE <Share2 size={16} className="ml-2" />
-               </Button>
-               <Button variant="outline" className="bg-white/5 border-white/5 text-stone-300 font-black rounded-xl">
-                 DOWNLOAD CERTIFICATES
-               </Button>
+            <div className="flex gap-3">
+              <Button
+                className="bg-white text-black hover:bg-stone-200 font-semibold rounded-xl"
+                onClick={() => {
+                  const summary = `${profile?.username || 'Student'}'s CoLearn Flux Portfolio: ${completedTracks.length} completed tracks (${impactScore} points).`;
+                  navigator.clipboard?.writeText(summary);
+                  toast.success('Portfolio summary copied to clipboard');
+                }}
+              >
+                Share Portfolio <Share2 size={16} className="ml-2" />
+              </Button>
             </div>
           </div>
 
@@ -116,12 +120,12 @@ const FluxPortfolio: React.FC = () => {
              <div className="bg-stone-950/50 p-8 rounded-[2rem] border border-white/5 backdrop-blur-md">
                 <Activity className="text-pink-500 mb-4" size={24} />
                 <div className="text-4xl font-black mb-1">{impactScore}</div>
-                <div className="text-[10px] font-black uppercase tracking-[0.2em] text-stone-600">Impact Factor</div>
+                <div className="text-xs font-semibold uppercase tracking-wider text-stone-400">Points</div>
              </div>
              <div className="bg-stone-950/50 p-8 rounded-[2rem] border border-white/5 backdrop-blur-md">
                 <Trophy className="text-yellow-500 mb-4" size={24} />
                 <div className="text-4xl font-black mb-1">{completedTracks.length}</div>
-                <div className="text-[10px] font-black uppercase tracking-[0.2em] text-stone-600">Mastery Certificates</div>
+                <div className="text-xs font-semibold uppercase tracking-wider text-stone-400">Completed Tracks</div>
              </div>
           </div>
         </div>
@@ -129,13 +133,10 @@ const FluxPortfolio: React.FC = () => {
 
       <div className="space-y-6">
         <div className="flex items-center justify-between">
-           <h2 className="text-2xl font-black flex items-center gap-2">
+           <h2 className="text-2xl font-bold flex items-center gap-2">
              <ShieldCheck className="text-pink-500" size={24} />
-             VERIFIED ACHIEVEMENTS
+             Completed Tracks
            </h2>
-           <Badge className="bg-white/5 text-stone-500 border-white/5 font-black uppercase tracking-widest px-4 py-1">
-             BLOCKCHAIN SECURED
-           </Badge>
         </div>
 
         {isLoading ? (
@@ -198,41 +199,8 @@ const FluxPortfolio: React.FC = () => {
           </div>
         )}
       </div>
-
-      {/* Global Rank Mock */}
-      <div className="p-10 rounded-[3rem] bg-gradient-to-br from-indigo-500/10 to-pink-500/10 border border-white/5 flex flex-col md:flex-row items-center justify-between gap-10">
-         <div className="space-y-4 text-center md:text-left">
-           <div className="flex items-center gap-2 justify-center md:justify-start">
-             <Trophy className="text-yellow-500" size={20} />
-             <span className="text-[10px] font-black uppercase tracking-[0.3em] text-yellow-500">Global Ranking</span>
-           </div>
-           <h3 className="text-3xl font-black">Top 12% in Ecosystem</h3>
-           <p className="text-stone-500 max-w-md font-medium">You are outperforming 88% of other students in technical extracurricular tracks this month.</p>
-         </div>
-         <Button className="h-20 px-12 rounded-3xl bg-white text-black hover:bg-stone-100 font-black text-xl shadow-2xl shadow-white/10 group">
-           VIEW LEADERBOARD <ArrowRight className="ml-3 group-hover:translate-x-2 transition-transform" />
-         </Button>
-      </div>
     </div>
   );
 };
-
-// Simple ArrowRight since it was missing in imports
-const ArrowRight = ({ className, size = 16 }: { className?: string; size?: number }) => (
-  <svg 
-    xmlns="http://www.w3.org/2000/svg" 
-    width={size} 
-    height={size} 
-    viewBox="0 0 24 24" 
-    fill="none" 
-    stroke="currentColor" 
-    strokeWidth="2" 
-    strokeLinecap="round" 
-    strokeLinejoin="round" 
-    className={className}
-  >
-    <path d="M5 12h14" /><path d="m12 5 7 7-7 7" />
-  </svg>
-);
 
 export default FluxPortfolio;

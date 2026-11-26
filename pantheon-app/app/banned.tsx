@@ -84,7 +84,7 @@ export default function BannedScreen() {
         </View>
 
         <Text style={[s.footerText, { color: C.inkLight }]}>
-          © 2026 Pillara Education 2026
+          © 2026 Pillara Education
         </Text>
       </ScrollView>
     </SafeAreaView>

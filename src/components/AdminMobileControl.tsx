@@ -27,7 +27,6 @@ import {
   Trash2, 
   CheckCircle2, 
   Radio, 
-  Sparkles,
   Link as LinkIcon,
   Upload,
   Loader2,
@@ -49,6 +48,8 @@ export interface AppVersionRecord {
   isMandatory: boolean;
   hostMode: 'colearn' | 'playstore';
   downloadUrl: string;
+  downloadUrlArm64?: string;
+  downloadUrlArm32?: string;
   playStoreUrl: string;
   appStoreUrl: string;
   isActive: boolean;
@@ -133,6 +134,8 @@ export default function AdminMobileControl() {
   const [isMandatory, setIsMandatory] = useState(false);
   const [hostMode, setHostMode] = useState<'colearn' | 'playstore'>('colearn');
   const [downloadUrl, setDownloadUrl] = useState('https://colearn-backend-tzo9.onrender.com/downloads/colearn-latest.apk');
+  const [downloadUrlArm64, setDownloadUrlArm64] = useState('');
+  const [downloadUrlArm32, setDownloadUrlArm32] = useState('');
   const [playStoreUrl, setPlayStoreUrl] = useState('https://play.google.com/store/apps/details?id=com.pillara.colearn');
   const [appStoreUrl, setAppStoreUrl] = useState('https://apps.apple.com/app/colearn/id123456789');
   const [setActiveImmediately, setSetActiveImmediately] = useState(true);
@@ -142,6 +145,7 @@ export default function AdminMobileControl() {
   const [ghRepo, setGhRepo] = useState(() => localStorage.getItem('@colearn_gh_repo') || 'colearn-mobile');
   const [ghPat, setGhPat] = useState(() => localStorage.getItem('@colearn_gh_pat') || '');
   const [ghUploading, setGhUploading] = useState(false);
+  const [ghUploadingSlot, setGhUploadingSlot] = useState<'arm64' | 'arm32' | 'edit-arm64' | 'edit-arm32' | null>(null);
   const [ghUploadProgress, setGhUploadProgress] = useState(0);
   const [ghStatusText, setGhStatusText] = useState('');
 
@@ -154,6 +158,8 @@ export default function AdminMobileControl() {
   const [editIsMandatory, setEditIsMandatory] = useState(false);
   const [editHostMode, setEditHostMode] = useState<'colearn' | 'playstore'>('colearn');
   const [editDownloadUrl, setEditDownloadUrl] = useState('');
+  const [editDownloadUrlArm64, setEditDownloadUrlArm64] = useState('');
+  const [editDownloadUrlArm32, setEditDownloadUrlArm32] = useState('');
   const [editPlayStoreUrl, setEditPlayStoreUrl] = useState('');
   const [editAppStoreUrl, setEditAppStoreUrl] = useState('');
   const [editIsActive, setEditIsActive] = useState(false);
@@ -246,7 +252,8 @@ export default function AdminMobileControl() {
   const uploadApkToGitHub = async (
     file: File, 
     targetVer: string, 
-    onSuccessUrl: (url: string) => void
+    onSuccessUrl: (url: string) => void,
+    slot: 'arm64' | 'arm32' | 'edit-arm64' | 'edit-arm32' = 'arm64'
   ) => {
     if (!file) return;
 
@@ -281,6 +288,7 @@ export default function AdminMobileControl() {
     savePatToIDB(cleanToken);
 
     setGhUploading(true);
+    setGhUploadingSlot(slot);
     setGhUploadProgress(0);
     setGhStatusText(`Connecting to GitHub API for ${cleanOwner}/${cleanRepo}...`);
 
@@ -400,6 +408,7 @@ export default function AdminMobileControl() {
           window.open(releasePageUrl, '_blank');
         }
         setGhUploading(false);
+        setGhUploadingSlot(null);
       };
 
       xhr.onerror = (evt) => {
@@ -408,6 +417,7 @@ export default function AdminMobileControl() {
         toast.info(`Opening GitHub Release page in new tab to attach ${assetFileName} file...`);
         window.open(releasePageUrl, '_blank');
         setGhUploading(false);
+        setGhUploadingSlot(null);
       };
 
       xhr.send(file);
@@ -416,6 +426,7 @@ export default function AdminMobileControl() {
       console.error('[GitHub Upload Exception]:', err);
       toast.error(err.message || 'GitHub Release upload failed.');
       setGhUploading(false);
+      setGhUploadingSlot(null);
     }
   };
 
@@ -446,6 +457,10 @@ export default function AdminMobileControl() {
         });
       }
 
+      const resolvedArm64 = downloadUrlArm64.trim();
+      const resolvedArm32 = downloadUrlArm32.trim();
+      const resolvedPrimary = downloadUrl.trim() || resolvedArm64 || resolvedArm32;
+
       const versionRef = doc(collection(db, 'app_versions'));
       const versionData: Omit<AppVersionRecord, 'id'> = {
         versionNumber: versionNumber.trim(),
@@ -454,7 +469,9 @@ export default function AdminMobileControl() {
         changelog: changelog.trim(),
         isMandatory,
         hostMode,
-        downloadUrl: downloadUrl.trim(),
+        downloadUrl: resolvedPrimary,
+        downloadUrlArm64: resolvedArm64,
+        downloadUrlArm32: resolvedArm32,
         playStoreUrl: playStoreUrl.trim(),
         appStoreUrl: appStoreUrl.trim(),
         isActive: setActiveImmediately,
@@ -472,7 +489,9 @@ export default function AdminMobileControl() {
           changelog: changelog.trim(),
           isMandatory,
           hostMode,
-          downloadUrl: downloadUrl.trim(),
+          downloadUrl: resolvedPrimary,
+          downloadUrlArm64: resolvedArm64,
+          downloadUrlArm32: resolvedArm32,
           playStoreUrl: playStoreUrl.trim(),
           appStoreUrl: appStoreUrl.trim(),
           updatedAt: nowIso,
@@ -518,7 +537,9 @@ export default function AdminMobileControl() {
         changelog: version.changelog,
         isMandatory: version.isMandatory,
         hostMode: version.hostMode,
-        downloadUrl: version.downloadUrl,
+        downloadUrl: version.downloadUrl || version.downloadUrlArm64 || version.downloadUrlArm32 || '',
+        downloadUrlArm64: version.downloadUrlArm64 || '',
+        downloadUrlArm32: version.downloadUrlArm32 || '',
         playStoreUrl: version.playStoreUrl,
         appStoreUrl: version.appStoreUrl,
         updatedAt: new Date().toISOString(),
@@ -563,6 +584,8 @@ export default function AdminMobileControl() {
     setEditIsMandatory(ver.isMandatory || false);
     setEditHostMode(ver.hostMode || 'colearn');
     setEditDownloadUrl(ver.downloadUrl || '');
+    setEditDownloadUrlArm64(ver.downloadUrlArm64 || '');
+    setEditDownloadUrlArm32(ver.downloadUrlArm32 || '');
     setEditPlayStoreUrl(ver.playStoreUrl || '');
     setEditAppStoreUrl(ver.appStoreUrl || '');
     setEditIsActive(ver.isActive || false);
@@ -595,6 +618,10 @@ export default function AdminMobileControl() {
         });
       }
 
+      const resolvedEditArm64 = editDownloadUrlArm64.trim();
+      const resolvedEditArm32 = editDownloadUrlArm32.trim();
+      const resolvedEditPrimary = editDownloadUrl.trim() || resolvedEditArm64 || resolvedEditArm32;
+
       const versionRef = doc(db, 'app_versions', editingVersion.id);
       const updatePayload = {
         versionNumber: editVersionNumber.trim(),
@@ -603,7 +630,9 @@ export default function AdminMobileControl() {
         changelog: editChangelog.trim(),
         isMandatory: editIsMandatory,
         hostMode: editHostMode,
-        downloadUrl: editDownloadUrl.trim(),
+        downloadUrl: resolvedEditPrimary,
+        downloadUrlArm64: resolvedEditArm64,
+        downloadUrlArm32: resolvedEditArm32,
         playStoreUrl: editPlayStoreUrl.trim(),
         appStoreUrl: editAppStoreUrl.trim(),
         isActive: editIsActive,
@@ -633,20 +662,19 @@ export default function AdminMobileControl() {
   return (
     <div className="space-y-8">
       {/* Header Banner */}
-      <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4 p-6 bg-gradient-to-r from-stone-900 via-stone-800 to-stone-900 border border-stone-800 rounded-2xl shadow-xl text-white">
+      <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4 p-6 bg-card border rounded-2xl shadow-xs text-foreground">
         <div className="space-y-1">
           <div className="flex items-center gap-2">
-            <Smartphone className="h-6 w-6 text-emerald-400" />
+            <Smartphone className="h-6 w-6 text-emerald-500" />
             <h2 className="text-2xl font-bold tracking-tight">Mobile Client Control</h2>
-            <Badge className="bg-emerald-500/20 text-emerald-300 border-emerald-500/30">Level 5 Overseer</Badge>
           </div>
-          <p className="text-stone-400 text-sm">
-            Manage mobile app versioning, secret phrases, SHA-256 hashes (`avuuid`), in-app self updates, and GitHub Release CDN downloads.
+          <p className="text-muted-foreground text-sm">
+            Manage mobile app versions, release hashes, in-app updates, and APK downloads.
           </p>
         </div>
         {activeDoc && (
-          <div className="bg-stone-950/80 border border-stone-700/50 p-3 rounded-xl flex items-center gap-3">
-            <Radio className="h-4 w-4 text-emerald-400 animate-pulse" />
+          <div className="bg-muted/50 border p-3 rounded-xl flex items-center gap-3">
+            <Radio className="h-4 w-4 text-emerald-500" />
             <div className="text-xs">
               <div className="text-stone-400 font-medium">Currently Active Mobile Build</div>
               <div className="font-mono font-bold text-emerald-400">
@@ -667,7 +695,7 @@ export default function AdminMobileControl() {
                 Publish New App Version
               </CardTitle>
               <CardDescription>
-                Create a version record, generate the SHA-256 hash (`avuuid`), and upload APK assets to GitHub Release CDN.
+                Create a version record, generate its SHA-256 release hash, and upload APK assets to GitHub Releases.
               </CardDescription>
             </CardHeader>
             <form onSubmit={handleCreateVersion}>
@@ -702,8 +730,8 @@ export default function AdminMobileControl() {
                 <div className="space-y-3 bg-muted/40 p-4 rounded-xl border border-muted">
                   <div className="space-y-1">
                     <Label htmlFor="sPhrase" className="text-sm font-semibold flex items-center gap-2">
-                      <Sparkles className="h-4 w-4 text-amber-500" />
-                      Version Secret Phrase (Generates SHA-256 avuuid)
+                      <Key className="h-4 w-4 text-amber-500" />
+                      Version Secret Phrase (Generates Release Hash)
                     </Label>
                     <Input 
                       id="sPhrase"
@@ -718,7 +746,7 @@ export default function AdminMobileControl() {
                   {computedAvuuid && (
                     <div className="space-y-1 pt-2 border-t">
                       <Label className="text-xs text-muted-foreground uppercase tracking-wider font-bold">
-                        Computed SHA-256 Hash (`avuuid`)
+                        Computed Release Hash (AVUUID)
                       </Label>
                       <div className="flex items-center justify-between gap-2 bg-background p-2.5 rounded-lg border font-mono text-xs text-primary font-bold break-all">
                         <span>{computedAvuuid}</span>
@@ -817,37 +845,90 @@ export default function AdminMobileControl() {
                         </div>
                       </div>
 
-                      {/* GitHub Upload Trigger */}
-                      <div className="relative">
-                        <input
-                          type="file"
-                          accept=".apk,application/vnd.android.package-archive,application/octet-stream"
-                          onChange={(e) => {
-                            const file = e.target.files?.[0];
-                            if (file) uploadApkToGitHub(file, versionNumber, (url) => setDownloadUrl(url));
-                          }}
-                          disabled={ghUploading}
-                          className="absolute inset-0 w-full h-full opacity-0 cursor-pointer disabled:cursor-not-allowed z-10"
-                          id="github-apk-file-input"
-                        />
-                        <Button
-                          type="button"
-                          variant="outline"
-                          className="w-full flex items-center justify-center gap-2 border-sky-500/40 bg-sky-500/10 hover:bg-sky-500/20 text-sky-700 dark:text-sky-300 font-bold py-5 relative"
-                          disabled={ghUploading}
-                        >
-                          {ghUploading ? (
-                            <>
-                              <Loader2 className="h-4 w-4 animate-spin text-sky-500" />
-                              <span>Uploading to GitHub CDN ({ghUploadProgress}%)</span>
-                            </>
-                          ) : (
-                            <>
-                              <Upload className="h-4 w-4 text-sky-500" />
-                              <span>Select & Upload APK File to GitHub Release ({`v${versionNumber}`})</span>
-                            </>
-                          )}
-                        </Button>
+                      {/* GitHub Upload Triggers (Split APKs) */}
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        <div className="relative">
+                          <input
+                            type="file"
+                            accept=".apk,application/vnd.android.package-archive,application/octet-stream"
+                            onChange={(e) => {
+                              const file = e.target.files?.[0];
+                              e.target.value = '';
+                              if (file) {
+                                uploadApkToGitHub(
+                                  file,
+                                  versionNumber,
+                                  (url) => {
+                                    setDownloadUrlArm64(url);
+                                    setDownloadUrl(url);
+                                  },
+                                  'arm64'
+                                );
+                              }
+                            }}
+                            disabled={ghUploading}
+                            className="absolute inset-0 w-full h-full opacity-0 cursor-pointer disabled:cursor-not-allowed z-10"
+                            id="github-apk-arm64-input"
+                          />
+                          <Button
+                            type="button"
+                            variant="outline"
+                            className="w-full flex items-center justify-center gap-2 border-sky-500/40 bg-sky-500/10 hover:bg-sky-500/20 text-sky-700 dark:text-sky-300 font-bold py-5 relative text-xs"
+                            disabled={ghUploading}
+                          >
+                            {ghUploading && ghUploadingSlot === 'arm64' ? (
+                              <>
+                                <Loader2 className="h-4 w-4 animate-spin text-sky-500" />
+                                <span>Uploading 64-bit ({ghUploadProgress}%)</span>
+                              </>
+                            ) : (
+                              <>
+                                <Upload className="h-4 w-4 text-sky-500 shrink-0" />
+                                <span>Upload 64-bit APK (arm64-v8a)</span>
+                              </>
+                            )}
+                          </Button>
+                        </div>
+
+                        <div className="relative">
+                          <input
+                            type="file"
+                            accept=".apk,application/vnd.android.package-archive,application/octet-stream"
+                            onChange={(e) => {
+                              const file = e.target.files?.[0];
+                              e.target.value = '';
+                              if (file) {
+                                uploadApkToGitHub(
+                                  file,
+                                  versionNumber,
+                                  (url) => setDownloadUrlArm32(url),
+                                  'arm32'
+                                );
+                              }
+                            }}
+                            disabled={ghUploading}
+                            className="absolute inset-0 w-full h-full opacity-0 cursor-pointer disabled:cursor-not-allowed z-10"
+                            id="github-apk-arm32-input"
+                          />
+                          <Button
+                            type="button"
+                            variant="outline"
+                            className="w-full flex items-center justify-center gap-2 border-sky-500/40 bg-sky-500/10 hover:bg-sky-500/20 text-sky-700 dark:text-sky-300 font-bold py-5 relative text-xs"
+                            disabled={ghUploading}
+                          >
+                            {ghUploading && ghUploadingSlot === 'arm32' ? (
+                              <>
+                                <Loader2 className="h-4 w-4 animate-spin text-sky-500" />
+                                <span>Uploading 32-bit ({ghUploadProgress}%)</span>
+                              </>
+                            ) : (
+                              <>
+                                <Upload className="h-4 w-4 text-sky-500 shrink-0" />
+                                <span>Upload 32-bit APK (armeabi-v7a)</span>
+                              </>
+                            )}
+                          </Button>
+                        </div>
                       </div>
 
                       {ghUploading && (
@@ -864,23 +945,59 @@ export default function AdminMobileControl() {
                         </div>
                       )}
 
-                      {downloadUrl && downloadUrl.includes('github.com') && (
-                        <div className="flex items-center gap-2 text-xs text-sky-600 dark:text-sky-400 font-medium bg-background/90 p-2.5 rounded-lg border border-sky-500/30">
-                          <CheckCircle2 className="h-4 w-4 shrink-0 text-sky-500" />
-                          <span className="truncate">GitHub Permanent CDN URL: {downloadUrl}</span>
+                      {(downloadUrlArm64 || downloadUrlArm32) && (
+                        <div className="space-y-1.5">
+                          {downloadUrlArm64 && downloadUrlArm64.includes('github.com') && (
+                            <div className="flex items-center gap-2 text-xs text-sky-600 dark:text-sky-400 font-medium bg-background/90 p-2 rounded-lg border border-sky-500/30">
+                              <CheckCircle2 className="h-4 w-4 shrink-0 text-sky-500" />
+                              <span className="truncate">arm64-v8a: {downloadUrlArm64}</span>
+                            </div>
+                          )}
+                          {downloadUrlArm32 && downloadUrlArm32.includes('github.com') && (
+                            <div className="flex items-center gap-2 text-xs text-sky-600 dark:text-sky-400 font-medium bg-background/90 p-2 rounded-lg border border-sky-500/30">
+                              <CheckCircle2 className="h-4 w-4 shrink-0 text-sky-500" />
+                              <span className="truncate">armeabi-v7a: {downloadUrlArm32}</span>
+                            </div>
+                          )}
                         </div>
                       )}
                     </div>
                   )}
 
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <Label htmlFor="apkLinkArm64">64-bit APK URL (arm64-v8a)</Label>
+                      <Input 
+                        id="apkLinkArm64"
+                        value={downloadUrlArm64} 
+                        onChange={(e) => {
+                          setDownloadUrlArm64(e.target.value);
+                          if (!downloadUrl || downloadUrl === downloadUrlArm64) {
+                            setDownloadUrl(e.target.value);
+                          }
+                        }} 
+                        placeholder="https://github.com/.../CoLearn-v1.5.5-arm64-v8a.apk" 
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="apkLinkArm32">32-bit APK URL (armeabi-v7a)</Label>
+                      <Input 
+                        id="apkLinkArm32"
+                        value={downloadUrlArm32} 
+                        onChange={(e) => setDownloadUrlArm32(e.target.value)} 
+                        placeholder="https://github.com/.../CoLearn-v1.5.5-armeabi-v7a.apk" 
+                      />
+                    </div>
+                  </div>
+
                   <div className="space-y-2">
-                    <Label htmlFor="apkLink">Android APK Download Link (For Colearn Host Mode)</Label>
+                    <Label htmlFor="apkLink">Default / Fallback APK URL (Used by older app versions)</Label>
                     <Input 
                       id="apkLink"
                       value={downloadUrl} 
                       onChange={(e) => setDownloadUrl(e.target.value)} 
                       placeholder="https://github.com/.../releases/download/.../app.apk" 
-                      required={hostMode === 'colearn'}
+                      required={hostMode === 'colearn' && !downloadUrlArm64 && !downloadUrlArm32}
                     />
                   </div>
 
@@ -989,10 +1106,10 @@ export default function AdminMobileControl() {
                   </div>
                   <div className="flex justify-between items-center border-b border-emerald-500/20 pb-2">
                     <span className="text-muted-foreground">Mandatory:</span>
-                    <span className="font-semibold">{activeDoc.isMandatory ? 'Yes (Blocker)' : 'No (Optional)'}</span>
+                    <span className="font-semibold">{activeDoc.isMandatory ? 'Yes (Required)' : 'No (Optional)'}</span>
                   </div>
                   <div className="space-y-1 pt-1">
-                    <span className="text-xs text-muted-foreground font-bold uppercase">Secret Hash (avuuid):</span>
+                    <span className="text-xs text-muted-foreground font-bold uppercase">Release Hash (AVUUID):</span>
                     <div className="flex items-center justify-between gap-1 bg-background p-2 rounded border font-mono text-[11px] font-bold text-emerald-600 dark:text-emerald-400 break-all">
                       <span>{activeDoc.avuuid}</span>
                       <Button 
@@ -1151,7 +1268,7 @@ export default function AdminMobileControl() {
               {/* Secret Phrase & Computed Hash */}
               <div className="space-y-2 bg-muted/40 p-4 rounded-xl border border-muted">
                 <Label className="text-sm font-semibold flex items-center gap-2">
-                  <Sparkles className="h-4 w-4 text-amber-500" />
+                  <Key className="h-4 w-4 text-amber-500" />
                   Version Secret Phrase
                 </Label>
                 <Input 
@@ -1175,45 +1292,121 @@ export default function AdminMobileControl() {
                 <div className="p-4 rounded-xl border border-sky-500/40 bg-sky-950/10 dark:bg-sky-950/30 space-y-3">
                   <div className="flex items-center justify-between">
                     <Label className="text-sm font-bold flex items-center gap-2 text-sky-600 dark:text-sky-400">
-                      <Github className="h-4 w-4" /> Re-upload New APK to GitHub Release ({`v${editVersionNumber}`})
+                      <Github className="h-4 w-4" /> Upload Split APKs to GitHub Release ({`v${editVersionNumber}`})
                     </Label>
                   </div>
 
-                  <div className="relative">
-                    <input
-                      type="file"
-                      accept=".apk,application/vnd.android.package-archive,application/octet-stream"
-                      onChange={(e) => {
-                        const file = e.target.files?.[0];
-                        if (file) uploadApkToGitHub(file, editVersionNumber, (url) => setEditDownloadUrl(url));
-                      }}
-                      disabled={ghUploading}
-                      className="absolute inset-0 w-full h-full opacity-0 cursor-pointer disabled:cursor-not-allowed z-10"
-                    />
-                    <Button
-                      type="button"
-                      variant="outline"
-                      className="w-full flex items-center justify-center gap-2 border-sky-500/40 bg-sky-500/10 hover:bg-sky-500/20 text-sky-700 dark:text-sky-300 font-bold py-4 relative"
-                      disabled={ghUploading}
-                    >
-                      {ghUploading ? (
-                        <>
-                          <Loader2 className="h-4 w-4 animate-spin text-sky-500" />
-                          <span>Uploading ({ghUploadProgress}%)</span>
-                        </>
-                      ) : (
-                        <>
-                          <Upload className="h-4 w-4 text-sky-500" />
-                          <span>Select & Upload New APK for v{editVersionNumber}</span>
-                        </>
-                      )}
-                    </Button>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div className="relative">
+                      <input
+                        type="file"
+                        accept=".apk,application/vnd.android.package-archive,application/octet-stream"
+                        onChange={(e) => {
+                          const file = e.target.files?.[0];
+                          e.target.value = '';
+                          if (file) {
+                            uploadApkToGitHub(
+                              file,
+                              editVersionNumber,
+                              (url) => {
+                                setEditDownloadUrlArm64(url);
+                                setEditDownloadUrl(url);
+                              },
+                              'edit-arm64'
+                            );
+                          }
+                        }}
+                        disabled={ghUploading}
+                        className="absolute inset-0 w-full h-full opacity-0 cursor-pointer disabled:cursor-not-allowed z-10"
+                      />
+                      <Button
+                        type="button"
+                        variant="outline"
+                        className="w-full flex items-center justify-center gap-2 border-sky-500/40 bg-sky-500/10 hover:bg-sky-500/20 text-sky-700 dark:text-sky-300 font-bold py-4 relative text-xs"
+                        disabled={ghUploading}
+                      >
+                        {ghUploading && ghUploadingSlot === 'edit-arm64' ? (
+                          <>
+                            <Loader2 className="h-4 w-4 animate-spin text-sky-500" />
+                            <span>Uploading 64-bit ({ghUploadProgress}%)</span>
+                          </>
+                        ) : (
+                          <>
+                            <Upload className="h-4 w-4 text-sky-500 shrink-0" />
+                            <span>Upload 64-bit (arm64-v8a)</span>
+                          </>
+                        )}
+                      </Button>
+                    </div>
+
+                    <div className="relative">
+                      <input
+                        type="file"
+                        accept=".apk,application/vnd.android.package-archive,application/octet-stream"
+                        onChange={(e) => {
+                          const file = e.target.files?.[0];
+                          e.target.value = '';
+                          if (file) {
+                            uploadApkToGitHub(
+                              file,
+                              editVersionNumber,
+                              (url) => setEditDownloadUrlArm32(url),
+                              'edit-arm32'
+                            );
+                          }
+                        }}
+                        disabled={ghUploading}
+                        className="absolute inset-0 w-full h-full opacity-0 cursor-pointer disabled:cursor-not-allowed z-10"
+                      />
+                      <Button
+                        type="button"
+                        variant="outline"
+                        className="w-full flex items-center justify-center gap-2 border-sky-500/40 bg-sky-500/10 hover:bg-sky-500/20 text-sky-700 dark:text-sky-300 font-bold py-4 relative text-xs"
+                        disabled={ghUploading}
+                      >
+                        {ghUploading && ghUploadingSlot === 'edit-arm32' ? (
+                          <>
+                            <Loader2 className="h-4 w-4 animate-spin text-sky-500" />
+                            <span>Uploading 32-bit ({ghUploadProgress}%)</span>
+                          </>
+                        ) : (
+                          <>
+                            <Upload className="h-4 w-4 text-sky-500 shrink-0" />
+                            <span>Upload 32-bit (armeabi-v7a)</span>
+                          </>
+                        )}
+                      </Button>
+                    </div>
                   </div>
                 </div>
               )}
 
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label>64-bit APK URL (arm64-v8a)</Label>
+                  <Input 
+                    value={editDownloadUrlArm64} 
+                    onChange={(e) => {
+                      setEditDownloadUrlArm64(e.target.value);
+                      if (!editDownloadUrl || editDownloadUrl === editDownloadUrlArm64) {
+                        setEditDownloadUrl(e.target.value);
+                      }
+                    }} 
+                    placeholder="https://..."
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label>32-bit APK URL (armeabi-v7a)</Label>
+                  <Input 
+                    value={editDownloadUrlArm32} 
+                    onChange={(e) => setEditDownloadUrlArm32(e.target.value)} 
+                    placeholder="https://..."
+                  />
+                </div>
+              </div>
+
               <div className="space-y-2">
-                <Label>Android APK Download URL</Label>
+                <Label>Default / Fallback APK Download URL</Label>
                 <Input 
                   value={editDownloadUrl} 
                   onChange={(e) => setEditDownloadUrl(e.target.value)} 

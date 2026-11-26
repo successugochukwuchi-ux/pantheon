@@ -73,17 +73,12 @@ function HeroSection() {
 
   return (
     <Animated.View style={[s.hero, { opacity, transform: [{ translateY: fadeY }] }]}>
-      <View style={s.heroPill}>
-        <Text style={s.heroPillText}>BUILT FOR ALL STUDENTS</Text>
-      </View>
-      <Text style={s.heroTitle}>Do more with Less on CoLearn.</Text>
+      <Text style={s.heroTitle}>Study Smarter with CoLearn.</Text>
       <Text style={s.heroBody}>
-        The all-in-one platform for university students to master their courses. Access
-        curriculum-aligned notes, past questions, and collaborative study spaces
-        designed for academic precision.
+        Access your university lecture notes, past questions, and group discussions in one place.
       </Text>
       <TouchableOpacity style={s.heroCta} activeOpacity={0.85} onPress={() => router.push('/register')}>
-        <Text style={s.heroCtaText}>Join CoLearn</Text>
+        <Text style={s.heroCtaText}>Create Account</Text>
       </TouchableOpacity>
     </Animated.View>
   );
@@ -128,7 +123,7 @@ function CurriculumSection() {
 
   return (
     <View style={s.curriculum}>
-      <Text style={s.sectionLabel}>MASTER YOUR CURRICULUM</Text>
+      <Text style={s.sectionLabel}>SUPPORTED FACULTIES</Text>
       <ScrollView 
         ref={scrollRef}
         horizontal 
@@ -175,7 +170,7 @@ function FeatureCard({
           <Text style={[s.featureCtaText, dark && s.featureCtaTextDark]}>{cta}</Text>
         </TouchableOpacity>
       )}
-      {title === 'Smart Notes' && (
+      {title === 'Lecture Notes' && (
         <View style={s.notesPreview}>
           {[70, 85, 60, 90, 50, 75].map((w, i) => (
             <View key={i} style={[s.notesLine, { width: `${w}%` }]} />
@@ -201,10 +196,9 @@ function DesignedSection() {
 function PricingSection({ prices }: { prices: { standard: number; plus: number } }) {
   return (
     <LinearGradient colors={['#111111', '#0a0a0a']} style={s.pricing}>
-      <Text style={s.pricingHeadline}>Ready to{'\n'}top your{'\n'}class?</Text>
+      <Text style={s.pricingHeadline}>Choose a{'\n'}semester{'\n'}plan</Text>
       <Text style={s.pricingSubtitle}>
-        Join CoLearn and get the tools you need to conquer your curriculum. Access premium
-        features designed for your academic experience.
+        Unlock full access to lecture notes, past questions, and practice tests for your department.
       </Text>
 
       <View style={s.pricingCard}>
@@ -243,7 +237,7 @@ function Footer() {
           </TouchableOpacity>
         ))}
       </View>
-      <Text style={s.footerCopy}>© 2026 Pillara Education 2026</Text>
+      <Text style={s.footerCopy}>© 2026 Pillara Education</Text>
     </View>
   );
 }
@@ -313,15 +307,15 @@ export default function LandingScreen() {
         <CurriculumSection />
 
         <FeatureCard
-          icon="📝"
-          title="Smart Notes"
-          body="Organize your lecture materials with our structural engine. Create, tag, and search your academic universe with surgical precision."
+          icon="N"
+          title="Lecture Notes"
+          body="Read well-structured lecture notes, formulas, and diagrams organized by course and topic."
         />
 
         <FeatureCard
-          icon="🎯"
-          title="Exam Prep"
-          body="Access a massive repository of past examination questions and detailed answers curated for your department."
+          icon="Q"
+          title="Past Questions"
+          body="Practice with past examination questions and step-by-step solutions curated for your department."
           dark
         />
 
@@ -544,7 +538,9 @@ const s = StyleSheet.create({
     backgroundColor: '#2a2a2a',
   },
   featureIconText: {
-    fontSize: 20,
+    fontFamily: F.bold,
+    fontSize: 16,
+    color: C.inkMid,
   },
   featureTitle: {
     fontFamily: F.display,

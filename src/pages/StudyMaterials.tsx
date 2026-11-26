@@ -175,7 +175,7 @@ export default function StudyMaterials() {
     if (isUnactivatedStudent && noteIndex > 0) {
       return (
         <div className="flex flex-col items-center justify-center min-h-[60vh] text-center p-6 space-y-4 max-w-2xl mx-auto">
-          <Lock className="h-16 w-16 text-amber-500 animate-bounce" />
+          <Lock className="h-16 w-16 text-amber-500" />
           <h1 className="text-3xl font-bold tracking-tight">Academic Trial Limit</h1>
           <p className="text-muted-foreground">
             Standard accounts only have access to the oldest study guide/lecture note of each course. Activate your account using an activation pin to unlock all notes, past questions, and full study materials.

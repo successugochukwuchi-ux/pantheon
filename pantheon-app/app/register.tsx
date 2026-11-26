@@ -486,7 +486,7 @@ export default function RegisterScreen() {
             {/* Card header */}
             <View style={s.cardHeader}>
               <Text style={s.cardTitle}>Create Account</Text>
-              <Text style={s.cardSubtitle}>Create COLEARN Account</Text>
+              <Text style={s.cardSubtitle}>Sign up for CoLearn</Text>
             </View>
 
             {/* Role selector */}
@@ -502,7 +502,7 @@ export default function RegisterScreen() {
                   activeOpacity={0.8}
                 >
                   <Text style={{ fontFamily: F.bold, fontSize: 13, color: C.ink }}>
-                    🎓 Student
+                    Student
                   </Text>
                 </TouchableOpacity>
 
@@ -520,7 +520,7 @@ export default function RegisterScreen() {
                   activeOpacity={0.8}
                 >
                   <Text style={{ fontFamily: F.bold, fontSize: 13, color: C.inkMid }}>
-                    🏪 Vendor (Web Only)
+                    Vendor (Web Only)
                   </Text>
                 </TouchableOpacity>
               </View>
@@ -623,7 +623,7 @@ export default function RegisterScreen() {
               {loading ? (
                 <ActivityIndicator color={C.accentText} />
               ) : (
-                <Text style={s.registerBtnText}>REGISTER ACCOUNT</Text>
+                <Text style={s.registerBtnText}>CREATE ACCOUNT</Text>
               )}
             </TouchableOpacity>
 
@@ -652,7 +652,7 @@ export default function RegisterScreen() {
                 <Text style={s.footerLink}>Terms and Conditions</Text>
               </TouchableOpacity>
             </View>
-            <Text style={s.footerCopy}>© 2026 Pillara Education 2026</Text>
+            <Text style={s.footerCopy}>© 2026 Pillara Education</Text>
           </View>
         </ScrollView>
       </KeyboardSafeContainer>

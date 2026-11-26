@@ -21,7 +21,6 @@ import {
   Check,
   X,
   AlertCircle,
-  Sparkles,
   HelpCircle
 } from 'lucide-react';
 import { toast } from 'sonner';
@@ -395,7 +394,7 @@ const FluxTracks: React.FC = () => {
               <div className="bg-stone-900 border border-white/5 rounded-[2rem] p-6 text-left">
                 <h3 className="text-[10px] font-black uppercase text-stone-500 tracking-widest mb-6 px-1 flex items-center justify-between">
                   <span>Track Syllabus</span>
-                  <Sparkles size={11} className="text-pink-500" />
+                  <BookOpen size={11} className="text-pink-500" />
                 </h3>
                 
                 <div className="space-y-6">
@@ -832,7 +831,7 @@ const FluxTracks: React.FC = () => {
                           <h3 className="text-2xl font-black italic tracking-tight uppercase leading-tight text-white">{enrollment.trackData.title}</h3>
                           <div className="flex gap-4">
                             <div className="flex items-center gap-2 text-stone-500 text-[10px] font-black uppercase">
-                              <Sparkles size={12} className="text-pink-500" /> {enrollment.trackData.modules?.length || 0} MODULES
+                              <FileText size={12} className="text-pink-500" /> {enrollment.trackData.modules?.length || 0} MODULES
                             </div>
                             <div className="flex items-center gap-2 text-stone-500 text-[10px] font-black uppercase">
                               <BookOpen size={12} className="text-stone-700" /> {totalMilestonesCount} STEPS
@@ -842,7 +841,7 @@ const FluxTracks: React.FC = () => {
                         
                         <div className="flex flex-col items-center md:items-end gap-1">
                           <div className="text-5xl font-black text-white italic tracking-tighter">{enrollment.progress}<span className="text-pink-500">%</span></div>
-                          <div className="text-[9px] font-black uppercase text-stone-500 tracking-[0.3em]">Mastery Index</div>
+                          <div className="text-[9px] font-black uppercase text-stone-500 tracking-[0.3em]">Completion</div>
                         </div>
                       </div>
 
@@ -857,7 +856,7 @@ const FluxTracks: React.FC = () => {
                         
                         <div className="flex flex-col md:flex-row items-center justify-between gap-4">
                           <p className="text-[10px] font-bold text-stone-500 italic uppercase tracking-wider">
-                            {enrollment.progress === 100 ? "Engines optimized for peak performance." : "Strategic learning in progress..."}
+                            {enrollment.progress === 100 ? "Track completed." : "In progress"}
                           </p>
                           <div className="flex gap-3 w-full md:w-auto">
                             <Button 

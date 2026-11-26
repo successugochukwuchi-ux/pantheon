@@ -24,7 +24,6 @@ import {
   Building2, 
   GraduationCap, 
   ShieldCheck, 
-  Sparkles,
   History,
   MessageCircle
 } from 'lucide-react';

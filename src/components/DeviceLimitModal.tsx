@@ -8,7 +8,7 @@ import {
   DialogFooter,
 } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
-import { ShieldAlert, MessageCircle, Phone, Mail, Copy, Check, School, Smartphone } from 'lucide-react';
+import { MessageCircle, Phone, Mail, Copy, Check, School, Smartphone } from 'lucide-react';
 import { toast } from 'sonner';
 import { AdminContactInfo } from '../services/adminContactService';
 
@@ -62,10 +62,6 @@ export const DeviceLimitModal: React.FC<DeviceLimitModalProps> = ({
               <Smartphone className="h-6 w-6" />
             </div>
             <div>
-              <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-bold uppercase tracking-wider bg-amber-500/15 text-amber-600 dark:text-amber-400 mb-1">
-                <ShieldAlert className="h-3 w-3" />
-                Device Slot Limit
-              </div>
               <DialogTitle className="text-xl font-bold tracking-tight text-foreground">
                 Device Limit Reached
               </DialogTitle>
@@ -88,8 +84,8 @@ export const DeviceLimitModal: React.FC<DeviceLimitModalProps> = ({
                 {adminInfo.name}
               </h4>
             </div>
-            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-medium bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">
-              <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse" />
+            <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md text-[11px] font-medium bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">
+              <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
               Available
             </span>
           </div>

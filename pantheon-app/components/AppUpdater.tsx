@@ -15,6 +15,7 @@ import {
 import * as FileSystem from 'expo-file-system';
 import * as IntentLauncher from 'expo-intent-launcher';
 import * as Application from 'expo-application';
+import * as Device from 'expo-device';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { doc, getDoc } from 'firebase/firestore';
 import { db } from '../lib/firebase';
@@ -29,8 +30,24 @@ interface MobileSystemRelease {
   isMandatory: boolean;
   hostMode: 'colearn' | 'playstore';
   downloadUrl: string;
+  downloadUrlArm64?: string;
+  downloadUrlArm32?: string;
   playStoreUrl: string;
   appStoreUrl: string;
+}
+
+function selectBestApkUrl(rel: MobileSystemRelease): string {
+  const archs = (Device.supportedCpuArchitectures || []).map((a) => a.toLowerCase());
+  const isArm64 = archs.some((a) => a.includes('arm64') || a.includes('aarch64') || a.includes('v8'));
+  const isArm32 = archs.some((a) => a.includes('armeabi') || a.includes('armv7'));
+
+  if (isArm64) {
+    return rel.downloadUrlArm64 || rel.downloadUrl || rel.downloadUrlArm32 || '';
+  }
+  if (isArm32) {
+    return rel.downloadUrlArm32 || rel.downloadUrl || rel.downloadUrlArm64 || '';
+  }
+  return rel.downloadUrl || rel.downloadUrlArm64 || rel.downloadUrlArm32 || '';
 }
 
 type UpdatePhase = 'prompt' | 'downloading' | 'ready' | 'error';
@@ -271,7 +288,7 @@ export function AppUpdater() {
     if (Platform.OS !== 'android') {
       const storeUrl = release.appStoreUrl || release.downloadUrl;
       if (!storeUrl) {
-        Alert.alert('Error', 'Download link is not configured in Firebase.');
+        Alert.alert('Unavailable', 'Update link is currently unavailable. Please try again later.');
         return;
       }
       try {
@@ -282,9 +299,9 @@ export function AppUpdater() {
       return;
     }
 
-    const url = release.downloadUrl;
+    const url = selectBestApkUrl(release);
     if (!url) {
-      Alert.alert('Error', 'Download link is not configured in Firebase.');
+      Alert.alert('Unavailable', 'Update link is currently unavailable. Please try again later.');
       return;
     }
 
@@ -397,12 +414,12 @@ export function AppUpdater() {
           <View style={s.badgeRow}>
             <View style={[s.badge, release.isMandatory ? s.badgeMandatory : s.badgeOptional]}>
               <Text style={s.badgeText}>
-                {release.isMandatory ? 'CRITICAL UPDATE' : 'NEW UPDATE AVAILABLE'}
+                {release.isMandatory ? 'UPDATE REQUIRED' : 'UPDATE AVAILABLE'}
               </Text>
             </View>
           </View>
 
-          <Text style={s.title}>Update CoLearn Mobile</Text>
+          <Text style={s.title}>Update Available</Text>
           <Text style={s.versionSub}>
             Version v{release.versionNumber} is now available
           </Text>
@@ -417,7 +434,7 @@ export function AppUpdater() {
           {phase === 'downloading' && (
             <View style={s.progressContainer}>
               <View style={s.progressHeader}>
-                <Text style={s.progressLabel}>Downloading update inside CoLearn...</Text>
+                <Text style={s.progressLabel}>Updating...</Text>
                 <Text style={s.progressPct}>
                   {bytesTotal > 0 ? `${progressPct}%` : formatBytesToMb(bytesWritten)}
                 </Text>
@@ -461,7 +478,7 @@ export function AppUpdater() {
                 onPress={handleDownloadAndUpdate}
                 activeOpacity={0.8}
               >
-                <Text style={s.btnPrimaryText}>Download and update</Text>
+                <Text style={s.btnPrimaryText}>Update Now</Text>
               </TouchableOpacity>
             )}
 

@@ -17,7 +17,6 @@ import {
   Grid, 
   Trash2, 
   Save, 
-  Sparkles, 
   BookOpen, 
   ShieldAlert, 
   RefreshCw, 
@@ -163,7 +162,7 @@ export default function StudyTimetable() {
   const PRESET_ACTIVITIES = [
     { code: 'STUDY', title: 'Personal Study Block', type: 'Study', icon: BookOpen },
     { code: 'BREAK', title: 'Rest & Refreshment', type: 'Break', icon: Coffee },
-    { code: 'RESEARCH', title: 'Research & Project Work', type: 'Research', icon: Sparkles },
+    { code: 'RESEARCH', title: 'Research & Project Work', type: 'Research', icon: Search },
     { code: 'REVISION', title: 'Past Question Revision', type: 'Revision', icon: Clock }
   ];
 
@@ -531,7 +530,7 @@ export default function StudyTimetable() {
               variant="outline" 
               className="border-primary/20 text-primary hover:bg-primary/10 gap-2 font-bold"
             >
-              <Sparkles className="h-4 w-4 text-yellow-500 fill-yellow-500 animate-pulse" />
+              <Calendar className="h-4 w-4 text-primary" />
               Use Recommended Timetable
             </Button>
           ) : (

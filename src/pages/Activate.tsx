@@ -50,7 +50,7 @@ export default function Activate() {
       const currentPromo = promoSnap.data();
 
       if (!currentPromo?.isActive || currentPromo.count >= currentPromo.quota) {
-        toast.error("Promo mode has just ended. Please use a pin.");
+        toast.error("Free activation has ended. Please enter an activation pin.");
         setLoading(false);
         return;
       }
@@ -340,16 +340,16 @@ export default function Activate() {
     <div className="flex items-center justify-center min-h-[calc(100vh-16rem)] p-4">
       <Card className="w-full max-w-md overflow-hidden">
         {promoConfig?.isActive && (
-          <div className="bg-amber-500 text-white p-3 text-center text-sm font-bold flex items-center justify-center gap-2 animate-pulse">
+          <div className="bg-amber-500 text-white p-3 text-center text-sm font-bold flex items-center justify-center gap-2">
             <Gift className="h-4 w-4" />
-            FREE PROMO MODE ACTIVE
+            Free Activation Open
           </div>
         )}
         <CardHeader className="space-y-1">
           <CardTitle className="text-2xl font-bold text-center">Activate Account</CardTitle>
           <CardDescription className="text-center">
             {promoConfig?.isActive && !usePinMode
-              ? "You're in luck! Current promo allows free activation." 
+              ? "Free semester activation is currently available." 
               : "Enter your 12-digit activation pin for the current semester."}
           </CardDescription>
         </CardHeader>
@@ -362,9 +362,9 @@ export default function Activate() {
                   <Gift className="h-10 w-10" />
                 </div>
                 <div>
-                  <h3 className="text-lg font-bold">Limited Tokens Available</h3>
-                  <p className="text-sm text-muted-foreground italic">
-                    Quota Remaining: {promoConfig.quota - promoConfig.count}
+                  <h3 className="text-lg font-bold">Free Activation Available</h3>
+                  <p className="text-sm text-muted-foreground">
+                    {Math.max(0, promoConfig.quota - promoConfig.count)} spots remaining
                   </p>
                 </div>
                 <div className="p-4 bg-muted rounded-xl border-2 border-dashed border-amber-500/30">
@@ -453,27 +453,27 @@ export default function Activate() {
         <DialogContent className="sm:max-w-md border-amber-500/20 bg-amber-50/50 dark:bg-amber-950/20 backdrop-blur-xl">
           <DialogHeader>
             <div className="flex items-center justify-center mb-4">
-              <div className="h-16 w-16 bg-amber-500 rounded-full flex items-center justify-center text-white animate-bounce shadow-lg shadow-amber-500/40">
-                <Star className="h-8 w-8 fill-current" />
+              <div className="h-14 w-14 bg-amber-500 rounded-full flex items-center justify-center text-white shadow-md">
+                <Star className="h-7 w-7 fill-current" />
               </div>
             </div>
-            <DialogTitle className="text-2xl font-black text-center text-amber-600 dark:text-amber-400">CONGRATULATIONS!</DialogTitle>
-            <DialogDescription className="text-center text-base pt-2 font-bold text-foreground">
-              You have been successfully activated under the current PROMO MODE!
+            <DialogTitle className="text-2xl font-bold text-center text-foreground">Account Activated</DialogTitle>
+            <DialogDescription className="text-center text-sm pt-1 text-muted-foreground">
+              Your account is now active for the current semester.
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-3 text-sm text-foreground/80 text-left bg-white/50 dark:bg-black/20 p-4 rounded-xl border my-2">
             <div className="flex gap-3">
               <div className="h-5 w-5 rounded-full bg-amber-500 flex items-center justify-center text-[10px] text-white shrink-0">1</div>
-              <p>You now have full access to all lecture notes, Past Questions & CBT practice for this semester.</p>
+              <p>You now have access to lecture notes, past questions, and CBT practice for this semester.</p>
             </div>
             <div className="flex gap-3">
               <div className="h-5 w-5 rounded-full bg-amber-500 flex items-center justify-center text-[10px] text-white shrink-0">2</div>
-              <p>Please note that <strong>next semester will NOT be free</strong>. Plan accordingly!</p>
+              <p>This activation covers the current semester only.</p>
             </div>
             <div className="flex gap-3">
               <div className="h-5 w-5 rounded-full bg-amber-500 flex items-center justify-center text-[10px] text-white shrink-0">3</div>
-              <p className="font-bold text-amber-600 dark:text-amber-500">PRO TIP: Refer 10 friends to earn an extra semester for FREE!</p>
+              <p>Share your Student ID from the Referrals page to invite classmates.</p>
             </div>
           </div>
           <DialogFooter>
@@ -484,7 +484,7 @@ export default function Activate() {
                 navigate('/dashboard');
               }}
             >
-              Start Studying Now
+              Go to Dashboard
             </Button>
           </DialogFooter>
         </DialogContent>

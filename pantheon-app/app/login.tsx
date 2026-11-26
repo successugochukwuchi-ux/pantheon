@@ -14,8 +14,9 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { KeyboardSafeContainer } from '../components/KeyboardSafeWrapper';
 import { auth, db } from '../lib/firebase';
-import { signInWithEmailAndPassword, signOut } from 'firebase/auth';
+import { signInWithEmailAndPassword, signOut, sendPasswordResetEmail } from 'firebase/auth';
 import { doc, getDoc } from 'firebase/firestore';
+import { contactAdmin } from '../lib/support';
 
 const C = {
   bg: '#F0EFF5',
@@ -195,9 +196,23 @@ export default function LoginScreen() {
     }
   };
 
+  const handleForgotPassword = async () => {
+    const trimmed = email.trim();
+    if (!trimmed || !/\S+@\S+\.\S+/.test(trimmed)) {
+      Alert.alert('Reset Password', 'Enter your registered email address first, then tap Forgot?.');
+      return;
+    }
+    try {
+      await sendPasswordResetEmail(auth, trimmed);
+      Alert.alert('Reset Email Sent', `A password reset link has been sent to ${trimmed}.`);
+    } catch (error: any) {
+      Alert.alert('Reset Failed', error?.message || 'Could not send reset email. Please try again.');
+    }
+  };
+
   return (
     <SafeAreaView style={s.root} edges={['top', 'bottom']}>
-      <Navbar onHelp={() => {}} />
+      <Navbar onHelp={() => contactAdmin(undefined, false, 'Hello, I need help logging into my CoLearn account.')} />
       <KeyboardSafeContainer>
         <ScrollView
           ref={scrollRef}
@@ -207,9 +222,9 @@ export default function LoginScreen() {
         >
           {/* Hero */}
           <View style={s.hero}>
-            <Text style={s.heroTitle}>Welcome Back.</Text>
+            <Text style={s.heroTitle}>Login</Text>
             <Text style={s.heroSub}>
-              Access your academic tools and preparation resources.
+              Sign in with your CoLearn account.
             </Text>
           </View>
 
@@ -221,7 +236,7 @@ export default function LoginScreen() {
               value={email}
               onChangeText={setEmail}
               keyboardType="email-address"
-              hint="Use any personal email (Gmail, Yahoo, iCloud). Student-specific emails are not required."
+              hint="Use the email you registered with."
               error={errors.email}
             />
 
@@ -234,7 +249,7 @@ export default function LoginScreen() {
               error={errors.password}
               onFocusScroll={() => setTimeout(() => scrollRef.current?.scrollTo({ y: 200, animated: true }), 120)}
               rightAction={
-                <TouchableOpacity activeOpacity={0.7} onPress={() => {}}>
+                <TouchableOpacity activeOpacity={0.7} onPress={handleForgotPassword}>
                   <Text style={s.forgotText}>Forgot?</Text>
                 </TouchableOpacity>
               }
@@ -249,7 +264,7 @@ export default function LoginScreen() {
               {loading ? (
                 <ActivityIndicator color={C.accentText} />
               ) : (
-                <Text style={s.signInBtnText}>Sign In</Text>
+                <Text style={s.signInBtnText}>Login</Text>
               )}
             </TouchableOpacity>
 
@@ -281,7 +296,7 @@ export default function LoginScreen() {
 
           {/* Footer */}
           <View style={s.footer}>
-            <Text style={s.footerCopy}>© 2026 Pillara Education 2026</Text>
+            <Text style={s.footerCopy}>© 2026 Pillara Education</Text>
             <View style={s.footerLinks}>
               <TouchableOpacity activeOpacity={0.7} onPress={() => router.push('/privacy' as any)}>
                 <Text style={s.footerLink}>Privacy policy</Text>

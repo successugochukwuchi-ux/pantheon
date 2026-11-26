@@ -13,10 +13,10 @@ import { Badge } from './ui/badge';
 import { toast } from 'sonner';
 import { 
   ShieldCheck, School, BookOpen, DollarSign, Calendar, TrendingUp, Key, Plus, 
-  List, Eye, EyeOff, FileDown, Loader2, Wand2, Sparkles, CheckCircle2, AlertTriangle, 
+  List, Eye, EyeOff, FileDown, Loader2, Wand2, CheckCircle2, AlertTriangle, 
   Terminal, RefreshCw, XCircle, FileText, HelpCircle, Bot, Cpu, StopCircle,
   Camera, Smartphone, Lock, Unlock, CreditCard, Percent, Building2, Server, Mail, Radio, Play, Copy,
-  Award, Users
+  Award, Users, Database
 } from 'lucide-react';
 import { jsPDF } from 'jspdf';
 import * as XLSX from 'xlsx';
@@ -2553,14 +2553,12 @@ export default function OverseerControl() {
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
           <div className="space-y-1">
             <h2 className="text-2xl sm:text-3xl font-extrabold tracking-tight text-foreground">
-              Overseer Command Center
+              Overseer Controls
             </h2>
             <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground font-medium">
-              <span className="text-violet-700 dark:text-violet-400 font-semibold">Level 5 Executive Governance</span>
+              <span className="text-violet-700 dark:text-violet-400 font-semibold">Platform-Wide Administration</span>
               <span aria-hidden="true">·</span>
-              <span>Nationwide CoLearn Network</span>
-              <span aria-hidden="true">·</span>
-              <span><strong className="text-foreground">{universities.length}</strong> Deployed Campuses</span>
+              <span><strong className="text-foreground">{universities.length}</strong> Active Campuses</span>
             </div>
           </div>
 
@@ -2634,10 +2632,10 @@ export default function OverseerControl() {
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <ShieldCheck className="h-5 w-5 text-violet-500" />
-            Confidential Admin Provisioning
+            Admin & University Assignment
           </CardTitle>
           <CardDescription>
-            Elevate any existing platform user to a Level 4 Admin or set their university to FUTO. All course/past-question sheets are currently loaded on FUTO.
+            Elevate a user to Level 4 Admin or assign their university to FUTO.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-6">
@@ -2663,14 +2661,14 @@ export default function OverseerControl() {
                 variant="outline" 
                 className="flex-1 md:flex-initial border-violet-500 text-violet-700 hover:bg-violet-50"
               >
-                Set At to FUTO
+                Assign University (FUTO)
               </Button>
             </div>
           </form>
 
           <div className="pt-4 border-t flex flex-col sm:flex-row items-center justify-between gap-4">
             <div className="text-sm text-muted-foreground">
-              Are you logged in and need to test FUTO datasets yourself? Give yourself FUTO access instantly.
+              Need to access FUTO courses on your current account?
             </div>
             <Button 
               type="button" 
@@ -2679,13 +2677,13 @@ export default function OverseerControl() {
               variant="outline" 
               className="w-full sm:w-auto bg-amber-50 border-amber-300 text-amber-700 hover:bg-amber-100"
             >
-              Set My 'At' to FUTO
+              Set My University to FUTO
             </Button>
           </div>
 
           <div className="pt-4 border-t flex flex-col sm:flex-row items-center justify-between gap-4">
             <div className="text-sm text-muted-foreground">
-              <strong>Temporary Migration Tool:</strong> Update all available courses to be associated with university "FUTO" ("At" field), and purge any legacy "At" fields from Notes and Past Question sheets.
+              <strong>Campus Assignment Tool:</strong> Associate all existing courses with FUTO and clean up legacy university tags on notes and question sheets.
             </div>
             <Button 
               type="button" 
@@ -2744,7 +2742,7 @@ export default function OverseerControl() {
                     </>
                   ) : (
                     <>
-                      <Sparkles className="h-4 w-4" />
+                      <Database className="h-4 w-4" />
                       <span>Merge Questions into Sheets</span>
                     </>
                   )}
@@ -2766,10 +2764,7 @@ export default function OverseerControl() {
                   <div className="flex items-start gap-3">
                     <div className="pt-0.5">
                       {mergeStats.status === 'running' && (
-                        <div className="relative flex h-4 w-4">
-                          <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
-                          <span className="relative inline-flex rounded-full h-4 w-4 bg-emerald-500"></span>
-                        </div>
+                        <Loader2 className="h-4 w-4 animate-spin text-emerald-600 shrink-0" />
                       )}
                       {mergeStats.status === 'completed' && (
                         <CheckCircle2 className="h-5 w-5 text-emerald-600 shrink-0" />
@@ -2821,7 +2816,7 @@ export default function OverseerControl() {
                         ? 'bg-emerald-600'
                         : mergeStats.status === 'error'
                         ? 'bg-red-500'
-                        : 'bg-gradient-to-r from-emerald-500 via-teal-500 to-emerald-600 animate-pulse'
+                        : 'bg-emerald-600'
                     }`}
                     style={{ width: `${Math.max(3, mergeStats.progressPercent)}%` }}
                   />
@@ -2883,7 +2878,7 @@ export default function OverseerControl() {
         <CardHeader>
           <CardTitle className="flex items-center gap-2 text-cyan-700 dark:text-cyan-400">
             <Camera className="h-5 w-5" />
-            Mobile App Screenshot Authorization (Student ID Bypass)
+            Mobile App Screenshot Authorization (By Student ID)
           </CardTitle>
           <CardDescription>
             Grant or revoke mobile app screenshot and screen recording ability to any specific Student ID without raising their account permission level (they remain Level 1, Level 2, etc.).
@@ -2938,7 +2933,7 @@ export default function OverseerControl() {
                   <div className="text-right">
                     <div className="text-[11px] font-semibold text-muted-foreground uppercase">Current Access</div>
                     <Badge className={searchedScreenshotUser.canTakeScreenshots ? "bg-emerald-600 text-white" : "bg-red-500 text-white"}>
-                      {searchedScreenshotUser.canTakeScreenshots ? "Allowed (Bypass Active)" : "Blocked (Standard Guard)"}
+                      {searchedScreenshotUser.canTakeScreenshots ? "Allowed" : "Restricted"}
                     </Badge>
                   </div>
 
@@ -3417,27 +3412,27 @@ export default function OverseerControl() {
               <div className="flex items-center gap-2">
                 <span className={`inline-block h-2.5 w-2.5 rounded-full ${
                   takanoScannerStatus === 'ACTIVE_SCANNING'
-                    ? 'bg-emerald-500 animate-ping'
+                    ? 'bg-emerald-500'
                     : 'bg-amber-500'
                 }`} />
                 <span className="font-bold text-sm text-foreground">
                   Scanner Status:{' '}
                   {takanoScannerStatus === 'ACTIVE_SCANNING'
-                    ? `ACTIVE SCANNING (${takanoActiveOrdersCount} Vendor Purchase In Progress)`
-                    : 'STANDBY (Awaiting Active Vendor Purchase)'}
+                    ? `Active (${takanoActiveOrdersCount} Pending Order${takanoActiveOrdersCount === 1 ? '' : 's'})`
+                    : 'Standby (No Pending Orders)'}
                 </span>
               </div>
               <p className="text-xs text-muted-foreground">
                 {takanoScannerStatus === 'ACTIVE_SCANNING'
-                  ? 'A vendor has been given a slot and told to pay. The IMAP scanner is actively polling the alert inbox every 5 seconds to verify their transfer.'
-                  : 'IMAP scanner only begins scanning when a vendor is actively making a purchase (given a slot and told to pay). While in STANDBY, no emails are polled or passed to the AI model.'}
+                  ? 'A vendor purchase is in progress. The inbox scanner is checking for transfer confirmations every 5 seconds.'
+                  : 'The inbox scanner starts checking automatically when a vendor initiates a bank transfer order.'}
               </p>
             </div>
             <Badge 
               variant={takanoScannerStatus === 'ACTIVE_SCANNING' ? 'default' : 'outline'} 
               className={`text-xs shrink-0 ${takanoScannerStatus === 'ACTIVE_SCANNING' ? 'bg-emerald-600 hover:bg-emerald-700 text-white' : 'text-muted-foreground border-slate-300 dark:border-slate-700'}`}
             >
-              {takanoScannerStatus === 'ACTIVE_SCANNING' ? 'POLLING (5s)' : 'STANDBY (IDLE)'}
+              {takanoScannerStatus === 'ACTIVE_SCANNING' ? 'Polling (5s)' : 'Standby'}
             </Badge>
           </div>
 
@@ -3505,7 +3500,7 @@ export default function OverseerControl() {
                       onChange={(e) => setTakanoScannerEnabled(e.target.checked)}
                       className="rounded"
                     />
-                    Daemon Enabled
+                    Scanner Enabled
                   </label>
                 </div>
               </div>
@@ -3639,7 +3634,7 @@ export default function OverseerControl() {
             <div className="flex items-center justify-between flex-wrap gap-2">
               <div>
                 <h4 className="font-bold text-sm text-indigo-900 dark:text-indigo-200 flex items-center gap-2">
-                  <Radio className="h-4 w-4 text-indigo-600 animate-pulse" /> Live Scanner Diagnostics & Credit Alert Simulator
+                  <Radio className="h-4 w-4 text-indigo-600" /> Scanner Diagnostics & Credit Alert Simulator
                 </h4>
                 <p className="text-xs text-muted-foreground mt-0.5">
                   Trigger an immediate IMAP inbox scan or simulate an instant transfer credit alert to verify auto-dispensation.
@@ -3928,7 +3923,7 @@ export default function OverseerControl() {
               Create University & Departments
             </CardTitle>
             <CardDescription>
-              Deploy new universities onto the CoLearn ecosystem, adding their initial catalog of departments.
+              Add new universities and configure their departments.
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -4114,7 +4109,7 @@ export default function OverseerControl() {
                       onClick={downloadRevenuePDF} 
                       className="bg-amber-600 hover:bg-amber-700 text-white flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 h-8 rounded-lg cursor-pointer shadow-2xs"
                     >
-                      <FileDown className="h-3.5 w-3.5" /> Download Stylized PDF
+                      <FileDown className="h-3.5 w-3.5" /> Download PDF Report
                     </Button>
                     <Button 
                       size="sm" 
@@ -4454,7 +4449,7 @@ export default function OverseerControl() {
               </p>
               <div className="bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800 rounded-lg p-3 text-xs text-emerald-900 dark:text-emerald-300 space-y-1">
                 <div className="font-semibold flex items-center gap-1.5 text-emerald-800 dark:text-emerald-200">
-                  <Sparkles className="h-4 w-4" /> Why run this?
+                  <CheckCircle2 className="h-4 w-4" /> Why run this?
                 </div>
                 <p>
                   Instead of reading 3,500+ individual question documents when a student app syncs course materials, it will read only 1 document per sheet. This permanently cuts your Firebase read quota by <strong>over 95%</strong>.
@@ -4476,7 +4471,7 @@ export default function OverseerControl() {
               disabled={mergingQuestions}
               className="bg-emerald-600 hover:bg-emerald-700 text-white flex items-center gap-2"
             >
-              <Sparkles className="h-4 w-4" />
+              <Database className="h-4 w-4" />
               Confirm & Start Consolidation
             </Button>
           </DialogFooter>

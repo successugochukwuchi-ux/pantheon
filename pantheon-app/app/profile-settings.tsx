@@ -35,12 +35,17 @@ function CameraIcon({ color }: { color: string }) {
   );
 }
 
-function SparklesIcon({ color }: { color: string }) {
+function AvatarGridIcon({ color }: { color: string }) {
   return (
     <View style={{ width: 18, height: 18, justifyContent: 'center', alignItems: 'center' }}>
-      <View style={{ position: 'absolute', top: 2, left: 3, width: 3, height: 3, borderRadius: 1.5, backgroundColor: color }} />
-      <View style={{ position: 'absolute', width: 6, height: 6, borderRadius: 3, backgroundColor: color }} />
-      <View style={{ position: 'absolute', bottom: 2, right: 3, width: 4, height: 4, borderRadius: 2, backgroundColor: color }} />
+      <View style={{ flexDirection: 'row', gap: 2 }}>
+        <View style={{ width: 6, height: 6, borderRadius: 1.5, borderWidth: 1.5, borderColor: color }} />
+        <View style={{ width: 6, height: 6, borderRadius: 1.5, borderWidth: 1.5, borderColor: color }} />
+      </View>
+      <View style={{ flexDirection: 'row', gap: 2, marginTop: 2 }}>
+        <View style={{ width: 6, height: 6, borderRadius: 1.5, borderWidth: 1.5, borderColor: color }} />
+        <View style={{ width: 6, height: 6, borderRadius: 1.5, borderWidth: 1.5, borderColor: color }} />
+      </View>
     </View>
   );
 }
@@ -284,8 +289,8 @@ export default function ProfileSettingsScreen() {
               style={[s.sourceToggleBtn, avatarSource === 'dicebear' && s.sourceToggleBtnActive]}
               onPress={() => setAvatarSource('dicebear')}
             >
-              <SparklesIcon color={avatarSource === 'dicebear' ? C.ink : C.inkLight} />
-              <Text style={[s.sourceToggleText, avatarSource === 'dicebear' && s.sourceToggleTextActive]}>AI Avatar</Text>
+              <AvatarGridIcon color={avatarSource === 'dicebear' ? C.ink : C.inkLight} />
+              <Text style={[s.sourceToggleText, avatarSource === 'dicebear' && s.sourceToggleTextActive]}>Avatar</Text>
             </TouchableOpacity>
           </View>
 
@@ -464,7 +469,7 @@ export default function ProfileSettingsScreen() {
             {testingVoice ? (
               <ActivityIndicator size="small" color={C.ink} />
             ) : (
-              <SparklesIcon color={C.ink} />
+              <AvatarGridIcon color={C.ink} />
             )}
             <Text style={{ fontFamily: F.bold, fontSize: 13, color: C.ink }}>
               {testingVoice ? 'Playing Preview...' : 'Test Selected Voice'}

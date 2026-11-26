@@ -437,21 +437,16 @@ export function AdminBackup() {
   return (
     <div className="space-y-6">
       {/* Header Banner */}
-      <div className="bg-gradient-to-r from-blue-900/40 via-purple-900/30 to-stone-900 border border-blue-500/20 rounded-xl p-6 shadow-lg backdrop-blur-sm">
+      <div className="bg-card border rounded-xl p-6 shadow-xs">
         <div className="flex items-start justify-between">
           <div className="flex items-center gap-3">
-            <div className="p-3 bg-blue-500/10 rounded-lg border border-blue-500/20 text-blue-400">
+            <div className="p-3 bg-primary/10 rounded-lg border border-primary/20 text-primary">
               <Archive className="h-6 w-6" />
             </div>
             <div>
-              <div className="flex items-center gap-2">
-                <h2 className="text-xl font-bold text-white tracking-tight">University Content Backup</h2>
-                <span className="px-2 py-0.5 text-[10px] font-black uppercase tracking-wider bg-amber-500/20 text-amber-300 border border-amber-500/30 rounded-full">
-                  Level 5 Admin Only
-                </span>
-              </div>
-              <p className="text-xs text-stone-400 mt-1">
-                Export all academic notes and past questions for a university formatted cleanly as <code className="text-pink-400 font-mono">.plx.txt</code> files organized in course folders.
+              <h2 className="text-xl font-bold text-foreground tracking-tight">University Content Backup</h2>
+              <p className="text-xs text-muted-foreground mt-1">
+                Export all academic notes and past questions for a university formatted cleanly as <code className="text-primary font-mono">.plx.txt</code> files organized in course folders.
               </p>
             </div>
           </div>
@@ -553,7 +548,7 @@ export function AdminBackup() {
               </Button>
 
               {progressStatus && (
-                <p className="text-[11px] text-blue-400 text-center mt-2 font-mono animate-pulse">
+                <p className="text-[11px] text-primary text-center mt-2 font-mono">
                   {progressStatus}
                 </p>
               )}
@@ -629,7 +624,7 @@ export function AdminBackup() {
                 <AlertCircle className="h-8 w-8 text-stone-600" />
                 <p className="text-xs font-medium text-stone-400">No courses associated with this university yet.</p>
                 <p className="text-[11px] text-stone-600 max-w-sm text-center">
-                  Courses must have their <code className="text-stone-400">At</code> field set to <code className="text-stone-400">{selectedUniId}</code> to be included in this backup.
+                  No courses are assigned to <span className="font-mono uppercase text-stone-400">{selectedUniId}</span> yet.
                 </p>
               </div>
             ) : (

@@ -4,7 +4,7 @@ import { db } from '../firebase';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from '../components/ui/card';
 import { Button } from '../components/ui/button';
 import { Badge } from '../components/ui/badge';
-import { Download, Smartphone, CheckCircle, ExternalLink, ArrowLeft, ShieldCheck, Sparkles, Store } from 'lucide-react';
+import { Download, Smartphone, CheckCircle, ExternalLink, ArrowLeft, ShieldCheck, Store } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 
 interface MobileSystemRelease {
@@ -14,6 +14,8 @@ interface MobileSystemRelease {
   isMandatory: boolean;
   hostMode: 'colearn' | 'playstore';
   downloadUrl: string;
+  downloadUrlArm64?: string;
+  downloadUrlArm32?: string;
   playStoreUrl: string;
   appStoreUrl: string;
   updatedAt?: string;
@@ -23,6 +25,7 @@ export default function DownloadPage() {
   const navigate = useNavigate();
   const [release, setRelease] = useState<MobileSystemRelease | null>(null);
   const [loading, setLoading] = useState(true);
+  const [preferredArch, setPreferredArch] = useState<'arm64' | 'arm32'>('arm64');
 
   useEffect(() => {
     async function fetchActiveRelease() {
@@ -47,10 +50,44 @@ export default function DownloadPage() {
     fetchActiveRelease();
   }, []);
 
+  useEffect(() => {
+    let active = true;
+    const ua = navigator.userAgent || '';
+    if (/armeabi|armv7|arm32/i.test(ua)) {
+      setPreferredArch('arm32');
+      return;
+    }
+    const uaData = (navigator as unknown as {
+      userAgentData?: { getHighEntropyValues?: (hints: string[]) => Promise<{ architecture?: string; bitness?: string }> };
+    }).userAgentData;
+    if (uaData?.getHighEntropyValues) {
+      uaData
+        .getHighEntropyValues(['architecture', 'bitness'])
+        .then((vals) => {
+          if (!active) return;
+          if (vals.bitness === '32' || (vals.architecture === 'arm' && vals.bitness !== '64')) {
+            setPreferredArch('arm32');
+          }
+        })
+        .catch(() => {});
+    }
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  const arm64Url = release?.downloadUrlArm64 || release?.downloadUrl || '';
+  const arm32Url = release?.downloadUrlArm32 || '';
+  const primaryApkUrl =
+    preferredArch === 'arm32' && arm32Url ? arm32Url : arm64Url || arm32Url;
+  const secondaryApkUrl =
+    preferredArch === 'arm32' && arm32Url ? arm64Url : arm32Url;
+  const hasSecondaryApk = Boolean(
+    secondaryApkUrl && primaryApkUrl && secondaryApkUrl !== primaryApkUrl
+  );
+
   return (
     <div className="min-h-screen bg-stone-950 text-stone-100 flex flex-col justify-between p-4 sm:p-8">
-      {/* Background Decor */}
-      <div className="fixed inset-0 pointer-events-none opacity-20 bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-emerald-500 via-transparent to-transparent" />
 
       {/* Top Header */}
       <header className="max-w-4xl w-full mx-auto flex items-center justify-between py-4 relative z-10">
@@ -87,9 +124,9 @@ export default function DownloadPage() {
 
           <CardContent className="pt-6 space-y-6">
             {loading ? (
-              <div className="py-12 text-center text-stone-400 animate-pulse space-y-2">
+              <div className="py-12 text-center text-stone-400 space-y-2">
                 <Smartphone className="h-8 w-8 mx-auto text-emerald-500" />
-                <p>Loading latest release package...</p>
+                <p>Checking latest release...</p>
               </div>
             ) : release ? (
               <>
@@ -102,7 +139,7 @@ export default function DownloadPage() {
                   <div className="flex items-center gap-2">
                     <Badge className="bg-emerald-500/20 text-emerald-300 border-emerald-500/30 gap-1 py-1">
                       <ShieldCheck className="h-3.5 w-3.5" />
-                      Verified Build
+                      Official Release
                     </Badge>
                     <Badge variant="outline" className="text-stone-300 border-stone-700 capitalize">
                       {release.hostMode === 'playstore' ? 'Google Play' : 'Direct APK'}
@@ -113,7 +150,7 @@ export default function DownloadPage() {
                 {/* Release Notes */}
                 <div className="space-y-2">
                   <h4 className="text-sm font-semibold text-stone-300 flex items-center gap-2">
-                    <Sparkles className="h-4 w-4 text-emerald-400" />
+                    <CheckCircle className="h-4 w-4 text-emerald-400" />
                     What's New in v{release.versionNumber}
                   </h4>
                   <div className="bg-stone-950/60 p-4 rounded-xl border border-stone-800/80 text-sm text-stone-300 whitespace-pre-wrap font-sans leading-relaxed">
@@ -124,17 +161,48 @@ export default function DownloadPage() {
                 {/* Direct Action Buttons */}
                 <div className="space-y-3 pt-2">
                   {release.hostMode === 'colearn' ? (
-                    <a 
-                      href={release.downloadUrl || '#'} 
-                      target="_blank" 
-                      rel="noopener noreferrer"
-                      className="block w-full"
-                    >
-                      <Button className="w-full h-13 text-base font-bold bg-emerald-500 hover:bg-emerald-600 text-stone-950 gap-2 shadow-lg shadow-emerald-500/20">
-                        <Download className="h-5 w-5" />
-                        Download Direct APK (v{release.versionNumber})
-                      </Button>
-                    </a>
+                    <div className="space-y-2">
+                      <a 
+                        href={primaryApkUrl || '#'} 
+                        target="_blank" 
+                        rel="noopener noreferrer"
+                        className="block w-full"
+                      >
+                        <Button className="w-full h-13 text-base font-bold bg-emerald-500 hover:bg-emerald-600 text-stone-950 gap-2 shadow-lg shadow-emerald-500/20">
+                          <Download className="h-5 w-5" />
+                          Download Direct APK (v{release.versionNumber})
+                        </Button>
+                      </a>
+                      {hasSecondaryApk && (
+                        <div className="text-center text-xs text-stone-400 pt-1">
+                          {preferredArch === 'arm32' && arm32Url ? (
+                            <>
+                              Using a newer 64-bit phone?{' '}
+                              <a
+                                href={secondaryApkUrl}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="text-emerald-400 hover:underline font-medium"
+                              >
+                                Download 64-bit APK
+                              </a>
+                            </>
+                          ) : (
+                            <>
+                              Installing on an older 32-bit phone?{' '}
+                              <a
+                                href={secondaryApkUrl}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="text-emerald-400 hover:underline font-medium"
+                              >
+                                Download 32-bit APK
+                              </a>
+                            </>
+                          )}
+                        </div>
+                      )}
+                    </div>
                   ) : (
                     <a 
                       href={release.playStoreUrl || '#'} 
@@ -158,7 +226,7 @@ export default function DownloadPage() {
                     >
                       <Button variant="outline" className="w-full border-stone-700 text-stone-300 hover:bg-stone-800 gap-2">
                         <Store className="h-4 w-4" />
-                        Alternative: Get on Google Play
+                        Get it on Google Play
                       </Button>
                     </a>
                   )}

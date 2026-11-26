@@ -33,7 +33,7 @@ export const ProtectedRoute: React.FC<{
           </div>
           <div className="space-y-1">
             <h3 className="font-bold text-lg tracking-tight">CoLearn</h3>
-            <p className="text-xs text-muted-foreground animate-pulse">Authenticating user...</p>
+            <p className="text-xs text-muted-foreground">Loading...</p>
           </div>
         </div>
       </div>

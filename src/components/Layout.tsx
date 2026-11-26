@@ -6,8 +6,7 @@ import {
   Menu, 
   Bell,
   Shield,
-  Zap,
-  Sparkles
+  Zap
 } from 'lucide-react';
 import { Button } from './ui/button';
 import { Badge } from './ui/badge';
@@ -174,10 +173,10 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
                   <img src="/icon.png" alt="CoLearn" className="h-6 w-6 rounded-md object-contain" />
                 </Link>
                 <h2 className="text-sm font-black uppercase tracking-tighter text-muted-foreground">
-                  {isLevel3Vendor ? 'Vendor Portal' :
+                  {isLevel3Vendor ? 'Vendor Dashboard' :
                    location.pathname === '/dashboard' ? 'Overview' : 
                    location.pathname.startsWith('/administrator') ? 'Administration' : 
-                   'Academic Portal'}
+                   'CoLearn'}
                 </h2>
               </div>
             </div>
@@ -222,7 +221,7 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
                   </Avatar>
                 </Button>
               ) : (
-                <Button onClick={() => navigate('/login')} size="sm">Sign In</Button>
+                <Button onClick={() => navigate('/login')} size="sm">Login</Button>
               )}
             </div>
           </div>
@@ -237,7 +236,7 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
         <footer className="border-t py-6 px-4 md:px-8">
           <div className="flex flex-col items-center justify-between gap-4 md:flex-row">
             <p className="text-sm text-muted-foreground">
-              Built for Students. © 2026 Pillara Education 2026
+              © 2026 Pillara Education
             </p>
             <div className="flex items-center gap-4 text-xs text-muted-foreground">
               <Link to="/terms" className="hover:underline">Terms</Link>

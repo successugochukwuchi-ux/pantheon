@@ -90,7 +90,7 @@ export default function PrivacyScreen() {
           />
         </View>
 
-        <Text style={s.footerText}>© 2026 Pillara Education 2026</Text>
+        <Text style={s.footerText}>© 2026 Pillara Education</Text>
       </ScrollView>
     </SafeAreaView>
   );

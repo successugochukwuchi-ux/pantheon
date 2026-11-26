@@ -72,13 +72,13 @@ export default function Compete() {
   if (isUnactivatedStudent) {
     return (
       <div className="flex flex-col items-center justify-center min-h-[400px] text-center p-6 space-y-4 max-w-2xl mx-auto">
-        <Lock className="h-16 w-16 text-amber-500 animate-pulse" />
+        <Lock className="h-16 w-16 text-amber-500" />
         <h1 className="text-3xl font-bold tracking-tight">CoLearn Compete Locked</h1>
-        <p className="text-muted-foreground animate-pulse">
-          Standard accounts must buy an activation pin to participate in CoLearn Compete, join live matches, compete with other users, and access season leaderboards.
+        <p className="text-muted-foreground">
+          Standard accounts must purchase an activation pin to participate in CoLearn Compete, join live matches, and access season leaderboards.
         </p>
         <p className="text-sm font-medium text-amber-600 dark:text-amber-400">
-          Unlock instant access to real-time competitive testing by activating your account now!
+          Activate your account to start competing with classmates.
         </p>
         <div className="pt-2">
           <Button size="lg" onClick={() => window.location.href = '/activate'}>
@@ -1674,10 +1674,9 @@ export default function Compete() {
           >
             {/* POINTS GRAB MATCHMAKING LOBBY */}
             <div className="relative inline-flex items-center justify-center">
-                  <div className="h-24 w-24 rounded-full border-4 border-primary/20 bg-primary/5 animate-pulse flex items-center justify-center">
-                    <Trophy size={40} className="text-primary animate-bounce" />
+                  <div className="h-24 w-24 rounded-full border-4 border-primary/20 bg-primary/5 flex items-center justify-center">
+                    <Trophy size={40} className="text-primary" />
                   </div>
-                  <div className="absolute top-0 left-0 w-24 h-24 rounded-full border border-primary animate-ping" />
                 </div>
 
                 <div>
@@ -2074,7 +2073,7 @@ export default function Compete() {
                   🤝
                 </div>
               ) : currentMatch.winnerId === user?.uid ? (
-                <div className="inline-flex items-center justify-center h-24 w-24 rounded-full bg-amber-500/10 text-amber-500 border-2 border-amber-500/30 mb-4 animate-bounce relative">
+                <div className="inline-flex items-center justify-center h-24 w-24 rounded-full bg-amber-500/10 text-amber-500 border-2 border-amber-500/30 mb-4 relative">
                   <Trophy size={48} className="fill-amber-500" />
                   <span className="absolute -top-1 -right-1 flex h-4 w-4 rounded-full bg-emerald-500" />
                 </div>
@@ -2088,8 +2087,8 @@ export default function Compete() {
                 {currentMatch.winnerId === 'draw' 
                   ? "It's a Stand-off Draw!" 
                   : currentMatch.winnerId === user?.uid 
-                    ? (currentMatch.forfeitedBy ? "Victory! Opponent Forfeited the Match! 🏆" : "Victory! You Won the Match! 🎉") 
-                    : (currentMatch.forfeitedBy === user?.uid ? "Match Forfeited" : "Defeat! Better Luck Next Round!")
+                    ? (currentMatch.forfeitedBy ? "Victory! Opponent Forfeited the Match." : "Victory! You Won the Match.") 
+                    : (currentMatch.forfeitedBy === user?.uid ? "Match Forfeited" : "Defeat — Better Luck Next Round")
                 }
               </h1>
               {currentMatch.forfeitedBy && (
@@ -2149,9 +2148,9 @@ export default function Compete() {
 
                 {/* REWARD STAR ACCENTS */}
                 {currentMatch.type === 'quick_match' && currentMatch.winnerId === user?.uid && activeSeasonId && (
-                  <div className="bg-amber-500/10 border border-amber-500/20 text-amber-500 text-sm font-bold p-4 rounded-xl flex items-center justify-center gap-2 max-w-md mx-auto animate-pulse">
+                  <div className="bg-amber-500/10 border border-amber-500/20 text-amber-500 text-sm font-bold p-4 rounded-xl flex items-center justify-center gap-2 max-w-md mx-auto">
                     <Trophy size={16} className="fill-amber-500" />
-                    Prestige Star rewarded! +1 point added to seasonal leader ratings.
+                    Prestige Star awarded (+1 added to seasonal leaderboard).
                   </div>
                 )}
 

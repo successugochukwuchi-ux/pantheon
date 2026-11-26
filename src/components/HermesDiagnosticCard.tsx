@@ -82,16 +82,16 @@ export function HermesDiagnosticCard({
       return `### Hermes Diagnostic Report\n- Error: ${errorMessage}\n- Host: ${typeof window !== 'undefined' ? window.location.hostname : 'unknown'}`;
     }
 
-    let md = `### 🩺 Hermes Diagnostic Report\n`;
+    let md = `### Hermes Diagnostic Report\n`;
     md += `**Timestamp:** ${diag.timestamp}\n`;
     md += `**App Hostname:** \`${diag.appHostname}\` (Static Host: ${diag.isStaticHost ? 'Yes (Wasmer/SPA)' : 'No'})\n`;
     md += `**Provider Configured:** \`${diag.provider}\` (Model: \`${diag.model}\`)\n`;
     md += `**Base URL:** \`${diag.baseUrl || 'Default'}\`\n`;
     md += `**API Key Status:** ${diag.hasApiKey ? `Configured (${diag.maskedKey})` : 'Missing'}\n\n`;
-    md += `#### 🎯 Pinpointed Primary Cause\n${diag.primaryCause}\n\n`;
-    md += `#### 💡 Recommendation\n${diag.recommendation}\n\n`;
+    md += `#### Primary Cause\n${diag.primaryCause}\n\n`;
+    md += `#### Recommendation\n${diag.recommendation}\n\n`;
 
-    md += `#### 📡 Attempt & Trace Log (${diag.attempts.length} attempts):\n`;
+    md += `#### Attempt & Trace Log (${diag.attempts.length} attempts):\n`;
     diag.attempts.forEach((att, idx) => {
       md += `${idx + 1}. **${att.strategy === 'backend_proxy' ? 'Backend Proxy' : 'Direct Fallback'}**: \`${att.target}\`\n`;
       md += `   - **Status:** ${att.status ? `${att.status} ${att.statusText || ''}` : (att.statusText || 'Failed')}\n`;
@@ -144,7 +144,7 @@ export function HermesDiagnosticCard({
       {/* Header */}
       <div className="flex items-center justify-between border-b border-destructive/20 pb-2">
         <div className="flex items-center gap-1.5 font-semibold text-destructive dark:text-red-300">
-          <AlertTriangle className="h-4 w-4 shrink-0 text-amber-500 animate-pulse" />
+          <AlertTriangle className="h-4 w-4 shrink-0 text-amber-500" />
           <span>Hermes Connection Diagnostic</span>
         </div>
         <span className="text-[10px] uppercase font-mono px-1.5 py-0.5 rounded bg-destructive/15 text-destructive font-bold tracking-wider">
@@ -155,7 +155,7 @@ export function HermesDiagnosticCard({
       {/* Primary Pinpointed Cause Banner */}
       <div className="rounded-lg bg-background/80 dark:bg-zinc-900/80 p-2.5 border border-destructive/20 space-y-1">
         <div className="flex items-center gap-1 font-medium text-amber-600 dark:text-amber-400 text-[11px]">
-          <span>🎯 Pinpointed Cause:</span>
+          <span>Primary Cause:</span>
         </div>
         <p className="text-foreground dark:text-zinc-200 text-xs font-normal leading-relaxed">
           {activeDiag?.primaryCause || errorMessage}

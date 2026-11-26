@@ -75,7 +75,7 @@ export function ActivationModal() {
       const currentPromo = promoSnap.data();
 
       if (!currentPromo?.isActive || currentPromo.count >= currentPromo.quota) {
-        Alert.alert("Ended", "Promo mode has just ended. Please use a pin.");
+        Alert.alert("Ended", "Free activation has ended. Please enter an activation pin.");
         setLoading(false);
         return;
       }
@@ -112,7 +112,7 @@ export function ActivationModal() {
         );
       }
 
-      Alert.alert('Success', 'Your account has been activated via Promo Mode! Welcome to COLEARN.');
+      Alert.alert('Success', 'Your account is now active.');
     } catch (error) {
       console.error("Promo Activation Error:", error);
       Alert.alert("Activation Error", "Failed to activate via Promo. Please check connection and try again.");
@@ -269,7 +269,7 @@ export function ActivationModal() {
         );
       }
 
-      Alert.alert('Success', 'Your account has been activated! Enjoy COLEARN.');
+      Alert.alert('Success', 'Your account has been activated.');
     } catch (error) {
       console.error('Activation error:', error);
       Alert.alert('Error', 'Failed to activate account. Please try again.');
@@ -295,21 +295,21 @@ export function ActivationModal() {
           {currentShowPromo ? (
             <>
               <View style={[s.iconCircle, { backgroundColor: '#F59E0B' }]}>
-                <Text style={s.icon}>🎁</Text>
+                <Text style={[s.icon, { fontSize: 20, color: '#FFFFFF', fontFamily: F.bold, letterSpacing: 1 }]}>CL</Text>
               </View>
               
               <View style={s.promoBadge}>
-                <Text style={s.promoBadgeText}>FREE PROMO MODE ACTIVE</Text>
+                <Text style={s.promoBadgeText}>FREE ACTIVATION</Text>
               </View>
 
               <Text style={s.title}>Account Activation</Text>
               <Text style={s.sub}>
-                You're in luck! Current promo allows free activation. Grab this chance to unlock all study materials instantly.
+                Free semester activation is open. Activate now for full access.
               </Text>
 
               {promoConfig && (
                 <Text style={s.promoQuotaText}>
-                  Quota Remaining: {promoConfig.quota - promoConfig.count}
+                  Spots Remaining: {promoConfig.quota - promoConfig.count}
                 </Text>
               )}
 
@@ -321,7 +321,7 @@ export function ActivationModal() {
                 {loading ? (
                   <ActivityIndicator color="#fff" />
                 ) : (
-                  <Text style={s.btnText}>ACTIVATE FREE (PROMO)</Text>
+                  <Text style={s.btnText}>ACTIVATE FREE</Text>
                 )}
               </TouchableOpacity>
 
@@ -341,18 +341,18 @@ export function ActivationModal() {
           ) : (
             <>
               <View style={s.iconCircle}>
-                <Text style={s.icon}>⚡</Text>
+                <Text style={[s.icon, { fontSize: 20, color: '#FFFFFF', fontFamily: F.bold, letterSpacing: 1 }]}>CL</Text>
               </View>
               
               {promoConfig?.isActive && (
                 <View style={[s.promoBadge, { backgroundColor: '#FEF3C7', borderColor: '#F59E0B', borderWidth: 1 }]}>
-                  <Text style={[s.promoBadgeText, { color: '#B45309' }]}>FREE PROMO MODE AVAILABLE</Text>
+                  <Text style={[s.promoBadgeText, { color: '#B45309' }]}>FREE ACTIVATION OPEN</Text>
                 </View>
               )}
 
               <Text style={s.title}>Account Activation</Text>
               <Text style={s.sub}>
-                Welcome to COLEARN! To access all features, please enter your activation code below.
+                Enter your 12-digit activation pin to unlock your courses.
               </Text>
 
               <TextInput

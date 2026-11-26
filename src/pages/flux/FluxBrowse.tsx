@@ -9,10 +9,8 @@ import {
   Search, 
   Users, 
   Clock,
-  Sparkles,
   Zap,
   CheckCircle2,
-  Lock,
   LayoutGrid
 } from 'lucide-react';
 import { toast } from 'sonner';
@@ -131,11 +129,10 @@ const FluxBrowse: React.FC = () => {
             <Zap className="text-white w-6 h-6 fill-white" />
           </div>
           <div>
-            <h1 className="text-3xl font-black tracking-tighter flex items-center gap-3">
-              SKILL TRACKS
-              <Badge className="bg-pink-500/10 text-pink-500 border-pink-500/20 px-3 py-1 font-black">BROWSER</Badge>
+            <h1 className="text-3xl font-bold tracking-tight">
+              Skill Tracks
             </h1>
-            <p className="text-stone-500 font-medium mt-1">Unlock next-gen abilities. Choose your path and start building.</p>
+            <p className="text-stone-400 font-medium mt-1">Browse extracurricular skill tracks and enroll to track your progress.</p>
           </div>
         </div>
 
@@ -144,7 +141,7 @@ const FluxBrowse: React.FC = () => {
             <div className="relative">
               <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-stone-600" size={20} />
               <Input 
-                placeholder="What do you want to master today?" 
+                placeholder="Search skill tracks..." 
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
                 className="pl-12 h-14 bg-stone-900 border-white/5 text-lg rounded-2xl focus:ring-pink-500/50"
@@ -178,9 +175,9 @@ const FluxBrowse: React.FC = () => {
       </div>
 
       {isLoading ? (
-        <div className="flex flex-col items-center justify-center py-40 gap-4 opacity-50">
-          <Zap className="animate-pulse text-pink-500 w-16 h-16" />
-          <p className="font-black tracking-widest text-stone-500 uppercase text-xs">Calibrating Ecosystem...</p>
+        <div className="flex flex-col items-center justify-center py-40 gap-4 opacity-60">
+          <Zap className="text-pink-500 w-12 h-12" />
+          <p className="font-semibold text-stone-400 text-sm">Loading tracks...</p>
         </div>
       ) : filteredTracks.length === 0 ? (
         <div className="text-center py-32 bg-stone-900/20 rounded-[2rem] border border-dashed border-white/5">
@@ -231,7 +228,7 @@ const FluxBrowse: React.FC = () => {
                         <div className="flex flex-col gap-1">
                           <span className="text-[10px] font-black text-stone-600 uppercase tracking-widest">Modules</span>
                           <div className="flex items-center gap-2 text-stone-300 font-bold text-xs">
-                            <Sparkles size={14} className="text-pink-500" />
+                            <LayoutGrid size={14} className="text-pink-500" />
                             {track.modules?.length || 0} Modules
                           </div>
                         </div>
@@ -245,13 +242,9 @@ const FluxBrowse: React.FC = () => {
                       </div>
 
                       <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-2 text-stone-500">
-                          <div className="flex -space-x-2">
-                             {[1,2,3].map(j => (
-                               <div key={j} className="w-6 h-6 rounded-full border-2 border-stone-900 bg-stone-800" />
-                             ))}
-                          </div>
-                          <span className="text-[10px] font-bold uppercase tracking-wider">{track.enrolledCount || 0} Learners</span>
+                        <div className="flex items-center gap-2 text-stone-400">
+                          <Users size={14} />
+                          <span className="text-xs font-semibold">{track.enrolledCount || 0} Learners</span>
                         </div>
                         
                         <Button 

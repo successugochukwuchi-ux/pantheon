@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Play, Pause, Square, Volume2, Settings2, Sparkles, Loader2 } from 'lucide-react';
+import { Play, Pause, Square, Volume2, Settings2, Loader2 } from 'lucide-react';
 import { Button } from './ui/button';
 import { Card, CardContent } from './ui/card';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
@@ -254,12 +254,12 @@ export function TextToSpeechReader({ noteContent, noteTitle }: TextToSpeechReade
         <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
           <div className="flex items-center gap-2.5">
             <div className="p-2 rounded-lg bg-primary/10 text-primary">
-              <Volume2 className={`h-4.5 w-4.5 ${isPlaying && !isPaused ? 'animate-pulse' : ''}`} />
+              <Volume2 className="h-4.5 w-4.5" />
             </div>
             <div>
               <h4 className="text-sm font-semibold tracking-tight">Audio Note Reader</h4>
-              <p className="text-[11px] text-muted-foreground flex items-center gap-1">
-                <Sparkles className="h-3 w-3 text-amber-500" /> Free, natural Edge Text-to-Speech
+              <p className="text-[11px] text-muted-foreground">
+                Edge Text-to-Speech
               </p>
             </div>
           </div>

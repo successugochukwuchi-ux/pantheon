@@ -13,7 +13,6 @@ import {
   Mic, 
   Download, 
   Copy, 
-  Sparkles, 
   Play, 
   Pause, 
   FileText, 
@@ -1319,7 +1318,7 @@ Include a main scene class (e.g. \`class ColearnLesson(Scene):\`) with complete 
                           : 'text-muted-foreground hover:text-foreground'
                       }`}
                     >
-                      <Sparkles className="h-3.5 w-3.5 text-amber-500" />
+                      <AudioWaveform className="h-3.5 w-3.5 text-amber-500" />
                       Fish Audio S2.1 Pro
                     </button>
                   </div>
@@ -1366,7 +1365,7 @@ Include a main scene class (e.g. \`class ColearnLesson(Scene):\`) with complete 
                   <div className="space-y-4 p-4 rounded-xl border bg-amber-500/5 dark:bg-amber-950/10 border-amber-500/20">
                     <div className="flex items-center justify-between">
                       <div className="flex items-center gap-2">
-                        <Sparkles className="h-4 w-4 text-amber-500" />
+                        <AudioWaveform className="h-4 w-4 text-amber-500" />
                         <span className="text-sm font-semibold text-amber-700 dark:text-amber-300">
                           Fish Audio S2.1 Pro Options
                         </span>
@@ -1390,7 +1389,7 @@ Include a main scene class (e.g. \`class ColearnLesson(Scene):\`) with complete 
                         className="font-mono text-xs h-9 bg-background"
                       />
                       <p className="text-[11px] text-muted-foreground">
-                        Input any custom Fish Audio voice model ID. Automatically saved to your Level 4 Admin IndexedDB so you don't need to re-enter it manually.
+                        Input any custom Fish Audio voice model ID. Saved locally in your browser so you don't have to re-enter it.
                       </p>
                     </div>
 
@@ -1400,7 +1399,7 @@ Include a main scene class (e.g. \`class ColearnLesson(Scene):\`) with complete 
                           <Key className="h-3 w-3 text-amber-500" /> OpenRouter API Key
                         </Label>
                         <Badge variant="secondary" className="text-[10px] gap-1">
-                          <Database className="h-2.5 w-2.5 text-emerald-500" /> Admin IndexedDB
+                          <Database className="h-2.5 w-2.5 text-emerald-500" /> Saved Locally
                         </Badge>
                       </div>
                       <div className="relative">
@@ -1420,7 +1419,7 @@ Include a main scene class (e.g. \`class ColearnLesson(Scene):\`) with complete 
                         </button>
                       </div>
                       <p className="text-[11px] text-muted-foreground">
-                        Saved automatically in Level 4 Admin's IndexedDB.
+                        Stored locally in your browser for this workshop.
                       </p>
                     </div>
                   </div>
@@ -1542,12 +1541,12 @@ Include a main scene class (e.g. \`class ColearnLesson(Scene):\`) with complete 
               >
                 {isGenerating ? (
                   <>
-                    <Sparkles className="h-5 w-5 animate-spin" />
+                    <Loader2 className="h-5 w-5 animate-spin" />
                     Generating Audio, SRT & Prompt...
                   </>
                 ) : (
                   <>
-                    <Sparkles className="h-5 w-5" />
+                    <Play className="h-5 w-5" />
                     Generate Audio ({ttsProvider === 'fish-audio' ? 'Fish Audio' : 'EdgeTTS'}), SRT & Prompt
                   </>
                 )}

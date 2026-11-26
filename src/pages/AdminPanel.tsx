@@ -37,7 +37,6 @@ import {
   Trash2, 
   Plus,
   Pencil,
-  Wand2,
   ChevronRight,
   ChevronDown,
   HelpCircle,
@@ -2695,7 +2694,7 @@ export default function AdminPanel() {
         items: [
           { path: '/administrator/discipline', label: 'Disciplines', icon: BookPlus },
           { path: '/administrator/videos', label: 'Video Library', icon: PlayCircle },
-          { path: '/administrator/video-workshop', label: 'Video Workshop', icon: Wand2 },
+          { path: '/administrator/video-workshop', label: 'Video Workshop', icon: PlayCircle },
           { path: '/administrator/credentials', label: 'Credentials', icon: Key },
           { path: '/administrator/devices', label: 'Devices', icon: Clock },
         ]
@@ -2763,7 +2762,7 @@ export default function AdminPanel() {
               <span aria-hidden="true">·</span>
               <span>Campus: <strong className="text-foreground">{profile?.At?.toUpperCase() || 'FUTO'}</strong></span>
               <span aria-hidden="true">·</span>
-              <span>Institutional Master Controls</span>
+              <span>Platform Controls</span>
             </div>
           </div>
 
@@ -3185,7 +3184,7 @@ export default function AdminPanel() {
                                 className="h-7 gap-1.5 text-[10px] font-bold text-primary hover:bg-primary/10"
                                 onClick={() => document.getElementById('video-plx-import')?.click()}
                               >
-                                <Wand2 className="h-3 w-3" /> Magic Import (PLX)
+                                <FileText className="h-3 w-3" /> Import from PLX
                               </Button>
                             </div>
                           </div>
@@ -3314,10 +3313,10 @@ export default function AdminPanel() {
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">
                   <Search className="h-5 w-5 text-primary" />
-                  University Lookup ("At")
+                  User University Lookup
                 </CardTitle>
                 <CardDescription>
-                  Look up the university (the "At" field) of any user on the platform by typing in their Student ID.
+                  Look up the university of any user on the platform by entering their Student ID.
                 </CardDescription>
               </CardHeader>
               <CardContent className="space-y-4">
@@ -3896,8 +3895,8 @@ export default function AdminPanel() {
                             className="w-full flex items-center justify-between p-3 rounded-lg hover:bg-muted/40 transition-all font-semibold text-left select-none text-stone-800 dark:text-stone-200 cursor-pointer"
                           >
                             <div className="flex items-center gap-2">
-                              <span className="text-lg">
-                                {semKey === '1st' ? '🥇' : '🥈'}
+                              <span className="inline-flex h-6 w-6 items-center justify-center rounded-md bg-primary/10 text-xs font-bold text-primary">
+                                {semKey === '1st' ? '1' : '2'}
                               </span>
                               <span className="font-medium text-base">
                                 {semKey} Semester Notes
@@ -4019,7 +4018,7 @@ export default function AdminPanel() {
                           className="w-full flex items-center justify-between p-3 rounded-lg hover:bg-destructive/10 transition-all font-semibold text-left select-none text-destructive cursor-pointer"
                         >
                           <div className="flex items-center gap-2">
-                            <span className="text-lg">❓</span>
+                            <HelpCircle className="h-4 w-4 text-destructive" />
                             <span className="font-medium text-base">Uncategorized Notes</span>
                             <Badge variant="destructive" className="font-normal font-mono text-[11px] px-2 text-white border-none">
                               {grouped.uncategorized.length} {grouped.uncategorized.length === 1 ? 'Note' : 'Notes'}
@@ -4325,7 +4324,7 @@ export default function AdminPanel() {
                           className="gap-2 text-primary border-primary/20 hover:bg-primary/5"
                           onClick={() => document.getElementById('cbt-plx-import')?.click()}
                         >
-                          <Wand2 className="h-3.5 w-3.5" /> Magic Import (PLX)
+                          <FileText className="h-3.5 w-3.5" /> Import from PLX
                         </Button>
                       </div>
                     </div>
@@ -4856,7 +4855,7 @@ export default function AdminPanel() {
                       <div className="space-y-1">
                         <CardTitle>Unused Pins ({unusedPins.length})</CardTitle>
                         <CardDescription>
-                          {isLevel4Only ? `Master distribution inventory for ${(profile?.At || 'FUTO').toUpperCase()} campus.` : 'Manage master distribution inventory.'}
+                          {isLevel4Only ? `Pin distribution inventory for ${(profile?.At || 'FUTO').toUpperCase()} campus.` : 'Manage pin distribution inventory.'}
                         </CardDescription>
                       </div>
                       {unusedPins.length > 0 && (
@@ -4906,7 +4905,7 @@ export default function AdminPanel() {
                                     )}
                                   </div>
                                   <span className="text-[10px] text-muted-foreground">
-                                    {pin.assignedToStudentId ? `Assigned to: ${pin.assignedToStudentId}` : 'Master Pool'} • Owner: {pin.owner || 'N/A'} • {safeFormatDateOnly(pin.createdAt)}
+                                    {pin.assignedToStudentId ? `Assigned to: ${pin.assignedToStudentId}` : 'Admin Pool'} • Owner: {pin.owner || 'N/A'} • {safeFormatDateOnly(pin.createdAt)}
                                     {pin.dueDate && ` • Due: ${safeFormatDateOnly(pin.dueDate)}`}
                                   </span>
                                 </div>
@@ -5035,7 +5034,7 @@ export default function AdminPanel() {
                               </div>
                               <div className="text-[10px] text-muted-foreground space-y-0.5">
                                 <p><span className="font-semibold">Transferred to Student:</span> {pin.assignedToStudentId || 'Unknown Vendor'}</p>
-                                <p><span className="font-semibold">Current Owner:</span> {pin.owner || 'Admin/Master Pool'}</p>
+                                <p><span className="font-semibold">Current Owner:</span> {pin.owner || 'Admin Pool'}</p>
                                 {pin.isUsed && (
                                   <p>
                                     <span className="font-semibold">Activated by:</span> {pin.usedByStudentId || 'N/A'}
@@ -5222,7 +5221,7 @@ export default function AdminPanel() {
                         <div className="space-y-1">
                           <Label className="text-xs">New Competition Season Name</Label>
                           <Input 
-                            placeholder="e.g. 2026 Monsoon Semester Cup" 
+                            placeholder="e.g. 2026 First Semester Cup" 
                             value={newSeasonName} 
                             onChange={(e) => setNewSeasonName(e.target.value)}
                             onKeyDown={(e) => e.key === 'Enter' && e.preventDefault()}
@@ -5321,28 +5320,28 @@ export default function AdminPanel() {
                   <CardHeader>
                     <CardTitle className="flex items-center gap-2 text-sm font-bold text-pink-600 dark:text-pink-400">
                       <Zap className="h-4.5 w-4.5 fill-pink-500 text-pink-500" />
-                      Flux Extracurriculars
+                      CoLearn Flux
                     </CardTitle>
-                    <CardDescription>Control ecosystem micro-services access.</CardDescription>
+                    <CardDescription>Control access to skill tracks and competitions.</CardDescription>
                   </CardHeader>
                   <CardContent className="space-y-4">
                     <div className={`p-3 rounded-xl border flex flex-col gap-2 ${systemConfig?.fluxEnabled === false ? "bg-pink-500/10 border-pink-500/25" : "bg-muted/50"}`}>
                       <div>
-                        <p className="font-bold text-xs">{systemConfig?.fluxEnabled !== false ? "Flux Ecosystem Live" : "Flux Suspended"}</p>
+                        <p className="font-bold text-xs">{systemConfig?.fluxEnabled !== false ? "Flux Enabled" : "Flux Disabled"}</p>
                         <p className="text-[10px] text-muted-foreground leading-normal mt-0.5">
                           {systemConfig?.fluxEnabled !== false 
-                            ? "All users can browse tracks, games, and active engines." 
-                            : "Microtracks are restricted to active creators."}
+                            ? "Students can access skill tracks and competitions." 
+                            : "Skill tracks are restricted to administrators."}
                         </p>
                       </div>
                       <Button 
-                        size="sm"
+                        size="sm" 
                         variant={systemConfig?.fluxEnabled !== false ? "destructive" : "default"}
                         onClick={handleToggleFlux}
                         disabled={loading || !isLevel5}
                         className={`w-full text-xs font-semibold h-8 mt-1 ${systemConfig?.fluxEnabled === false ? "bg-pink-600 hover:bg-pink-700 text-white" : ""}`}
                       >
-                        {!isLevel5 ? "Toggle Flux (Requires L5)" : (systemConfig?.fluxEnabled !== false ? "Suspend Flux Tracks" : "De-suspend Flux Tracks")}
+                        {!isLevel5 ? "Toggle Flux (Requires L5)" : (systemConfig?.fluxEnabled !== false ? "Disable Flux Tracks" : "Enable Flux Tracks")}
                       </Button>
                     </div>
                   </CardContent>
@@ -5362,7 +5361,7 @@ export default function AdminPanel() {
                       <div className="p-3 rounded-xl border border-amber-500/25 bg-amber-500/10 space-y-2.5">
                         <div className="flex items-center justify-between">
                           <div className="flex flex-col gap-0.5">
-                            <Badge className="bg-amber-600 border-none scale-90 -ml-1 text-[8px] tracking-wider py-0.5 px-1.5 h-3.5">PROMO ENROUTE</Badge>
+                            <Badge className="bg-amber-600 border-none scale-90 -ml-1 text-[8px] tracking-wider py-0.5 px-1.5 h-3.5">PROMO ACTIVE</Badge>
                             <span className="text-xs font-bold">{promoConfig.count} / {promoConfig.quota} Used</span>
                           </div>
                           <Button 
@@ -5513,16 +5512,16 @@ export default function AdminPanel() {
                     <CardHeader>
                       <CardTitle className="flex items-center gap-2 text-sm font-bold text-amber-700 dark:text-amber-400">
                         <FileText className="h-4.5 w-4.5 text-amber-500" />
-                        Magic Note Creator AI
+                        Document-to-Note AI
                       </CardTitle>
-                      <CardDescription>AI settings for image-to-text notes extraction.</CardDescription>
+                      <CardDescription>AI settings for extracting lecture notes from documents and images.</CardDescription>
                     </CardHeader>
                     <form onSubmit={handleUpdateMagicNoteAI}>
                       <CardContent className="space-y-4 text-xs">
                         <div className="flex items-center justify-between p-3.5 bg-amber-500/5 rounded-xl border border-amber-500/10">
                           <div className="space-y-0.5">
-                            <Label className="text-xs font-semibold">Creator Engine Active</Label>
-                            <p className="text-[10px] text-muted-foreground">Allows AI notes creation from images.</p>
+                            <Label className="text-xs font-semibold">Extraction Engine Active</Label>
+                            <p className="text-[10px] text-muted-foreground">Allows note extraction from documents and images.</p>
                           </div>
                           <div 
                             className={`w-11 h-5.5 rounded-full cursor-pointer transition-colors ${editMagicNote.isActive ? 'bg-amber-500' : 'bg-muted'}`}
@@ -5579,7 +5578,7 @@ export default function AdminPanel() {
                       </CardContent>
                       <CardFooter>
                         <Button type="submit" className="w-full bg-amber-600 hover:bg-amber-700 text-white text-xs font-semibold h-9" disabled={loading}>
-                          Save Magic Note Config
+                          Save Extraction Config
                         </Button>
                       </CardFooter>
                     </form>
@@ -5607,10 +5606,10 @@ export default function AdminPanel() {
                         <div className="flex items-center justify-between p-3 bg-sky-500/5 rounded-xl border border-sky-200/40">
                           <div className="space-y-0.5">
                             <Label className="text-xs font-semibold">Webhook Alerts Channel</Label>
-                            <p className="text-[10px] text-muted-foreground">Alerts are active forever on database modifications.</p>
+                            <p className="text-[10px] text-muted-foreground">Notifications are sent automatically when key actions occur.</p>
                           </div>
                           <div className="px-2.5 py-0.5 bg-green-500/10 text-green-600 rounded text-[9px] font-bold uppercase tracking-wider border border-green-500/20">
-                            Always Live
+                            Active
                           </div>
                         </div>
 
@@ -5660,23 +5659,23 @@ export default function AdminPanel() {
                     </form>
                   </Card>
 
-                  {/* Level Shifter */}
+                  {/* Academic Level Transition */}
                   <Card className="shadow-sm border border-rose-500/20 bg-rose-500/10 dark:bg-rose-950/20">
                     <CardHeader>
                       <CardTitle className="flex items-center gap-2 text-sm font-bold text-rose-700 dark:text-rose-400">
                         <Users className="h-4.5 w-4.5 text-rose-500" />
-                        Level Shifter (100L → 200L)
+                        Academic Level Transition (100L → 200L)
                       </CardTitle>
-                      <CardDescription>Automated batch update task for end of academic session.</CardDescription>
+                      <CardDescription>Batch update for advancing students at the end of an academic session.</CardDescription>
                     </CardHeader>
                     <CardContent className="space-y-4">
                       <div className="p-3.5 bg-white/70 dark:bg-zinc-950/40 rounded-xl border border-rose-200 dark:border-rose-900 text-xs">
                         <p className="text-muted-foreground leading-relaxed">
                           {profile?.level === '4' && !isLevel5 ? (
-                            <>This operation will search all students in <strong className="font-bold text-rose-600 dark:text-rose-400">{profile?.At?.toUpperCase() || "your university"}</strong> whose active <strong>academicLevel</strong> is <strong className="font-bold text-rose-600 dark:text-rose-400">"100"</strong> and instantly shift them to <strong className="font-bold text-rose-600 dark:text-rose-400">"200"</strong>.</>
+                            <>This operation will find all students in <strong className="font-bold text-rose-600 dark:text-rose-400">{profile?.At?.toUpperCase() || "your university"}</strong> currently at <strong className="font-bold text-rose-600 dark:text-rose-400">100 Level</strong> and update them to <strong className="font-bold text-rose-600 dark:text-rose-400">200 Level</strong>.</>
                           ) : (
-                            <>This operation will search all system users whose active <strong className="text-rose-600 dark:text-rose-400">academicLevel</strong> equals <strong className="font-bold text-rose-600 dark:text-rose-400">"100"</strong> and instantly shift them to <strong className="font-bold text-rose-600 dark:text-rose-400">"200"</strong>.</>
-                          )} This is irreversible.
+                            <>This operation will find all students currently at <strong className="font-bold text-rose-600 dark:text-rose-400">100 Level</strong> and update them to <strong className="font-bold text-rose-600 dark:text-rose-400">200 Level</strong>.</>
+                          )} This action cannot be undone.
                         </p>
                       </div>
                     </CardContent>
@@ -5886,7 +5885,7 @@ function AdminManual() {
               <li><strong>Level 1 (Student):</strong> Access standard notes & lectures after entering activation pin.</li>
               <li><strong>Level 2 (Active Student):</strong> Full dual-semester access badge.</li>
               <li><strong>Level 3 (Vendor / Creator):</strong> Can generate discount activation pins and transfer lists.</li>
-              <li><strong>Level 4 (Super-Admin):</strong> God-mode system setting edits, reports, and AI endpoints.</li>
+              <li><strong>Level 4 (Administrator):</strong> Platform-wide settings, reports, and AI endpoints.</li>
             </ul>
           </div>
           <div className="space-y-2">
@@ -6027,29 +6026,29 @@ function AdminManual() {
     {
       title: "System Control Panel",
       icon: <Settings className="h-5 w-5" />,
-      content: "God-mode settings controlling semester transitions, competition matchmaking seasons, access gates, AI integrations, and real-time backend alerting.",
+      content: "Platform-wide settings controlling semester transitions, competition matchmaking seasons, access gates, AI integrations, and notifications.",
       tutorial: (
         <div className="space-y-4 text-xs md:text-sm">
-          <p>Platform system configurations are structured into four clean sub-panels:</p>
+          <p>Platform system configurations are structured into four sub-panels:</p>
           <div className="space-y-2.5">
             <h4 className="font-bold text-sm">1. Academic & Tournament Cycles:</h4>
             <ul className="list-disc pl-5 space-y-1">
               <li><strong>Semester toggling:</strong> Deactivate past semester pins and update current course semesters (1st/2nd/None).</li>
-              <li><strong>Matchmaking Seasons:</strong> Reset leaderboards, update championship name titles, and permit matchmaking leagues.</li>
+              <li><strong>Matchmaking Seasons:</strong> Reset leaderboards, update championship titles, and enable matchmaking leagues.</li>
             </ul>
             <h4 className="font-bold text-sm">2. Platform Access Gates:</h4>
             <ul className="list-disc pl-5 space-y-1">
-              <li><strong>Maintenance:</strong> Lock student routing access locks for emergency database updates.</li>
-              <li><strong>Flux:</strong> Suspend or actuate the CoLearn Extracurricular Skills & active engines.</li>
-              <li><strong>Promo:</strong> Grant free registration slots easily with targeted quotas.</li>
+              <li><strong>Maintenance:</strong> Restrict student access during scheduled platform updates.</li>
+              <li><strong>Flux:</strong> Enable or disable CoLearn Flux skill tracks and competitions.</li>
+              <li><strong>Promo:</strong> Grant free registration slots with targeted quotas.</li>
             </ul>
             <h4 className="font-bold text-sm">3. AI Model Configurations (Level 4 Only):</h4>
             <ul className="list-disc pl-5 space-y-1">
-              <li>Select active providers (Groq, Gemini, OpenRouter) and customize LLM model parameters for the **Hermes Chatbot** and the **Magic Notes vision OCR processor**.</li>
+              <li>Select active providers (Groq, Gemini, OpenRouter) and customize model parameters for **Hermes** and the **Document-to-Note OCR processor**.</li>
             </ul>
             <h4 className="font-bold text-sm">4. Integrations & Automations (Level 4 Only):</h4>
             <ul className="list-disc pl-5 space-y-1">
-              <li>Test the webhook configuration for Telegram operations notifications and deploy the **Level Shifter batch utility** shifting 100L users to 200L.</li>
+              <li>Test the webhook configuration for Telegram operations notifications and run the **Academic Level Transition utility** to move 100L users to 200L.</li>
             </ul>
           </div>
         </div>
@@ -6062,7 +6061,7 @@ function AdminManual() {
       tutorial: (
         <div className="space-y-4 text-xs md:text-sm">
           <p>Understanding the anti-fraud measures in the referral system.</p>
-          <p className="text-sm">The software automatically blocks Levels {">"}= 2 from participation. This is hardcoded into the business logic to prevent Admins, Vendors, or Multi-Semester users from farming points using their influence.</p>
+          <p className="text-sm">The platform automatically restricts accounts at Level 2 and above from earning referral rewards. This rule is enforced automatically across the platform to keep referrals fair for standard student accounts.</p>
           <div className="p-3 bg-destructive/5 rounded border border-destructive/20 text-destructive text-xs font-bold uppercase tracking-tight text-center">
             Level 2 / 3 / 4 Restricted
           </div>

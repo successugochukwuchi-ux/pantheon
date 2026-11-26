@@ -24,7 +24,6 @@ import {
   ArrowRight, 
   ArrowLeft, 
   Search, 
-  Sparkles, 
   Lock,
   Briefcase,
   Store,
@@ -365,13 +364,7 @@ export default function Register() {
   };
 
   return (
-    <div className="min-h-screen flex flex-col items-center justify-center relative overflow-hidden bg-gradient-to-b from-background via-muted/20 to-background px-4 py-12 md:py-16">
-      {/* Background Gradients */}
-      <div className="absolute top-0 left-0 w-full h-full -z-10 opacity-30 pointer-events-none">
-        <div className="absolute top-[-25%] right-[-10%] w-[60%] h-[60%] bg-primary/10 rounded-full blur-[130px]" />
-        <div className="absolute bottom-[-25%] left-[-10%] w-[60%] h-[60%] bg-muted rounded-full blur-[130px]" />
-      </div>
-
+    <div className="min-h-screen flex flex-col items-center justify-center bg-muted/30 px-4 py-12 md:py-16">
       <div className="w-full max-w-lg space-y-6">
         {/* Brand Banner */}
         <div className="text-center space-y-2">
@@ -381,16 +374,15 @@ export default function Register() {
               COLEARN
             </span>
           </Link>
-          <p className="text-sm text-muted-foreground font-medium">Join the community of elite academic scholars & partners</p>
+          <p className="text-sm text-muted-foreground font-medium">Create your student or vendor account</p>
         </div>
 
-        <Card className="border border-border/40 shadow-2xl bg-card/85 backdrop-blur-md rounded-3xl overflow-hidden">
+        <Card className="border border-border/60 shadow-lg bg-card rounded-2xl overflow-hidden">
           {/* Progress Header */}
           <div className="bg-muted/30 border-b border-border/50 px-6 py-4">
             <div className="flex items-center justify-between text-xs text-muted-foreground font-bold tracking-wider uppercase mb-3">
               <span>
                 Step {step} of 4
-                {accountType === 'vendor' && step === 4 && " (Academic Step Skipped)"}
               </span>
               <span className="text-primary font-semibold">
                 {getStepHeaderLabel()}
@@ -419,8 +411,8 @@ export default function Register() {
                     className="space-y-4"
                   >
                     <div className="space-y-1">
-                      <h3 className="text-lg font-bold text-foreground">Create your Profile</h3>
-                      <p className="text-xs text-muted-foreground">Enter your basic credentials to get registered on the platform.</p>
+                      <h3 className="text-lg font-bold text-foreground">Your Details</h3>
+                      <p className="text-xs text-muted-foreground">Enter your username, email address, and phone number.</p>
                     </div>
 
                     <div className="space-y-4 pt-2">
@@ -589,7 +581,7 @@ export default function Register() {
                             Select Your University / Campus (Required for Vendors)
                           </Label>
                           <p className="text-[11px] text-muted-foreground">
-                            Choose the university where you will distribute activation pins. This assigns your account to your campus pool.
+                            Select the university where you will sell activation pins.
                           </p>
                         </div>
 
@@ -664,7 +656,7 @@ export default function Register() {
                         <div className="flex items-start gap-2 pt-1 text-[11px] text-muted-foreground">
                           <Info className="h-4 w-4 text-amber-600 shrink-0 mt-0.5" />
                           <span>
-                            <strong>Zero Activation Required:</strong> Vendors skip academic details and PIN activation. Vendor accounts are exclusively for activation PIN distribution and cannot access student lecture notes or social chat rooms.
+                            <strong>Note:</strong> Vendor accounts are for selling activation pins and do not include student notes or campus discussions.
                           </span>
                         </div>
                       </div>
@@ -879,11 +871,11 @@ export default function Register() {
                     className="space-y-4"
                   >
                     <div className="space-y-1">
-                      <h3 className="text-lg font-bold text-foreground">Secure your Account</h3>
+                      <h3 className="text-lg font-bold text-foreground">Create Password</h3>
                       <p className="text-xs text-muted-foreground">
                         {accountType === 'vendor' 
-                          ? "Set a secure password for your vendor inventory & commission management."
-                          : "Create a secure password to protect your student account and study records."}
+                          ? "Set a password for your vendor account."
+                          : "Set a password for your student account."}
                       </p>
                     </div>
 
@@ -1001,7 +993,7 @@ export default function Register() {
               <div className="text-xs text-center text-muted-foreground font-medium mt-1">
                 Already have an account?{' '}
                 <Link to="/login" className="text-primary hover:underline font-bold">
-                  Sign In
+                  Login
                 </Link>
               </div>
             </CardFooter>

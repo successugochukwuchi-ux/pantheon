@@ -100,7 +100,7 @@ export default function Dashboard() {
       <div className="flex items-center justify-center min-h-[60vh]">
         <div className="flex flex-col items-center gap-4">
           <div className="h-8 w-8 animate-spin rounded-full border-4 border-primary border-t-transparent"></div>
-          <p className="text-muted-foreground animate-pulse">Syncing platform status...</p>
+          <p className="text-muted-foreground">Loading...</p>
         </div>
       </div>
     );
@@ -165,14 +165,13 @@ export default function Dashboard() {
         <div className="space-y-4">
           <div className="flex items-center gap-2">
             <Target className="h-5 w-5 text-primary" />
-            <h2 className="text-xl font-semibold text-primary/80 uppercase tracking-tight">Academic Progress</h2>
+            <h2 className="text-xl font-semibold">Course Progress</h2>
           </div>
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
             {courses.map((course) => {
               const progress = courseProgress[course.id] || 0;
               return (
-                <Card key={course.id} className="group relative overflow-hidden">
-                  <div className={`absolute top-0 left-0 w-1 h-full ${progress === 100 ? 'bg-green-500' : 'bg-primary'}`} />
+                <Card key={course.id} className="group">
                   <CardHeader className="pb-2">
                     <CardTitle className="text-sm font-bold flex items-center justify-between">
                       {course.code}

@@ -245,7 +245,7 @@ export default function SettingsScreen() {
         <SettingRow
           icon={isUpdatingAcademic ? <ActivityIndicator size="small" color={C.ink} /> : <AcademicUpdateIcon />}
           title={isUpdatingAcademic ? "Checking for Updates..." : "Academic Update"}
-          subtitle={isUpdatingAcademic ? (updateStatusText || "Comparing SQLite with Firestore...") : "Sync new notes, questions & sheets to SQLite"}
+          subtitle={isUpdatingAcademic ? (updateStatusText || "Checking for updated materials...") : "Download new lecture notes and past questions for offline use"}
           onPress={isUpdatingAcademic ? undefined : handleAcademicUpdate}
           s={s}
           C={C}

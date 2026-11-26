@@ -220,7 +220,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({ url, title }) => {
             </span>
           </div>
           <div className="flex items-center gap-2 font-mono text-[10px] text-zinc-400 bg-emerald-500/10 px-2 py-0.5 rounded border border-emerald-500/20">
-            <Shield className="h-3 w-3 text-emerald-400 animate-pulse" />
+            <Shield className="h-3 w-3 text-emerald-400" />
             Secure Sandbox Enabled
           </div>
         </div>
@@ -269,7 +269,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({ url, title }) => {
         className="relative aspect-video bg-neutral-950 rounded-lg overflow-hidden w-full h-full flex flex-col items-center justify-center p-6 text-center select-none border border-neutral-800"
         onContextMenu={handleContextMenu}
       >
-        <Shield className="h-12 w-12 text-rose-500 mb-3 animate-pulse" />
+        <Shield className="h-12 w-12 text-rose-500 mb-3" />
         <h3 className="text-zinc-200 font-semibold text-sm tracking-wide mb-1">Stream Loading Error</h3>
         <p className="text-zinc-400 text-xs max-w-sm mb-4 leading-relaxed">
           The requested video stream connection was closed or could not be established.

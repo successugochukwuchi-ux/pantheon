@@ -1,120 +1,157 @@
-import React from 'react';
-import { Trophy, Users, Star, Zap, ArrowRight, Sparkles } from 'lucide-react';
+import React, { useEffect, useState } from 'react';
+import { Trophy, Users, Star, Zap, ArrowRight, Compass, LayoutGrid } from 'lucide-react';
+import { Link } from 'react-router-dom';
+import { collection, getDocs, query, where, orderBy, limit } from 'firebase/firestore';
+import { db } from '../../firebase';
 import { useAuth } from '../../contexts/AuthContext';
-import { motion } from 'framer-motion';
+
+interface TrackSummary {
+  id: string;
+  title: string;
+  category: string;
+  enrolledCount?: number;
+}
 
 const FluxDashboard = () => {
   const { profile, user } = useAuth();
   const isActivated = profile?.isActivated;
+  const [tracks, setTracks] = useState<TrackSummary[]>([]);
+  const [enrolledCount, setEnrolledCount] = useState(0);
+  const [completedCount, setCompletedCount] = useState(0);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    let active = true;
+    const loadFluxSummary = async () => {
+      try {
+        const tracksSnap = await getDocs(
+          query(collection(db, 'flux_tracks'), orderBy('createdAt', 'desc'), limit(4))
+        );
+        if (active) {
+          setTracks(tracksSnap.docs.map((d) => ({ id: d.id, ...(d.data() as any) })));
+        }
+        if (user?.uid) {
+          const enrollSnap = await getDocs(
+            query(collection(db, 'flux_enrollments'), where('userId', '==', user.uid))
+          );
+          if (active) {
+            setEnrolledCount(enrollSnap.size);
+            setCompletedCount(enrollSnap.docs.filter((d) => d.data().status === 'completed').length);
+          }
+        }
+      } catch (err) {
+        console.error('Failed to load Flux dashboard data:', err);
+      } finally {
+        if (active) setLoading(false);
+      }
+    };
+    loadFluxSummary();
+    return () => {
+      active = false;
+    };
+  }, [user?.uid]);
 
   return (
     <div className="space-y-8 pb-12">
-      {/* Hero Header */}
-      <div className="relative overflow-hidden rounded-[2rem] bg-stone-900 border border-white/5 p-8 md:p-12">
-        <div className="absolute top-0 right-0 p-8 opacity-10">
-          <Zap className="w-64 h-64 text-pink-500" />
-        </div>
-        
-        <div className="relative z-10 max-w-2xl">
-          <motion.div 
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            className="inline-flex items-center gap-2 bg-pink-500/10 text-pink-500 px-3 py-1 rounded-full text-xs font-bold uppercase tracking-widest mb-6"
-          >
-            <Sparkles size={14} /> FLUX Active
-          </motion.div>
-          <motion.h1 
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 0.1 }}
-            className="text-4xl md:text-6xl font-black mb-6 tracking-tighter"
-          >
-            Where Passion <br />
-            <span className="text-transparent bg-clip-text bg-gradient-to-r from-pink-500 via-violet-500 to-indigo-500">
-              Meets Mastery.
-            </span>
-          </motion.h1>
-          <motion.p 
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 0.2 }}
-            className="text-stone-400 text-lg mb-8"
-          >
-            Welcome to the extracurricular heart of CoLearn, {user?.displayName?.split(' ')[0]}. 
-            Build your legacy beyond the lecture halls.
-          </motion.p>
-          
+      <div className="relative overflow-hidden rounded-3xl bg-stone-900 border border-white/5 p-8 md:p-10">
+        <div className="max-w-2xl space-y-4">
+          <h1 className="text-3xl md:text-5xl font-bold tracking-tight text-white">
+            CoLearn Flux
+          </h1>
+          <p className="text-stone-400 text-base md:text-lg">
+            Build practical skills alongside your university courses{profile?.username ? `, ${profile.username}` : ''}.
+          </p>
+          <div className="flex flex-wrap gap-3 pt-2">
+            <Link
+              to="/flux/browse"
+              className="inline-flex items-center gap-2 bg-pink-500 hover:bg-pink-600 text-white font-semibold px-5 py-2.5 rounded-xl text-sm transition-colors"
+            >
+              Browse Tracks <ArrowRight size={16} />
+            </Link>
+            <Link
+              to="/flux/tracks"
+              className="inline-flex items-center gap-2 bg-white/5 hover:bg-white/10 text-stone-200 font-semibold px-5 py-2.5 rounded-xl text-sm border border-white/10 transition-colors"
+            >
+              My Tracks
+            </Link>
+          </div>
+
           {!isActivated && (
-            <div className="bg-yellow-500/10 border border-yellow-500/20 p-4 rounded-xl flex items-center gap-4">
-              <Zap className="text-yellow-500 shrink-0" />
-              <p className="text-sm text-yellow-200">
-                Activate your CoLearn account to unlock elite clubs and premium competition tracks.
+            <div className="bg-amber-500/10 border border-amber-500/20 p-4 rounded-xl flex items-center gap-3 mt-4">
+              <Zap className="text-amber-400 shrink-0" size={18} />
+              <p className="text-sm text-amber-200">
+                Activate your CoLearn account to enroll in all skill tracks.
               </p>
             </div>
           )}
         </div>
       </div>
 
-      {/* Quick Stats */}
+      {/* Real Enrollment Stats */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-        <StatCard 
-          icon={Users} 
-          label="Active Clubs" 
-          value="4" 
+        <StatCard
+          icon={Compass}
+          label="Enrolled Tracks"
+          value={loading ? '—' : String(enrolledCount)}
           color="pink"
-          subtitle="2 Lead roles"
+          subtitle="Active enrollments"
         />
-        <StatCard 
-          icon={Star} 
-          label="Impact Score" 
-          value="840" 
+        <StatCard
+          icon={Trophy}
+          label="Completed"
+          value={loading ? '—' : String(completedCount)}
           color="violet"
-          subtitle="Top 5% student"
+          subtitle="Finished tracks"
         />
-        <StatCard 
-          icon={Trophy} 
-          label="Badges Earned" 
-          value="12" 
+        <StatCard
+          icon={LayoutGrid}
+          label="Available Tracks"
+          value={loading ? '—' : String(tracks.length)}
           color="indigo"
-          subtitle="3 New this month"
+          subtitle="Ready to join"
         />
       </div>
 
-      {/* Main Content Grid */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-        {/* Recommended Tracks */}
-        <div className="bg-stone-900/50 border border-white/5 rounded-3xl p-8">
-          <div className="flex items-center justify-between mb-8">
-            <h3 className="text-xl font-bold flex items-center gap-2">
-              <Zap size={20} className="text-pink-500" /> Recommended Tracks
-            </h3>
-            <button className="text-pink-500 text-sm font-bold flex items-center gap-1 hover:underline">
-              View all <ArrowRight size={14} />
-            </button>
-          </div>
-          <div className="space-y-4">
-            <TrackItem title="Robotics & AI" level="Advanced" students="120" color="bg-pink-500" />
-            <TrackItem title="Creative Writing" level="Intermediate" students="85" color="bg-violet-500" />
-            <TrackItem title="Public Speaking" level="Beginner" students="240" color="bg-indigo-500" />
-          </div>
+      {/* Available Tracks Preview */}
+      <div className="bg-stone-900/50 border border-white/5 rounded-3xl p-6 md:p-8">
+        <div className="flex items-center justify-between mb-6">
+          <h3 className="text-xl font-bold flex items-center gap-2 text-white">
+            <Star size={18} className="text-pink-500" /> Skill Tracks
+          </h3>
+          <Link to="/flux/browse" className="text-pink-500 text-sm font-semibold flex items-center gap-1 hover:underline">
+            Browse all <ArrowRight size={14} />
+          </Link>
         </div>
 
-        {/* Upcoming Competitions */}
-        <div className="bg-stone-900/50 border border-white/5 rounded-3xl p-8">
-          <div className="flex items-center justify-between mb-8">
-            <h3 className="text-xl font-bold flex items-center gap-2">
-              <Trophy size={20} className="text-violet-500" /> Upcoming Contests
-            </h3>
-            <button className="text-violet-500 text-sm font-bold flex items-center gap-1 hover:underline">
-              Calendar <ArrowRight size={14} />
-            </button>
+        {loading ? (
+          <p className="text-sm text-stone-500 py-6">Loading tracks...</p>
+        ) : tracks.length === 0 ? (
+          <div className="py-8 text-center text-stone-500 text-sm">
+            No skill tracks published yet. Check back soon.
           </div>
-          <div className="space-y-4">
-            <CompetitionItem title="CoLearn Hackathon 2024" date="May 15" status="Registration Open" />
-            <CompetitionItem title="Regional Debate Finals" date="June 02" status="Invited" />
-            <CompetitionItem title="Science Fair Expo" date="June 20" status="Coming soon" />
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {tracks.map((track) => (
+              <Link
+                key={track.id}
+                to="/flux/browse"
+                className="flex items-center justify-between p-4 bg-white/5 rounded-xl hover:bg-white/10 transition-colors group"
+              >
+                <div>
+                  <p className="font-bold text-white group-hover:text-pink-400 transition-colors">{track.title}</p>
+                  <p className="text-xs text-stone-400 flex items-center gap-2 mt-0.5">
+                    <span>{track.category || 'General'}</span>
+                    <span>•</span>
+                    <span className="inline-flex items-center gap-1">
+                      <Users size={12} /> {track.enrolledCount || 0} learners
+                    </span>
+                  </p>
+                </div>
+                <ArrowRight size={16} className="text-stone-600 group-hover:text-white transition-colors" />
+              </Link>
+            ))}
           </div>
-        </div>
+        )}
       </div>
     </div>
   );
@@ -128,42 +165,18 @@ const StatCard = ({ icon: Icon, label, value, color, subtitle }: any) => {
   };
 
   return (
-    <div className="bg-stone-900/50 border border-white/5 p-6 rounded-2xl hover:border-white/10 transition-colors">
+    <div className="bg-stone-900/50 border border-white/5 p-6 rounded-2xl">
       <div className={`w-10 h-10 rounded-lg flex items-center justify-center mb-4 ${colorMap[color]}`}>
         <Icon size={20} />
       </div>
-      <p className="text-stone-500 text-xs font-bold uppercase tracking-wider mb-1">{label}</p>
+      <p className="text-stone-400 text-xs font-bold uppercase tracking-wider mb-1">{label}</p>
       <div className="flex items-baseline gap-2">
-        <h4 className="text-3xl font-black">{value}</h4>
-        <span className="text-[10px] font-bold text-stone-500 uppercase">{subtitle}</span>
+        <h4 className="text-3xl font-bold text-white">{value}</h4>
+        <span className="text-xs text-stone-500">{subtitle}</span>
       </div>
     </div>
   );
 };
 
-const TrackItem = ({ title, level, students, color }: any) => (
-  <div className="flex items-center justify-between p-4 bg-white/5 rounded-xl hover:bg-white/10 transition-colors cursor-pointer group">
-    <div className="flex items-center gap-4">
-      <div className={`w-2 h-10 rounded-full ${color}`} />
-      <div>
-        <p className="font-bold group-hover:text-pink-400 transition-colors">{title}</p>
-        <p className="text-xs text-stone-500">{level} • {students} students enrolled</p>
-      </div>
-    </div>
-    <ArrowRight size={16} className="text-stone-700 group-hover:text-white transition-colors" />
-  </div>
-);
-
-const CompetitionItem = ({ title, date, status }: any) => (
-  <div className="p-4 bg-white/5 rounded-xl flex items-center justify-between">
-    <div>
-      <p className="font-bold">{title}</p>
-      <p className="text-xs text-stone-500">{date}</p>
-    </div>
-    <span className="text-[10px] font-black px-2 py-1 bg-stone-800 text-white rounded uppercase tracking-tighter">
-      {status}
-    </span>
-  </div>
-);
-
 export default FluxDashboard;
+

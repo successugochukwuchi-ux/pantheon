@@ -17,8 +17,7 @@ import {
   Check, 
   ArrowRight, 
   ArrowLeft, 
-  Search, 
-  Sparkles 
+  Search
 } from 'lucide-react';
 import { DEPARTMENTS } from '../constants/departments';
 import { motion, AnimatePresence } from 'motion/react';
@@ -187,20 +186,14 @@ export default function Onboarding() {
   };
 
   return (
-    <div className="min-h-screen flex flex-col items-center justify-center relative overflow-hidden bg-muted/30 px-4 py-12">
-      {/* Background Decoration */}
-      <div className="absolute top-0 left-0 w-full h-full -z-10 opacity-30 pointer-events-none">
-        <div className="absolute top-[-10%] left-[-10%] w-[40%] h-[40%] bg-primary/20 rounded-full blur-[100px]" />
-        <div className="absolute bottom-[-10%] right-[-10%] w-[40%] h-[40%] bg-blue-500/20 rounded-full blur-[100px]" />
-      </div>
-
+    <div className="min-h-screen flex flex-col items-center justify-center bg-muted/30 px-4 py-12">
       <div className="w-full max-w-xl space-y-8">
         <div className="text-center space-y-2">
           <h1 className="text-3xl font-extrabold tracking-tight text-foreground sm:text-4xl">
             Welcome to <span className="text-primary">COLEARN</span>
           </h1>
           <p className="text-sm text-muted-foreground max-w-md mx-auto">
-            You registered successfully with Google. Let's customize your profile to get the most out of your learning experience.
+            Finish setting up your profile so we can match your courses.
           </p>
         </div>
 
@@ -212,19 +205,18 @@ export default function Onboarding() {
           />
         </div>
 
-        <Card className="border-none shadow-2xl bg-background/80 backdrop-blur-sm rounded-2xl">
+        <Card className="border border-border/60 shadow-lg bg-card rounded-2xl">
           <CardHeader className="space-y-1 pb-6 md:pb-8 border-b border-border/50">
-            <div className="flex items-center gap-2 text-primary font-bold text-xs uppercase tracking-widest">
-              <Sparkles className="h-4 w-4 animate-pulse" />
+            <div className="text-primary font-bold text-xs uppercase tracking-widest">
               Step {step} of 2
             </div>
             <CardTitle className="text-2xl font-bold">
-              {step === 1 ? 'Personalize Profile' : 'Academic Profile'}
+              {step === 1 ? 'Profile Details' : 'Academic Details'}
             </CardTitle>
             <CardDescription>
               {step === 1 
-                ? 'Create your customized username and enter contact info.' 
-                : 'Provide your institution details and current level.'}
+                ? 'Choose a username and add your phone number.' 
+                : 'Select your university, department, and current level.'}
             </CardDescription>
           </CardHeader>
 
@@ -543,8 +535,8 @@ export default function Onboarding() {
                   disabled={loading}
                   className="rounded-xl h-12 px-8 ml-auto font-extrabold gap-2 hover:opacity-90 active:scale-95 transition-all shadow-md shadow-primary/20 bg-primary hover:bg-primary/95 text-primary-foreground"
                 >
-                  {loading ? 'Completing Setup...' : 'Complete Profile'}
-                  <Sparkles className="h-4 w-4" />
+                  {loading ? 'Saving...' : 'Complete Profile'}
+                  <Check className="h-4 w-4" />
                 </Button>
               )}
             </CardFooter>

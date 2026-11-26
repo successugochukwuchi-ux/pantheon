@@ -6,7 +6,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../co
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
 import { Badge } from '../components/ui/badge';
-import { Search, BookOpen, ChevronRight, ArrowLeft, AlertCircle, Maximize2, HelpCircle, CheckCircle2, XCircle, Wand2, Sparkles, X } from 'lucide-react';
+import { Search, BookOpen, ChevronRight, ArrowLeft, AlertCircle, Maximize2, HelpCircle, CheckCircle2, XCircle, Wand2, X } from 'lucide-react';
 import { Course, Note } from '../types';
 import ReactMarkdown from 'react-markdown';
 import remarkMath from 'remark-math';

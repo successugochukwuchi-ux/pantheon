@@ -38,11 +38,7 @@ import {
   CheckSquare, 
   Square, 
   ArrowRight, 
-  Sparkles, 
-  GraduationCap, 
-  ShieldCheck, 
-  KeyRound,
-  HelpCircle
+  KeyRound
 } from 'lucide-react';
 import { motion } from 'motion/react';
 
@@ -117,14 +113,7 @@ export default function Login() {
   };
 
   return (
-    <div className="min-h-screen flex flex-col items-center justify-center relative overflow-hidden bg-muted/30 px-4 py-8">
-      {/* Ambient Glow Background Decoration */}
-      <div className="absolute top-0 left-0 w-full h-full -z-10 opacity-30 pointer-events-none overflow-hidden">
-        <div className="absolute top-[-10%] left-[-10%] w-[45%] h-[45%] bg-primary/20 rounded-full blur-[120px]" />
-        <div className="absolute bottom-[-10%] right-[-10%] w-[45%] h-[45%] bg-blue-500/20 rounded-full blur-[120px]" />
-        <div className="absolute top-[40%] right-[15%] w-[30%] h-[30%] bg-purple-500/15 rounded-full blur-[100px]" />
-      </div>
-
+    <div className="min-h-screen flex flex-col items-center justify-center bg-muted/30 px-4 py-8">
       <motion.div 
         initial={{ opacity: 0, y: 16 }}
         animate={{ opacity: 1, y: 0 }}
@@ -133,51 +122,31 @@ export default function Login() {
       >
         {/* Top Branding Section */}
         <div className="text-center space-y-2">
-          <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-primary/10 text-primary border border-primary/20 shadow-xs mb-1">
-            <Sparkles className="h-3.5 w-3.5" />
-            Academic Scholar Portal
-          </div>
           <div>
             <Link to="/" className="inline-flex items-center gap-2.5 text-3xl font-extrabold tracking-tight text-foreground hover:opacity-90 transition-opacity">
               <div className="h-9 w-9 rounded-xl bg-primary/10 border border-primary/20 flex items-center justify-center p-1.5 shadow-sm">
                 <img src="/icon.png" alt="CoLearn" className="h-full w-full rounded-lg object-contain" />
               </div>
-              <span className="bg-gradient-to-r from-primary to-primary/80 bg-clip-text text-transparent">
+              <span className="text-primary">
                 COLEARN
               </span>
             </Link>
           </div>
           <p className="text-sm text-muted-foreground font-medium">
-            Welcome back to your high-performance study hub
+            Sign in to continue studying
           </p>
         </div>
 
         {/* Login Card */}
-        <Card className="border border-border/40 shadow-2xl bg-card/85 backdrop-blur-md rounded-3xl overflow-hidden">
-          {/* Header Accent Bar */}
-          <div className="bg-muted/30 border-b border-border/50 px-6 py-4 flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <div className="h-7 w-7 rounded-lg bg-primary/10 text-primary flex items-center justify-center">
-                <GraduationCap className="h-4 w-4" />
-              </div>
-              <span className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
-                Secure Sign In
-              </span>
-            </div>
-            <span className="text-[11px] font-semibold text-emerald-600 dark:text-emerald-400 flex items-center gap-1 bg-emerald-500/10 px-2 py-0.5 rounded-full border border-emerald-500/20">
-              <ShieldCheck className="h-3 w-3" />
-              Encrypted
-            </span>
-          </div>
-
+        <Card className="border border-border/60 shadow-lg bg-card rounded-2xl overflow-hidden">
           <form onSubmit={handleLogin}>
             <CardContent className="p-6 sm:p-8 space-y-5">
               <div className="space-y-1">
                 <CardTitle className="text-xl font-bold tracking-tight text-foreground">
-                  Access Your Account
+                  Login
                 </CardTitle>
                 <p className="text-xs text-muted-foreground">
-                  Enter your credentials to continue studying and preparing for exams.
+                  Enter your email and password to continue.
                 </p>
               </div>
 
@@ -222,7 +191,7 @@ export default function Login() {
                           </div>
                           <DialogTitle className="text-lg font-bold">Reset Password</DialogTitle>
                           <DialogDescription className="text-xs text-muted-foreground">
-                            Enter the email associated with your account and we'll send you an encrypted password recovery link.
+                            Enter the email associated with your account and we'll send you a password reset link.
                           </DialogDescription>
                         </DialogHeader>
                         <form onSubmit={handleResetPassword} className="space-y-4 pt-2">
@@ -249,7 +218,7 @@ export default function Login() {
                               disabled={resetLoading} 
                               className="w-full h-11 rounded-xl font-semibold shadow-md"
                             >
-                              {resetLoading ? 'Sending Recovery Link...' : 'Send Reset Link'}
+                              {resetLoading ? 'Sending...' : 'Send Reset Link'}
                             </Button>
                           </DialogFooter>
                         </form>
@@ -310,7 +279,7 @@ export default function Login() {
                   </span>
                 ) : (
                   <>
-                    Sign In to Dashboard
+                    Login
                     <ArrowRight className="h-4 w-4 group-hover:translate-x-1 transition-transform" />
                   </>
                 )}
@@ -328,7 +297,7 @@ export default function Login() {
 
         {/* Footer Note */}
         <footer className="text-center text-xs text-muted-foreground space-y-1">
-          <p>© 2026 Pillara Education • Built for Academic Excellence</p>
+          <p>© 2026 Pillara Education</p>
         </footer>
       </motion.div>
     </div>

@@ -14,7 +14,6 @@ import {
   FileCheck2,
   FileText,
   HelpCircle,
-  Sparkles,
   Trash2,
   Upload,
 } from 'lucide-react';
@@ -131,7 +130,7 @@ export default function PlxVerifier() {
             }}
             className="gap-1.5"
           >
-            <Sparkles className="h-4 w-4" /> Load Sample
+            <FileText className="h-4 w-4" /> Load Sample
           </Button>
           <Button
             variant="ghost"

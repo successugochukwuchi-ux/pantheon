@@ -26,8 +26,8 @@ export const SystemStatus: React.FC<{ className?: string, variant?: 'default' | 
           {isHoliday ? 'Holiday' : `${systemConfig?.currentSemester || '...'} SEM`}
         </Badge>
         {promoConfig?.isActive && (
-          <Badge className="bg-amber-500 text-white text-[10px] animate-pulse border-none">
-            PROMO ACTIVE
+          <Badge className="bg-amber-500 text-white text-[10px] border-none">
+            Promo Open
           </Badge>
         )}
       </div>
@@ -61,20 +61,20 @@ export const SystemStatus: React.FC<{ className?: string, variant?: 'default' | 
 
         {!isOnline && (
           <div className="flex items-center gap-1.5 mt-2 pt-2 border-t border-border/50 text-[10px] text-muted-foreground">
-            <div className="h-1 w-1 rounded-full bg-orange-500 animate-pulse" />
-            Displaying cached academic status
+            <div className="h-1.5 w-1.5 rounded-full bg-orange-500" />
+            Showing cached status
           </div>
         )}
       </div>
 
       {promoConfig?.isActive && (
         <div className="flex items-center gap-3 p-3 rounded-xl bg-amber-500/10 border border-amber-500/20 text-amber-700 dark:text-amber-400">
-          <div className="h-8 w-8 rounded-full bg-amber-500 flex items-center justify-center text-white shrink-0 animate-pulse">
+          <div className="h-8 w-8 rounded-full bg-amber-500 flex items-center justify-center text-white shrink-0">
             <Gift className="h-4 w-4" />
           </div>
           <div className="flex-1 min-w-0">
-            <p className="text-xs font-bold leading-none mb-1 uppercase tracking-tight">FREE PROMO ACTIVE</p>
-            <p className="text-[10px] opacity-80 leading-tight">Free activation tokens available now!</p>
+            <p className="text-xs font-bold leading-none mb-1 uppercase tracking-tight">Free Activation Open</p>
+            <p className="text-[10px] opacity-80 leading-tight">Complimentary semester activation is available.</p>
           </div>
         </div>
       )}

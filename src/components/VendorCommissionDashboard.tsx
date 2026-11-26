@@ -31,7 +31,7 @@ import {
   CreditCard, 
   ArrowRight, 
   FileText, 
-  Sparkles,
+  Award,
   ShieldCheck,
   Download,
   Key
@@ -346,12 +346,12 @@ export default function VendorCommissionDashboard({
                 <Package className="h-6 w-6 text-primary" /> Vendor Restock & PIN Inventory
               </h2>
               <Badge variant="outline" className="border-emerald-500/30 text-emerald-700 dark:text-emerald-300 bg-emerald-500/10 text-[10px] font-bold">
-                Takano Pay Engine
+                Instant Bank Transfer
               </Badge>
             </div>
             <p className="text-xs text-muted-foreground max-w-xl">
-              Restock activation PINs via automated direct bank transfer. 
-              Enjoy <strong>60% of retail</strong> for 1–4 PINs, or <strong>50% wholesale</strong> for 5+ PINs. Instant automated dispensation upon transfer detection.
+              Restock activation PINs via direct bank transfer. 
+              Enjoy <strong>60% of retail</strong> for 1–4 PINs, or <strong>50% wholesale</strong> for 5+ PINs. PINs are added to your inventory automatically once payment is confirmed.
             </p>
           </div>
 
@@ -437,7 +437,7 @@ export default function VendorCommissionDashboard({
         <div className="p-4 rounded-xl border bg-card shadow-xs space-y-1">
           <div className="flex items-center justify-between text-xs text-muted-foreground">
             <span className="font-medium">PLUS PINs</span>
-            <Sparkles className="h-3.5 w-3.5 text-purple-500" />
+            <Award className="h-3.5 w-3.5 text-purple-500" />
           </div>
           <div className="text-2xl sm:text-3xl font-extrabold text-purple-600 dark:text-purple-400">
             {myUnusedPins.filter(p => p.type === 'plus').length}
@@ -838,7 +838,7 @@ export default function VendorCommissionDashboard({
               </div>
 
               <div className="text-[11px] text-muted-foreground text-center">
-                Once your transfer is received by the bank, our IMAP daemon verifies the amount and dispenses your PINs instantly.
+                Once your transfer is confirmed, your PINs will be added to your inventory automatically.
               </div>
             </div>
           )}

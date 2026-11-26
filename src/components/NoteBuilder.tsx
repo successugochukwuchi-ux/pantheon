@@ -52,8 +52,7 @@ import {
   CheckCircle2,
   XCircle,
   Copy,
-  Check,
-  Sparkles
+  Check
 } from 'lucide-react';
 import { Button } from './ui/button';
 import { Textarea } from './ui/textarea';
@@ -2125,7 +2124,7 @@ Save the final text as a file named "note.plx" (or .txt) then upload it.
           {activeToolbarTab === 'lang' && (
             <div className="mb-3 p-2.5 bg-primary/5 border border-primary/10 rounded-lg space-y-2 text-xs transition-all">
               <div className="flex items-center gap-1.5 font-semibold text-primary">
-                <Wand2 className="h-3.5 w-3.5 animate-pulse" />
+                <Wand2 className="h-3.5 w-3.5" />
                 <span>Shorthand Converter</span>
               </div>
               <p className="text-[10px] text-muted-foreground leading-normal font-sans">
@@ -2387,7 +2386,7 @@ Save the final text as a file named "note.plx" (or .txt) then upload it.
                   className="rounded-full gap-2 h-8 px-3 bg-gradient-to-r from-purple-600 to-pink-600 hover:scale-105 transition-transform shadow-md flex-shrink-0" 
                   onClick={() => setIsMagicDialogOpen(true)}
                 >
-                  <Wand2 className="h-3.5 w-3.5" /> <span className="text-[11px] font-medium">Magic Note</span>
+                  <Upload className="h-3.5 w-3.5" /> <span className="text-[11px] font-medium">Import Note</span>
                 </Button>
                 
                 <div className="w-px h-4 bg-border mx-1" />
@@ -2401,7 +2400,7 @@ Save the final text as a file named "note.plx" (or .txt) then upload it.
                   type="button" 
                   variant="ghost" 
                   size="sm" 
-                  className="rounded-full h-8 px-2 text-[10px] font-bold text-amber-600 hover:text-amber-700 hover:bg-amber-50 animate-pulse" 
+                  className="rounded-full h-8 px-2 text-[10px] font-bold text-amber-600 hover:text-amber-700 hover:bg-amber-50" 
                   onClick={downloadPLXStandard}
                   title="Download PLX Standard (PLXS)"
                 >
@@ -2414,9 +2413,9 @@ Save the final text as a file named "note.plx" (or .txt) then upload it.
                   size="sm" 
                   className="rounded-full h-8 px-2 text-[10px] font-bold text-purple-600 hover:text-purple-700 hover:bg-purple-50 flex items-center gap-1" 
                   onClick={() => setIsAiPromptDialogOpen(true)}
-                  title="Copy AI / DeepSeek Prompt Guide"
+                  title="Copy Accent Formatting Guide"
                 >
-                  <Sparkles className="h-3 w-3 text-purple-500" /> AI Prompt
+                  <FileText className="h-3 w-3 text-purple-500" /> AI Prompt
                 </Button>
               </motion.div>
             ) : (
@@ -2427,9 +2426,9 @@ Save the final text as a file named "note.plx" (or .txt) then upload it.
                   size="sm" 
                   className="rounded-full h-8 w-8 p-0 bg-gradient-to-br from-purple-600 to-pink-600 hover:shadow-lg transition-all hover:scale-110" 
                   onClick={() => setIsMagicDialogOpen(true)}
-                  title="Magic Note Creator"
+                  title="Import Document or PLX"
                 >
-                  <Wand2 className="h-4 w-4" />
+                  <Upload className="h-4 w-4" />
                 </Button>
                 <Button type="button" variant="default" size="sm" className="rounded-full h-8 w-8 p-0 hover:bg-primary/90" onClick={() => addBlock('text')} title="Add Block">
                   <Plus className="h-4 w-4" />
@@ -2489,16 +2488,15 @@ Save the final text as a file named "note.plx" (or .txt) then upload it.
           <DialogContent className="sm:max-w-[500px]">
             <DialogHeader>
               <DialogTitle className="flex items-center gap-2">
-                <Wand2 className="h-5 w-5 text-purple-500" />
-                Magic Note Creator
+                <Upload className="h-5 w-5 text-purple-500" />
+                Document &amp; PLX Importer
               </DialogTitle>
               <DialogDescription className="space-y-2">
                 <span>
-                  Upload a <b>.plx</b> file (CoLearn Extensible Standard) to instantly build your note. 
-                  You can also upload PDFs or images for AI-assisted note generation.
+                  Upload a <b>.plx</b> file to build a structured note, or upload a PDF or image to extract text automatically.
                 </span>
                 <span className="flex flex-wrap items-center gap-x-2 gap-y-1">
-                  <span className="text-[10px] text-muted-foreground italic">AI Strategy:</span>
+                  <span className="text-[10px] text-muted-foreground">Guides:</span>
                   <button 
                     type="button"
                     onClick={downloadPLXStandard}
@@ -2512,7 +2510,7 @@ Save the final text as a file named "note.plx" (or .txt) then upload it.
                     onClick={() => setIsAiPromptDialogOpen(true)}
                     className="text-[10px] text-purple-600 dark:text-purple-400 font-bold hover:underline cursor-pointer flex items-center gap-0.5"
                   >
-                    <Sparkles className="h-3 w-3 inline" /> Copy DeepSeek Prompt
+                    <FileText className="h-3 w-3 inline" /> Copy Formatting Prompt
                   </button>
                 </span>
               </DialogDescription>
@@ -2543,11 +2541,11 @@ Save the final text as a file named "note.plx" (or .txt) then upload it.
                 <div className="flex flex-col items-center justify-center py-10 gap-4">
                   <div className="relative">
                     <div className="h-16 w-16 rounded-full border-4 border-purple-500/20 border-t-purple-500 animate-spin" />
-                    <Wand2 className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 h-6 w-6 text-purple-500 animate-pulse" />
+                    <FileText className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 h-6 w-6 text-purple-500" />
                   </div>
                   <div className="text-center space-y-1">
-                    <p className="font-medium">Hermes is reading your document...</p>
-                    <p className="text-xs text-muted-foreground animate-pulse">This might take a minute for complex files</p>
+                    <p className="font-medium">Processing your document...</p>
+                    <p className="text-xs text-muted-foreground">This might take a minute for larger files</p>
                   </div>
                 </div>
               )}
@@ -2556,7 +2554,7 @@ Save the final text as a file named "note.plx" (or .txt) then upload it.
             <DialogFooter className="sm:justify-between flex-wrap gap-2">
               <div className="flex items-center gap-2 text-[10px] text-muted-foreground bg-muted/50 p-2 rounded-lg flex-1">
                 <FileText className="h-3 w-3 shrink-0" />
-                <span>PLX files are parsed instantly. AI handles PDFs and Image extractions.</span>
+                <span>PLX files parse immediately; PDFs and images use document extraction.</span>
               </div>
               <a
                 href="/plx-verifier"
@@ -2572,8 +2570,8 @@ Save the final text as a file named "note.plx" (or .txt) then upload it.
           <DialogContent className="sm:max-w-[600px] max-h-[90vh] flex flex-col">
             <DialogHeader>
               <DialogTitle className="flex items-center gap-2">
-                <Sparkles className="h-5 w-5 text-amber-500 animate-pulse" />
-                <span>DeepSeek Accent Writing Guide & Prompt</span>
+                <FileText className="h-5 w-5 text-amber-500" />
+                <span>Accent Writing Guide &amp; Prompt</span>
               </DialogTitle>
               <DialogDescription className="text-xs pt-1 leading-normal font-sans">
                 External AIs like <strong>DeepSeek, ChatGPT, or Claude</strong> often struggle with Yoruba or Igbo tone combined subdots (e.g., <code className="bg-muted px-1 rounded font-mono">ọ́</code> or <code className="bg-muted px-1 rounded font-mono">ẹ̀</code>) and output corrupted text. 

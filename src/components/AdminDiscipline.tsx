@@ -343,7 +343,7 @@ export default function AdminDiscipline() {
             <CardHeader>
               <CardTitle className="text-xl flex items-center gap-2 text-violet-700">
                 <GraduationCap className="h-5 w-5" />
-                University Portal
+                University Departments
               </CardTitle>
               <CardDescription>
                 Map your university's departments to national CCMAS disciplines.
@@ -768,7 +768,7 @@ export default function AdminDiscipline() {
           </div>
 
           <DialogFooter className="mt-4 pt-3 border-t shrink-0 flex items-center justify-between w-full">
-            <p className="text-[11px] text-muted-foreground hidden sm:block">Changes are synchronized dynamically into the curriculum matrix.</p>
+            <p className="text-[11px] text-muted-foreground hidden sm:block">Changes take effect immediately for students in this discipline.</p>
             <Button onClick={() => setManageDialogOpen(false)} className="px-6 font-semibold shadow-xs">Done Editing</Button>
           </DialogFooter>
         </DialogContent>

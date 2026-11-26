@@ -191,7 +191,7 @@ export default function Friends() {
   if (isUnactivatedStudent) {
     return (
       <div className="flex flex-col items-center justify-center min-h-[400px] text-center p-6 space-y-4 max-w-2xl mx-auto py-20">
-        <Lock className="h-16 w-16 text-amber-500 animate-pulse" />
+        <Lock className="h-16 w-16 text-amber-500" />
         <h1 className="text-3xl font-bold tracking-tight">Social Network Locked</h1>
         <p className="text-muted-foreground">
           Standard accounts must buy an activation pin to access private messaging, community chats, friend connections, and peer study circles.

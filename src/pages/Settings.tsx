@@ -10,7 +10,7 @@ import { Label } from '../components/ui/label';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '../components/ui/card';
 import { Avatar, AvatarFallback, AvatarImage } from '../components/ui/avatar';
 import { toast } from 'sonner';
-import { Check, Moon, Sun, Palette, Droplets, TreePine, Eye, EyeOff, Settings as SettingsIcon, User, Copy, Upload, Loader2, Camera, Trash2, Sparkles, CheckCircle2, AlertCircle } from 'lucide-react';
+import { Check, Moon, Sun, Palette, Droplets, TreePine, Eye, EyeOff, Settings as SettingsIcon, User, Copy, Upload, Loader2, Camera, Trash2, CheckCircle2, AlertCircle } from 'lucide-react';
 import { useTitle } from '../hooks/useTitle';
 
 export default function Settings() {
@@ -298,8 +298,8 @@ export default function Settings() {
                           : 'text-muted-foreground hover:text-foreground'
                       }`}
                     >
-                      <Sparkles className="h-3 w-3" />
-                      <span>AI Avatar</span>
+                      <User className="h-3 w-3" />
+                      <span>Avatar</span>
                     </button>
                   </div>
                 </div>
@@ -611,7 +611,7 @@ export default function Settings() {
               </span>
             </div>
             <div className="flex flex-col gap-1">
-              <span className="text-xs text-muted-foreground uppercase font-semibold">Student ID (11-digit)</span>
+              <span className="text-xs text-muted-foreground uppercase font-semibold">Student ID</span>
               <div className="flex items-center gap-2 bg-muted px-2 py-1 rounded allow-copy">
                 <span className="font-mono text-lg">{profile?.studentId || 'N/A'}</span>
                 {profile?.studentId && (
@@ -630,7 +630,7 @@ export default function Settings() {
               </div>
             </div>
             <div className="flex flex-col gap-1">
-              <span className="text-xs text-muted-foreground uppercase font-semibold">Firebase UID</span>
+              <span className="text-xs text-muted-foreground uppercase font-semibold">Account ID</span>
               <div className="flex items-center gap-2 bg-muted px-2 py-1 rounded opacity-50 allow-copy">
                 <span className="font-mono text-xs">{user?.uid}</span>
                 {user?.uid && (
@@ -640,7 +640,7 @@ export default function Settings() {
                     className="h-6 w-6 text-primary" 
                     onClick={() => {
                       navigator.clipboard.writeText(user.uid);
-                      toast.success('Firebase UID copied!');
+                      toast.success('Account ID copied!');
                     }}
                   >
                     <Copy className="h-3 w-3" />

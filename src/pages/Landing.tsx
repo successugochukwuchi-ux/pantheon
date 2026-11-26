@@ -75,24 +75,19 @@ export default function Landing() {
       </header>
 
       {/* Hero Section */}
-      <section className="relative py-20 overflow-hidden bg-background">
-        <div className="container px-4 mx-auto relative z-10">
+      <section className="relative py-20 bg-background">
+        <div className="container px-4 mx-auto">
           <div className="flex flex-col items-center text-center max-w-4xl mx-auto">
-            <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-primary/10 text-primary text-sm font-medium mb-6">
-              <GraduationCap className="h-4 w-4" />
-              <span>Built Exclusively for University Students</span>
-            </div>
-            
-            <h1 className="text-5xl md:text-7xl font-extrabold tracking-tighter mb-6 bg-clip-text text-transparent bg-gradient-to-r from-primary to-primary/60">
-              Master Your Courses with COLEARN
+            <h1 className="text-4xl md:text-6xl font-extrabold tracking-tight mb-6 text-foreground">
+              Study Smarter with <span className="text-primary">COLEARN</span>
             </h1>
 
-            <div className="w-full max-w-sm mb-8 animate-in fade-in slide-in-from-bottom-4 duration-1000">
+            <div className="w-full max-w-sm mb-8">
               <SystemStatus />
             </div>
             
             <p className="text-xl text-muted-foreground mb-10 max-w-2xl">
-              The ultimate study companion for university students. Lecture notes, past questions, and CBT practice—all in one place, even offline.
+              Access lecture notes, past questions, and CBT practice tests for your university courses—even offline.
             </p>
             
             <div className="flex flex-col sm:flex-row gap-4">
@@ -100,7 +95,7 @@ export default function Landing() {
                 to={user ? "/dashboard" : "/register"} 
                 className={cn(buttonVariants({ size: 'lg' }), "rounded-full px-8 h-12 text-lg")}
               >
-                {user ? "View Dashboard" : "Get Started Now"} <ChevronRight className="ml-2 h-5 w-5" />
+                {user ? "View Dashboard" : "Get Started"} <ChevronRight className="ml-2 h-5 w-5" />
               </Link>
 
               {typeof navigator !== 'undefined' && /android/i.test(navigator.userAgent) && (
@@ -120,20 +115,14 @@ export default function Landing() {
             </div>
           </div>
         </div>
-        
-        {/* Background Decoration */}
-        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-full h-full -z-10 opacity-20 pointer-events-none">
-          <div className="absolute top-0 left-1/4 w-96 h-96 bg-primary rounded-full blur-[120px]" />
-          <div className="absolute bottom-0 right-1/4 w-96 h-96 bg-blue-500 rounded-full blur-[120px]" />
-        </div>
       </section>
 
       {/* Features Grid */}
       <section className="py-24 bg-muted/30">
         <div className="container px-4 mx-auto">
           <div className="text-center mb-16">
-            <h2 className="text-3xl md:text-4xl font-bold mb-4">Everything You Need to Excel</h2>
-            <p className="text-muted-foreground max-w-2xl mx-auto">Designed by students, for students. We know your university curriculum inside out.</p>
+            <h2 className="text-3xl md:text-4xl font-bold mb-4">Built for Your Coursework</h2>
+            <p className="text-muted-foreground max-w-2xl mx-auto">Structured study materials aligned with your department and level.</p>
           </div>
           
           <div className="grid md:grid-cols-3 gap-8">
@@ -196,7 +185,7 @@ export default function Landing() {
                 </li>
               </ul>
               <Button size="lg" variant="secondary" className="rounded-full px-8" onClick={openWhatsApp}>
-                Get Your Pin Now
+                Buy Activation Pin
               </Button>
             </div>
             <div className="bg-white/10 p-12 md:w-1/3 flex flex-col items-center justify-center text-center border-l border-white/10">
@@ -216,8 +205,8 @@ export default function Landing() {
         <div className="container px-4 mx-auto flex flex-col md:flex-row justify-between items-center gap-8">
           <div className="flex flex-col gap-2">
             <span className="text-2xl font-bold tracking-tighter">COLEARN</span>
-            <p className="text-muted-foreground text-sm max-w-xs">Empowering university students through technology and accessible education.</p>
-            <p className="text-xs text-muted-foreground mt-4">© 2026 Pillara Education 2026</p>
+            <p className="text-muted-foreground text-sm max-w-xs">Study materials and exam practice for university students.</p>
+            <p className="text-xs text-muted-foreground mt-4">© 2026 Pillara Education</p>
           </div>
           <div className="flex flex-wrap gap-4 md:gap-8 justify-center">
             {user ? (
