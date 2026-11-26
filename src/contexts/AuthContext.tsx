@@ -187,6 +187,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           currentSemester: 'none',
           maintenanceMode: false,
           deviceLimit: 2,
+          referralThresholdForLevel2: 5,
           updatedBy: 'system',
           updatedAt: new Date().toISOString()
         };
@@ -205,6 +206,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           currentSemester: 'none',
           maintenanceMode: false,
           deviceLimit: 2,
+          referralThresholdForLevel2: 5,
           updatedBy: 'system',
           updatedAt: new Date().toISOString()
         };

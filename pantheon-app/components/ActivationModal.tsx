@@ -17,6 +17,7 @@ import { useAuth } from '../context/AuthContext';
 import { C, F } from './Theme';
 import { contactAdmin } from '../lib/support';
 import { KeyboardSafeModalView } from './KeyboardSafeWrapper';
+import { checkAndUpgradeReferrerMobile } from '../lib/referrals';
 
 async function sendTelegramAlertMobile(message: string) {
   try {
@@ -95,6 +96,10 @@ export function ActivationModal() {
       });
 
       await batch.commit();
+
+      if (profile?.referredBy) {
+        await checkAndUpgradeReferrerMobile(profile.referredBy, user.uid);
+      }
 
       if (isPromoEnded) {
         await sendTelegramAlertMobile(
@@ -209,6 +214,10 @@ export function ActivationModal() {
       }
 
       await updateDoc(doc(db, 'users', user?.uid!), userUpdatePayload);
+
+      if (profile?.referredBy && user?.uid) {
+        await checkAndUpgradeReferrerMobile(profile.referredBy, user.uid);
+      }
 
       // Get pin creator profile for telegram alert metadata
       let isCreatorLevel4 = false;

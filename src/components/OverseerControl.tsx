@@ -15,7 +15,8 @@ import {
   ShieldCheck, School, BookOpen, DollarSign, Calendar, TrendingUp, Key, Plus, 
   List, Eye, EyeOff, FileDown, Loader2, Wand2, Sparkles, CheckCircle2, AlertTriangle, 
   Terminal, RefreshCw, XCircle, FileText, HelpCircle, Bot, Cpu, StopCircle,
-  Camera, Smartphone, Lock, Unlock, CreditCard, Percent, Building2, Server, Mail, Radio, Play, Copy
+  Camera, Smartphone, Lock, Unlock, CreditCard, Percent, Building2, Server, Mail, Radio, Play, Copy,
+  Award, Users
 } from 'lucide-react';
 import { jsPDF } from 'jspdf';
 import * as XLSX from 'xlsx';
@@ -273,6 +274,38 @@ export default function OverseerControl() {
     }
   };
 
+  // Referral Threshold for Level 2 Upgrade — stored in Firestore system/config
+  const [referralThreshold, setReferralThreshold] = useState<number>(5);
+  const [referralThresholdSaving, setReferralThresholdSaving] = useState(false);
+
+  const handleSaveReferralThreshold = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const parsedThreshold = Math.floor(Number(referralThreshold));
+    if (!Number.isFinite(parsedThreshold) || parsedThreshold < 1 || parsedThreshold > 100) {
+      toast.error('Please enter a valid referral threshold between 1 and 100.');
+      return;
+    }
+    setReferralThresholdSaving(true);
+    try {
+      await setDoc(
+        doc(db, 'system', 'config'),
+        {
+          referralThresholdForLevel2: parsedThreshold,
+          updatedBy: user?.email || user?.uid || 'overseer',
+          updatedAt: new Date().toISOString(),
+        },
+        { merge: true }
+      );
+      setReferralThreshold(parsedThreshold);
+      toast.success(`Referral threshold updated: ${parsedThreshold} activated ${parsedThreshold === 1 ? 'referral' : 'referrals'} required for Level 2.`);
+    } catch (err: any) {
+      console.error('Error saving referral threshold:', err);
+      toast.error(err.message || 'Failed to save referral threshold');
+    } finally {
+      setReferralThresholdSaving(false);
+    }
+  };
+
   const handleSaveTurnConfig = async (e: React.FormEvent) => {
     e.preventDefault();
     if (turnEnabled && (!turnUrl.trim() || !turnUsername.trim() || !turnPassword.trim())) {
@@ -451,6 +484,8 @@ export default function OverseerControl() {
         setVendorCommissionPercentage(data.vendorCommissionPercentage ?? 15);
         const parsedLimit = Number(data.deviceLimit);
         setStudentDeviceLimit(Number.isFinite(parsedLimit) && parsedLimit >= 1 ? Math.floor(parsedLimit) : 2);
+        const parsedReferralThreshold = Number(data.referralThresholdForLevel2);
+        setReferralThreshold(Number.isFinite(parsedReferralThreshold) && parsedReferralThreshold >= 1 ? Math.floor(parsedReferralThreshold) : 5);
       }
 
       // Fetch Takano Pay Config
@@ -3190,6 +3225,84 @@ export default function OverseerControl() {
               >
                 {deviceLimitSaving ? <Loader2 className="h-4 w-4 animate-spin mr-1.5" /> : <Smartphone className="h-4 w-4 mr-1.5" />}
                 {deviceLimitSaving ? 'Saving Device Limit...' : 'Save Student Device Limit'}
+              </Button>
+            </div>
+          </form>
+        </CardContent>
+      </Card>
+
+      {/* 5. Referral Level 2 Upgrade Threshold (Overseer Authority — stored in system/config) */}
+      <Card className="border-emerald-200 dark:border-emerald-900 shadow-xs">
+        <CardHeader>
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+            <div>
+              <CardTitle className="flex items-center gap-2 text-emerald-700 dark:text-emerald-400">
+                <Award className="h-5 w-5" />
+                Referral Level 2 Threshold
+              </CardTitle>
+              <CardDescription className="mt-1">
+                Control how many activated student referrals a Level 1 student needs to automatically earn a Level 2 upgrade across both Web and Mobile.
+              </CardDescription>
+            </div>
+            <div className="flex items-center gap-2 self-start sm:self-center">
+              <Badge className="bg-emerald-600 text-white">
+                Target: {referralThreshold} Activated {referralThreshold === 1 ? 'Referral' : 'Referrals'}
+              </Badge>
+            </div>
+          </div>
+        </CardHeader>
+        <CardContent>
+          <form onSubmit={handleSaveReferralThreshold} className="space-y-4">
+            <div className="grid gap-4 md:grid-cols-2 items-end">
+              <div className="space-y-2">
+                <Label htmlFor="referralThresholdForLevel2" className="font-semibold">
+                  Activated Referrals Needed for Level 2
+                </Label>
+                <Input
+                  id="referralThresholdForLevel2"
+                  type="number"
+                  min={1}
+                  max={100}
+                  step={1}
+                  value={referralThreshold}
+                  onChange={(e) => {
+                    const val = parseInt(e.target.value, 10);
+                    setReferralThreshold(Number.isNaN(val) ? 1 : val);
+                  }}
+                  required
+                />
+                <p className="text-[11px] text-muted-foreground">
+                  Applied immediately to referral progress trackers and automatic Level 2 upgrades on Web and Mobile.
+                </p>
+              </div>
+
+              <div className="space-y-2">
+                <span className="text-xs font-semibold text-muted-foreground block">Quick Presets</span>
+                <div className="flex flex-wrap gap-2">
+                  {[3, 5, 10, 15, 20].map((preset) => (
+                    <Button
+                      key={preset}
+                      type="button"
+                      size="sm"
+                      variant={referralThreshold === preset ? 'default' : 'outline'}
+                      onClick={() => setReferralThreshold(preset)}
+                      className={referralThreshold === preset ? 'bg-emerald-600 hover:bg-emerald-700 text-white' : ''}
+                    >
+                      {preset} {preset === 1 ? 'Referral' : 'Referrals'}
+                    </Button>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            <div className="flex justify-end pt-2 border-t">
+              <Button
+                type="submit"
+                disabled={referralThresholdSaving}
+                className="bg-emerald-600 hover:bg-emerald-700 text-white"
+              >
+                {referralThresholdSaving ? <Loader2 className="h-4 w-4 animate-spin mr-1.5" /> : <Users className="h-4 w-4 mr-1.5" />}
+                {referralThresholdSaving ? 'Saving Threshold...' : 'Save Referral Threshold'}
               </Button>
             </div>
           </form>

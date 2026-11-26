@@ -88,6 +88,7 @@ export default function RootLayout() {
         <Stack.Screen name="course-discussion" />
         <Stack.Screen name="past-questions" />
         <Stack.Screen name="compete" />
+        <Stack.Screen name="referrals" />
       </Stack>
       </ThemeProvider>
     </AuthProvider>

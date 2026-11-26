@@ -464,5 +464,35 @@ export function SpeakerMutedIcon({ color = C.ink }: { color?: string }) {
   );
 }
 
+export function GiftIcon({ color = C.ink }: { color?: string }) {
+  return (
+    <View style={{ width: 20, height: 20, justifyContent: 'flex-end', alignItems: 'center' }}>
+      {/* Bow loops */}
+      <View style={{ flexDirection: 'row', gap: 1, marginBottom: -1 }}>
+        <View style={{ width: 6, height: 4, borderRadius: 3, borderWidth: 1.8, borderColor: color }} />
+        <View style={{ width: 6, height: 4, borderRadius: 3, borderWidth: 1.8, borderColor: color }} />
+      </View>
+      {/* Box lid */}
+      <View style={{ width: 18, height: 4, borderWidth: 1.8, borderColor: color, borderRadius: 1.5 }} />
+      {/* Box body */}
+      <View style={{ width: 15, height: 9, borderWidth: 1.8, borderTopWidth: 0, borderColor: color, borderBottomLeftRadius: 2, borderBottomRightRadius: 2, alignItems: 'center' }}>
+        <View style={{ width: 2, height: '100%', backgroundColor: color }} />
+      </View>
+    </View>
+  );
+}
+
+export function ShareIcon({ color = C.ink }: { color?: string }) {
+  return (
+    <View style={{ width: 20, height: 20, justifyContent: 'center', alignItems: 'center' }}>
+      <View style={{ position: 'absolute', left: 2, width: 5, height: 5, borderRadius: 2.5, borderWidth: 1.8, borderColor: color }} />
+      <View style={{ position: 'absolute', top: 2, right: 2, width: 5, height: 5, borderRadius: 2.5, borderWidth: 1.8, borderColor: color }} />
+      <View style={{ position: 'absolute', bottom: 2, right: 2, width: 5, height: 5, borderRadius: 2.5, borderWidth: 1.8, borderColor: color }} />
+      <View style={{ position: 'absolute', width: 9, height: 1.8, backgroundColor: color, transform: [{ rotate: '-28deg' }, { translateY: -3 }] }} />
+      <View style={{ position: 'absolute', width: 9, height: 1.8, backgroundColor: color, transform: [{ rotate: '28deg' }, { translateY: 3 }] }} />
+    </View>
+  );
+}
+
 
 

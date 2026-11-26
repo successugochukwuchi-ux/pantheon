@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate, Link, useSearchParams } from 'react-router-dom';
 import { createUserWithEmailAndPassword, updateProfile } from 'firebase/auth';
-import { doc, setDoc, getDoc, updateDoc, increment, collection, getDocs } from 'firebase/firestore';
+import { doc, setDoc, getDoc, updateDoc, increment, collection, getDocs, query, where } from 'firebase/firestore';
 import { auth, db } from '../firebase';
 import { formatAuthError } from '../lib/auth-errors';
 import { Button } from '../components/ui/button';
@@ -29,7 +29,8 @@ import {
   Briefcase,
   Store,
   Shield,
-  Info
+  Info,
+  Gift
 } from 'lucide-react';
 import { DEPARTMENTS } from '../constants/departments';
 import { motion, AnimatePresence } from 'motion/react';
@@ -66,6 +67,14 @@ export default function Register() {
   const [deptDropdownOpen, setDeptDropdownOpen] = useState(false);
 
   const isPreActivated = searchParams.get('activated') === 'true';
+  const [referralCode, setReferralCode] = useState(() => searchParams.get('ref')?.trim() || '');
+
+  useEffect(() => {
+    const paramRef = searchParams.get('ref')?.trim();
+    if (paramRef) {
+      setReferralCode(prev => prev || paramRef);
+    }
+  }, [searchParams]);
 
   useEffect(() => {
     const fetchUniversities = async () => {
@@ -226,11 +235,37 @@ export default function Register() {
 
     setLoading(true);
     try {
+      const trimmedRef = accountType === 'student' ? referralCode.trim() : '';
+      let resolvedReferrerUid: string | null = null;
+      if (trimmedRef) {
+        try {
+          const directSnap = await getDoc(doc(db, 'users', trimmedRef));
+          if (directSnap.exists()) {
+            resolvedReferrerUid = directSnap.id;
+          } else {
+            const byStudentSnap = await getDocs(
+              query(collection(db, 'users'), where('studentId', '==', trimmedRef))
+            );
+            if (!byStudentSnap.empty) {
+              resolvedReferrerUid = byStudentSnap.docs[0].id;
+            }
+          }
+        } catch (refLookupErr) {
+          console.warn('Could not resolve referral code:', refLookupErr);
+        }
+
+        if (!resolvedReferrerUid) {
+          toast.error('Referral code not found. Please double-check it or leave the field blank.');
+          setLoading(false);
+          return;
+        }
+      }
+
       const userCredential = await createUserWithEmailAndPassword(auth, email.trim(), password);
       const user = userCredential.user;
 
       const studentId = Math.floor(10000000000 + Math.random() * 90000000000).toString();
-      const referrerUid = searchParams.get('ref');
+      const referrerUid = resolvedReferrerUid && resolvedReferrerUid !== user.uid ? resolvedReferrerUid : null;
       
       await new Promise(resolve => setTimeout(resolve, 300));
 
@@ -445,6 +480,28 @@ export default function Register() {
                           />
                         </div>
                         <p className="text-[10px] text-muted-foreground">Ensure this phone number is active on WhatsApp for campus and transaction notices.</p>
+                      </div>
+
+                      <div className="space-y-2">
+                        <Label htmlFor="referralCode" className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                          Referral Code <span className="text-muted-foreground/60 font-normal">(Optional)</span>
+                        </Label>
+                        <div className="relative">
+                          <Gift className="absolute left-3.5 top-1/2 -translate-y-1/2 h-5 w-5 text-muted-foreground/80" />
+                          <Input
+                            id="referralCode"
+                            type="text"
+                            placeholder="Enter friend's Student ID or referral code"
+                            value={referralCode}
+                            onChange={(e) => setReferralCode(e.target.value)}
+                            className="h-12 pl-11 rounded-xl bg-muted/25 border-border focus:bg-background focus:ring-2 focus:ring-primary/20 transition-all text-sm font-medium"
+                          />
+                        </div>
+                        <p className="text-[10px] text-muted-foreground">
+                          {searchParams.get('ref')
+                            ? 'Referral code applied from your invite link.'
+                            : 'Optional: enter a classmate’s Student ID if someone invited you.'}
+                        </p>
                       </div>
                     </div>
                   </motion.div>

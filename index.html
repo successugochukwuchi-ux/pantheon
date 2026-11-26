@@ -90,8 +90,11 @@
           console.error('[COLEARN INIT ERROR]', event.error || event.message);
           var bootShell = document.getElementById('colearn-boot-shell');
           if (bootShell) {
-            var msg = (event.error && event.error.message) ? event.error.message : (event.message || 'Unknown initialization error');
-            showBootRecovery('Application Startup Error', msg);
+            if (trySilentBootRetry()) return;
+            showBootRecovery(
+              'Unable to Finish Loading',
+              'CoLearn could not load properly on this attempt. Please check your connection and tap Reload App.'
+            );
           }
         }, true);
 

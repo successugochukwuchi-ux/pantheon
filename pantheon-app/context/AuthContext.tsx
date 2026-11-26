@@ -49,6 +49,7 @@ interface SystemConfig {
   currentSemester: '1st' | '2nd' | 'none';
   maintenanceMode: boolean;
   deviceLimit?: number;
+  referralThresholdForLevel2?: number;
 }
 
 export interface PromoConfig {
@@ -486,6 +487,33 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             saveProfileLocal(normalizedProfile);
             setProfile(normalizedProfile);
             AsyncStorage.setItem('colearn_profile', JSON.stringify(normalizedProfile)).catch(() => {});
+
+            // Lightweight background check: if a Level 1 user already has enough activated referrals, promote to Level 2
+            if (normalizedProfile.level === '1' && normalizedProfile.referralCount > 0) {
+              (async () => {
+                try {
+                  let threshold = 5;
+                  const cfgStr = await AsyncStorage.getItem('colearn_system_config').catch(() => null);
+                  if (cfgStr) {
+                    const parsedCfg = JSON.parse(cfgStr);
+                    const n = Number(parsedCfg?.referralThresholdForLevel2);
+                    if (Number.isFinite(n) && n >= 1) threshold = Math.floor(n);
+                  }
+                  if (normalizedProfile.referralCount >= threshold) {
+                    const refSnap = await getDocs(
+                      query(
+                        collection(db, 'users'),
+                        where('referredBy', '==', user.uid),
+                        where('isActivated', '==', true)
+                      )
+                    );
+                    if (refSnap.size >= threshold) {
+                      await updateDoc(doc(db, 'users', user.uid), { level: '2' });
+                    }
+                  }
+                } catch {}
+              })();
+            }
           } else {
             setProfile(null);
           }

@@ -1746,6 +1746,11 @@ CRITICAL REQUIREMENTS:
       express.static(distPath, {
         index: false,
         maxAge: "1h",
+        setHeaders: (res, filePath) => {
+          if (filePath.endsWith(".html")) {
+            res.setHeader("Cache-Control", "no-cache, no-store, must-revalidate");
+          }
+        },
       })
     );
     app.get("*", (req, res, next) => {

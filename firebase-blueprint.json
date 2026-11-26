@@ -318,6 +318,9 @@
         },
         "deviceLimit": {
           "type": "number"
+        },
+        "referralThresholdForLevel2": {
+          "type": "number"
         }
       },
       "required": [

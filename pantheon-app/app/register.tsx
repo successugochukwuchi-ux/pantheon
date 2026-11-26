@@ -13,11 +13,11 @@ import {
   ActivityIndicator,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useRouter } from 'expo-router';
+import { useLocalSearchParams, useRouter } from 'expo-router';
 import { KeyboardSafeContainer } from '../components/KeyboardSafeWrapper';
 import { auth, db } from '../lib/firebase';
 import { createUserWithEmailAndPassword } from 'firebase/auth';
-import { doc, setDoc, increment, collection, getDocs } from 'firebase/firestore';
+import { doc, setDoc, getDoc, updateDoc, increment, collection, getDocs, query, where } from 'firebase/firestore';
 
 const C = {
   bg: '#F0EFF5',
@@ -266,12 +266,14 @@ type FormErrors = {
   department?: string;
   level?: string;
   phone?: string;
+  referralCode?: string;
   password?: string;
   confirmPassword?: string;
 };
 
 export default function RegisterScreen() {
   const router = useRouter();
+  const params = useLocalSearchParams<{ ref?: string }>();
   const scrollRef = useRef<ScrollView>(null);
 
   const [accountType, setAccountType] = useState<'student' | 'vendor'>('student');
@@ -282,6 +284,7 @@ export default function RegisterScreen() {
     department: '',
     level: '',
     phone: '',
+    referralCode: typeof params.ref === 'string' ? params.ref : '',
     password: '',
     confirmPassword: '',
   });
@@ -376,6 +379,36 @@ export default function RegisterScreen() {
     if (validate()) {
       setLoading(true);
       try {
+        // Resolve optional referral code (supports either user UID or 11-digit Student ID)
+        const trimmedRef = form.referralCode.trim();
+        let resolvedReferrerUid: string | null = null;
+        if (trimmedRef) {
+          try {
+            const directSnap = await getDoc(doc(db, 'users', trimmedRef));
+            if (directSnap.exists()) {
+              resolvedReferrerUid = directSnap.id;
+            } else {
+              const byStudentSnap = await getDocs(
+                query(collection(db, 'users'), where('studentId', '==', trimmedRef))
+              );
+              if (!byStudentSnap.empty) {
+                resolvedReferrerUid = byStudentSnap.docs[0].id;
+              }
+            }
+          } catch (lookupErr) {
+            console.warn('Referral lookup warning:', lookupErr);
+          }
+
+          if (!resolvedReferrerUid) {
+            setErrors((prev) => ({
+              ...prev,
+              referralCode: 'Referral code not found. Double-check or clear it.',
+            }));
+            setLoading(false);
+            return;
+          }
+        }
+
         const { user } = await createUserWithEmailAndPassword(auth, form.email, form.password);
         
         const studentId = Math.floor(10000000000 + Math.random() * 90000000000).toString();
@@ -384,6 +417,7 @@ export default function RegisterScreen() {
         const academicLevel = isVendor ? 'vendor' : form.level.replace('LVL', '');
         const universityId = selectedUni?.id || 'futo';
         const isBootstrapAdmin = form.email === 'successugochukwuchi@gmail.com';
+        const finalReferrerUid = resolvedReferrerUid && resolvedReferrerUid !== user.uid ? resolvedReferrerUid : null;
 
         await setDoc(doc(db, 'users', user.uid), {
           uid: user.uid,
@@ -396,13 +430,24 @@ export default function RegisterScreen() {
           level: isBootstrapAdmin ? '4' : (isVendor ? '3' : '1'),
           isActivated: isVendor || isBootstrapAdmin, // Vendors do not need activation
           referralCount: 0,
-          referredBy: null,
+          referredBy: finalReferrerUid,
           theme: 'light',
           photoURL: photoURL,
           createdAt: new Date().toISOString(),
           At: universityId,
           ...(isVendor ? { walletBalance: 0, totalEarned: 0 } : {})
         });
+
+        // Best-effort increment referrer's referralCount
+        if (finalReferrerUid && !isVendor) {
+          try {
+            await updateDoc(doc(db, 'users', finalReferrerUid), {
+              referralCount: increment(1),
+            });
+          } catch (refUpdateErr) {
+            console.warn('Could not directly increment referrer count:', refUpdateErr);
+          }
+        }
 
         // Increment stats total users
         try {
@@ -535,6 +580,18 @@ export default function RegisterScreen() {
               keyboardType="phone-pad"
               error={errors.phone}
               onFocusScroll={() => setTimeout(() => scrollRef.current?.scrollTo({ y: 480, animated: true }), 140)}
+            />
+
+            <InputField
+              label="REFERRAL CODE (OPTIONAL)"
+              placeholder="Friend's Student ID or referral code"
+              value={form.referralCode}
+              onChangeText={(val) => {
+                setErrors((prev) => ({ ...prev, referralCode: undefined }));
+                setForm((f) => ({ ...f, referralCode: val }));
+              }}
+              error={errors.referralCode}
+              onFocusScroll={() => setTimeout(() => scrollRef.current?.scrollTo({ y: 540, animated: true }), 140)}
             />
 
             <InputField

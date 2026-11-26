@@ -28,7 +28,8 @@ import {
   ChatIcon,
   ProfileIcon,
   CompeteIcon,
-  CalendarIcon
+  CalendarIcon,
+  GiftIcon
 } from './Icons';
 
 interface SidebarProps {
@@ -44,6 +45,7 @@ const NAV_ITEMS = [
   { label: 'CBT Hub',      route: '/cbt-setup',     icon: CbtIcon },
   { label: 'Video Library', route: '/video-library', icon: VideoIcon },
   { label: 'Social Hub',    route: '/social',        icon: SocialIcon },
+  { label: 'Referrals',     route: '/referrals',     icon: GiftIcon },
   { label: 'Notifications', route: '/notifications', icon: BellIcon },
   { label: 'Give Feedback', route: '/feedback',      icon: InfoIcon },
   { label: 'Settings',      route: '/settings',      icon: SettingsIcon },

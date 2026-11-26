@@ -7,6 +7,11 @@ import { Toaster } from './components/ui/sonner';
 import { TooltipProvider } from './components/ui/tooltip';
 import { FluxProvider } from './contexts/FluxContext';
 import { MaintenanceGuard } from './components/MaintenanceGuard';
+import {
+  canAttemptChunkReload,
+  isChunkLoadError,
+  triggerChunkRecoveryReload,
+} from './lib/chunkRecovery';
 
 // Keep the initial landing route eager so "/" renders immediately without a second fetch waterfall
 import Landing from './pages/Landing';
@@ -18,11 +23,16 @@ function lazyWithRetry<T extends ComponentType<any>>(
     try {
       return await factory();
     } catch (firstErr) {
-      await new Promise((resolve) => setTimeout(resolve, 250));
+      await new Promise((resolve) => setTimeout(resolve, 350));
       try {
         return await factory();
-      } catch {
-        throw firstErr;
+      } catch (secondErr) {
+        const finalErr = secondErr || firstErr;
+        if (isChunkLoadError(finalErr) && canAttemptChunkReload()) {
+          triggerChunkRecoveryReload(true);
+          return await new Promise<never>(() => {});
+        }
+        throw finalErr;
       }
     }
   });
@@ -92,6 +102,11 @@ export default function App() {
   useEffect(() => {
     try {
       sessionStorage.removeItem('colearn_boot_retried');
+      const url = new URL(window.location.href);
+      if (url.searchParams.has('_cb')) {
+        url.searchParams.delete('_cb');
+        window.history.replaceState({}, '', url.pathname + url.search + url.hash);
+      }
     } catch {}
 
     // Warm likely next route only during idle time after initial paint

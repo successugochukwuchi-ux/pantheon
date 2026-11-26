@@ -216,9 +216,20 @@ export default function Activate() {
         return;
       }
 
-      // Automatically check and upgrade referrer if they have reached 5 activated referrals
+      // Automatically check and upgrade referrer once they reach the Overseer-configured activated referral threshold
       if (profile?.referredBy) {
         try {
+          let level2Threshold = 5;
+          try {
+            const cfgSnap = await getDoc(doc(db, 'system', 'config'));
+            if (cfgSnap.exists()) {
+              const parsed = Number(cfgSnap.data()?.referralThresholdForLevel2);
+              if (Number.isFinite(parsed) && parsed >= 1) {
+                level2Threshold = Math.floor(parsed);
+              }
+            }
+          } catch {}
+
           const referrerRef = doc(db, 'users', profile.referredBy);
           const referrerSnap = await getDoc(referrerRef);
           if (referrerSnap.exists()) {
@@ -234,7 +245,7 @@ export default function Activate() {
             // This newly activated user is counted (they might not be in query snapshot yet depending on latency)
             const count = referredSnap.docs.filter(d => d.id !== user!.uid).length + 1;
             
-            if (count >= 5 && referrerData.level === '1') {
+            if (count >= level2Threshold && referrerData.level === '1') {
               await updateDoc(referrerRef, { level: '2' });
               toast.success('Your referrer has been upgraded to Level 2!');
             }

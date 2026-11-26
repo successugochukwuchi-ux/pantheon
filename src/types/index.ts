@@ -108,6 +108,7 @@ export interface SystemConfig {
   activeSeasonId?: string | null;
   activeSeasonName?: string | null;
   deviceLimit?: number;
+  referralThresholdForLevel2?: number;
 }
 
 export type BlockType = 'text' | 'math' | 'h1' | 'h2' | 'diagram' | 'table' | 'video' | 'bullet-list' | 'numbered-list' | 'question';
